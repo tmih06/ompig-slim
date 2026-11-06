@@ -329,12 +329,13 @@ type Frame struct {
 	// means it is unchanged. A frame may carry it and no ops.
 	Theme *Theme
 	// Mark is the application's mark, for a frontend that shows a brand of
-	// its own: PiG's is the pig head of its active sprite, the pixels its
-	// startup header draws. The first frame carries it, and later frames only
-	// when it changed, such as after /sprite picks another sprite, an
-	// extension registers or unregisters the sprite PiG shows, or a theme
-	// switch changes the colors PiG draws it in; nil means it is unchanged. A
-	// frame may carry it and no ops. A zero Mark is no mark.
+	// its own: PiG's is the pig head of its active sprite, the pixels /sprite
+	// preview draws, not the startup header, which this build replaces with
+	// its own mark. The first frame carries it, and later frames only when it
+	// changed, such as after /sprite picks another sprite, an extension
+	// registers or unregisters the sprite PiG shows, or a theme switch changes
+	// the colors PiG draws it in; nil means it is unchanged. A frame may carry
+	// it and no ops. A zero Mark is no mark.
 	Mark *Mark
 }
 

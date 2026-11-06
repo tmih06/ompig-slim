@@ -10,7 +10,7 @@ type Variant struct {
 	ID      string
 	Name    string
 	Tagline string
-	// Sprite is the 16-by-14 pig: the head the startup header draws and the mascot of /sprite preview. Nil draws the
+	// Sprite is the 16-by-14 pig: the mascot of /sprite preview and the first-time setup dialog. Nil draws the
 	// standard pig.
 	Sprite           []string
 	Body             color.RGBA

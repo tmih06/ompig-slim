@@ -1367,8 +1367,10 @@ func (a *pigLogoAnimation) pose(width, height int, progress, time float64) logoP
 	endY := float64(float64(height)*2) - 2
 	startX, startY := endX, endY
 	if model.origin {
-		startX = float64(a.options.logoColumn*2) + float64(model.centerX()*(2/model.pixel))
-		startY = float64(a.options.logoRow*4) + float64(model.centerY()*(2/model.pixel))
+		// Lift off the clicked logo's cells: a cell is 2 dots wide and 4 dots tall, so the model's center starts half the
+		// cleared area in from its top-left cell.
+		startX = float64(a.options.logoColumn*2) + float64(max(1, a.options.clearColumns))
+		startY = float64(a.options.logoRow*4) + float64(2*max(1, a.options.clearRows))
 	}
 	phase := logoSpinPhase(time)
 	return logoPose{
@@ -1433,8 +1435,8 @@ func (a *pigLogoAnimation) prepareCells(width int, foreground logoRgb) [][]logoS
 	// The dust spreads out from where the model starts.
 	centerX, centerY := float64(width)/2, height/2
 	if a.model.origin {
-		centerX = float64(a.options.logoColumn) + float64(piglogin.HeadCells)/2
-		centerY = float64(a.options.logoRow) + float64(piglogin.HeadRows)/2
+		centerX = float64(a.options.logoColumn) + float64(max(1, a.options.clearColumns))/2
+		centerY = float64(a.options.logoRow) + float64(max(1, a.options.clearRows))/2
 	}
 	farthest := jsHypot(math.Max(centerX, float64(width)-centerX), math.Max(centerY, height-centerY)*2)
 	for row, line := range cells {

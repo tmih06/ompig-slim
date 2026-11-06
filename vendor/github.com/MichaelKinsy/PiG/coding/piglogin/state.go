@@ -57,8 +57,8 @@ func SaveVariant(configHome, id string) error {
 	return nil
 }
 
-// active is the selection the header draws. The header renders on every frame, so it reads the state file once per
-// config root and after Refresh, not per frame. It keeps the saved ID rather than the sprite: an extension's sprite drawn as
+// active is the selection /sprite and the setup dialog draw. They render on every frame, so this reads the state file once
+// per config root and after Refresh, not per frame. It keeps the saved ID rather than the sprite: an extension's sprite drawn as
 // the default until its extension registers it is drawn as itself from then on.
 var active struct {
 	mu     sync.Mutex
@@ -67,8 +67,7 @@ var active struct {
 	id     string
 }
 
-// Active is the sprite the header shows now: the saved one, or the default when it is unknown or its extension has not
-// registered it.
+// Active is the sprite shown now: the saved one, or the default when it is unknown or its extension has not registered it.
 func Active() Variant {
 	home, err := configroot.Resolve()
 	if err != nil {

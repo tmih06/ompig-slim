@@ -21,7 +21,10 @@ func themeColorsSchema() *Schema {
 		prop := Prop{Name: token.Name, Schema: colorValue(token.Description), Optional: token.Optional}
 		props = append(props, prop)
 	}
-	return Object(props, D("Theme color definitions (scrollbar, thinkingMax, and search highlight colors are optional and use compatible fallbacks)"), Opt{"additionalProperties", false})
+	return Object(props, D("Theme color definitions (scrollbar, thinkingMax, and search highlight colors are optional and use compatible fallbacks)"),
+		// Themes are shared with OMP through the same themes directory, and OMP defines color tokens this engine does not
+		// render (`statusLine*`, `pythonMode`). Extra keys are color values, so one theme file serves both tools.
+		Opt{"additionalProperties", colorValue("Additional color token understood by another client")})
 }
 
 func themeJSONSchema() *Schema {

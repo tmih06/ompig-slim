@@ -125,7 +125,7 @@ func (c *FirstTimeSetupComponent) update() {
 		c.addOptionList(labels, c.themeIndex)
 	case firstTimeSetupStepSprite:
 		c.Add(tui.NewPaddedText(t.Fg("text", "Pick a sprite."), 1, 0, nil))
-		c.Add(tui.NewPaddedText(t.Fg("muted", "The pig your header shows. Change it anytime with /sprite."), 1, 0, nil))
+		c.Add(tui.NewPaddedText(t.Fg("muted", "The pig /sprite previews show. Change it anytime with /sprite."), 1, 0, nil))
 		c.Add(tui.NewSpacer(1))
 		labels := make([]string, len(c.sprites)+1)
 		for i, sprite := range c.sprites {

@@ -311,6 +311,10 @@ func resolveThemeWithMode(tj *ThemeJSON, mode TerminalColorMode) (*Theme, error)
 		resolved[fallback.token] = resolved[fallback.from]
 		keys = append(keys, fallback.token)
 	}
+	// Themes shared with OMP carry color tokens this engine does not render (`statusLine*`, `pythonMode`). They validate so one
+	// file serves both tools, and are dropped here rather than indexed blindly, which would fail on their missing descriptor
+	// (theme.ts splitThemeColors). The theme's own key order is only the tokens it renders, as source Theme's is.
+	keys = slices.DeleteFunc(keys, func(token string) bool { return !themeTokenKnown(token) })
 	tj.colorKeys = keys
 
 	foregrounds := make([]ThemeTokenValue, 0, len(keys))

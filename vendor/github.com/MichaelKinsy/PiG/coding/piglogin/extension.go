@@ -18,10 +18,10 @@ import (
 // Name is the name of the built-in extension: its path is `builtin:pig-login`.
 const Name = "pig-login"
 
-// Extension is the built-in `pig-login` extension. It registers `/sprite`, which chooses the sprite the startup header
-// shows. The header itself is the host's built-in header (the one Pi's setHeader(undefined) restores), which draws the
-// active sprite's head, so an extension replaces it with setHeader exactly as in Pi. `/sprite preview` shows a sprite's
-// full art, the wordmark and the pig, in an overlay until a key is pressed.
+// Extension is the built-in `pig-login` extension. It registers `/sprite`, which chooses the sprite /sprite preview and the
+// first-time setup dialog draw, and which the frontend mark reports. An extension still replaces the startup header with
+// setHeader exactly as in Pi. `/sprite preview` shows a sprite's full art, the wordmark and the pig, in an overlay until a
+// key is pressed.
 func Extension(pi extension.API) error {
 	pi.RegisterCommand("sprite", extension.CommandOptions{Description: "Select the PiG login sprite.", Handler: selectSprite})
 	return nil
@@ -190,7 +190,7 @@ func CreatePrompt() (string, error) {
 		mascotLines[i] = fmt.Sprintf("        %q,", row)
 	}
 	return strings.Join([]string{
-		"Help me create my own PiG sprite: the pig my startup header shows.",
+		"Help me create my own PiG sprite: the pig my /sprite preview shows.",
 		"Start by asking me one plain-language question: what character, colors or style should my pig have? Handle every technical detail yourself and ask me only for decisions that need my preference. After I answer, describe the design in plain language and ask for my approval before writing any file.",
 		"After I approve, write one TypeScript extension file in the global extensions directory: `" + filepath.Join(agentDir, "extensions", "<id>.ts") + "`. Do not modify PiG itself or its built-in sprites.",
 		"The extension registers the sprite in `session_start` with `await ctx.ui.registerSprite({ id, name, tagline, mascot, palette })`. `id` is a lowercase slug of at most 32 characters (letters, digits and single hyphens) that is not a built-in sprite's id (" + strings.Join(builtInIDs(), ", ") + "). `name` and `tagline` are one line each. `mascot` is exactly 14 strings of exactly 16 characters; each character is a palette symbol, and `.` is transparent. `palette` maps each symbol to a `#RRGGBB` color. Keep the pig's silhouette and change its colors and details.",
@@ -208,8 +208,8 @@ func builtInIDs() []string {
 }
 
 // activate selects the sprite and shows it at once. Nothing else repaints the header after a command, so it restores the
-// built-in header (setHeader(undefined)), which draws the active sprite; PiG Standard's login showed a chosen sprite the same
-// way, by setting its login over whatever header was in place.
+// built-in header (setHeader(undefined)), as PiG Standard's login showed a chosen sprite by setting its login over whatever
+// header was in place.
 func activate(ctx context.Context, id string) error {
 	if err := Activate(id); err != nil {
 		return err

@@ -11,7 +11,7 @@ import (
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-// The pig head the startup header draws in Pi's logo slot is the sprite's 16-by-14 pig (MascotSpriteFor), the same pixels
+// The sprite's pig head is its 16-by-14 pig (MascotSpriteFor), the same pixels
 // /sprite preview draws beside the wordmark: two pixel rows per line in half blocks, so HeadCells cells by HeadRows lines.
 const (
 	HeadWidth  = extension.LoginMascotWidth

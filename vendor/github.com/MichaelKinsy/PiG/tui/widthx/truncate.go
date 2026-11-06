@@ -30,6 +30,16 @@ func TruncateToWidth(text string, maxWidth int, ellipsis string, pad bool) strin
 		return ""
 	}
 
+	// Styled lines usually already fit. Measure them without the per-grapheme pass below, which dominates redraws
+	// (utils.ts truncateToWidth: a styled line that fits cost ~50us, an unstyled one ~1us). Output is unchanged: the
+	// scan is exact for text whose visible bytes are ASCII, tabs and box drawing.
+	if width, ok := asciiVisibleWidth(text); ok && width <= maxWidth {
+		if pad {
+			return text + strings.Repeat(" ", maxWidth-width)
+		}
+		return text
+	}
+
 	ellipsisWidth := VisibleWidth(ellipsis)
 	if ellipsisWidth >= maxWidth {
 		textWidth := VisibleWidth(text)
