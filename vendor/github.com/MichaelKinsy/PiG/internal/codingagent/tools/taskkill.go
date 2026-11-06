@@ -1,0 +1,26 @@
+package tools
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+)
+
+// newTaskkillCommand selects the System32 executable independently of PATH. Upstream joins process.env.SystemRoot ||
+// "C:\\Windows", so an unset or empty SystemRoot takes the default.
+// Ports packages/coding-agent/src/utils/shell.ts.
+func newTaskkillCommand(pid int) *exec.Cmd {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	//nolint:gosec // G204 (class a): program is System32\taskkill.exe under SystemRoot (default C:\Windows), as upstream; args are fixed /F /T /PID plus the pid of the bash child PiG started.
+	return exec.Command(filepath.Join(root, "System32", "taskkill.exe"), "/F", "/T", "/PID", strconv.Itoa(pid))
+}
+
+// runTaskkill consumes spawn failures as Pi's error listener and catch do. The
+// Go executor returns these failures instead of emitting an unhandled event.
+func runTaskkill(command *exec.Cmd, run func(*exec.Cmd) error) {
+	_ = run(command)
+}
