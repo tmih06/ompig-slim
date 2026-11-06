@@ -1,0 +1,203 @@
+package cli
+
+// Ports packages/coding-agent/src/core/model-resolver.ts
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/jsstring/localecompare"
+	"github.com/MichaelKinsy/PiG/tui"
+)
+
+// ─── Model Resolution ─────────────────────────────────────────────────────────
+
+// buildModelFromRef resolves the startup model with resolveStartupModelEntry
+// and builds it with coding.BuildModelFromEntry, the constructor /model uses.
+func buildModelFromRef(ctx context.Context, providerID, modelID string, services *coding.AgentSessionServices) (*ai.Model, error) {
+	registry := services.Registry().ModelRegistry
+	// A virtual model is a catalog entry of the model runtime, not of the registry (model-runtime.ts:285-293).
+	if model := services.ModelRuntime().GetModel(providerID, modelID); coding.IsVirtualModel(model) {
+		return model, nil
+	}
+	if model := coding.BuildNativeModel(registry, providerID, modelID); model != nil {
+		return model, nil
+	}
+	if registry.GetProvider(providerID) != nil {
+		model := services.ModelRuntime().GetModel(providerID, modelID)
+		if model == nil {
+			return nil, fmt.Errorf("model not found: %s/%s", providerID, modelID)
+		}
+		return model, nil
+	}
+	entry := resolveStartupModelEntry(providerID, modelID, registry)
+
+	// Radius runtime keys are in-memory metadata; the shared builder owns stored credential reads and refresh.
+	if _, radius := registry.RadiusOAuth(providerID); radius {
+		if key, ok := registry.RuntimeAPIKey(providerID); ok && key != "" {
+			entry.APIKey = key
+		}
+	}
+	return coding.BuildModelFromEntry(providerID, modelID, entry, services)
+}
+
+// resolveStartupModelEntry resolves a model as upstream resolveCliModel does:
+// the exact catalog entry, else a models.json definition, else the provider's
+// default model under the requested id (buildFallbackModel), else the
+// registry entry.
+func resolveStartupModelEntry(providerID, modelID string, registry *codingagent.ModelRegistry) codingagent.ModelEntry {
+	spec := providerID + "/" + modelID
+	if generated, ok := ai.LookupModelExact(spec); ok {
+		return registry.ResolveGeneratedModel(providerID, modelID, generated)
+	}
+	entry, entryOK := registry.Resolve(providerID, modelID)
+	if entryOK && registry.HasModelDefinition(providerID, modelID) {
+		return entry
+	}
+	if base, ok := providerFallbackModel(providerID); ok {
+		fallback := registry.ResolveGeneratedModel(providerID, modelID, base)
+		fallback.DisplayName = modelID
+		return fallback
+	}
+	return entry
+}
+
+// printModelDiagnostic writes a model-resolution warning to stderr in the
+// same shape as upstream reportDiagnostics: a yellow "Warning: <msg>" line.
+// Color follows chalk's level, which supports-color takes from stdout.
+func printModelDiagnostic(msg string) {
+	text := "Warning: " + msg
+	if chalkStdoutColor() {
+		text = codingagent.ChalkApply("\x1b[33m", "\x1b[39m", text)
+	}
+	fmt.Fprintln(os.Stderr, text)
+}
+
+// providerFallbackModel returns the catalog model whose capabilities are
+// borrowed when a requested model is unknown under providerID: the
+// provider's default model when catalogued, else its first catalogued model.
+// Mirrors upstream buildFallbackModel's base selection. Returns false when
+// the provider has no catalogued models (then the model stays a bare custom
+// id with tool-use-only caps and no warning).
+func providerFallbackModel(providerID string) (*ai.GeneratedModel, bool) {
+	if defID, ok := codingagent.DefaultModelPerProvider()[providerID]; ok {
+		if m, ok := ai.LookupModelExact(providerID + "/" + defID); ok {
+			return m, true
+		}
+	}
+	models := ai.ListModels(providerID)
+	if len(models) > 0 {
+		return &models[0], true
+	}
+	return nil, false
+}
+
+// agentDirForModel returns the path passed to NewAuthStorage. We don't have
+// flag context inside buildModel, so we re-resolve from the env and default.
+// (Honors --agent-dir indirectly via the global resolved at startup.)
+var agentDirForModelOverride string
+
+func agentDirForModel() string {
+	if agentDirForModelOverride != "" {
+		return agentDirForModelOverride
+	}
+	return codingagent.AgentDir()
+}
+
+// formatTokenCount formats a token count as human-readable (e.g., 200000 → "200K").
+// Mirrors upstream list-models.ts:formatTokenCount.
+func formatTokenCount(count int) string {
+	if count >= 1_000_000 {
+		m := float64(count) / 1_000_000
+		if m == float64(int(m)) { //portlint:allow numbers count is an int and >= 1e6 (or 1e3), so count/1e6 is finite and at most 9.3e12: int() is exact, and m==float64(int(m)) is JS m%1===0 (node differential over 39062 counts incl. 2^53)
+			return fmt.Sprintf("%dM", int(m)) //portlint:allow numbers count is an int and >= 1e6 (or 1e3), so count/1e6 is finite and at most 9.3e12: int() is exact, and m==float64(int(m)) is JS m%1===0 (node differential over 39062 counts incl. 2^53)
+		}
+		return jsstring.ToFixed(m, 1) + "M"
+	}
+	if count >= 1_000 {
+		k := float64(count) / 1_000
+		if k == float64(int(k)) { //portlint:allow numbers count is an int and >= 1e6 (or 1e3), so count/1e6 is finite and at most 9.3e12: int() is exact, and m==float64(int(m)) is JS m%1===0 (node differential over 39062 counts incl. 2^53)
+			return fmt.Sprintf("%dK", int(k)) //portlint:allow numbers count is an int and >= 1e6 (or 1e3), so count/1e6 is finite and at most 9.3e12: int() is exact, and m==float64(int(m)) is JS m%1===0 (node differential over 39062 counts incl. 2^53)
+		}
+		return jsstring.ToFixed(k, 1) + "K"
+	}
+	return fmt.Sprintf("%d", count)
+}
+
+// printModelList prints the models the given registry (already populated with any
+// extension-contributed providers) reports as available. Mirrors upstream
+// listModels (cli/list-models.ts), which lists exactly modelRuntime.getAvailable():
+// a built-in model the runtime's own catalog no longer carries, such as one an
+// OpenRouter personalized catalog dropped, is not listed. The caller owns process
+// exit and extension-host teardown.
+func printModelList(registry *codingagent.ModelRegistry, search string) {
+	// Load error handling mirrors upstream.
+	if loadErr := registry.LoadError(); loadErr != "" {
+		fmt.Fprintln(os.Stderr, chalkYellow("Warning: errors loading models.json:\n"+loadErr))
+	}
+
+	// Auth-filtered models: mirrors upstream modelRegistry.getAvailable().
+	entries := registry.GetAvailable()
+
+	for _, line := range modelListLines(entries, search) {
+		fmt.Println(line)
+	}
+}
+
+// modelListLines is what upstream listModels prints to stdout for the available models: the no-models message, the no-match line, or the
+// table sorted by provider then id with each column padded to its widest cell in UTF-16 units (String.prototype.padEnd).
+func modelListLines(entries []codingagent.ModelEntry, search string) []string {
+	if len(entries) == 0 {
+		return []string{codingagent.FormatNoModelsAvailableMessage()}
+	}
+	// upstream: fuzzyFilter(models, searchPattern, (m) => `${m.provider} ${m.id}`).
+	if search != "" {
+		entries = tui.FuzzyFilter(entries, search, func(e codingagent.ModelEntry) string {
+			return e.ProviderID + " " + e.ModelID
+		})
+	}
+	if len(entries) == 0 {
+		return []string{`No models matching "` + search + `"`}
+	}
+	entries = slices.Clone(entries)
+	slices.SortFunc(entries, func(a, b codingagent.ModelEntry) int {
+		if c := localecompare.Compare(a.ProviderID, b.ProviderID); c != 0 {
+			return c
+		}
+		return localecompare.Compare(a.ModelID, b.ModelID)
+	})
+	type row [6]string
+	rows := []row{{"provider", "model", "context", "max-out", "thinking", "images"}}
+	for _, e := range entries {
+		thinking, images := "no", "no"
+		if e.Reasoning {
+			thinking = "yes"
+		}
+		if slices.Contains(e.Input, "image") {
+			images = "yes"
+		}
+		rows = append(rows, row{e.ProviderID, e.ModelID, formatTokenCount(e.ContextWindow), formatTokenCount(e.MaxTokens), thinking, images})
+	}
+	var widths [6]int
+	for _, r := range rows {
+		for i, cell := range r {
+			widths[i] = max(widths[i], jsstring.Length(cell))
+		}
+	}
+	lines := make([]string, len(rows))
+	for i, r := range rows {
+		cells := make([]string, len(r))
+		for j, cell := range r {
+			cells[j] = cell + strings.Repeat(" ", widths[j]-jsstring.Length(cell))
+		}
+		lines[i] = strings.Join(cells, "  ")
+	}
+	return lines
+}

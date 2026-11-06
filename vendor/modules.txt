@@ -1,0 +1,439 @@
+# cloud.google.com/go/compute/metadata v0.9.0
+## explicit; go 1.24.0
+cloud.google.com/go/compute/metadata
+# github.com/BurntSushi/toml v1.6.0
+## explicit; go 1.18
+github.com/BurntSushi/toml
+github.com/BurntSushi/toml/internal
+# github.com/MichaelKinsy/PiG v0.7.0
+## explicit; go 1.26.0
+github.com/MichaelKinsy/PiG
+github.com/MichaelKinsy/PiG/agent
+github.com/MichaelKinsy/PiG/ai
+github.com/MichaelKinsy/PiG/ai/all
+github.com/MichaelKinsy/PiG/ai/providers/bedrock
+github.com/MichaelKinsy/PiG/chord
+github.com/MichaelKinsy/PiG/chord/context
+github.com/MichaelKinsy/PiG/chord/delta
+github.com/MichaelKinsy/PiG/chord/internal/parking
+github.com/MichaelKinsy/PiG/codemode
+github.com/MichaelKinsy/PiG/coding
+github.com/MichaelKinsy/PiG/coding/cli
+github.com/MichaelKinsy/PiG/coding/extension
+github.com/MichaelKinsy/PiG/coding/extension/builtin
+github.com/MichaelKinsy/PiG/coding/extension/builtin/codemode
+github.com/MichaelKinsy/PiG/coding/extension/builtin/toolsearch
+github.com/MichaelKinsy/PiG/coding/extension/factoryload
+github.com/MichaelKinsy/PiG/coding/extension/host/cellpack
+github.com/MichaelKinsy/PiG/coding/extension/host/fusepack
+github.com/MichaelKinsy/PiG/coding/extension/host/inproc
+github.com/MichaelKinsy/PiG/coding/extension/host/invocation
+github.com/MichaelKinsy/PiG/coding/extension/host/lispcell
+github.com/MichaelKinsy/PiG/coding/extension/host/runtimecell
+github.com/MichaelKinsy/PiG/coding/extension/host/subprocess
+github.com/MichaelKinsy/PiG/coding/extension/host/subprocess/internal/noderuntimepack
+github.com/MichaelKinsy/PiG/coding/extension/host/tsruntime
+github.com/MichaelKinsy/PiG/coding/extension/installresolver
+github.com/MichaelKinsy/PiG/coding/extension/markdowntransform
+github.com/MichaelKinsy/PiG/coding/extension/pigsdk
+github.com/MichaelKinsy/PiG/coding/extension/source
+github.com/MichaelKinsy/PiG/coding/extensionset
+github.com/MichaelKinsy/PiG/coding/hookconfig
+github.com/MichaelKinsy/PiG/coding/mcpext
+github.com/MichaelKinsy/PiG/coding/mcpext/mcptui
+github.com/MichaelKinsy/PiG/coding/packagecontent
+github.com/MichaelKinsy/PiG/coding/piglet
+github.com/MichaelKinsy/PiG/coding/piglet/artifact
+github.com/MichaelKinsy/PiG/coding/piglet/release
+github.com/MichaelKinsy/PiG/coding/piglet/signature
+github.com/MichaelKinsy/PiG/coding/pigletbuild
+github.com/MichaelKinsy/PiG/coding/pigletbuild/binarypiglet
+github.com/MichaelKinsy/PiG/coding/piglogin
+github.com/MichaelKinsy/PiG/coding/rpcclient
+github.com/MichaelKinsy/PiG/coding/secretresolver
+github.com/MichaelKinsy/PiG/coding/source
+github.com/MichaelKinsy/PiG/durable/core/jv
+github.com/MichaelKinsy/PiG/extensions/sdk-lisp
+github.com/MichaelKinsy/PiG/extensions/sdk-py
+github.com/MichaelKinsy/PiG/extensions/sdk-rs
+github.com/MichaelKinsy/PiG/internal/allocsize
+github.com/MichaelKinsy/PiG/internal/archivepath
+github.com/MichaelKinsy/PiG/internal/bodyreadhook
+github.com/MichaelKinsy/PiG/internal/boundarywire
+github.com/MichaelKinsy/PiG/internal/buildprogress
+github.com/MichaelKinsy/PiG/internal/bytesize
+github.com/MichaelKinsy/PiG/internal/changeobservers
+github.com/MichaelKinsy/PiG/internal/childwait
+github.com/MichaelKinsy/PiG/internal/chord/chordjson
+github.com/MichaelKinsy/PiG/internal/coding/pigidentity
+github.com/MichaelKinsy/PiG/internal/coding/pigversion
+github.com/MichaelKinsy/PiG/internal/codingagent
+github.com/MichaelKinsy/PiG/internal/codingagent/compaction
+github.com/MichaelKinsy/PiG/internal/codingagent/configschema
+github.com/MichaelKinsy/PiG/internal/codingagent/export
+github.com/MichaelKinsy/PiG/internal/codingagent/frontmatter
+github.com/MichaelKinsy/PiG/internal/codingagent/llama
+github.com/MichaelKinsy/PiG/internal/codingagent/prompts
+github.com/MichaelKinsy/PiG/internal/codingagent/timings
+github.com/MichaelKinsy/PiG/internal/codingagent/tools
+github.com/MichaelKinsy/PiG/internal/compactiontypes
+github.com/MichaelKinsy/PiG/internal/compiledin
+github.com/MichaelKinsy/PiG/internal/configroot
+github.com/MichaelKinsy/PiG/internal/configvalue
+github.com/MichaelKinsy/PiG/internal/contentdirs
+github.com/MichaelKinsy/PiG/internal/crossspawn
+github.com/MichaelKinsy/PiG/internal/ctxowner
+github.com/MichaelKinsy/PiG/internal/ecmascript
+github.com/MichaelKinsy/PiG/internal/eventwire
+github.com/MichaelKinsy/PiG/internal/execfile
+github.com/MichaelKinsy/PiG/internal/filelock
+github.com/MichaelKinsy/PiG/internal/frontendpack
+github.com/MichaelKinsy/PiG/internal/fspublish
+github.com/MichaelKinsy/PiG/internal/fsretry
+github.com/MichaelKinsy/PiG/internal/gcpolicy
+github.com/MichaelKinsy/PiG/internal/goroutineid
+github.com/MichaelKinsy/PiG/internal/handleryield
+github.com/MichaelKinsy/PiG/internal/ignorerules
+github.com/MichaelKinsy/PiG/internal/imageprocessing
+github.com/MichaelKinsy/PiG/internal/installchange
+github.com/MichaelKinsy/PiG/internal/jobgroup
+github.com/MichaelKinsy/PiG/internal/jsarray
+github.com/MichaelKinsy/PiG/internal/jsclock
+github.com/MichaelKinsy/PiG/internal/jsdiff
+github.com/MichaelKinsy/PiG/internal/jsjson
+github.com/MichaelKinsy/PiG/internal/jsloop
+github.com/MichaelKinsy/PiG/internal/jsmath
+github.com/MichaelKinsy/PiG/internal/jsnumber
+github.com/MichaelKinsy/PiG/internal/jsonparse
+github.com/MichaelKinsy/PiG/internal/jsonstringify
+github.com/MichaelKinsy/PiG/internal/jsonvalid
+github.com/MichaelKinsy/PiG/internal/jsparity
+github.com/MichaelKinsy/PiG/internal/jsstring
+github.com/MichaelKinsy/PiG/internal/jsstring/localecompare
+github.com/MichaelKinsy/PiG/internal/latex
+github.com/MichaelKinsy/PiG/internal/lazyregexp
+github.com/MichaelKinsy/PiG/internal/linkerexec
+github.com/MichaelKinsy/PiG/internal/managementhttp
+github.com/MichaelKinsy/PiG/internal/mermaid
+github.com/MichaelKinsy/PiG/internal/minimatch
+github.com/MichaelKinsy/PiG/internal/nativeplatform
+github.com/MichaelKinsy/PiG/internal/nodebase64
+github.com/MichaelKinsy/PiG/internal/nodeerrno
+github.com/MichaelKinsy/PiG/internal/nodefs
+github.com/MichaelKinsy/PiG/internal/nodehome
+github.com/MichaelKinsy/PiG/internal/nodepath
+github.com/MichaelKinsy/PiG/internal/nodesemver
+github.com/MichaelKinsy/PiG/internal/nodespawn
+github.com/MichaelKinsy/PiG/internal/nodeurl
+github.com/MichaelKinsy/PiG/internal/npmpublish
+github.com/MichaelKinsy/PiG/internal/orderedjson
+github.com/MichaelKinsy/PiG/internal/outputfiles
+github.com/MichaelKinsy/PiG/internal/ownerfile
+github.com/MichaelKinsy/PiG/internal/packagemanager
+github.com/MichaelKinsy/PiG/internal/photonimage
+github.com/MichaelKinsy/PiG/internal/pigdocs
+github.com/MichaelKinsy/PiG/internal/pigsdklock
+github.com/MichaelKinsy/PiG/internal/pigstrip
+github.com/MichaelKinsy/PiG/internal/pilock
+github.com/MichaelKinsy/PiG/internal/procpolicy
+github.com/MichaelKinsy/PiG/internal/profiling
+github.com/MichaelKinsy/PiG/internal/realpath
+github.com/MichaelKinsy/PiG/internal/requestvalidity
+github.com/MichaelKinsy/PiG/internal/resolvepath
+github.com/MichaelKinsy/PiG/internal/scalarjson
+github.com/MichaelKinsy/PiG/internal/searchtext
+github.com/MichaelKinsy/PiG/internal/sessionentry
+github.com/MichaelKinsy/PiG/internal/shellconfig
+github.com/MichaelKinsy/PiG/internal/stackprime
+github.com/MichaelKinsy/PiG/internal/termuxenv
+github.com/MichaelKinsy/PiG/internal/text
+github.com/MichaelKinsy/PiG/internal/tlsdistrust
+github.com/MichaelKinsy/PiG/internal/toolchain
+github.com/MichaelKinsy/PiG/internal/truncate
+github.com/MichaelKinsy/PiG/internal/typebox/engine
+github.com/MichaelKinsy/PiG/internal/usagetotals
+github.com/MichaelKinsy/PiG/internal/utf8stream
+github.com/MichaelKinsy/PiG/internal/watchentered
+github.com/MichaelKinsy/PiG/internal/wordsegmenter
+github.com/MichaelKinsy/PiG/internal/yaml12
+github.com/MichaelKinsy/PiG/mcp
+github.com/MichaelKinsy/PiG/mcp/oauth
+github.com/MichaelKinsy/PiG/schema
+github.com/MichaelKinsy/PiG/schema/formats
+github.com/MichaelKinsy/PiG/schema/formats/internal/idna
+github.com/MichaelKinsy/PiG/schema/internal/ecmaregex
+github.com/MichaelKinsy/PiG/telemetry
+github.com/MichaelKinsy/PiG/third_party/awssdk/config
+github.com/MichaelKinsy/PiG/third_party/awssdk/config/internal/ini
+github.com/MichaelKinsy/PiG/third_party/awssdk/credentials
+github.com/MichaelKinsy/PiG/third_party/awssdk/credentials/logincreds
+github.com/MichaelKinsy/PiG/third_party/awssdk/credentials/ssocreds
+github.com/MichaelKinsy/PiG/third_party/awssdk/credentials/stscreds
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/auth
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/auth/smithy
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/configsources
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/context
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/endpoints/awsrulesfn
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/endpoints/v2
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/sdk
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/shareddefaults
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/strings
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/v4a
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/v4a/internal/crypto
+github.com/MichaelKinsy/PiG/third_party/awssdk/internal/v4a/internal/v4
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/bedrockruntime
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/bedrockruntime/document
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/bedrockruntime/internal/document
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/bedrockruntime/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/bedrockruntime/types
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/internal/accept-encoding
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/internal/presigned-url
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/signin
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/signin/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/signin/types
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sso
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sso/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sso/types
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/ssooidc
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/ssooidc/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/ssooidc/types
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sts
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sts/internal/endpoints
+github.com/MichaelKinsy/PiG/third_party/awssdk/service/sts/types
+github.com/MichaelKinsy/PiG/third_party/goldmark/ast
+github.com/MichaelKinsy/PiG/third_party/goldmark/parser
+github.com/MichaelKinsy/PiG/third_party/goldmark/text
+github.com/MichaelKinsy/PiG/third_party/goldmark/util
+github.com/MichaelKinsy/PiG/third_party/jsonschema
+github.com/MichaelKinsy/PiG/third_party/jsonschema/kind
+github.com/MichaelKinsy/PiG/third_party/semver
+github.com/MichaelKinsy/PiG/tui
+github.com/MichaelKinsy/PiG/tui/internal/hljs
+github.com/MichaelKinsy/PiG/tui/widthx
+# github.com/MichaelKinsy/PiG/extensions/sdk v0.7.0
+## explicit; go 1.26
+github.com/MichaelKinsy/PiG/extensions/sdk
+github.com/MichaelKinsy/PiG/extensions/sdk/frontend
+github.com/MichaelKinsy/PiG/extensions/sdk/internal/jsloop
+github.com/MichaelKinsy/PiG/extensions/sdk/internal/kitwire
+github.com/MichaelKinsy/PiG/extensions/sdk/json
+github.com/MichaelKinsy/PiG/extensions/sdk/kit
+github.com/MichaelKinsy/PiG/extensions/sdk/tui
+github.com/MichaelKinsy/PiG/extensions/sdk/tui/internal/engine
+github.com/MichaelKinsy/PiG/extensions/sdk/tui/internal/jsnumber
+github.com/MichaelKinsy/PiG/extensions/sdk/tui/internal/jsstring
+github.com/MichaelKinsy/PiG/extensions/sdk/tui/internal/lazyregexp
+github.com/MichaelKinsy/PiG/extensions/sdk/tui/internal/widthx
+github.com/MichaelKinsy/PiG/extensions/sdk/upgrade
+# github.com/Microsoft/go-winio v0.6.4
+## explicit; go 1.26.0
+github.com/Microsoft/go-winio
+github.com/Microsoft/go-winio/internal/fs
+github.com/Microsoft/go-winio/internal/socket
+github.com/Microsoft/go-winio/internal/stringbuffer
+github.com/Microsoft/go-winio/pkg/guid
+# github.com/aws/aws-sdk-go-v2 v1.47.1
+## explicit; go 1.24
+github.com/aws/aws-sdk-go-v2/aws
+github.com/aws/aws-sdk-go-v2/aws/defaults
+github.com/aws/aws-sdk-go-v2/aws/middleware
+github.com/aws/aws-sdk-go-v2/aws/protocol/query
+github.com/aws/aws-sdk-go-v2/aws/protocol/restjson
+github.com/aws/aws-sdk-go-v2/aws/protocol/xml
+github.com/aws/aws-sdk-go-v2/aws/ratelimit
+github.com/aws/aws-sdk-go-v2/aws/retry
+github.com/aws/aws-sdk-go-v2/aws/signer/internal/v4
+github.com/aws/aws-sdk-go-v2/aws/signer/v4
+github.com/aws/aws-sdk-go-v2/aws/transport/http
+github.com/aws/aws-sdk-go-v2/internal/auth
+github.com/aws/aws-sdk-go-v2/internal/context
+github.com/aws/aws-sdk-go-v2/internal/rand
+github.com/aws/aws-sdk-go-v2/internal/sdk
+github.com/aws/aws-sdk-go-v2/internal/sdkio
+github.com/aws/aws-sdk-go-v2/internal/strings
+github.com/aws/aws-sdk-go-v2/internal/sync/singleflight
+github.com/aws/aws-sdk-go-v2/internal/timeconv
+# github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10
+## explicit; go 1.24
+github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
+github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi
+# github.com/aws/aws-sdk-go-v2/credentials v1.19.16
+## explicit; go 1.24
+github.com/aws/aws-sdk-go-v2/credentials/ec2rolecreds
+github.com/aws/aws-sdk-go-v2/credentials/endpointcreds
+github.com/aws/aws-sdk-go-v2/credentials/endpointcreds/internal/client
+github.com/aws/aws-sdk-go-v2/credentials/processcreds
+# github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.23
+## explicit; go 1.24
+github.com/aws/aws-sdk-go-v2/feature/ec2/imds
+github.com/aws/aws-sdk-go-v2/feature/ec2/imds/internal/config
+# github.com/aws/smithy-go v1.28.1
+## explicit; go 1.24
+github.com/aws/smithy-go
+github.com/aws/smithy-go/auth
+github.com/aws/smithy-go/auth/bearer
+github.com/aws/smithy-go/context
+github.com/aws/smithy-go/document
+github.com/aws/smithy-go/document/internal/serde
+github.com/aws/smithy-go/document/json
+github.com/aws/smithy-go/encoding
+github.com/aws/smithy-go/encoding/httpbinding
+github.com/aws/smithy-go/encoding/json
+github.com/aws/smithy-go/encoding/xml
+github.com/aws/smithy-go/endpoints
+github.com/aws/smithy-go/endpoints/private/rulesfn
+github.com/aws/smithy-go/eventstream
+github.com/aws/smithy-go/internal/sync/singleflight
+github.com/aws/smithy-go/io
+github.com/aws/smithy-go/logging
+github.com/aws/smithy-go/metrics
+github.com/aws/smithy-go/middleware
+github.com/aws/smithy-go/private/requestcompression
+github.com/aws/smithy-go/ptr
+github.com/aws/smithy-go/rand
+github.com/aws/smithy-go/sync
+github.com/aws/smithy-go/time
+github.com/aws/smithy-go/tracing
+github.com/aws/smithy-go/traits
+github.com/aws/smithy-go/transport/http
+github.com/aws/smithy-go/transport/http/internal/io
+# github.com/charmbracelet/x/ansi v0.11.7
+## explicit; go 1.24.2
+github.com/charmbracelet/x/ansi
+github.com/charmbracelet/x/ansi/parser
+# github.com/clipperhouse/displaywidth v0.11.0
+## explicit; go 1.18
+github.com/clipperhouse/displaywidth
+# github.com/clipperhouse/uax29/v2 v2.7.0
+## explicit; go 1.18
+github.com/clipperhouse/uax29/v2/graphemes
+github.com/clipperhouse/uax29/v2/words
+# github.com/dlclark/regexp2 v1.12.0
+## explicit; go 1.13
+github.com/dlclark/regexp2
+github.com/dlclark/regexp2/syntax
+# github.com/fsnotify/fsnotify v1.5.4
+## explicit; go 1.16
+github.com/fsnotify/fsnotify
+# github.com/gofrs/flock v0.13.0
+## explicit; go 1.24.0
+github.com/gofrs/flock
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
+# github.com/gorilla/websocket v1.5.3
+## explicit; go 1.12
+github.com/gorilla/websocket
+# github.com/klauspost/compress v1.19.2
+## explicit; go 1.24
+github.com/klauspost/compress
+github.com/klauspost/compress/fse
+github.com/klauspost/compress/huff0
+github.com/klauspost/compress/internal/cpuinfo
+github.com/klauspost/compress/internal/le
+github.com/klauspost/compress/internal/snapref
+github.com/klauspost/compress/zstd
+github.com/klauspost/compress/zstd/internal/xxhash
+# github.com/lucasb-eyer/go-colorful v1.4.0
+## explicit; go 1.12
+github.com/lucasb-eyer/go-colorful
+# github.com/mattn/go-runewidth v0.0.23
+## explicit; go 1.20
+github.com/mattn/go-runewidth
+# github.com/tetratelabs/wazero v1.12.0
+## explicit; go 1.25.0
+github.com/tetratelabs/wazero
+github.com/tetratelabs/wazero/api
+github.com/tetratelabs/wazero/experimental
+github.com/tetratelabs/wazero/experimental/sys
+github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1
+github.com/tetratelabs/wazero/internal/descriptor
+github.com/tetratelabs/wazero/internal/engine/interpreter
+github.com/tetratelabs/wazero/internal/engine/wazevo
+github.com/tetratelabs/wazero/internal/engine/wazevo/backend
+github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64
+github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/arm64
+github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc
+github.com/tetratelabs/wazero/internal/engine/wazevo/frontend
+github.com/tetratelabs/wazero/internal/engine/wazevo/ssa
+github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi
+github.com/tetratelabs/wazero/internal/expctxkeys
+github.com/tetratelabs/wazero/internal/filecache
+github.com/tetratelabs/wazero/internal/ieee754
+github.com/tetratelabs/wazero/internal/internalapi
+github.com/tetratelabs/wazero/internal/leb128
+github.com/tetratelabs/wazero/internal/moremath
+github.com/tetratelabs/wazero/internal/platform
+github.com/tetratelabs/wazero/internal/sock
+github.com/tetratelabs/wazero/internal/sys
+github.com/tetratelabs/wazero/internal/sysfs
+github.com/tetratelabs/wazero/internal/u32
+github.com/tetratelabs/wazero/internal/u64
+github.com/tetratelabs/wazero/internal/version
+github.com/tetratelabs/wazero/internal/wasip1
+github.com/tetratelabs/wazero/internal/wasm
+github.com/tetratelabs/wazero/internal/wasm/binary
+github.com/tetratelabs/wazero/internal/wasmdebug
+github.com/tetratelabs/wazero/internal/wasmruntime
+github.com/tetratelabs/wazero/sys
+# go.yaml.in/yaml/v3 v3.0.5
+## explicit; go 1.16
+go.yaml.in/yaml/v3
+# golang.org/x/mod v0.41.0
+## explicit; go 1.26.0
+golang.org/x/mod/internal/lazyregexp
+golang.org/x/mod/modfile
+golang.org/x/mod/module
+golang.org/x/mod/semver
+# golang.org/x/net v0.62.0
+## explicit; go 1.26.0
+golang.org/x/net/idna
+# golang.org/x/oauth2 v0.37.0
+## explicit; go 1.26.0
+golang.org/x/oauth2
+golang.org/x/oauth2/authhandler
+golang.org/x/oauth2/google
+golang.org/x/oauth2/google/externalaccount
+golang.org/x/oauth2/google/internal/externalaccountauthorizeduser
+golang.org/x/oauth2/google/internal/impersonate
+golang.org/x/oauth2/google/internal/stsexchange
+golang.org/x/oauth2/internal
+golang.org/x/oauth2/jws
+golang.org/x/oauth2/jwt
+# golang.org/x/sys v0.49.0
+## explicit; go 1.26.0
+golang.org/x/sys/cpu
+golang.org/x/sys/plan9
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+golang.org/x/sys/windows/registry
+# golang.org/x/term v0.47.0
+## explicit; go 1.26.0
+golang.org/x/term
+# golang.org/x/text v0.43.0
+## explicit; go 1.26.0
+golang.org/x/text/collate
+golang.org/x/text/encoding
+golang.org/x/text/encoding/internal
+golang.org/x/text/encoding/internal/identifier
+golang.org/x/text/encoding/unicode
+golang.org/x/text/feature/plural
+golang.org/x/text/internal
+golang.org/x/text/internal/catmsg
+golang.org/x/text/internal/colltab
+golang.org/x/text/internal/format
+golang.org/x/text/internal/language
+golang.org/x/text/internal/language/compact
+golang.org/x/text/internal/number
+golang.org/x/text/internal/stringset
+golang.org/x/text/internal/tag
+golang.org/x/text/internal/utf8internal
+golang.org/x/text/language
+golang.org/x/text/message
+golang.org/x/text/message/catalog
+golang.org/x/text/runes
+golang.org/x/text/secure/bidirule
+golang.org/x/text/transform
+golang.org/x/text/unicode/bidi
+golang.org/x/text/unicode/norm
