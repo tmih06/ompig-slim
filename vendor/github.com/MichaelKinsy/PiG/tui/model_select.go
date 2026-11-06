@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/jsstring/localecompare"
@@ -32,6 +33,10 @@ type ModelSelectorItem struct {
 	// the source has none. Search text omits an empty name; the selected-model
 	// footer falls back to ID.
 	Name string
+	// Model is the enriched model the row came from, when the caller has one; it supplies the
+	// catalog metric columns and the selected-model fact block. A host-driven picker that only
+	// knows ids and names leaves it nil and the row shows identity alone.
+	Model *ai.Model
 }
 
 // FQ returns the "<provider>/<id>" form used for switch dispatch.
@@ -296,11 +301,14 @@ func (m *ModelSelectorComponent) updateList() {
 	count := len(m.filtered)
 	startIdx := max(0, min(m.cursor-maxVisible/2, count-maxVisible))
 	endIdx := min(startIdx+maxVisible, count)
+	// Metric columns are aligned per render window so the identity cell stays readable on narrow
+	// terminals (model-selector.ts updateList).
+	rows := make([]ModelMetricRow, 0, endIdx-startIdx)
 	for i := startIdx; i < endIdx; i++ {
 		item := m.active[m.filtered[i]]
-		cursor, modelText := "  ", item.ID
+		cursor, modelText := "  ", SanitizeModelText(item.ID)
 		if i == m.cursor {
-			cursor, modelText = fg(th.Accent, "→ "), fg(th.Accent, item.ID)
+			cursor, modelText = fg(th.Accent, "→ "), fg(th.Accent, SanitizeModelText(item.ID))
 		}
 		currentMarker := "  "
 		if item.FQ() == m.current {
@@ -311,10 +319,14 @@ func (m *ModelSelectorComponent) updateList() {
 			defaultBadge = fg(th.Muted, " · default")
 		}
 		nameText := ""
-		if name := GetDistinctModelName(ModelSearchItem{ID: item.ID, Name: item.Name}); name != "" {
+		if name := GetDistinctModelName(ModelSearchItem{ID: SanitizeModelText(item.ID), Name: SanitizeModelText(item.Name)}); name != "" {
 			nameText = fg(th.Muted, " ("+name+")")
 		}
-		text(cursor + currentMarker + modelText + nameText + " " + fg(th.Muted, "["+item.Provider+"]") + defaultBadge)
+		providerBadge := fg(th.Muted, "["+SanitizeModelText(item.Provider)+"]")
+		rows = append(rows, ModelMetricRow{Left: cursor + currentMarker + modelText + nameText + " " + providerBadge + defaultBadge, Model: item.Model})
+	}
+	if len(rows) > 0 {
+		m.listContainer.Add(NewModelMetricRows(rows))
 	}
 	if startIdx > 0 || endIdx < count {
 		text(fg(th.Muted, fmt.Sprintf("  (%d/%d)", m.cursor+1, count)))
@@ -329,6 +341,12 @@ func (m *ModelSelectorComponent) updateList() {
 	default:
 		spacer()
 		sel := m.active[m.filtered[m.cursor]]
+		if sel.Model != nil {
+			// The fact block carries every catalog value, including the columns a narrow
+			// terminal dropped (model-metrics.ts ModelDetailFacts).
+			m.listContainer.Add(NewModelDetailFacts(sel.Model, "Model unavailable"))
+			break
+		}
 		name := sel.Name
 		if name == "" {
 			name = sel.ID
@@ -511,15 +529,31 @@ func (m *ModelSelectorComponent) NativeNode() (frontend.Node, bool) {
 	}
 	for i, index := range m.filtered {
 		item := m.active[index]
-		detail := item.Provider
+		// A generic frontend lays out the detail itself, so it carries the identity badges and the
+		// catalog metric text the aligned columns show in the terminal (model-metrics.ts).
+		detail := SanitizeModelText(item.Provider)
 		if m.isDefaultModel(item) {
 			detail += " · default"
 		}
+		if metrics := ModelMetricDetailText(item.Model); metrics != "" {
+			detail += " · " + metrics
+		}
 		fq := item.FQ()
-		node.Items[i] = frontend.SelectorItem{ID: fq, Label: item.ID, Detail: detail, Checked: fq == m.current}
+		node.Items[i] = frontend.SelectorItem{ID: fq, Label: SanitizeModelText(item.ID), Detail: detail, Checked: fq == m.current}
 	}
 	if m.cursor >= 0 && m.cursor < len(node.Items) {
 		node.Selected = node.Items[m.cursor].ID
+		// The selected model's facts follow the warning or scope help rather than replacing it.
+		if len(m.filtered) > 0 {
+			selected := m.active[m.filtered[m.cursor]]
+			facts := ModelDetailFactsText(selected.Model, "")
+			switch {
+			case node.Description == "":
+				node.Description = facts
+			case facts != "":
+				node.Description += " · " + facts
+			}
+		}
 	}
 	return node, true
 }

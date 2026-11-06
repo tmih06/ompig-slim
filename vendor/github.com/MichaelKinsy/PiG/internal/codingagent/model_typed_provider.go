@@ -185,7 +185,7 @@ func (r *ModelRegistry) GetProviderAllModelData(id string) []ai.AnyModel {
 	if err != nil {
 		return nil
 	}
-	return models
+	return r.enrichAnyModelData(models)
 }
 
 // GetAllProviderModelData lists the models of every type of every provider in provider order.
@@ -227,7 +227,11 @@ func (r *ModelRegistry) availableProviderAllModels(ctx context.Context, id strin
 		return nil, err
 	}
 	if r.GetProvider(id) != nil {
-		return r.NativeModels().GetAllAvailable(ctx, id)
+		models, err := r.NativeModels().GetAllAvailable(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return r.enrichAnyModelData(models), nil
 	}
 	check, err := r.CheckRegistryAuth(ctx, id)
 	if err != nil || check == nil {
@@ -238,6 +242,8 @@ func (r *ModelRegistry) availableProviderAllModels(ctx context.Context, id strin
 		return ai.IsModelType(model, ai.ModelTypeChat) && !filter(model.ModelID())
 	}), nil
 }
+
+
 
 // ResolveRegistryTypedModelAuth resolves request auth for an image or classifier model: provider auth plus the model's own headers and the configured headers of its definition.
 func (r *ModelRegistry) ResolveRegistryTypedModelAuth(ctx context.Context, model ai.AnyModel, overrides ...ai.AuthResolutionOverrides) (*ai.AuthResult, error) {

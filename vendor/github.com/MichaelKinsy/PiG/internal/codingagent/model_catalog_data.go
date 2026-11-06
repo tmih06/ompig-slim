@@ -12,10 +12,10 @@ import (
 // GetProviderModelData composes metadata without resolving keys, headers, or backend clients. Like the catalog and the native collection it composes from, it omits the models of a stripped API, including models.json and extension definitions on one (ai.OfferedModels).
 func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	if plain, ok := r.plainGeneratedModels(id); ok {
-		return plainModelData(plain)
+		return r.plainModelDataEnriched(plain)
 	}
 	if r.GetProvider(id) != nil {
-		return r.GetNativeModels(id)
+		return r.enrichModelData(r.GetNativeModels(id))
 	}
 	generatedModels := builtinChatCatalogListed(id)
 	var baseline []*ai.Model
@@ -68,7 +68,7 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	if err != nil {
 		return nil
 	}
-	return ai.OfferedModels(models)
+	return r.enrichModelData(ai.OfferedModels(models))
 }
 
 // plainGeneratedModels returns the bundled catalog of provider id, with OpenRouter's routing variants (builtinChatCatalogListed), when nothing changes it: no provider code, remote catalog overlay, Radius provider, extension registration or models.json entry. GetProviderModelData's models for such a provider are exactly plainModelData of it, and building them has no effect to observe.
@@ -110,19 +110,48 @@ func plainModelData(generated []ai.GeneratedModel) []*ai.Model {
 	return ai.OfferedModels(models)
 }
 
+// plainModelDataEnriched is plainModelData with the public catalog metrics of each model, which is what
+// every list path publishes (model-metadata-provider.ts withModelMetadata). Bundled models only receive
+// int/tps/description: their curated prices and limits outrank a catalog scrape.
+func (r *ModelRegistry) plainModelDataEnriched(generated []ai.GeneratedModel) []*ai.Model {
+	return r.enrichModelData(plainModelData(generated))
+}
+
+// plainModelDataEntriesEnriched is plainModelDataEnriched for a catalog the caller already filtered by
+// entry pointer.
+func (r *ModelRegistry) plainModelDataEntriesEnriched(generated []*ai.GeneratedModel) []*ai.Model {
+	if len(generated) == 0 {
+		return nil
+	}
+	models := make([]*ai.Model, 0, len(generated))
+	for _, entry := range generated {
+		models = append(models, entry.ToModel())
+	}
+	return r.enrichModelData(ai.OfferedModels(models))
+}
+
+// plainModelDataByIDEnriched builds only the matching model of a plain bundled catalog, enriched, so a
+// single-model lookup costs one model rather than the provider's catalog.
+func (r *ModelRegistry) plainModelDataByIDEnriched(generated []*ai.GeneratedModel, modelID string) *ai.Model {
+	for _, entry := range generated {
+		if entry.ID == modelID {
+			return r.enrichModelData([]*ai.Model{entry.ToModel()})[0]
+		}
+	}
+	return nil
+}
+
 // GetProviderModelDataByID is the first model of GetProviderModelData(id) whose ID is modelID, or nil. A plain bundled catalog is searched
 // by entry and only the match is built, where GetProviderModelData builds every model of the provider (about 8 allocations and 1 KB each).
 func (r *ModelRegistry) GetProviderModelDataByID(id, modelID string) *ai.Model {
 	if r.isPlainGenerated(id) {
-		for _, generated := range ai.OfferedGeneratedModels(builtinChatCatalog(id)) {
-			if generated.ID == modelID {
-				return generated.ToModel()
-			}
+		if model := r.plainModelDataByIDEnriched(ai.OfferedGeneratedModels(builtinChatCatalog(id)), modelID); model != nil {
+			return model
 		}
 		// pig divergence (D199): an OpenRouter routing variant is derived from its base model, not read from the bundled list.
 		if _, _, variant := ai.OpenRouterRoutingVariant(id, modelID); variant {
 			if generated, ok := ai.LookupModelExact(id + "/" + modelID); ok && len(ai.OfferedGeneratedModels([]ai.GeneratedModel{*generated})) == 1 {
-				return generated.ToModel()
+				return r.enrichModelData([]*ai.Model{generated.ToModel()})[0]
 			}
 		}
 		return nil

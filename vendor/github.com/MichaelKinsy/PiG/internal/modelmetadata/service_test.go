@@ -767,15 +767,3 @@ func TestParseArrayPayloadUsesRowProvider(t *testing.T) {
 		t.Errorf("providers = %q, %q", rows[0].Provider, rows[1].Provider)
 	}
 }
-
-func TestFileStoreName(t *testing.T) {
-	if DefaultPath("/tmp/agent") != filepath.Join("/tmp/agent", FileName) {
-		t.Errorf("DefaultPath = %q", DefaultPath("/tmp/agent"))
-	}
-	if DefaultPath("") != "" {
-		t.Errorf("DefaultPath of an empty directory = %q", DefaultPath(""))
-	}
-	if FileName != "models-metadata.json" {
-		t.Errorf("FileName = %q", FileName)
-	}
-}

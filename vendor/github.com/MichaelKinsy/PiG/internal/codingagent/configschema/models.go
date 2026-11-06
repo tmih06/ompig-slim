@@ -30,6 +30,25 @@ const (
 
 func nonEmptyString(opts ...Opt) *Schema { return String(append([]Opt{{"minLength", 1}}, opts...)...) }
 
+// Catalog metric descriptions (model-config.ts ModelCatalogMetricsFields). Declaring a metric pins the
+// value and stops metadata enrichment from overwriting it, exactly like any other explicit field.
+const (
+	modelIntDescription         = "Catalog intelligence index. Omitted when unknown; 0 is a real score."
+	modelTPSDescription         = "Catalog-estimated output speed in tokens per second."
+	modelDescriptionDescription = "One-line model blurb."
+)
+
+// catalogMetricProps are the catalog metric members shared by models entries and modelOverrides
+// entries. A row's int is a plain number (0 is a real score, so no exclusive minimum); a tps of zero or
+// less is never a measurement.
+func catalogMetricProps() []Prop {
+	return []Prop{
+		Optional("int", Number(D(modelIntDescription))),
+		Optional("tps", Number(Opt{"exclusiveMinimum", 0}, D(modelTPSDescription))),
+		Optional("description", nonEmptyString(D(modelDescriptionDescription))),
+	}
+}
+
 // modelSchemaParts holds the model-config.ts module constants that several schemas reference. Pi builds each once and the
 // schemas share it; ModelsConfigSchema does the same, so the tree holds one ProviderCompatSchema (about 750 objects) instead of
 // three. Validation and Render only read the tree.
@@ -52,8 +71,9 @@ func newModelSchemaParts() modelSchemaParts {
 }
 
 func modelDefinitionSchema(parts modelSchemaParts) *Schema {
-	return Object([]Prop{
-		P("id", nonEmptyString(D("Model ID sent to the API."))),
+	props := []Prop{P("id", nonEmptyString(D("Model ID sent to the API.")))}
+	props = append(props, catalogMetricProps()...)
+	props = append(props,
 		Optional("name", nonEmptyString(D(modelNameDescription))),
 		Optional("api", nonEmptyString(D("Overrides the provider api."))),
 		Optional("baseUrl", nonEmptyString(D("Overrides the provider baseUrl."))),
@@ -69,11 +89,13 @@ func modelDefinitionSchema(parts modelSchemaParts) *Schema {
 		Optional("samplingParamsByThinkingLevel", parts.samplingParamsByThinkingLevel),
 		Optional("headers", parts.headers),
 		Optional("compat", parts.compat),
-	})
+	)
+	return Object(props)
 }
 
 func modelOverrideSchema(parts modelSchemaParts) *Schema {
-	return Object([]Prop{
+	props := catalogMetricProps()
+	props = append(props,
 		Optional("name", nonEmptyString(D(modelNameDescription))),
 		Optional("reasoning", Boolean(D(modelReasoningDescription))),
 		Optional("thinkingLevelMap", parts.thinkingLevelMap),
@@ -87,7 +109,8 @@ func modelOverrideSchema(parts modelSchemaParts) *Schema {
 		Optional("samplingParamsByThinkingLevel", parts.samplingParamsByThinkingLevel),
 		Optional("headers", parts.headers),
 		Optional("compat", parts.compat),
-	})
+	)
+	return Object(props)
 }
 
 func providerConfigSchema(parts modelSchemaParts) *Schema {
