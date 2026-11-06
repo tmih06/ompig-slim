@@ -116,6 +116,7 @@ github.com/MichaelKinsy/PiG/internal/linkerexec
 github.com/MichaelKinsy/PiG/internal/managementhttp
 github.com/MichaelKinsy/PiG/internal/mermaid
 github.com/MichaelKinsy/PiG/internal/minimatch
+github.com/MichaelKinsy/PiG/internal/modelmetadata
 github.com/MichaelKinsy/PiG/internal/nativeplatform
 github.com/MichaelKinsy/PiG/internal/nodebase64
 github.com/MichaelKinsy/PiG/internal/nodeerrno

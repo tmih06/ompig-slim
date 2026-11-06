@@ -883,6 +883,10 @@ type StreamOptions struct {
 	Signal context.Context `json:"-"`
 	// APIKey is the request credential; ModelRuntime and direct StreamSimple construct the selected API provider with it. Bedrock also accepts it directly as a bearer token.
 	APIKey string
+	// APIKeySet distinguishes an explicit request key, including an empty one, from an omitted
+	// override. An explicit key is the caller's account decision: a stored-account pool never
+	// rotates past it.
+	APIKeySet bool
 	// CacheRetention requests a provider-supported prompt-cache lifetime. Empty leaves the option unset.
 	CacheRetention CacheRetention
 	// SessionID is passed to the provider for prompt caching (OpenAI prompt_cache_key). When non-empty and the provider supports it, repeated calls with the same session ID can reuse cached prompt processing. Mirrors upstream openai-completions.ts:449.
@@ -1137,6 +1141,15 @@ type Model struct {
 	PromptCache                   ModelPromptCache
 	// InputLimits mirrors upstream Model.inputLimits.
 	InputLimits *ModelInputLimits
+	// Int is the intelligence index delivered by the model catalog (upstream `int`). It is nil when
+	// no source publishes a score; it is never synthesized or defaulted to 0.
+	Int *float64
+	// TPS is the catalog-estimated output speed in tokens per second; nil when unmeasured.
+	TPS *float64
+	// Description is the provider- or catalog-published one-line blurb; empty when the source has none.
+	Description string
+	// Catalog records which metadata source filled this model's catalog fields, for display and debugging.
+	Catalog *ModelCatalogProvenance
 	// catalog is the persisted record this model was decoded from; it keeps the fields the model has no member for.
 	catalog *catalogShape
 	// catalogRecord is the built-in catalog entry this model was made from (GeneratedModel.Record). Its shape is built
