@@ -19,7 +19,7 @@ func runDocsCommand(args []string, _, _ io.Writer) int {
 	if len(args) == 0 || args[0] != "docs" {
 		return -1
 	}
-	return reportStrippedFeature("pig docs", pigstrip.Docs, "")
+	return reportStrippedFeature("ompig-slim docs", pigstrip.Docs, "")
 }
 
 // prepareDocsBundle does nothing: this build has no documentation bundle.

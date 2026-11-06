@@ -20,7 +20,7 @@ func runPigletBuilderCommand(args []string) int {
 	}
 	// pig additive (D92): a Piglet that strips the builder reports it absent, as its Binary does.
 	if pigstrip.Has(pigstrip.ListFeatures, pigstrip.PigletBuilder) {
-		return reportStrippedFeature("pig piglet "+args[1], pigstrip.PigletBuilder, "; use stock pig")
+		return reportStrippedFeature("ompig-slim piglet "+args[1], pigstrip.PigletBuilder, "; use stock ompig-slim")
 	}
 	if args[1] == "build" {
 		return pigletbuild.RunPigletBuildCommand(args[2:], os.Stdout, os.Stderr)

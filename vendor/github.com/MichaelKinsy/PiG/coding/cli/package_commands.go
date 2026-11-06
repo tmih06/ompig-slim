@@ -253,15 +253,15 @@ func parsePackageCommand(args []string) (*packageCLIOptions, bool) {
 func packageUsage(cmd packageCommand) string {
 	switch cmd {
 	case packageInstall:
-		return "pig install <source> [-l] [--approve|--no-approve]"
+		return "ompig-slim install <source> [-l] [--approve|--no-approve]"
 	case packageRemove:
-		return "pig remove <source> [-l] [--approve|--no-approve]"
+		return "ompig-slim remove <source> [-l] [--approve|--no-approve]"
 	case packageUpdate:
-		return "pig update [source|self|pig] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]"
+		return "ompig-slim update [source|self|ompig-slim] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]"
 	case packageList:
-		return "pig list [--approve|--no-approve]"
+		return "ompig-slim list [--approve|--no-approve]"
 	default:
-		return "pig <package-command>"
+		return "ompig-slim <package-command>"
 	}
 }
 
@@ -270,11 +270,11 @@ func printPackageCommandHelp(cmd packageCommand) {
 	case packageInstall:
 		fmt.Print(chalkBold("Usage:") + "\n  pig install <source> [-l] [--approve|--no-approve]\n  pig install --validate-only [--json] <source>...\n  pig install --validate-only [--json]\n  pig install --validate-only [--json] --set <source[,source...]>\n\nInstall a package and add it to settings. With --validate-only, validate/build/start one or more packages without installing them; with no source, check that every configured local package path resolves.\n\nOptions:\n  -l, --local        Install project-locally (.pig/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n  --validate-only    Validate/build/start package refs without installing them\n  --json             Emit JSON validation output with --validate-only\n  --set              Validate a comma- or whitespace-separated extension set\n\nExamples:\n  pig install npm:@foo/bar\n  pig install git:github.com/user/repo\n  pig install git:git@github.com:user/repo\n  pig install https://github.com/user/repo\n  pig install ssh://git@github.com/user/repo\n  pig install ./local/path\n  pig install ./local/path --validate-only --json\n  pig install --validate-only --json ./ext-a ./ext-b\n")
 	case packageRemove:
-		fmt.Print(chalkBold("Usage:") + "\n  pig remove <source> [-l] [--approve|--no-approve]\n\nRemove a package and its source from settings.\nAlias: pig uninstall <source> [-l]\n\nOptions:\n  -l, --local       Remove from project settings (.pig/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  pig remove npm:@foo/bar\n  pig uninstall npm:@foo/bar\n\n")
+		fmt.Print(chalkBold("Usage:") + "\n  ompig-slim remove <source> [-l] [--approve|--no-approve]\n\nRemove a package and its source from settings.\nAlias: ompig-slim uninstall <source> [-l]\n\nOptions:\n  -l, --local       Remove from project settings (.pi/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  ompig-slim remove npm:@foo/bar\n  ompig-slim uninstall npm:@foo/bar\n\n")
 	case packageUpdate:
 		fmt.Print(chalkBold("Usage:") + "\n  " + packageUsage(packageUpdate) + "\n\nUpdate pig, installed packages, or model catalogs.\n\nOptions:\n  --self                  Update pig only (default when no target is given)\n  --extensions            Update installed packages only\n  --models                Refresh model catalogs only\n  --all                   Update pig and installed packages\n  --extension <source>    Update one package only\n  -a, --approve           Trust project-local files for this command\n  -na, --no-approve       Ignore project-local files for this command\n  --force                 Reinstall pig even if the current version is latest\n\nShort forms:\n  pig update                Update pig only\n  pig update --all          Update pig and all extensions\n  pig update --models       Refresh model catalogs only\n  pig update <source>       Update one package\n  pig update pig            Update pig only (self works as alias to pig)\n\n")
 	case packageList:
-		fmt.Print(chalkBold("Usage:") + "\n  pig list [--approve|--no-approve]\n\nList installed packages from user and project settings.\n\nOptions:\n  -a, --approve      Trust project-local files for this command\n  -na, --no-approve  Ignore project-local files for this command\n\n")
+		fmt.Print(chalkBold("Usage:") + "\n  ompig-slim list [--approve|--no-approve]\n\nList installed packages from user and project settings.\n\nOptions:\n  -a, --approve      Trust project-local files for this command\n  -na, --no-approve  Ignore project-local files for this command\n\n")
 	}
 }
 
@@ -375,7 +375,7 @@ func runPackageCommand(args []string, runtimeOptions ...packageCommandRuntimeOpt
 	}
 	if opts.invalidOption != "" {
 		fmt.Fprintln(os.Stderr, chalkRed(fmt.Sprintf("Unknown option %s for %q.", opts.invalidOption, opts.command)))
-		fmt.Fprintln(os.Stderr, chalkDim(fmt.Sprintf("Use %q or %q.", "pig --help", packageUsage(opts.command))))
+		fmt.Fprintln(os.Stderr, chalkDim(fmt.Sprintf("Use %q or %q.", "ompig-slim --help", packageUsage(opts.command))))
 		return 1
 	}
 	if opts.missingValue != "" {

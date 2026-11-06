@@ -23,7 +23,7 @@ import (
 // packageKeyword is the npm keyword that lists a package as a PiG Package. Pi's gallery finds Pi packages by `pi-package`.
 const packageKeyword = "pig-package"
 
-const packagePublishUsageLine = "Usage: pig package publish [<dir>] --to npm [--yes|--dry-run] [--tag <dist-tag>] [--access public|restricted] [--otp <code>] [--no-input]"
+const packagePublishUsageLine = "Usage: ompig-slim package publish [<dir>] --to npm [--yes|--dry-run] [--tag <dist-tag>] [--access public|restricted] [--otp <code>] [--no-input]"
 
 const packagePublishUsage = packagePublishUsageLine + `
 
@@ -148,7 +148,7 @@ func publishPackage(ctx context.Context, request packagePublishRequest, stdout, 
 		Package: npmpublish.Package{Name: manifest.Name, Version: manifest.Version, Dir: root, InPlace: true},
 		Flags:   request.flags, Label: "Package", Notes: notes,
 		Next: []string{
-			"Install it with: pig install npm:" + manifest.Name,
+			"Install it with: ompig-slim install npm:" + manifest.Name,
 			"npm lists it under the keyword " + packageKeyword + "; catalogs that search that keyword show it after their next index build.",
 		},
 		Stdin: os.Stdin, Stdout: stdout, Stderr: stderr,

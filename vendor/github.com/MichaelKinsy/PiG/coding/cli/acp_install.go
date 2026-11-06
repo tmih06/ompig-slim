@@ -27,7 +27,7 @@ func runACPCommand(args []string, stdout, stderr io.Writer) int {
 		return -1
 	}
 	if len(args) != 2 || args[1] != "install" {
-		_, _ = fmt.Fprintln(stderr, "Usage: pig acp install\n\nBuild pig-acp from the installed "+acpPackageSource+" Package and put it in the PiG bin directory ($PIG_BIN's directory, else ~/.local/bin).")
+		_, _ = fmt.Fprintln(stderr, "Usage: ompig-slim acp install\n\nBuild pig-acp from the installed "+acpPackageSource+" Package and put it in the PiG bin directory ($PIG_BIN's directory, else ~/.local/bin).")
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
 			return 0
 		}
@@ -35,7 +35,7 @@ func runACPCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	cwd, agentDir, sm, err := packageContext()
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig acp install: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim acp install: %v\n", err)
 		return 1
 	}
 	src := ""
@@ -48,16 +48,16 @@ func runACPCommand(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if src == "" {
-		_, _ = fmt.Fprintf(stderr, "pig acp install: the %s Package is not installed; run `pig install %s` first\n", acpPackageSource, acpPackageSource)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim acp install: the %s Package is not installed; run `ompig-slim install %s` first\n", acpPackageSource, acpPackageSource)
 		return 1
 	}
 	target, err := acpBuildTarget()
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig acp install: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim acp install: %v\n", err)
 		return 1
 	}
 	if err := buildACP(context.Background(), src, target, stderr); err != nil { //portlint:allow ctxbackground CLI entry point owns the build
-		_, _ = fmt.Fprintf(stderr, "pig acp install: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim acp install: %v\n", err)
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "installed pig-acp: %s\n", target)
@@ -83,7 +83,7 @@ func buildACP(ctx context.Context, src, target string, stderr io.Writer) error {
 	goTool, err := toolchain.ResolveGo()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return fmt.Errorf("building pig-acp needs Go %s or newer, and none was found; run `pig setup go` or install it from https://go.dev/dl/: %w", toolchain.MinGoVersion, err)
+			return fmt.Errorf("building pig-acp needs Go %s or newer, and none was found; run `ompig-slim setup go` or install it from https://go.dev/dl/: %w", toolchain.MinGoVersion, err)
 		}
 		return err
 	}

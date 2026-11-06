@@ -125,10 +125,10 @@ func runStatusCommand(args []string) int {
 			jsonMode = true
 		case "--no-input":
 		case "-h", "--help":
-			fmt.Println("Usage: pig status [--json] [--no-input]")
+			fmt.Println("Usage: ompig-slim status [--json] [--no-input]")
 			return 0
 		default:
-			fmt.Fprintln(os.Stderr, "Usage: pig status [--json] [--no-input]")
+			fmt.Fprintln(os.Stderr, "Usage: ompig-slim status [--json] [--no-input]")
 			return 2
 		}
 	}
@@ -136,7 +136,7 @@ func runStatusCommand(args []string) int {
 	if jsonMode {
 		data, err := json.Marshal(status)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "pig status: encode JSON: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ompig-slim status: encode JSON: %v\n", err)
 			return 1
 		}
 		fmt.Println(string(data))
@@ -221,7 +221,7 @@ func collectStatus() statusOutput {
 			status.Packages.User++
 		}
 		if pkg.InstalledPath == "" {
-			status.Errors = append(status.Errors, fmt.Sprintf("%s Package %q is not materialized; run pig update %s", pkg.Scope, pkg.Source.Source, pkg.Source.Source))
+			status.Errors = append(status.Errors, fmt.Sprintf("%s Package %q is not materialized; run ompig-slim update %s", pkg.Scope, pkg.Source.Source, pkg.Source.Source))
 			continue
 		}
 		filters, filterErr := effectiveConfiguredPackageFilters(pkg)

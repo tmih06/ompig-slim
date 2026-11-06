@@ -60,7 +60,7 @@ func inspectActivePiglet(cwd string) *inspectedPiglet {
 			inspected.Piglet, inspected.Open = baked, binarypiglet.OverlayBase() != nil
 		} else {
 			// Only the Binary itself knows whether it accepts overlays, and so which discovery applies.
-			inspected.Err = fmt.Errorf("the active Piglet %q is a Piglet Binary and this pig is not that Binary, so status cannot apply its discovery", source)
+			inspected.Err = fmt.Errorf("the active Piglet %q is a Piglet Binary and this ompig-slim is not that Binary, so status cannot apply its discovery", source)
 		}
 		return inspected
 	}

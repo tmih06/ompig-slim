@@ -144,8 +144,8 @@ func runExtensionInit(args []string) int {
 	}
 	fmt.Printf("\nSDK: %s\n", sdkDir)
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  pig install %s --validate-only --json\n", root)
-	fmt.Printf("  pig -e %s          # load it into a session, then edit and /reload\n", root)
+	fmt.Printf("  ompig-slim install %s --validate-only --json\n", root)
+	fmt.Printf("  ompig-slim -e %s          # load it into a session, then edit and /reload\n", root)
 	return 0
 }
 
@@ -430,7 +430,7 @@ func goStringMap(values map[string]string) string {
 
 func pythonModuleTemplate(name, module string) string {
 	return fmt.Sprintf(`#!/usr/bin/env python3
-"""%[1]s: a pig subprocess extension scaffolded by `+"`pig extension init`"+`.
+"""%[1]s: an ompig-slim subprocess extension scaffolded by `+"`ompig-slim extension init`"+`.
 
 Pig imports `+"`new_extension`"+` into a generated runner. Pig supplies the staged
 SDK on PYTHONPATH.
@@ -473,7 +473,7 @@ ext.run()
 // ── Lisp templates ───────────────────────────────────────────────────────────
 
 func lispSystemTemplate(name string) string {
-	return fmt.Sprintf(`;;;; %[1]s: a pig subprocess extension scaffolded by `+"`pig extension init`"+`.
+	return fmt.Sprintf(`;;;; %[1]s: an ompig-slim subprocess extension scaffolded by `+"`ompig-slim extension init`"+`.
 ;;;; Pig builds this system into a cached SBCL image. The pig-sdk system is the staged SDK.
 
 (asdf:defsystem %[1]q
@@ -509,7 +509,7 @@ func lispFactoryTemplate(name string) string {
 
 func lispStandaloneTemplate(name string) string {
 	return fmt.Sprintf(`#!/usr/bin/env -S sbcl --script
-;;;; Pig runs this script in its cached SBCL image, with the pig package loaded.
+;;;; Pig runs this script in its cached SBCL image, with the ompig-slim package loaded.
 
 (let ((ext (pig:make-extension %[1]q)))
   (pig:tool ext "%[2]s_ping" "Return a short pong." (pig:obj "type" "object")
@@ -563,7 +563,7 @@ func printExtensionInitReport(report extensionInitReport, jsonOut bool) int {
 		data, _ := json.MarshalIndent(report, "", "  ")
 		fmt.Println(string(data))
 	} else if report.Error != "" {
-		fmt.Fprintf(os.Stderr, "pig extension init: %s\n", report.Error)
+		fmt.Fprintf(os.Stderr, "ompig-slim extension init: %s\n", report.Error)
 	}
 	if report.Error != "" {
 		return 1
@@ -572,7 +572,7 @@ func printExtensionInitReport(report extensionInitReport, jsonOut bool) int {
 }
 
 func printExtensionInitHelp() {
-	fmt.Print("Usage:\n  pig extension init <path> [--name <name>] [--lang go|python|rust|lisp] [--login] [--isolated] [--force] [--json]\n\n" +
+	fmt.Print("Usage:\n  ompig-slim extension init <path> [--name <name>] [--lang go|python|rust|lisp] [--login] [--isolated] [--force] [--json]\n\n" +
 		"Scaffold a new extension whose versioned SDK dependency Pig resolves to its\n" +
 		"staged copy, so it builds with no Pig source checkout or committed SDK path.\n" +
 		"Go builds fully offline; Python needs python3; Lisp needs SBCL 2.6.9; Rust needs cargo (and crates.io\n" +

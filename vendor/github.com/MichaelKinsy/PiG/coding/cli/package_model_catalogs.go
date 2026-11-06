@@ -27,7 +27,7 @@ func refreshModelCatalogs(agentDir string) error {
 	// upstream: packages/coding-agent/src/package-manager-cli.ts:refreshModelCatalogs
 	ctx, cancel := context.WithTimeout(context.Background(), 15000*time.Millisecond)
 	defer cancel()
-	modelsPath := filepath.Join(agentDir, "models.json")
+	modelsPath := codingagent.ModelsPath(agentDir)
 	runtime, err := createPackageModelRuntime(ctx, coding.CreateModelRuntimeOptions{
 		AuthPath: filepath.Join(agentDir, "auth.json"), ModelsPath: new(&modelsPath), AllowModelNetwork: false,
 	})

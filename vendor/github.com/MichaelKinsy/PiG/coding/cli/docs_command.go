@@ -24,7 +24,7 @@ import (
 func runDocsCommand(args []string, stdout, stderr io.Writer) int {
 	// pig additive (D92): a Piglet that strips docs reports them absent, as its Binary does.
 	if len(args) > 0 && args[0] == "docs" && pigstrip.Has(pigstrip.ListFeatures, pigstrip.Docs) {
-		return reportStrippedFeature("pig docs", pigstrip.Docs, "")
+		return reportStrippedFeature("ompig-slim docs", pigstrip.Docs, "")
 	}
 	return pigdocs.RunCommand(args, stdout, stderr)
 }

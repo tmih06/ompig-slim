@@ -28,14 +28,14 @@ func runMcpCommand(args []string) int {
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pig mcp:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim mcp:", err)
 		return 1
 	}
 	agentDir := codingagent.AgentDir()
 	// main.ts:591-593 applies the global proxy setting before it routes the command.
 	bootstrap := codingagent.NewSettingsManagerWithOptions(cwd, agentDir, codingagent.SettingsManagerCreateOptions{ProjectTrusted: new(false)})
 	if err := ai.ApplyHTTPProxySettings(bootstrap.GetGlobalSettings().HTTPProxy); err != nil {
-		fmt.Fprintln(os.Stderr, "pig mcp:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim mcp:", err)
 		return 1
 	}
 	trust := codingagent.NewProjectTrustStore(agentDir)

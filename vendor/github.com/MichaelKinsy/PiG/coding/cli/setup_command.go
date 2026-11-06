@@ -18,7 +18,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/toolchain"
 )
 
-const setupUsage = `Usage: pig setup [status|go|container]
+const setupUsage = `Usage: ompig-slim setup [status|go|container]
 
   status      Show the toolchains PiG uses for extensions and Piglet builds (default)
   go          Install a verified Go toolchain under $PIG_HOME/toolchains/go
@@ -47,7 +47,7 @@ func runSetupCommand(args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stdout, setupUsage)
 		return 0
 	default:
-		_, _ = fmt.Fprintf(stderr, "pig setup: unknown topic %q\n%s", topic, setupUsage)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim setup: unknown topic %q\n%s", topic, setupUsage)
 		return 2
 	}
 }
@@ -78,7 +78,7 @@ func setupTools() []setupTool {
 			}
 			return ""
 		}},
-		{name: "container", purpose: "container Piglet builds", remedy: "pig setup container", find: func() (string, bool) {
+		{name: "container", purpose: "container Piglet builds", remedy: "ompig-slim setup container", find: func() (string, bool) {
 			name, path, ok := toolchain.ContainerRuntime()
 			return name + " (" + path + ")", ok
 		}},
@@ -95,7 +95,7 @@ func goRemedy(goos string) string {
 	if goos == "android" {
 		return "pkg install golang"
 	}
-	return "pig setup go"
+	return "ompig-slim setup go"
 }
 
 func sbclName() string {
@@ -152,21 +152,21 @@ func setupGo(args []string, stdout, stderr io.Writer) int {
 		case strings.HasPrefix(arg, "--version="):
 			version = strings.TrimPrefix(arg, "--version=")
 		default:
-			_, _ = fmt.Fprintf(stderr, "pig setup go: unknown option %q\n%s", arg, setupUsage)
+			_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: unknown option %q\n%s", arg, setupUsage)
 			return 2
 		}
 	}
 	if !strings.HasPrefix(version, "go1.") {
-		_, _ = fmt.Fprintf(stderr, "pig setup go: %q is not a Go release; pass --version goX.Y.Z\n", version)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: %q is not a Go release; pass --version goX.Y.Z\n", version)
 		return 2
 	}
 	if message := goSetupUnsupported(runtime.GOOS, runtime.GOARCH); message != "" {
-		_, _ = fmt.Fprintf(stderr, "pig setup go: %s\n", message)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: %s\n", message)
 		return 1
 	}
 	root, err := configroot.Resolve()
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig setup go: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: %v\n", err)
 		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -175,7 +175,7 @@ func setupGo(args []string, stdout, stderr io.Writer) int {
 	client := &http.Client{Timeout: 15 * time.Minute}
 	goCommand, err := toolchain.InstallGo(ctx, client, toolchain.GoDownloadBase, version, runtime.GOOS, runtime.GOARCH, root)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig setup go: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: %v\n", err)
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "Installed %s at %s.\nPiG uses it automatically when go is not on PATH or the go on PATH is older than Go %s. To use it in your shell, add %s to PATH.\n", version, goCommand, toolchain.MinGoVersion, filepath.Dir(goCommand))
@@ -189,11 +189,11 @@ func goSetupUnsupported(goos, goarch string) string {
 	if goos != "android" {
 		return ""
 	}
-	return fmt.Sprintf("Go publishes no archive for %s/%s, so PiG cannot download one on Termux.\nInstall Go with Termux's package manager instead:\n  pkg install golang\nPiG finds the go on your PATH; check it with `pig setup status`.", goos, goarch)
+	return fmt.Sprintf("Go publishes no archive for %s/%s, so PiG cannot download one on Termux.\nInstall Go with Termux's package manager instead:\n  pkg install golang\nPiG finds the go on your PATH; check it with `ompig-slim setup status`.", goos, goarch)
 }
 
 func containerGuide(goos string) string {
-	const image = "The built-in container builder (--builder container) pulls a pinned public Go image and installs this PiG release in it. PIG_CONTAINER_ENGINE selects docker or podman. To use your own image, configure a digest-pinned builder image in PIG_BUILDERS_FILE; see `pig docs show piglet-binaries`.\n"
+	const image = "The built-in container builder (--builder container) pulls a pinned public Go image and installs this PiG release in it. PIG_CONTAINER_ENGINE selects docker or podman. To use your own image, configure a digest-pinned builder image in PIG_BUILDERS_FILE; see `ompig-slim docs show piglet-binaries`.\n"
 	switch goos {
 	case "darwin":
 		return "Install one container runtime:\n" +

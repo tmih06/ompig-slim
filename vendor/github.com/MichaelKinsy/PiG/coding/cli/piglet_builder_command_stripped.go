@@ -12,5 +12,5 @@ func runPigletBuilderCommand(args []string) int {
 	if len(args) < 2 || args[0] != "piglet" || (args[1] != "build" && args[1] != "publish") {
 		return -1
 	}
-	return reportStrippedFeature("pig piglet "+args[1], pigstrip.PigletBuilder, "; use stock pig")
+	return reportStrippedFeature("ompig-slim piglet "+args[1], pigstrip.PigletBuilder, "; use stock ompig-slim")
 }
