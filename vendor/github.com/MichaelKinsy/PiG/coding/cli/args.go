@@ -439,7 +439,7 @@ PiG Options:
                                  merges it onto its own Piglet as an extends child unless built with build.closed
   --no-stdin                     Ignore piped stdin (for a stdin pipe that never closes)
 
-PiG keeps its configuration in ~/.pig and never reads or writes ~/.pi.
+ompig-slim shares Pi and OMP configuration in ~/.pi/agent and .pi.
 
 `
 
@@ -490,6 +490,16 @@ func printHelp(w io.Writer, color bool, extensionFlags ...extension.ExtensionFla
 		}
 	}
 	text := stripHelp(out.String())
+	text = strings.NewReplacer(
+		"pig - ", "ompig-slim - ",
+		"  pig ", "  ompig-slim ",
+		"update pig", "update ompig-slim",
+		"PiG Commands:", "Harness Commands:",
+		"PiG Options:", "Harness Options:",
+		"PIG_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR",
+		"PIG_CODING_AGENT_SESSION_DIR", "OMPIG_SLIM_CODING_AGENT_SESSION_DIR",
+		"~/.pig/agent", "~/.pi/agent",
+	).Replace(text)
 	if color {
 		lines := strings.Split(text, "\n")
 		for i, line := range lines {

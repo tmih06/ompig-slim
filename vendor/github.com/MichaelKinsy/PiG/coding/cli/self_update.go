@@ -89,6 +89,9 @@ func binaryUpdateChecker() func() *codingagent.BinaryUpdate {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
+		if codingagent.UpdateSourceURL() == "" {
+			return codingagent.CheckForForkRelease(ctx, &http.Client{Timeout: 6 * time.Second}, selfUpdateVersion())
+		}
 		return codingagent.CheckForBinaryUpdate(ctx, &http.Client{Timeout: 6 * time.Second}, selfUpdateVersion())
 	}
 }

@@ -289,7 +289,20 @@ func (m *InteractiveMode) showNewVersionNotification(release LatestPiRelease) {
 	}
 	// pig divergence (D39): Pi links its fixed pi.dev changelog; a release note that is a bare URL is pig's changelog link.
 	changelogURL, note := splitBinaryUpdateNotes(note)
-	blocks := []tui.Component{tui.NewThemedText(func() string { return binaryUpdateNoticeBody(tui.ActiveTheme(), release.Version, AppName+" update") }, 1, 0)}
+	instruction := AppName + " update"
+	if release.HTMLURL != "" {
+		changelogURL = release.HTMLURL
+		instruction = ""
+	}
+	blocks := []tui.Component{tui.NewThemedText(func() string {
+		t := tui.ActiveTheme()
+		if instruction == "" {
+			return noticeBold(noticeFg(t.Warning, "Update Available")) + "\n" +
+				noticeFg(t.Muted, "New version "+release.Version+" is available. Download it from ") +
+				noticeFg(t.Accent, changelogURL)
+		}
+		return binaryUpdateNoticeBody(t, release.Version, instruction)
+	}, 1, 0)}
 	if note != "" {
 		muted := func(text string) string { return noticeFg(t.Muted, text) }
 		noteBody := tui.NewMarkdownWithOptions(note, 1, 0, m.markdownThemeWithSettings(), &tui.DefaultTextStyle{Color: muted}, nil)
@@ -307,7 +320,7 @@ func (m *InteractiveMode) showNewVersionNotification(release LatestPiRelease) {
 			if tui.GetCapabilities().Hyperlinks {
 				link = tui.Hyperlink(link, changelogURL)
 			}
-			return noticeFg(t.Muted, "Changelog: ") + link
+			return noticeFg(t.Muted, "Release notes: ") + link
 		}, 1, 0))
 	}
 	m.appendBorderedNotice(blocks...)

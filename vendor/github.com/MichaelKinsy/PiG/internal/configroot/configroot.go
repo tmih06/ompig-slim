@@ -1,10 +1,6 @@
-// Package configroot resolves PiG's config root, the directory PiG keeps its settings, documentation bundle and state under. It is a leaf package so
-// that code the coding agent imports (the system prompt builder) and the coding agent itself name one directory through one implementation.
-//
-// The policy is the same in the host and in every extension SDK (Go, Python, Rust, Node): PIG_HOME, else XDG_CONFIG_HOME/pig, else ~/.pig. An empty
-// variable falls through to the next choice. A leading ~ or ~/ expands to the home directory. Any other value stays literal. When the home directory
-// is needed and cannot be found, resolution fails; it never yields a relative path. Pi-sharing mode (PIG_USE_PI_DIRS=1) moves only the agent and
-// project directories (D2), so nothing here reads it.
+// Package configroot resolves the harness's writable root. PiG's explicit PIG_HOME
+// override remains available for library-owned assets; the default is ~/.pi so
+// the personal harness shares Pi and OMP's configuration.
 package configroot
 
 import (
@@ -45,31 +41,24 @@ func expandHome(path string, lenient bool) (string, error) {
 	return filepath.Join(home, rest), nil
 }
 
-// Resolve is the config root: PIG_HOME, else XDG_CONFIG_HOME/pig, else ~/.pig. An empty variable is ignored and a leading ~ in either is expanded. It
-// returns an error, never a relative path, when the home directory is needed and cannot be found.
+// Resolve returns PIG_HOME when explicitly configured, otherwise ~/.pi.
+// It never returns a relative fallback when the home directory is unavailable.
 func Resolve() (string, error) {
 	if v := os.Getenv("PIG_HOME"); v != "" {
 		return ExpandHome(v)
-	}
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		base, err := ExpandHome(v)
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(base, "pig"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("locate home directory: %w", err)
 	}
-	return filepath.Join(home, ".pig"), nil
+	return filepath.Join(home, ".pi"), nil
 }
 
 // UnresolvedError is the value [Dir] panics with. The pig command recovers it, prints the message and exits 1.
 type UnresolvedError struct{ Err error }
 
 func (e *UnresolvedError) Error() string {
-	return "cannot resolve PiG's config directories: " + e.Err.Error() + "; set PIG_HOME"
+	return "cannot resolve ompig-slim's config directories: " + e.Err.Error() + "; set OMPIG_SLIM_CODING_AGENT_DIR"
 }
 
 func (e *UnresolvedError) Unwrap() error { return e.Err }

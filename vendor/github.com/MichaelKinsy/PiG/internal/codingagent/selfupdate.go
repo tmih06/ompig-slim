@@ -93,6 +93,7 @@ type LatestPiRelease struct {
 	Version     string
 	PackageName *string
 	Note        *string
+	HTMLURL     string
 }
 
 // BinaryUpdate is checkForNewPiVersion's newer release plus the current platform's binary that applies it.
@@ -388,16 +389,9 @@ func clientWithUpdateTransportCA(client *http.Client) (*http.Client, error) {
 // the container image.
 func SelfUpdateFallback() string {
 	if src := UpdateSourceURL(); src != "" {
-		return fmt.Sprintf(
-			"Automatic update from %s could not be applied. Download a new %s binary from your provider's releases, "+
-				"or pull the container image (log in to your registry first) and re-deploy.",
-			src, AppName)
+		return fmt.Sprintf("Automatic update from %s could not be applied. Download a new %s binary from your provider's releases.", src, AppName)
 	}
-	return fmt.Sprintf(
-		"No update source is configured. Set PIG_UPDATE_URL=<manifest-url> and run `%s update`, "+
-			"or download a new %s binary from your provider's releases, "+
-			"or pull the container image (log in to your registry first) and re-deploy.",
-		AppName, AppName)
+	return "Download from: https://github.com/tmih06/omp-slim/releases/latest"
 }
 
 // updateChecksOffline reports the environment values that suppress bounded

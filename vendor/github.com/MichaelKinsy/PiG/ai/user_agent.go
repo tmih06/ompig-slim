@@ -8,9 +8,8 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/coding/pigversion"
 )
 
-// ProductVersion is PiG's composite release version for outbound identifiers: the default version of a detailed User-Agent (PI_AI_VERSION upstream).
-// It defaults to pigversion.Version because importing coding would create a cycle.
-var ProductVersion = pigversion.Version
+// ProductVersion is the harness release reported in outbound identifiers.
+var ProductVersion = pigversion.HarnessVersion
 
 // pig divergence (D65): the detailed User-Agent of FormatUserAgent (identity.ts)
 // reports "pi/<version> (<platform>; <runtime>; <arch>)" with Node's runtime

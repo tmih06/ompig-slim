@@ -15,44 +15,32 @@ import (
 )
 
 // AppName is the binary/CLI name, independent of the selected configuration directories.
-const AppName = "pig"
+const AppName = "ompig-slim"
 
-// PackageName is PiG's npm package: the launcher that a global npm-family
-// install owns and that the signed update manifest names. Mirrors upstream
-// PACKAGE_NAME export. automation/release/pig_package.py reads this line, so keep
-// the declaration on one line.
-const PackageName = "@pi-in-go/pig"
+// PackageName identifies the personal distribution, not the PiG library's npm launcher.
+const PackageName = "ompig-slim"
 
 // CONFIG_DIR_NAME is the default per-project config directory name.
-const CONFIG_DIR_NAME = "." + AppName
+const CONFIG_DIR_NAME = ".pi"
 
-// UsePiDirs reports whether the user explicitly selected Pi's configuration directories.
-func UsePiDirs() bool {
-	// pig divergence (D2): sharing Pi state requires an explicit process-level opt-in.
-	return os.Getenv("PIG_USE_PI_DIRS") == "1"
-}
+// UsePiDirs reports the harness's shared Pi/OMP configuration policy.
+func UsePiDirs() bool { return true }
 
-// ConfigDirName returns the selected per-project configuration directory name.
-func ConfigDirName() string {
-	if UsePiDirs() {
-		return ".pi"
-	}
-	return CONFIG_DIR_NAME
-}
+// ConfigDirName returns the shared workspace-local configuration directory.
+func ConfigDirName() string { return CONFIG_DIR_NAME }
 
 // ENV_AGENT_DIR overrides the config directory.
 // Mirrors upstream ENV_AGENT_DIR export.
-const ENV_AGENT_DIR = "PIG_CODING_AGENT_DIR"
+const ENV_AGENT_DIR = "OMPIG_SLIM_CODING_AGENT_DIR"
 
 // ENV_SESSION_DIR overrides the session storage directory.
 // Mirrors upstream ENV_SESSION_DIR export.
-const ENV_SESSION_DIR = "PIG_CODING_AGENT_SESSION_DIR"
+const ENV_SESSION_DIR = "OMPIG_SLIM_CODING_AGENT_SESSION_DIR"
 
-// pig divergence (D2): title says "PiG", not "pi": separate binary and config root.
-const APP_TITLE = "PiG"
+const APP_TITLE = "ompig-slim"
 
-// AgentDir returns the writable agent directory. Shared mode uses Pi's environment override; otherwise it uses PiG's. Both expand a leading tilde. It panics
-// with a [configroot.UnresolvedError] when the home directory is needed and unavailable; [ResolveAgentDir] reports that as an error.
+// AgentDir returns the shared Pi/OMP agent directory, or its explicit override.
+// It panics with a [configroot.UnresolvedError] when the home directory is unavailable.
 func AgentDir() string {
 	return DefaultAgentDir()
 }
@@ -65,12 +53,7 @@ func ResolveAgentDir() (string, error) {
 // AgentDirConfigured reports whether the agent directory comes from its environment variable rather than the default.
 func AgentDirConfigured() bool { return os.Getenv(agentDirEnvName()) != "" }
 
-func agentDirEnvName() string {
-	if UsePiDirs() {
-		return "PI_CODING_AGENT_DIR"
-	}
-	return ENV_AGENT_DIR
-}
+func agentDirEnvName() string { return ENV_AGENT_DIR }
 
 // ProjectConfigDir returns the selected workspace-local configuration root.
 func ProjectConfigDir(cwd string) string {
@@ -242,15 +225,8 @@ func selfUpdateUninstallStep(command string, argsPrefix []string, installedPacka
 
 // ─── Config Root ──────────────────────────────────────────────────────────────
 
-// ConfigRoot returns the pig configuration root directory (internal/configroot, the one resolver the host and every extension SDK share).
-//
-// Resolution order:
-//  1. $PIG_HOME if set and non-empty
-//  2. $XDG_CONFIG_HOME/pig if XDG_CONFIG_HOME is set and non-empty
-//  3. ~/.pig (default)
-//
-// A leading ~ expands to the home directory. PiG-owned state stays here even when the agent and project directories are shared with Pi. It panics with
-// a [configroot.UnresolvedError] when the home directory is needed and unavailable.
+// ConfigRoot returns PIG_HOME when explicitly set for library assets, else ~/.pi.
+// Agent credentials, settings, and sessions share Pi/OMP's agent directory.
 func ConfigRoot() string { return configroot.Dir() }
 
 // GetDocsPath is the directory of this binary's documentation bundle, which the system prompt, the login help and the codemode description point

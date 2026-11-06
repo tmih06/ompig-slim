@@ -17,20 +17,19 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/toolchain"
 )
 
-const pigModulePath = "github.com/MichaelKinsy/PiG"
+const pigModulePath = "ompig-slim"
 
 func runBuildCommand(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "build" {
 		return -1
 	}
 	if len(args) > 1 && (args[1] == "-h" || args[1] == "--help") {
-		_, _ = fmt.Fprint(stdout, `Usage: pig build [--verbose]
+		_, _ = fmt.Fprint(stdout, `Usage: ompig-slim build [--verbose]
 
-Build the pig binary from the current source checkout and install it to
-$PIG_BIN, or ~/.local/bin/pig when PIG_BIN is unset.
+Build the personal harness from its source checkout and install it to
+$OMPIG_SLIM_BIN, or ~/.local/bin/ompig-slim when unset.
 
-Run this from inside the github.com/MichaelKinsy/PiG source tree, or from a
-checkout root containing ./pig.
+Run this from inside the ompig-slim source tree.
 Use --verbose to stream toolchain output. Progress is written to stderr.
 `)
 		return 0
@@ -38,7 +37,7 @@ Use --verbose to stream toolchain output. Progress is written to stderr.
 	verbose := false
 	for _, arg := range args[1:] {
 		if arg != "--verbose" {
-			_, _ = fmt.Fprintf(stderr, "unknown pig build argument %q\n", arg)
+			_, _ = fmt.Fprintf(stderr, "unknown ompig-slim build argument %q\n", arg)
 			return 2
 		}
 		verbose = true
@@ -51,11 +50,11 @@ Use --verbose to stream toolchain output. Progress is written to stderr.
 		writeCLIError(stderr, fmt.Sprint(progress.Failure(err)), false)
 		return 1
 	}
-	buildprogress.Phase(ctx, "Resolving source", "Locating the PiG checkout and output path")
+	buildprogress.Phase(ctx, "Resolving source", "Locating the ompig-slim checkout and output path")
 
 	root, err := findPigSourceRoot()
 	if err != nil {
-		return fail(fmt.Errorf("%w; run from the pig checkout or set PIG_SOURCE_ROOT=/path/to/github.com/MichaelKinsy/PiG", err))
+		return fail(fmt.Errorf("%w; run from the ompig-slim checkout or set OMPIG_SLIM_SOURCE_ROOT=/path/to/ompig-slim", err))
 	}
 	target, err := pigBuildTarget()
 	if err != nil {
@@ -70,8 +69,8 @@ Use --verbose to stream toolchain output. Progress is written to stderr.
 
 	build := gitShortCommit(root)
 	ldflags := fmt.Sprintf("-s -w -X github.com/MichaelKinsy/PiG/coding/cli.Build=%s", build)
-	buildprogress.Phase(ctx, "Compiling and linking Go binary", "PiG → "+target+" (includes module resolution)")
-	buildArgs := buildprogress.ToolArgs(ctx, "go", []string{"build", "-buildvcs=false", "-trimpath", "-ldflags", ldflags, "-o", target, "./cmd/pig"})
+	buildprogress.Phase(ctx, "Compiling and linking Go binary", "ompig-slim → "+target+" (uses the patched, pinned library)")
+	buildArgs := buildprogress.ToolArgs(ctx, "go", []string{"build", "-mod=vendor", "-buildvcs=false", "-trimpath", "-ldflags", ldflags, "-o", target, "."})
 	goToolchain, err := toolchain.ResolveGo()
 	if err != nil {
 		return fail(err)
@@ -79,7 +78,7 @@ Use --verbose to stream toolchain output. Progress is written to stderr.
 	cmd := linkerexec.CommandContext(ctx, goToolchain.Command, buildArgs...)
 	cmd.Dir = root
 	cmd.Env = toolchain.WorkDirEnv(root, goToolchain.Environ(os.Environ()))
-	if err := buildprogress.Run(buildprogress.Member(ctx, "pig"), cmd); err != nil {
+	if err := buildprogress.Run(buildprogress.Member(ctx, "ompig-slim"), cmd); err != nil {
 		return fail(fmt.Errorf("go build: %w", err))
 	}
 	if runtime.GOOS == "darwin" {
@@ -104,16 +103,16 @@ func signPigBuild(ctx context.Context, progress *buildprogress.Reporter, target 
 	buildprogress.Phase(ctx, "Signing binary", "Ad-hoc codesign: "+target)
 	//nolint:gosec // G204 (class b): program is codesign from exec.LookPath; args are fixed --force --sign - plus the path of the binary pig build just wrote.
 	cmd := exec.CommandContext(ctx, codesign, "--force", "--sign", "-", target)
-	if err := buildprogress.Run(buildprogress.Member(ctx, "pig"), cmd); err != nil {
+	if err := buildprogress.Run(buildprogress.Member(ctx, "ompig-slim"), cmd); err != nil {
 		// pig additive (D18): ad-hoc signing remains best-effort, but its failure is visible.
 		_, _ = fmt.Fprintf(stderr, "warning: %v\n", progress.Failure(fmt.Errorf("ad-hoc codesign: %w", err)))
 	}
 }
 
 func reportActivePigBinary(target string, stdout io.Writer) {
-	active, err := exec.LookPath("pig")
+	active, err := exec.LookPath("ompig-slim")
 	if err != nil {
-		_, _ = fmt.Fprintf(stdout, "warning: no pig found on PATH; add %s to PATH or set PIG_BIN to your active binary\n", filepath.Dir(target))
+		_, _ = fmt.Fprintf(stdout, "warning: no ompig-slim found on PATH; add %s to PATH or set OMPIG_SLIM_BIN to your active binary\n", filepath.Dir(target))
 		return
 	}
 	targetReal := resolvedPath(target)
@@ -122,8 +121,8 @@ func reportActivePigBinary(target string, stdout io.Writer) {
 		_, _ = fmt.Fprintf(stdout, "active: %s\n", active)
 		return
 	}
-	_, _ = fmt.Fprintf(stdout, "warning: your shell resolves pig to %s, not %s\n", active, target)
-	_, _ = fmt.Fprintf(stdout, "         run PIG_BIN=%q pig build, update PATH, or run hash -r after changing shells\n", active)
+	_, _ = fmt.Fprintf(stdout, "warning: your shell resolves ompig-slim to %s, not %s\n", active, target)
+	_, _ = fmt.Fprintf(stdout, "         run OMPIG_SLIM_BIN=%q ompig-slim build, update PATH, or run hash -r after changing shells\n", active)
 }
 
 func resolvedPath(path string) string {
@@ -139,15 +138,15 @@ func resolvedPath(path string) string {
 }
 
 func pigBuildTarget() (string, error) {
-	if target := os.Getenv("PIG_BIN"); target != "" {
+	if target := os.Getenv("OMPIG_SLIM_BIN"); target != "" {
 		return filepath.Clean(target), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return "", errors.New("cannot resolve home directory; set PIG_BIN")
+		return "", errors.New("cannot resolve home directory; set OMPIG_SLIM_BIN")
 	}
 	// Windows starts a program by name only when it has an executable extension.
-	name := "pig"
+	name := "ompig-slim"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
@@ -162,7 +161,7 @@ func findPigSourceRoot() (string, error) {
 	if root, ok := findPigSourceRootFrom(cwd); ok {
 		return root, nil
 	}
-	if root, ok := findPigSourceRootFrom(filepath.Join(cwd, "pig")); ok {
+	if root, ok := findPigSourceRootFrom(filepath.Join(cwd, "ompig-slim")); ok {
 		return root, nil
 	}
 	for _, candidate := range pigSourceRootCandidates() {
@@ -170,7 +169,7 @@ func findPigSourceRoot() (string, error) {
 			return root, nil
 		}
 	}
-	return "", errors.New("pig build must be run from inside the github.com/MichaelKinsy/PiG source checkout")
+	return "", errors.New("ompig-slim build must be run from inside the personal harness source checkout")
 }
 
 func findPigSourceRootFrom(start string) (string, bool) {
@@ -200,7 +199,7 @@ func findPigSourceRootFrom(start string) (string, bool) {
 
 func pigSourceRootCandidates() []string {
 	var candidates []string
-	if root := os.Getenv("PIG_SOURCE_ROOT"); root != "" {
+	if root := os.Getenv("OMPIG_SLIM_SOURCE_ROOT"); root != "" {
 		candidates = append(candidates, root)
 	}
 	if root, err := configroot.Resolve(); err == nil {
@@ -232,29 +231,16 @@ func builtPigVersion(path string) string {
 			return identity
 		}
 	}
-	return "pig"
+	return "ompig-slim"
 }
 
-// pigVersionIdentity reads detailedVersionString output into "pig X+Y", the
-// composite version (coding.Version).
+// pigVersionIdentity reads the application version, not the library's SDK pin.
 func pigVersionIdentity(out string) (string, bool) {
-	var pig, pi string
 	for line := range strings.Lines(out) {
 		key, value, _ := strings.Cut(strings.TrimSpace(line), ": ")
-		switch key {
-		case "pig":
-			pig = value
-		case "upstream pi":
-			pi = value
+		if key == "ompig-slim" && value != "" {
+			return "ompig-slim " + value, true
 		}
 	}
-	switch {
-	case pig == "":
-		return "", false
-	case pi == "":
-		return "pig " + pig, true
-	default:
-		// D63: semver allows one plus sign, so a commit pin's "1.1.0+42a3497d" joins as build metadata "1.1.0.42a3497d", as in Version.
-		return fmt.Sprintf("pig %s+%s", pig, strings.ReplaceAll(pi, "+", ".")), true
-	}
+	return "", false
 }
