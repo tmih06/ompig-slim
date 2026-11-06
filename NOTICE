@@ -1,0 +1,21 @@
+ompig-slim
+==========
+
+This personal coding harness links PiG v0.7.0 as a Go library, with local
+feature ports in vendor/github.com/MichaelKinsy/PiG. PiG is Copyright Michael
+Kinsy, distributed under MIT. The original PiG notices are retained in that
+module's LICENSE and NOTICE.
+
+PiG implements Pi's coding-agent behavior. Pi is Copyright (c) 2025 Mario
+Zechner, MIT. Personal features were translated from tmih06's omp-slim fork
+at ba23ed9c3 and its working-tree refinements observed during this migration.
+
+Provider authentication, transport, and quota behavior incorporates native
+translations of oh-my-pi 18.16.0 code, Copyright (c) 2025 Mario Zechner,
+Copyright (c) 2025-2026 Can Bölük, Copyright (c) 2026 Stencil Labs, Inc., MIT.
+The full permission notice is reproduced in LICENSE.
+
+This project is not an official release of PiG, Pi, or oh-my-pi. Their
+maintainers do not endorse this personal distribution. Other dependency
+license notices remain alongside their sources in vendor/. Release archives
+include those notices as well as PiG's embedded third-party notices.
