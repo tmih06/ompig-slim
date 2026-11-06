@@ -46,6 +46,25 @@ const (
 	KnownProviderXiaomiTokenPlanCn       KnownProvider = "xiaomi-token-plan-cn"
 	KnownProviderXiaomiTokenPlanAms      KnownProvider = "xiaomi-token-plan-ams"
 	KnownProviderXiaomiTokenPlanSgp      KnownProvider = "xiaomi-token-plan-sgp"
+
+	// ompig-slim addition: the 16 OpenAI-compatible providers of providers_added.go
+	// (packages/ai/src/types.ts KnownProvider).
+	KnownProviderAiand             KnownProvider = "aiand"
+	KnownProviderAimlapi           KnownProvider = "aimlapi"
+	KnownProviderAlibabaCodingPlan KnownProvider = "alibaba-coding-plan"
+	KnownProviderAlibabaTokenPlan  KnownProvider = "alibaba-token-plan"
+	KnownProviderClinePass         KnownProvider = "cline-pass"
+	KnownProviderCommandCode       KnownProvider = "commandcode"
+	KnownProviderCoralBricks       KnownProvider = "coralbricks"
+	KnownProviderDeepInfra         KnownProvider = "deepinfra"
+	KnownProviderInception         KnownProvider = "inception"
+	KnownProviderKilo              KnownProvider = "kilo"
+	KnownProviderModular           KnownProvider = "modular"
+	KnownProviderOllamaCloud       KnownProvider = "ollama-cloud"
+	KnownProviderSambaNova         KnownProvider = "sambanova"
+	KnownProviderScaleway          KnownProvider = "scaleway"
+	KnownProviderSynthetic         KnownProvider = "synthetic"
+	KnownProviderVenice            KnownProvider = "venice"
 )
 
 // ProviderID is a provider id: a KnownProvider or any other string (types.ts ProviderId = KnownProvider | string).

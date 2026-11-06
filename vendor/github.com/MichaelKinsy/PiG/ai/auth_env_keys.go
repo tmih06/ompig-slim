@@ -87,6 +87,10 @@ func getAPIKeyEnvVars(provider string) []string {
 	if envVar, ok := envAPIKeyVars()[provider]; ok {
 		return []string{envVar}
 	}
+	// ompig-slim addition: the providers of providers_added.go map their own variable.
+	if envVar, ok := addedProviderAPIKeyEnv(provider); ok {
+		return []string{envVar}
+	}
 	return nil
 }
 

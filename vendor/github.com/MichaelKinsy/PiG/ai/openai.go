@@ -558,8 +558,8 @@ type oaiChunkChoice struct {
 	Usage *oaiUsage `json:"usage"`
 }
 
-// oaiUsage is the raw chunk usage. Cache-read counts are pointers because
-// upstream picks the first one that is present (??), including a present 0.
+// oaiUsage is the raw chunk usage. Cache-read counts are pointers because the
+// parser reads the first candidate that actually carries hits (firstPositiveNumber).
 type oaiUsage struct {
 	PromptTokens         int  `json:"prompt_tokens"`
 	CompletionTokens     int  `json:"completion_tokens"`
@@ -580,19 +580,24 @@ type oaiUsage struct {
 // cached_tokens counts cache reads; a separately reported cache_write_tokens
 // is not subtracted from it, and both leave the uncached input.
 func parseChunkUsage(raw *oaiUsage, cost ModelCost, openRouter bool) *Usage {
-	cacheReadTokens := 0
 	cacheWriteTokens := 0
+	var detailCached *int
 	if raw.PromptTokensDetails != nil {
 		cacheWriteTokens = raw.PromptTokensDetails.CacheWriteTokens
+		detailCached = raw.PromptTokensDetails.CachedTokens
 	}
-	switch {
-	case raw.PromptTokensDetails != nil && raw.PromptTokensDetails.CachedTokens != nil:
-		cacheReadTokens = *raw.PromptTokensDetails.CachedTokens
-	case raw.PromptCacheHitTokens != nil:
-		cacheReadTokens = *raw.PromptCacheHitTokens
-	case raw.CachedTokens != nil:
-		cacheReadTokens = *raw.CachedTokens
-	}
+	// Follow documented OpenAI/OpenRouter semantics: cached_tokens is cache-read
+	// tokens (hits). Providers disagree on placement: OpenAI/OpenRouter use
+	// prompt_tokens_details.cached_tokens, DeepSeek uses prompt_cache_hit_tokens,
+	// and Kimi documents top-level usage.cached_tokens on the final usage chunk.
+	//
+	// The fields are alternatives, not a merge, so the first one carrying hits
+	// wins. A plain present-check chain is wrong because proxies in front of
+	// DeepSeek emit both shapes and often send
+	// `prompt_tokens_details.cached_tokens: 0`; that zero would win and hide the
+	// real `prompt_cache_hit_tokens`, estimating the whole prompt at the input
+	// rate and reporting a permanent cache miss.
+	cacheReadTokens := firstPositiveNumber(detailCached, raw.PromptCacheHitTokens, raw.CachedTokens)
 	input := max(0, raw.PromptTokens-cacheReadTokens-cacheWriteTokens)
 	reasoning := 0
 	if raw.CompletionTokensDetails != nil {
@@ -611,6 +616,18 @@ func parseChunkUsage(raw *oaiUsage, cost ModelCost, openRouter bool) *Usage {
 		applyOpenRouterReportedCost(usage, raw.openRouterUsageAccounting)
 	}
 	return usage
+}
+
+// firstPositiveNumber is upstream's firstPositiveNumber: the first candidate that
+// is a number greater than zero, else 0. An absent candidate (nil) carries no
+// hits, and a reported zero does not hide a later field's real hits.
+func firstPositiveNumber(candidates ...*int) int {
+	for _, candidate := range candidates {
+		if candidate != nil && *candidate > 0 {
+			return *candidate
+		}
+	}
+	return 0
 }
 
 type oaiChunk struct {

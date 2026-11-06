@@ -59,6 +59,10 @@ func ProviderDisplayName(providerID string) string {
 	if name, ok := builtinProviderNames()[providerID]; ok {
 		return name
 	}
+	// ompig-slim addition: the providers of providers_added.go carry their own names.
+	if name, ok := addedProviderDisplayName(providerID); ok {
+		return name
+	}
 	return providerID
 }
 
@@ -102,4 +106,13 @@ var builtinProviderBaseURLs = sync.OnceValue(func() map[string]string {
 })
 
 // ProviderBaseURL returns the upstream provider.baseUrl of a built-in provider, or "" when the provider declares none.
-func ProviderBaseURL(providerID string) string { return builtinProviderBaseURLs()[providerID] }
+func ProviderBaseURL(providerID string) string {
+	if baseURL, ok := builtinProviderBaseURLs()[providerID]; ok {
+		return baseURL
+	}
+	// ompig-slim addition: the providers of providers_added.go declare their own endpoint.
+	if baseURL, ok := addedProviderBaseURL(providerID); ok {
+		return baseURL
+	}
+	return ""
+}
