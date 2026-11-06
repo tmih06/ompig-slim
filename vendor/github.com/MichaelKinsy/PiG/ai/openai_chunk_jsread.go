@@ -180,7 +180,10 @@ func normalizeOpenAIUsageMember(owner map[string]any) bool {
 	} else if !numberOrFalsy(details, "cache_write_tokens") {
 		return false
 	}
-	// `details?.cached_tokens ?? prompt_cache_hit_tokens ?? cached_tokens ?? 0` takes the first that is not null or undefined, whatever its type.
+	// `firstPositiveNumber(details?.cached_tokens, prompt_cache_hit_tokens, cached_tokens)` keeps the first candidate that is a
+	// number greater than zero and reads every other candidate as no hits: a present 0 or a value that is not a number is skipped,
+	// not selected, so a proxy's zero cannot hide DeepSeek's real prompt_cache_hit_tokens. A candidate that is not a number is
+	// therefore dropped from the rewritten chunk instead of failing it, which the older `??` chain did not allow.
 	readCached := false
 	for _, member := range []struct {
 		object map[string]any
@@ -190,13 +193,17 @@ func normalizeOpenAIUsageMember(owner map[string]any) bool {
 		if !present || value == nil {
 			continue
 		}
-		if readCached {
+		number, isNumber := value.(json.Number)
+		if readCached || !isNumber || !jsGreaterThanZero(number) {
 			delete(member.object, member.key)
 			continue
 		}
-		if _, isNumber := value.(json.Number); !isNumber {
+		// The count is a Go int: a hit count with a fractional part has no representation, and the typed decode rejects it as before.
+		integer, ok := jsIntegerNumber(number)
+		if !ok {
 			return false
 		}
+		member.object[member.key] = integer
 		readCached = true
 	}
 	completion, _ := usageObject["completion_tokens_details"].(map[string]any)
