@@ -90,6 +90,13 @@ type ThemeColorToken struct {
 	Optional          bool
 }
 
+// themeTokenKnown reports whether name is a token this engine renders. Themes are shared with OMP, which defines color tokens of
+// its own (`statusLine*`, `pythonMode`); those validate and are then ignored (theme.ts splitThemeColors skips keys without a
+// THEME_TOKENS descriptor).
+func themeTokenKnown(name string) bool {
+	return slices.ContainsFunc(themeColorTokens, func(token themeColorToken) bool { return token.name == name })
+}
+
 // ThemeColorTokens returns the tokens of ThemeJsonSchema.colors in schema order.
 func ThemeColorTokens() []ThemeColorToken {
 	out := make([]ThemeColorToken, len(themeColorTokens))
@@ -240,14 +247,19 @@ func checkThemeColors(errs *themeSchemaErrors, value any, keys []string) {
 		}
 	}
 	checkRequired(errs, "/colors", colors, required)
-	checkAdditionalProperties(errs, "/colors", keys, func(key string) bool {
-		return slices.ContainsFunc(themeColorTokens, func(token themeColorToken) bool {
-			return token.name == key
-		})
-	})
 	for _, token := range themeColorTokens {
 		if value, present := colors[token.name]; present {
 			checkThemeColorValue(errs, "/colors/"+token.name, value)
+		}
+	}
+	// Themes are shared with OMP through the same themes directory, and OMP defines color tokens this engine does not render
+	// (`statusLine*`, `pythonMode`). Extra keys are validated as color values and then ignored, so one theme file works in both
+	// tools; rejecting them made every OMP theme unusable here and told the user to edit files OMP still needs
+	// (theme-schema.ts additionalProperties: colorValue(...)). A non-color extra value is still rejected, so a typo does not
+	// slip through.
+	for _, key := range jsPropertyOrder(keys) {
+		if !themeTokenKnown(key) {
+			checkThemeColorValue(errs, "/colors/"+key, colors[key])
 		}
 	}
 }

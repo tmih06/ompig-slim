@@ -650,7 +650,7 @@ func (m *InteractiveMode) dropBoundSprites() bool {
 	return dropped
 }
 
-// invalidateBuiltInHeader redraws the header slot, which draws the active sprite while it shows the built-in header.
+// invalidateBuiltInHeader redraws the header slot, whose built-in header bakes the theme's colors.
 func (m *InteractiveMode) invalidateBuiltInHeader() {
 	if m.extHeader != nil {
 		m.extHeader.repaint()
@@ -683,10 +683,7 @@ func (m *InteractiveMode) setBuiltInHeader(expanded bool) {
 		m.builtInHeaderShowDetails, m.builtInHeaderBuilt = showDetails, true
 	}
 	m.toolMu.Unlock()
-	// pig divergence (D2): the built-in header draws the saved PiG sprite. Reading it here, off the render loop, picks up a
-	// selection a game or another PiG wrote since startup (/reload restores the built-in header).
-	piglogin.Refresh()
-	piglogin.Active()
+	// The built-in header draws this build's own OM + Pi mark, which follows the theme alone, so no sprite state is read here.
 	m.extHeader.SetRendererWithMouse(m.renderBuiltInHeader, m.handleBuiltInHeaderMouse, m.builtInHeaderClickArea, m.builtInHeaderUnchanged)
 }
 

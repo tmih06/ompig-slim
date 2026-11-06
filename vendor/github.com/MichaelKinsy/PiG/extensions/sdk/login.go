@@ -16,7 +16,7 @@ type LoginDefinition struct {
 
 // pig divergence (D2): Go extensions add a sprite to PiG's /sprite catalogue.
 // SpriteDefinition describes one sprite: its ID, the name and tagline /sprite
-// lists, its 16-by-14 pig, which the startup header draws and /sprite preview
+// lists, its 16-by-14 pig, which /sprite preview and the first-time setup dialog
 // shows beside the wordmark, and the palette coloring it. Grid cells are
 // printable ASCII palette symbols; '.' is transparent.
 type SpriteDefinition struct {

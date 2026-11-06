@@ -16,7 +16,7 @@ import (
 const SpriteIDLimit = 32
 
 // SpriteDefinition is one sprite: its stable ID, the name and tagline /sprite lists, its pig (LoginMascotWidth by
-// LoginMascotHeight), which the startup header draws in Pi's logo slot and /sprite preview beside the wordmark, and the
+// LoginMascotHeight), which /sprite preview draws beside the wordmark and the first-time setup dialog shows, and the
 // palette that colors it. Grid cells are printable ASCII palette symbols; '.' is transparent.
 type SpriteDefinition struct {
 	ID      string            `json:"id"`
