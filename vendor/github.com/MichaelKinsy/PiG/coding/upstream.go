@@ -11,12 +11,9 @@ import "github.com/MichaelKinsy/PiG/internal/coding/pigversion"
 // Pi target.
 const PigVersion = pigversion.PigVersion
 
-// Version is PiG's one displayed version: its own release line with the Pi
-// release it ports as semver build metadata (for example 0.2.0+0.87.1). Semver
-// precedence ignores build metadata, so Version sorts exactly as PigVersion.
-// Self-update comparisons, release tags, and the Piglet compatibility check
-// still use PigVersion itself.
-const Version = pigversion.Version
+// Version is the personal harness release; PigVersion remains the pinned PiG
+// library release used for SDK and Piglet compatibility.
+const Version = pigversion.HarnessVersion
 
 // UpstreamCommit is the exact Pi commit of the pin.
 const UpstreamCommit = pigversion.UpstreamCommit

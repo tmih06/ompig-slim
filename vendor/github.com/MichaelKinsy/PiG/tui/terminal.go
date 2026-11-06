@@ -996,7 +996,7 @@ func BuildTerminalTitle(sessionName, cwd string) string {
 
 func codingAgentAppTitle() string {
 	// Keep terminal package decoupled from internal/codingagent to avoid an import cycle.
-	return "pig"
+	return "ompig-slim"
 }
 
 // OutputTerminalHungUp reports whether the terminal the process writes to has been hung up, as when the master side of

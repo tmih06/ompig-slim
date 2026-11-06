@@ -1,11 +1,11 @@
 {
-  "attributionName": "PiG",
-  "attributionUrl": "https://github.com/MichaelKinsy/PiG",
+  "attributionName": "ompig-slim",
+  "attributionUrl": "https://github.com/tmih06/omp-slim",
   "attributionCategory": "cli-agent",
-  "codexOriginator": "pig",
-  "chatgptAgentName": "PiG",
-  "xaiReferrer": "pig",
-  "agentMarker": "pig",
-  "userAgentProduct": "pig",
+  "codexOriginator": "ompig-slim",
+  "chatgptAgentName": "ompig-slim",
+  "xaiReferrer": "ompig-slim",
+  "agentMarker": "ompig-slim",
+  "userAgentProduct": "ompig-slim",
   "hostedOrigin": "https://pi-in-go.dev"
 }
