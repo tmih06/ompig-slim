@@ -27,7 +27,7 @@ func runExtensionCommand(args []string) int {
 	}
 }
 
-const extensionCommandHelp = "Usage:\n  pig extension init <path> [--name <name>] [--lang go|python|rust|lisp] [--login] [--isolated] [--force] [--json]\n  pig extension preview-login <path>\n  pig extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]\n"
+const extensionCommandHelp = "Usage:\n  ompig-slim extension init <path> [--name <name>] [--lang go|python|rust|lisp] [--login] [--isolated] [--force] [--json]\n  ompig-slim extension preview-login <path>\n  ompig-slim extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]\n"
 
 func printExtensionCommandHelp() {
 	fmt.Print(extensionCommandHelp)

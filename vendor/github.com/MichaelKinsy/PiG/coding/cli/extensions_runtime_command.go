@@ -42,18 +42,18 @@ func runExtensionsRuntime(ctx context.Context, args []string, stdout, stderr io.
 			printExtensionsRuntimeHelp(stdout)
 			return 0
 		default:
-			_, _ = fmt.Fprintf(stderr, "pig extensions runtime status: unknown argument %q\n", arg)
+			_, _ = fmt.Fprintf(stderr, "ompig-slim extensions runtime status: unknown argument %q\n", arg)
 			return 2
 		}
 	}
 	agentDir, err := codingagent.ResolveAgentDir()
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "pig extensions runtime status:", err)
+		_, _ = fmt.Fprintln(stderr, "ompig-slim extensions runtime status:", err)
 		return 1
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "pig extensions runtime status:", err)
+		_, _ = fmt.Fprintln(stderr, "ompig-slim extensions runtime status:", err)
 		return 1
 	}
 	subprocess.SetTypeScriptRuntimeSetting(codingagent.NewSettingsManager(cwd, agentDir).GetExtensionsTypescriptRuntime())
@@ -65,7 +65,7 @@ func runExtensionsRuntime(ctx context.Context, args []string, stdout, stderr io.
 	}
 	status.NodeOnly = tsruntime.ListNodeOnly(status.Root)
 	if status.Installed, err = tsruntime.List(status.Root); err != nil {
-		_, _ = fmt.Fprintln(stderr, "pig extensions runtime status:", err)
+		_, _ = fmt.Fprintln(stderr, "ompig-slim extensions runtime status:", err)
 		return 1
 	}
 	if jsonOutput {
@@ -73,7 +73,7 @@ func runExtensionsRuntime(ctx context.Context, args []string, stdout, stderr io.
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(status); err != nil {
-			_, _ = fmt.Fprintln(stderr, "pig extensions runtime status:", err)
+			_, _ = fmt.Fprintln(stderr, "ompig-slim extensions runtime status:", err)
 			return 1
 		}
 		return 0
@@ -135,5 +135,5 @@ func writeExtensionsRuntimeStatus(w io.Writer, status extensionsRuntimeStatus) {
 }
 
 func printExtensionsRuntimeHelp(w io.Writer) {
-	_, _ = fmt.Fprintf(w, "Usage:\n  pig extensions runtime status [--json]\n\nReports the runtime that runs TypeScript and JavaScript extensions: the extensionsTypescriptRuntime setting or %s, the runtime a launch uses (Node when the requested runtime cannot run, with the reason) and the runtimes installed under %s or <agent dir>/runtimes/typescript.\n", tsruntime.EnvRuntime, tsruntime.EnvRoot)
+	_, _ = fmt.Fprintf(w, "Usage:\n  ompig-slim extensions runtime status [--json]\n\nReports the runtime that runs TypeScript and JavaScript extensions: the extensionsTypescriptRuntime setting or %s, the runtime a launch uses (Node when the requested runtime cannot run, with the reason) and the runtimes installed under %s or <agent dir>/runtimes/typescript.\n", tsruntime.EnvRuntime, tsruntime.EnvRoot)
 }

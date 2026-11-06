@@ -116,7 +116,7 @@ func resolveProjectTrusted(ctx context.Context, opts projectTrustResolutionOptio
 
 func formatProjectTrustPrompt(cwd, shadowedPiglet string) string {
 	// pig divergence (D2): the prompt names PiG's command and configuration directory.
-	prompt := fmt.Sprintf("Trust project folder?\n%s\n\nThis allows pig to load %s settings and resources, install missing project packages, and execute project extensions.", cwd, codingagent.ConfigDirName())
+	prompt := fmt.Sprintf("Trust project folder?\n%s\n\nThis allows ompig-slim to load %s settings and resources, install missing project packages, and execute project extensions.", cwd, codingagent.ConfigDirName())
 	if shadowedPiglet != "" {
 		// A Piglet is chosen before startup can ask, so the prompt says what trusting the project changes for it (Pi has no Piglets).
 		prompt += fmt.Sprintf("\n\nThis project also defines the Piglet %q in %s/piglets. It was not used for this run; once you trust the project it replaces the Piglet of that name.", shadowedPiglet, codingagent.ConfigDirName())

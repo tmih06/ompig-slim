@@ -22,7 +22,7 @@ import (
 )
 
 // configCommandUsage is upstream CONFIG_COMMAND_USAGE with the app name.
-const configCommandUsage = "pig config [-l] [--approve|--no-approve]"
+const configCommandUsage = "ompig-slim config [-l] [--approve|--no-approve]"
 
 // printConfigCommandHelp is upstream printConfigCommandHelp (package-manager-cli.ts:280-293) with the app and config
 // directory names.
@@ -51,7 +51,7 @@ func runConfigCommand(args []string, runtimeOptions ...packageCommandRuntimeOpti
 			trustOverride = new(false)
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintln(os.Stderr, chalkRed(fmt.Sprintf("Unknown option %s for \"config\".", arg)))
-			fmt.Fprintln(os.Stderr, chalkDim(fmt.Sprintf("Use \"pig --help\" or \"%s\".", configCommandUsage)))
+			fmt.Fprintln(os.Stderr, chalkDim(fmt.Sprintf("Use \"ompig-slim --help\" or \"%s\".", configCommandUsage)))
 			return 1
 		default:
 			fmt.Fprintln(os.Stderr, chalkRed(fmt.Sprintf("Unexpected argument %s.", arg)))
@@ -61,7 +61,7 @@ func runConfigCommand(args []string, runtimeOptions ...packageCommandRuntimeOpti
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pig config:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim config:", err)
 		return 1
 	}
 	agentDir := codingagent.AgentDir()
@@ -71,7 +71,7 @@ func runConfigCommand(args []string, runtimeOptions ...packageCommandRuntimeOpti
 		Default: string(globalSettings.GetDefaultProjectTrust()), UI: extension.NoopUIContext,
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pig config:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim config:", err)
 		return 1
 	}
 	if local && !projectTrusted {
@@ -92,11 +92,11 @@ func runConfigCommand(args []string, runtimeOptions ...packageCommandRuntimeOpti
 	}
 	selector, err := newScopedConfigSelector(cwd, agentDir, globalSettings, settings, local, projectTrusted, builtinNames)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pig config:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim config:", err)
 		return 1
 	}
 	if err := runConfigSelectorTUI(selector, settings, agentDir); err != nil {
-		fmt.Fprintln(os.Stderr, "pig config:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim config:", err)
 		return 1
 	}
 	return 0

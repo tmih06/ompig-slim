@@ -43,37 +43,37 @@ func runExtensionsCommand(args []string) int {
 			jsonOutput = true
 		case "--dry-run":
 			if command != "prune" {
-				fmt.Fprintln(os.Stderr, "pig extensions cache stats: --dry-run is only valid for prune")
+				fmt.Fprintln(os.Stderr, "ompig-slim extensions cache stats: --dry-run is only valid for prune")
 				return 2
 			}
 			dryRun = true
 		case "--failures":
 			if command != "prune" {
-				fmt.Fprintln(os.Stderr, "pig extensions cache stats: --failures is only valid for prune")
+				fmt.Fprintln(os.Stderr, "ompig-slim extensions cache stats: --failures is only valid for prune")
 				return 2
 			}
 			failures = true
 		case "--retention":
 			if command != "prune" || index+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "pig extensions cache: --retention requires a duration on prune")
+				fmt.Fprintln(os.Stderr, "ompig-slim extensions cache: --retention requires a duration on prune")
 				return 2
 			}
 			index++
 			parsed, err := time.ParseDuration(args[index])
 			if err != nil || parsed <= 0 {
-				fmt.Fprintf(os.Stderr, "pig extensions cache prune: invalid retention %q\n", args[index])
+				fmt.Fprintf(os.Stderr, "ompig-slim extensions cache prune: invalid retention %q\n", args[index])
 				return 2
 			}
 			retention = parsed
 		case "--max-size":
 			if command != "prune" || index+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "pig extensions cache: --max-size requires a byte size on prune")
+				fmt.Fprintln(os.Stderr, "ompig-slim extensions cache: --max-size requires a byte size on prune")
 				return 2
 			}
 			index++
 			parsed, err := bytesize.Parse(args[index])
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "pig extensions cache prune:", err)
+				fmt.Fprintln(os.Stderr, "ompig-slim extensions cache prune:", err)
 				return 2
 			}
 			maxSize = &parsed
@@ -81,7 +81,7 @@ func runExtensionsCommand(args []string) int {
 			printExtensionsCacheHelp()
 			return 0
 		default:
-			fmt.Fprintf(os.Stderr, "pig extensions cache %s: unknown option %s\n", command, args[index])
+			fmt.Fprintf(os.Stderr, "ompig-slim extensions cache %s: unknown option %s\n", command, args[index])
 			return 2
 		}
 	}
@@ -90,7 +90,7 @@ func runExtensionsCommand(args []string) int {
 	current, resolutionErrors := currentExtensionCacheRoots(cacheRoot)
 	if command == "prune" {
 		if err := requireCompleteCurrentCacheRoots(resolutionErrors); err != nil {
-			fmt.Fprintln(os.Stderr, "pig extensions cache:", err)
+			fmt.Fprintln(os.Stderr, "ompig-slim extensions cache:", err)
 			return 1
 		}
 	}
@@ -111,7 +111,7 @@ func runExtensionsCommand(args []string) int {
 	if jsonOutput {
 		data, encodeErr := json.Marshal(report)
 		if encodeErr != nil {
-			fmt.Fprintln(os.Stderr, "pig extensions cache: encode report:", encodeErr)
+			fmt.Fprintln(os.Stderr, "ompig-slim extensions cache: encode report:", encodeErr)
 			return 1
 		}
 		fmt.Println(string(data))
@@ -127,14 +127,14 @@ func runExtensionsCommand(args []string) int {
 			}
 		}
 		for _, reportErr := range report.Errors {
-			fmt.Fprintln(os.Stderr, "pig extensions cache:", reportErr)
+			fmt.Fprintln(os.Stderr, "ompig-slim extensions cache:", reportErr)
 		}
 		if failure := readAutomaticCacheGCFailure(); failure != "" {
-			fmt.Fprintln(os.Stderr, "pig extensions cache: the last automatic prune failed:", failure)
+			fmt.Fprintln(os.Stderr, "ompig-slim extensions cache: the last automatic prune failed:", failure)
 		}
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pig extensions cache:", err)
+		fmt.Fprintln(os.Stderr, "ompig-slim extensions cache:", err)
 		return 1
 	}
 	if len(report.Errors) > 0 || maxSize != nil && !report.LimitSatisfied {
@@ -236,5 +236,5 @@ func runAutomaticExtensionCacheGC(ctx context.Context, configs []subprocess.ExtC
 }
 
 func printExtensionsCacheHelp() {
-	fmt.Print("Usage:\n  pig extensions runtime status [--json]\n  pig extensions cache stats [--json]\n  pig extensions cache prune [--retention <duration>] [--max-size <bytes>] [--failures] [--dry-run] [--json]\n\n--failures removes recorded build failures so the next start compiles those extensions again.\n")
+	fmt.Print("Usage:\n  ompig-slim extensions runtime status [--json]\n  ompig-slim extensions cache stats [--json]\n  ompig-slim extensions cache prune [--retention <duration>] [--max-size <bytes>] [--failures] [--dry-run] [--json]\n\n--failures removes recorded build failures so the next start compiles those extensions again.\n")
 }

@@ -15,6 +15,6 @@ const selfUpdateStrippedHint = "; update it through its Piglet distribution"
 // strips, followed by hint, and returns the exit code 1.
 // pig additive (D92): one message for a stripped feature's CLI entry point, compiled out or stripped at runtime.
 func reportStrippedFeature(what, id, hint string) int {
-	fmt.Fprintf(os.Stderr, "pig: %v%s\n", pigstrip.Error(what, pigstrip.ListFeatures, id), hint)
+	fmt.Fprintf(os.Stderr, "ompig-slim: %v%s\n", pigstrip.Error(what, pigstrip.ListFeatures, id), hint)
 	return 1
 }

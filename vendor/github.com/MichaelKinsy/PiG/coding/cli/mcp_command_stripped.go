@@ -16,6 +16,6 @@ func runMcpCommand(args []string) int {
 	if len(args) == 0 || args[0] != "mcp" {
 		return -1
 	}
-	fmt.Fprintln(os.Stderr, pigstrip.Error("pig mcp", pigstrip.ListExtensions, "mcp"))
+	fmt.Fprintln(os.Stderr, pigstrip.Error("ompig-slim mcp", pigstrip.ListExtensions, "mcp"))
 	return 1
 }

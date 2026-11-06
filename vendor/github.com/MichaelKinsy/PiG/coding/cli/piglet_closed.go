@@ -18,7 +18,7 @@ func pigletBinaryClosed(binary pigletBinary) bool {
 // pigletBinaryClosedRefusal words the one message every closed-Binary refusal prints (D202): it names what was refused, the Binary and
 // build.closed, and points at the Piglet setting and at stock pig, as the overlay refusals do.
 func pigletBinaryClosedRefusal(binary pigletBinary, refused string) string {
-	return fmt.Sprintf("pig: this Piglet Binary (%s) was built with build.closed: true, so it runs only what its signed closure lists and does not accept %s; rebuild its Piglet without build.closed to accept it, or use stock pig", binary.Name(), refused)
+	return fmt.Sprintf("ompig-slim: this Piglet Binary (%s) was built with build.closed: true, so it runs only what its signed closure lists and does not accept %s; rebuild its Piglet without build.closed to accept it, or use stock ompig-slim", binary.Name(), refused)
 }
 
 // pigletBinaryExtensionFlagRefusal returns the refusal for -e/--extension (a path, npm: or git: source) on a closed Piglet Binary, or ""
@@ -48,12 +48,12 @@ func pigletBinaryPackageCommandRefusal(binary pigletBinary, opts *packageCLIOpti
 	}
 	switch opts.command {
 	case packageInstall:
-		return pigletBinaryClosedRefusal(binary, "pig install")
+		return pigletBinaryClosedRefusal(binary, "ompig-slim install")
 	case packageRemove:
-		return pigletBinaryClosedRefusal(binary, "pig remove")
+		return pigletBinaryClosedRefusal(binary, "ompig-slim remove")
 	case packageUpdate:
 		if opts.extensionsOnly || opts.allPackages || opts.extensionSource != "" || (opts.source != "" && !isSelfUpdateTarget(opts.source)) {
-			return pigletBinaryClosedRefusal(binary, "pig update --extensions")
+			return pigletBinaryClosedRefusal(binary, "ompig-slim update --extensions")
 		}
 	}
 	return ""
@@ -64,7 +64,7 @@ func pigletBinaryMcpRefusal(binary pigletBinary, args []string) string {
 	if len(args) < 2 || args[0] != "mcp" || args[1] != "add" || !pigletBinaryClosed(binary) {
 		return ""
 	}
-	return pigletBinaryClosedRefusal(binary, "pig mcp add")
+	return pigletBinaryClosedRefusal(binary, "ompig-slim mcp add")
 }
 
 // pigletBinaryMcpConfigRefusal is the message a closed Piglet Binary reports in place of the servers of the user and project mcp.json.

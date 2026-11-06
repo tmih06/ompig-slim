@@ -46,7 +46,7 @@ func exitOnConfigRootFailure() {
 	}
 	var unresolved *configroot.UnresolvedError
 	if err, ok := value.(error); ok && errors.As(err, &unresolved) {
-		_, _ = fmt.Fprintf(os.Stderr, "pig: %v\n", unresolved)
+		_, _ = fmt.Fprintf(os.Stderr, "ompig-slim: %v\n", unresolved)
 		exitProcess(1)
 		return
 	}

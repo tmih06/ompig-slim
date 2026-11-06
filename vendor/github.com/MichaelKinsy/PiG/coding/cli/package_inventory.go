@@ -52,16 +52,16 @@ func runPackageManagementCommand(args []string) int {
 	case "publish":
 		return runPackagePublish(context.Background(), args[1:], os.Stdout, os.Stderr)
 	default:
-		fmt.Fprintf(os.Stderr, "pig package: unknown command %q; use list, validate, or publish\n", args[0])
+		fmt.Fprintf(os.Stderr, "ompig-slim package: unknown command %q; use list, validate, or publish\n", args[0])
 		return 2
 	}
 }
 
 func printPackageManagementHelp() {
 	fmt.Print(`Usage:
-  pig package list [--json] [--no-input]
-  pig package validate <dir> [--json] [--no-input]
-  pig package publish [<dir>] --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
+  ompig-slim package list [--json] [--no-input]
+  ompig-slim package validate <dir> [--json] [--no-input]
+  ompig-slim package publish [<dir>] --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
 
 Package source is authored as ordinary package.json. Install, remove, update,
 and configure Packages through Pig's upstream-compatible top-level commands.
@@ -73,13 +73,13 @@ func runPackageList(args []string) int {
 	for _, arg := range args {
 		switch arg {
 		case "-h", "--help":
-			fmt.Println("Usage: pig package list [--json] [--no-input]")
+			fmt.Println("Usage: ompig-slim package list [--json] [--no-input]")
 			return 0
 		case "--json":
 			jsonOutput = true
 		case "--no-input":
 		default:
-			fmt.Fprintln(os.Stderr, "Usage: pig package list [--json] [--no-input]")
+			fmt.Fprintln(os.Stderr, "Usage: ompig-slim package list [--json] [--no-input]")
 			return 2
 		}
 	}
@@ -88,7 +88,7 @@ func runPackageList(args []string) int {
 		if jsonOutput {
 			writeJSON(packageOperationOutput{Command: "list", Success: false, Error: err.Error()})
 		} else {
-			fmt.Fprintf(os.Stderr, "pig package list: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ompig-slim package list: %v\n", err)
 		}
 		return 1
 	}
@@ -132,18 +132,18 @@ func runPackageValidate(args []string) int {
 			jsonOutput = true
 		case "--no-input":
 		case "-h", "--help":
-			fmt.Println("Usage: pig package validate <dir> [--json] [--no-input]")
+			fmt.Println("Usage: ompig-slim package validate <dir> [--json] [--no-input]")
 			return 0
 		default:
 			if strings.HasPrefix(arg, "-") || dir != "" {
-				fmt.Fprintln(os.Stderr, "Usage: pig package validate <dir> [--json] [--no-input]")
+				fmt.Fprintln(os.Stderr, "Usage: ompig-slim package validate <dir> [--json] [--no-input]")
 				return 2
 			}
 			dir = arg
 		}
 	}
 	if dir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: pig package validate <dir> [--json] [--no-input]")
+		fmt.Fprintln(os.Stderr, "Usage: ompig-slim package validate <dir> [--json] [--no-input]")
 		return 2
 	}
 	root, _ := filepath.Abs(dir)
