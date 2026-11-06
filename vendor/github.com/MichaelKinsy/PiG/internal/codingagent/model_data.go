@@ -152,8 +152,27 @@ func modelDefinitionEntry(providerID string, prov providerConfig, md modelDefini
 		CacheWriteCost:                cacheWriteCost,
 		CostTiers:                     costTiers,
 		PromptCache:                   maps.Clone(md.PromptCache),
+		Int:                           cloneFloat64(md.Int),
+		TPS:                           cloneFloat64(md.TPS),
+		Description:                   descriptionOf(md.Description),
 		Insecure:                      prov.Insecure,
 	}
+}
+
+// cloneFloat64 copies an optional number so an entry never aliases decoded configuration.
+func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	return new(*value)
+}
+
+// descriptionOf reads an optional string member, which is empty when absent.
+func descriptionOf(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func applyModelOverride(e *ModelEntry, ovr modelOverrideJSON) {
@@ -183,6 +202,8 @@ func applyModelOverride(e *ModelEntry, ovr modelOverrideJSON) {
 	if ovr.MaxTokens != nil {
 		e.MaxTokens = *ovr.MaxTokens
 	}
+	// upstream: provider-composer.ts applyModelOverride spreads the model and never reads override.int/tps/description,
+	// so those members are validated and then ignored, exactly as they are upstream.
 	if ovr.Cost != nil {
 		if ovr.Cost.Input != nil {
 			e.InputCost = *ovr.Cost.Input

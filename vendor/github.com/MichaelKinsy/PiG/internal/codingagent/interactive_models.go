@@ -330,7 +330,7 @@ func (m *InteractiveMode) showScopedModels() {
 		items := m.availableModelItems()
 		models := make([]tui.ModelItem, 0, len(items))
 		for _, item := range items {
-			models = append(models, tui.ModelItem{FullID: item.FQ(), Name: item.Name, Provider: item.Provider})
+			models = append(models, tui.ModelItem{FullID: item.FQ(), Name: item.Name, Provider: item.Provider, Model: item.Model})
 		}
 		return models
 	}

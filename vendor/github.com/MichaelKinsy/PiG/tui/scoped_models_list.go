@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 )
 
@@ -19,6 +20,9 @@ type ModelItem struct {
 	FullID   string // "provider/model-id"
 	Name     string // display name
 	Provider string
+	// Model is the enriched model the item came from, when the caller has one; it supplies the
+	// catalog metric columns and the selected model's fact block.
+	Model *ai.Model
 }
 
 // ScopedModelsConfig configures the scoped-models list.
@@ -340,15 +344,20 @@ func (s *ScopedModelsList) updateList() {
 		text(fg(th.Muted, "  No matching models"))
 	} else {
 		end := min(s.scroll+s.maxVisible, len(s.filteredItems))
+		// Metadata columns come from the same enriched models the scope list resolves, so a refresh
+		// that later supplies them repaints these rows without touching selection
+		// (scoped-models-selector.ts updateList).
+		rows := make([]ModelMetricRow, 0, end-s.scroll)
 		for i := s.scroll; i < end; i++ {
-			text(s.renderRow(i))
+			rows = append(rows, s.metricRow(i))
 		}
+		s.listContainer.Add(NewModelMetricRows(rows))
 		if s.scroll > 0 || end < len(s.filteredItems) {
 			text(fg(th.Muted, fmt.Sprintf("  (%d/%d)", s.cursor+1, len(s.filteredItems))))
 		}
 		s.listContainer.Add(NewSpacer(1))
 		if m, available := s.models[s.filteredItems[s.cursor].fullID]; available {
-			text(fg(th.Muted, "  Model Name: "+m.Name))
+			s.listContainer.Add(NewModelDetailFacts(m.Model, "Model unavailable"))
 		} else {
 			text(fg(th.Muted, "  Model unavailable"))
 		}
@@ -373,17 +382,24 @@ func (s *ScopedModelsList) updateList() {
 	s.footerText.SetText(footer)
 }
 
-func (s *ScopedModelsList) renderRow(i int) string {
+// metricRow is the rendered identity cell of row i plus the model its columns show.
+func (s *ScopedModelsList) metricRow(i int) ModelMetricRow {
 	th := ActiveTheme()
 	item := s.filteredItems[i]
 	m, available := s.models[item.fullID]
 	prefix := "  "
-	id := item.fullID
+	id := SanitizeModelText(item.fullID)
 	badge := fg(th.Muted, " [unavailable]")
 	status := "  "
+	var model *ai.Model
 	if available {
-		id = strings.TrimPrefix(m.FullID, m.Provider+"/")
-		badge = fg(th.Muted, " ["+m.Provider+"]")
+		model = m.Model
+		if model != nil {
+			id = SanitizeModelText(model.ID)
+		} else {
+			id = SanitizeModelText(strings.TrimPrefix(m.FullID, m.Provider+"/"))
+		}
+		badge = fg(th.Muted, " ["+SanitizeModelText(m.Provider)+"]")
 		if item.enabled {
 			status = fg(th.Accent, "✓ ")
 		}
@@ -396,11 +412,11 @@ func (s *ScopedModelsList) renderRow(i int) string {
 	}
 	nameText := ""
 	if available {
-		if name := GetDistinctModelName(ModelSearchItem{ID: strings.TrimPrefix(m.FullID, m.Provider+"/"), Name: m.Name}); name != "" {
+		if name := GetDistinctModelName(ModelSearchItem{ID: strings.TrimPrefix(m.FullID, m.Provider+"/"), Name: SanitizeModelText(m.Name)}); name != "" {
 			nameText = fg(th.Muted, " ("+name+")")
 		}
 	}
-	return prefix + status + id + nameText + badge
+	return ModelMetricRow{Left: prefix + status + id + nameText + badge, Model: model}
 }
 
 // footerParts mirrors upstream getFooterText's key hints and enabled count.
@@ -458,16 +474,26 @@ func (s *ScopedModelsList) NativeNode() (frontend.Node, bool) {
 		Status:      status,
 	}
 	for i, entry := range s.filteredItems {
-		item := frontend.SelectorItem{ID: entry.fullID, Label: entry.fullID, Detail: "unavailable"}
+		item := frontend.SelectorItem{ID: entry.fullID, Label: SanitizeModelText(entry.fullID), Detail: "unavailable"}
 		if m, available := s.models[entry.fullID]; available {
-			item.Label = strings.TrimPrefix(m.FullID, m.Provider+"/")
-			item.Detail = m.Provider
+			item.Label = SanitizeModelText(strings.TrimPrefix(m.FullID, m.Provider+"/"))
+			// A generic frontend lays out the detail itself, so it carries the provider badge and the
+			// catalog metric text the aligned columns show in the terminal.
+			item.Detail = SanitizeModelText(m.Provider)
+			if metrics := ModelMetricDetailText(m.Model); metrics != "" {
+				item.Detail += " · " + metrics
+			}
 			item.Checked = entry.enabled
 		}
 		node.Items[i] = item
 	}
 	if s.cursor >= 0 && s.cursor < len(node.Items) {
 		node.Selected = node.Items[s.cursor].ID
+		// The selected model's facts follow the save hint rather than replacing it.
+		selected := s.filteredItems[s.cursor]
+		if m, available := s.models[selected.fullID]; available && m.Model != nil {
+			node.Description += " · " + ModelDetailFactsText(m.Model, "Model unavailable")
+		}
 	}
 	return node, true
 }

@@ -69,7 +69,7 @@ func (c *modelSelectorCallbacks) cancel() {
 }
 
 func modelSelectorItemOf(model *ai.Model) ModelSelectorItem {
-	return ModelSelectorItem{Provider: model.ProviderID(), ID: model.ModelID(), Name: model.DisplayName}
+	return ModelSelectorItem{Provider: model.ProviderID(), ID: model.ModelID(), Name: model.DisplayName, Model: model}
 }
 
 // NewModelSelectorComponent is model-selector.ts's constructor: it builds the picker, loads the runtime's available models and the scoped
