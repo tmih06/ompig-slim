@@ -133,3 +133,117 @@ func (c *RuntimeCredentials) Delete(ctx context.Context, providerID string) erro
 	c.RemoveRuntimeAPIKey(providerID)
 	return nil
 }
+
+// ErrAccountCredentialsUnsupported reports a multi-account operation on a store that holds one
+// credential per provider. Mirrors upstream's absent account methods: callers that treat their
+// absence as "one account per provider" get this error instead.
+var ErrAccountCredentialsUnsupported = errors.New("credential store does not support multiple accounts")
+
+// AccountStore unwraps the runtime-key overlay and reports the base store's multi-account
+// capability, so callers can assert an overlay around a single-account store is not multi-account.
+func (c *RuntimeCredentials) AccountStore() (AccountCredentialStore, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if overlay, ok := c.store.(*RuntimeCredentials); ok {
+		return overlay.AccountStore()
+	}
+	store, ok := c.store.(AccountCredentialStore)
+	return store, ok && store != nil
+}
+
+func (c *RuntimeCredentials) accountStore() (AccountCredentialStore, error) {
+	if store, ok := c.AccountStore(); ok {
+		return store, nil
+	}
+	return nil, ErrAccountCredentialsUnsupported
+}
+
+// ReadAccount implements AccountCredentialStore: a runtime key masks the store's account, as it
+// masks the provider in Read, and every other read forwards the account key unchanged.
+func (c *RuntimeCredentials) ReadAccount(ctx context.Context, providerID string, accountKey *string) (*Credential, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	if key, ok := c.RuntimeAPIKey(providerID); ok && key != "" {
+		return &Credential{Type: CredentialAPIKey, Key: key}, nil
+	}
+	store, err := c.accountStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.ReadAccount(ctx, providerID, accountKey)
+}
+
+// ListAccounts forwards to the base store; the runtime overlay holds provider keys, not accounts.
+func (c *RuntimeCredentials) ListAccounts(ctx context.Context) ([]CredentialAccountInfo, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.ListAccounts(ctx)
+}
+
+// SaveAccount forwards to the base store.
+func (c *RuntimeCredentials) SaveAccount(ctx context.Context, providerID string, accountKey *string, credential Credential) ([]CredentialAccountInfo, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.SaveAccount(ctx, providerID, accountKey, credential)
+}
+
+// SelectAccount forwards to the base store.
+func (c *RuntimeCredentials) SelectAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return false, err
+	}
+	return store.SelectAccount(ctx, providerID, accountKey)
+}
+
+// DeleteAccount forwards to the base store.
+func (c *RuntimeCredentials) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return false, err
+	}
+	return store.DeleteAccount(ctx, providerID, accountKey)
+}
+
+// ModifyAccount forwards the account-keyed read-modify-write to the base store, which keeps its
+// refresh lease and its exact-row semantics (a nil key is the identity-less row, never the active one).
+func (c *RuntimeCredentials) ModifyAccount(ctx context.Context, providerID string, accountKey *string, fn func(current *Credential) (*Credential, error)) (*Credential, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.ModifyAccount(ctx, providerID, accountKey, fn)
+}
+
+// GetAccountBlockedUntil forwards to the base store.
+func (c *RuntimeCredentials) GetAccountBlockedUntil(ctx context.Context, providerID string, accountKey *string, scopes []string) (*int64, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.GetAccountBlockedUntil(ctx, providerID, accountKey, scopes)
+}
+
+// BlockAccount forwards to the base store.
+func (c *RuntimeCredentials) BlockAccount(ctx context.Context, providerID string, accountKey *string, scope string, untilMs int64) error {
+	store, err := c.accountStore()
+	if err != nil {
+		return err
+	}
+	return store.BlockAccount(ctx, providerID, accountKey, scope, untilMs)
+}
+
+// AccountCount forwards to the base store.
+func (c *RuntimeCredentials) AccountCount() (int, error) {
+	store, err := c.accountStore()
+	if err != nil {
+		return 0, err
+	}
+	return store.AccountCount()
+}
