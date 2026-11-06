@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, ompig-slim]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, ompig-slim]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: true
+      # Go's build, vet and test caches are keyed by package inputs and transitive
+      # dependencies: unchanged packages reuse successful results; unknown shared
+      # changes cannot silently select an empty test set.
+      - run: make check
+      - run: make build
+      - run: ./bin/ompig-slim --version
+      - run: ./bin/ompig-slim --help
