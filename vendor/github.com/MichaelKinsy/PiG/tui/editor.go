@@ -1410,6 +1410,9 @@ func (e *Editor) applySingleForcedCompletion(item AutocompleteItem, prefix strin
 	if e.OnChange != nil {
 		e.OnChange(e.Text())
 	}
+	if strings.HasPrefix(prefix, "/") {
+		e.refreshAutocomplete()
+	}
 }
 
 // naturalAutocompleteContext follows editor.ts buildTriggerPattern and isInSlashCommandContext. Provider path matching is broader than the contexts that automatically open the editor menu.
@@ -1787,6 +1790,8 @@ func (e *Editor) HandleInput(data string) {
 		case kb.Matches(data, KBInputTab):
 			if e.AutocompleteAccept() {
 				e.notifyChange()
+				// Tab continues into arguments; Enter below still submits the command.
+				e.refreshAutocomplete()
 			}
 			return
 		case kb.Matches(data, KBSelectConfirm):

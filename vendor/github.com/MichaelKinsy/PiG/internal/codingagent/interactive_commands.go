@@ -109,7 +109,8 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 		if b.Hidden {
 			continue
 		}
-		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint}
+		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint,
+			GetArgumentCompletions: builtinArgumentCompletions(b.ArgumentOptions)}
 		if b.Name == "login" {
 			sc.GetArgumentCompletions = m.loginArgCompletions
 		}

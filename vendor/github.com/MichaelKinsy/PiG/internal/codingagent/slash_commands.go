@@ -58,6 +58,9 @@ type BuiltinSlashCommand struct {
 	// ArgumentHint is shown after the command in autocomplete (e.g.
 	// "<provider/model>"). Optional. Mirrors upstream argumentHint.
 	ArgumentHint string
+	// ArgumentOptions lists first-argument choices in menu order, with their purpose.
+	// Dynamic choices (models, providers) remain owned by the interactive host.
+	ArgumentOptions []tui.AutocompleteItem
 	// TakesArguments is true for the commands whose line interactive-mode.ts matches with `text === "/name" || text.startsWith("/name ")`.
 	// The others match only the exact text, so "/session x" is not /session but a prompt.
 	TakesArguments bool
@@ -676,13 +679,13 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			}
 			return sc.Subagents("hub")
 		}},
-		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|hub|menu|settings]", TakesArguments: true, Handler: func(sc *SlashContext) error {
+		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|hub|menu|settings]", ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}
 			return sc.Subagents(sc.Args)
 		}},
-		{Name: "agents", Description: "Manage subagents, workflows and settings", TakesArguments: true, Handler: func(sc *SlashContext) error {
+		{Name: "agents", Description: "Manage subagents, workflows and settings", ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}
@@ -708,7 +711,10 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},
 		// /usage opens the quota board; `show` is the explicit form and `reset`
 		// spends a saved rate-limit reset, matching upstream's submit handler.
-		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]]", TakesArguments: true, Handler: usageHandler},
+		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]]", ArgumentOptions: []tui.AutocompleteItem{
+			{Value: "show", Label: "show", Description: "Show provider quotas and usage activity"},
+			{Value: "reset", Label: "reset", Description: "Choose a saved rate-limit reset to redeem"},
+		}, TakesArguments: true, Handler: usageHandler},
 		{Name: "changelog", Description: "Show changelog entries", Handler: changelogHandler},
 		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
 		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},
@@ -719,7 +725,9 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "new", Description: "Start a new session", Handler: newHandler},
 		{Name: "compact", Description: "Manually compact the session context", TakesArguments: true, Handler: compactHandler},
 		{Name: "resume", Description: "Resume another session", Handler: resumeHandler},
-		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", AdditiveArguments: func(rest string, _ bool) bool { return reloadExplainRequested(rest) }, Handler: reloadHandler},
+		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", ArgumentOptions: []tui.AutocompleteItem{
+			{Value: "--explain", Label: "--explain", Description: "Reload and explain resource placement"},
+		}, AdditiveArguments: func(rest string, _ bool) bool { return reloadExplainRequested(rest) }, Handler: reloadHandler},
 		{Name: "quit", Description: "Quit " + AppName, Handler: quitHandler},
 		// Hidden: dispatchable but absent from /help and autocomplete, matching
 		// upstream (handled inline in the submit handler, not in the canonical
