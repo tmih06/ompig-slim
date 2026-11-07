@@ -19,8 +19,9 @@ var throughputNow = time.Now
 //	TPS 12.9 tok/s. out 76, in 210, cache r/w 192,256/0, total 192,542, 5.9s
 //
 // out is the generated tokens, so it is the numerator of the rate. in, cache r/w and total are sums over the run's assistant
-// messages. Time is measured from agent_start, so it includes tool execution and provider waiting. It reports nothing when the
-// run generated no tokens or has no measurable elapsed time.
+// messages. Time is measured from agent_start, so it includes tool execution and provider waiting; it uses Go's compact duration
+// form (for example, 25m50.7s) so long runs are easier to scan. It reports nothing when the run generated no tokens or has no
+// measurable elapsed time.
 func formatThroughput(messages []agent.AgentMessage, elapsedMs float64) string {
 	input, output, cacheRead, cacheWrite, totalTokens := 0, 0, 0, 0, 0
 	for _, message := range messages {
@@ -45,7 +46,21 @@ func formatThroughput(messages []agent.AgentMessage, elapsedMs float64) string {
 		", in " + formatThousands(input) +
 		", cache r/w " + formatThousands(cacheRead) + "/" + formatThousands(cacheWrite) +
 		", total " + formatThousands(totalTokens) +
-		", " + jsstring.ToFixed(elapsedSeconds, 1) + "s"
+		", " + formatElapsedDuration(time.Duration(elapsedMs*float64(time.Millisecond)).Round(100*time.Millisecond))
+}
+
+// formatElapsedDuration extends time.Duration's compact format with day units; Go's default prints whole days as large hour counts.
+func formatElapsedDuration(d time.Duration) string {
+	const day = 24 * time.Hour
+	days := d / day
+	remainder := d % day
+	if days == 0 {
+		return remainder.String()
+	}
+	if remainder == 0 {
+		return strconv.FormatInt(int64(days), 10) + "d"
+	}
+	return strconv.FormatInt(int64(days), 10) + "d " + remainder.String()
 }
 
 // formatThousands is Number.prototype.toLocaleString for an integer: comma thousands separators and a leading minus sign,
