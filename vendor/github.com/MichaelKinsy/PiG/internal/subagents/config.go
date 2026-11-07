@@ -47,7 +47,7 @@ type Settings struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, AgentMentions: "model", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant", FallbackSubagent: "general-purpose"}
+	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, AgentMentions: "direct", ToolDescriptionMode: "compact", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant", FallbackSubagent: "general-purpose"}
 }
 
 func LoadSettings(cwd, agentDir string) (Settings, []string) {
@@ -93,8 +93,13 @@ func LoadSettings(cwd, agentDir string) (Settings, []string) {
 	if !slices.Contains([]string{"all", "background", "off"}, s.WidgetMode) {
 		s.WidgetMode = "background"
 	}
-	if !slices.Contains([]string{"model", "direct", "off"}, s.AgentMentions) {
-		s.AgentMentions = "model"
+	// A mention already identifies its target and task; never pay a separate
+	// model to rewrite it. Existing "model" settings now dispatch directly.
+	if !slices.Contains([]string{"direct", "off"}, s.AgentMentions) {
+		s.AgentMentions = "direct"
+	}
+	if !slices.Contains([]string{"full", "compact", "custom"}, s.ToolDescriptionMode) {
+		s.ToolDescriptionMode = "compact"
 	}
 	if !slices.Contains([]string{"async", "group", "smart"}, s.DefaultJoinMode) {
 		s.DefaultJoinMode = "smart"

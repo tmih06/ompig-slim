@@ -1,0 +1,24 @@
+Run a deterministic JavaScript workflow in the background. Use ONLY when the user explicitly requested a workflow, named workflow, or multi-agent orchestration. Prefer direct tools/local code for search, parsing, filtering, aggregation, tests, and other mechanical work; do not pay agents to execute known commands or verify test exit codes.
+
+Choose script (inline JavaScript), scriptPath (existing file), or name (saved workflow). The tool saves inline scripts and returns their path and run ID; reuse scriptPath/name instead of resending source. args is an actual JSON value, not a JSON-encoded string.
+
+Scripts begin with a pure literal:
+export const meta = {name:'task', description:'One-line task', phases:[{title:'Scan'}]};
+phase('Scan');
+const results = await pipeline(args, item => agent(`Investigate ${item}`, {label:item}));
+return results.filter(Boolean);
+
+No TypeScript, filesystem, Node APIs, eval, Function, Date.now(), Math.random(), or argless new Date(). Pass timestamps/random inputs through args. Standard JSON/Array/Object/string operations run locally without model calls.
+
+Hooks:
+- agent(prompt, opts?): Promise<string|object|null>. Each call spends model tokens. opts: label, phase, agentType, model, effort, isolation:'worktree', gate:'shell command', schema:JSONSchema, resume:'prior label'. Omit model/effort to inherit; choose worktree only for conflicting parallel edits. schema returns validated StructuredOutput, not prose. Failure/skip returns null; filter it before downstream work. resume reuses that child's context and cannot combine with agentType/model/effort/isolation/gate/schema.
+- gate runs a local command after the agent and fails on a nonzero exit; use this rather than an agent judging test results.
+- pipeline(items, ...stages): each item's stages run in order, different items concurrently. Stage receives (previousResult, originalItem, index). Throw drops that item to null. Prefer this for independent work.
+- parallel(thunks): await all; ordinary per-item failures become null, fatal cap/nested-load errors throw. Use a barrier only when downstream work needs all prior results together.
+- phase(title), log(message): local progress display. Use matching titles in meta.phases; explicit opts.phase avoids concurrent phase races.
+- workflow(nameOrRef, args?): nested saved workflow (name or {scriptPath}); shares limits and cancellation. One nesting level.
+- budget.total is null; budget.spent() reports output tokens; budget.remaining() is Infinity. No automatic spend target is implied.
+
+Concurrency is bounded by min(16, CPUs-2), total agents by 1000, pipeline/parallel input by 4096. These are safety ceilings, not recommended scale. Use the fewest model calls needed; deduplicate and validate locally before spawning more agents. Do not infer permission for a workflow from a task's complexity.
+
+Completion sends a notification; inspect with get_subagent_result or /agents. Resume a stopped/completed run using {scriptPath, resumeFromRunId}: unchanged successful leading agent calls replay locally at no model cost. First changed/new/failed call ends replay; later calls run live. Same session only. Inspect the saved .workflow.jsonl journal to diagnose results before retrying paid work.

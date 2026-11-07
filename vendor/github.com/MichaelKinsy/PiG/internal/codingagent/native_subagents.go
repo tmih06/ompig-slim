@@ -196,13 +196,13 @@ func (w *nativeAgentWidget) Render(width int) []string {
 			overflow++
 			continue
 		}
-		lines = append(lines, theme.Fg("border", "├─ ")+subagentIcon(r)+" "+subagentName(r)+"  "+theme.Fg("text", r.Description)+theme.Fg("muted", " · "+subagentStats(r, s)))
+		lines = append(lines, theme.Fg("dim", "├─ ")+subagentIcon(r)+" "+subagentName(r)+"  "+theme.Fg("muted", r.Description)+theme.Fg("dim", " · "+subagentStats(r, s)))
 		if r.Active() {
 			activity := r.Activity
 			if activity == "" {
 				activity = "thinking…"
 			}
-			lines = append(lines, theme.Fg("border", "│    ⎿  ")+theme.Fg("accent", activity))
+			lines = append(lines, theme.Fg("dim", "│    ⎿  "+activity))
 		}
 	}
 	if queued > 0 {
@@ -223,13 +223,9 @@ func (w *nativeAgentWidget) Render(width int) []string {
 			break
 		}
 	}
-	lines = append([]string{theme.Fg("accent", tui.ChalkBold("● Agents"))}, lines...)
+	lines = append([]string{theme.Fg("accent", "● Agents")}, lines...)
 	for i := range lines {
-		background := "toolPendingBg"
-		if i == 0 {
-			background = "customMessageBg"
-		}
-		lines[i] = hubSurface(lines[i], width, background)
+		lines[i] = clampAgentLine(lines[i], width)
 	}
 	return lines
 }
@@ -461,7 +457,7 @@ func (m *InteractiveMode) subagentSettings(ctx context.Context, manager *subagen
 			{"defaultMaxTurns", "Default max turns", "Default turns before wrap-up (0 = unlimited, Enter to type)", nil},
 			{"graceTurns", "Grace turns", "Grace turns after wrap-up steer (Enter to type)", nil},
 			{"maxSubagentDepth", "Nested depth", "Hard cap on nested delegation; main is 0 (Enter to type)", nil},
-			{"defaultJoinMode", "Join mode", "smart = completions at the parent's next boundary; group = one notification per batch", []string{"smart", "group"}},
+			{"defaultJoinMode", "Join mode", "smart = batch siblings while parent is idle; group = always batch (up to 30s)", []string{"smart", "group"}},
 			{"backgroundByDefault", "Background by default", "An Agent call that doesn't say runs detached", nil},
 			{"schedulingEnabled", "Scheduling", "Schedule agents using cron, intervals, or one-shot timestamps", nil},
 			{"workflowsEnabled", "Workflows", "Deterministic scripted workflow orchestration", nil},
@@ -470,10 +466,10 @@ func (m *InteractiveMode) subagentSettings(ctx context.Context, manager *subagen
 			{"scopeModels", "Scope models", "Require caller-selected models to match enabledModels", nil},
 			{"strictAgentFiles", "Strict agent files", "Refuse activation when a local agent file is invalid", nil},
 			{"disableDefaultAgents", "Disable default agents", "Hide embedded agents; your custom files remain available", nil},
-			{"agentMentions", "Agent mentions", "model = clone orchestration; direct = start immediately; off = file mentions only", []string{"model", "direct", "off"}},
+			{"agentMentions", "Agent mentions", "direct = start immediately without an orchestration model call; off = file mentions only", []string{"direct", "off"}},
 			{"rememberAgents", "Remember agents", "Keep completed agents addressable across session reloads", nil},
 			{"widgetMode", "Widget", "Which agents appear above the editor", []string{"background", "all", "off"}},
-			{"toolDescriptionMode", "Tool description", "Full, compact, or project-authored tool descriptions", []string{"full", "compact", "custom"}},
+			{"toolDescriptionMode", "Tool description", "Compact by default; full or project-authored descriptions are opt-in", []string{"full", "compact", "custom"}},
 			{"outputTranscript", "Output transcript", "Write streaming JSONL .output files", nil},
 			{"worktreeIsolation", "Worktree isolation", "Allow temporary git worktrees for parallel edits", nil},
 			{"reportUsage", "Report usage", "Include subagent token usage in tool results", nil},
@@ -755,7 +751,7 @@ func (v *subagentViewer) Render(width int) []string {
 		v.follow = true
 		v.newMessages = 0
 	}
-	lines := []string{hubSurface(tui.ChalkBold(title), width, "customMessageBg"), theme.Fg("border", strings.Repeat("─", max(1, width)))}
+	lines := []string{clampAgentLine(title, width), theme.Fg("borderMuted", strings.Repeat("─", max(1, width)))}
 	for i := 0; i < viewport; i++ {
 		line := ""
 		if idx := v.scroll + i; idx < len(body) {
@@ -794,7 +790,7 @@ func (v *subagentViewer) Render(width int) []string {
 		footer = "Press x again to stop · esc cancel"
 	}
 	v.footerRow = len(lines)
-	lines = append(lines, hubSurface(hubKeys(footer), width, "toolPendingBg"))
+	lines = append(lines, theme.Fg("dim", clampAgentLine(footer, width)))
 	return lines
 }
 func (v *subagentViewer) HandleInput(data string) {

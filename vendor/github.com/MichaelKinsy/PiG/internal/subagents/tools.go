@@ -59,7 +59,7 @@ func (t *Tool) Schema() ai.ToolSchema {
 		}
 		required = []string{"prompt", "description", "subagent_type"}
 	case "get_subagent_result":
-		description = "Check status and retrieve a background agent's full result. Completion notifications contain only a preview."
+		description = "Retrieve agent status or a full result when the notification was truncated. Short notifications already contain the result. Use wait:true when completion is required; do not poll."
 		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false."), "verbose": property("boolean", "Include the full conversation and tool calls.")}
 		required = []string{"agent_id"}
 	case "steer_subagent":
@@ -138,7 +138,7 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 		}
 		result := textResult(r.Result, r)
 		result.IsError = r.Status == "error" || r.Status == "aborted"
-		if r.Error != "" {
+		if r.Error != "" && r.Error != r.Result {
 			result.Content = append(result.Content, ai.TextContent{Text: r.Error})
 		}
 		return result, nil
@@ -171,7 +171,7 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 			return agent.AgentToolResult{}, err
 		}
 		out := fmt.Sprintf("Agent %s (%s): %s\n", r.ID, r.Type, r.Status) + r.Result
-		if r.Error != "" {
+		if r.Error != "" && r.Error != r.Result {
 			out += "\nError: " + r.Error
 		}
 		if p.Verbose {

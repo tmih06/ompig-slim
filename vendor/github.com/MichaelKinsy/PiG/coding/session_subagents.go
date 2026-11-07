@@ -48,7 +48,6 @@ func (s *Session) initSubagents(opts SessionOptions) error {
 			_ = s.SendMessage(extension.CustomMessageRef{CustomType: "subagents:notification", Content: text, Display: true}, &extension.SendMessageOptions{TriggerTurn: new(true), DeliverAs: extension.DeliverAsSteer})
 		},
 		ParentRunning: s.IsStreaming,
-		Mention:       s.orchestrateAgentMention,
 		Subscribe:     func(fn func(agent.AgentEvent)) func() { return s.Subscribe(AgentSessionEventListener(fn)) },
 		InstalledPackages: func() []subagents.PackageRoot {
 			manager := packagemanager.NewPackageManager(packagemanager.PackageManagerOptions{CWD: s.CWD(), AgentDir: s.services.AgentDir(), SettingsManager: s.services.SettingsManager()})
@@ -106,26 +105,6 @@ func (s *Session) initSubagents(opts SessionOptions) error {
 	}
 
 	return s.syncSubagentTools()
-}
-
-func (s *Session) orchestrateAgentMention(ctx context.Context, agentType, message string) error {
-	clone, err := NewSession(s.services, SessionOptions{Model: s.Model(), ThinkingLevel: s.ThinkingLevel(), ResourceLoader: NoResources, SystemPrompt: s.agent.SystemPrompt(), Tools: s.Tools(), SkipBuiltinTools: true, NoSession: true, subagentChild: true})
-	if err != nil {
-		return err
-	}
-	defer clone.Close()
-	for _, msg := range s.Messages() {
-		if msg.Role() == "system" {
-			continue
-		}
-		if _, err = clone.inner.AppendMessage(msg); err != nil {
-			return err
-		}
-	}
-	clone.refreshContext()
-	prompt := fmt.Sprintf("<agent_mention>\nThe user addressed @%s with this message:\n%s\nDelegate it now by calling Agent with subagent_type=%q and run_in_background=true. Write a self-contained task using the conversation context. Do not answer the user's task yourself.\n</agent_mention>", agentType, message, agentType)
-	_, err = clone.Send(ctx, prompt)
-	return err
 }
 
 func (s *Session) syncSubagentTools() error {

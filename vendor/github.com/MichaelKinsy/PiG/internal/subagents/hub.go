@@ -3,6 +3,7 @@ package subagents
 // Native host data for oh-my-pi packages/tui/src/overlays/agent-hub.ts and
 // packages/coding-agent/src/modes/agent-hub-runtime.ts at f2b795ba747b23d42052184d822b41e3d01357cc.
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -74,6 +75,22 @@ func (m *Manager) HubSnapshot() []HubAgent {
 		out = append(out, HubAgent{Record: cloneRecord(r.Record), State: state, LastActive: last, Usage: usage, Measured: r.Turns > 0 || usage.TotalTokens > 0 || usage.Cost.Total > 0})
 	}
 	return out
+}
+
+// Restore the chronological ring across all agent records, preserving event IDs
+// so new activity continues after the saved entries rather than colliding.
+func (m *Manager) restoreHubActivity() {
+	slices.SortFunc(m.hubActivity, func(a, b HubActivity) int { return cmp.Compare(a.ID, b.ID) })
+	if len(m.hubActivity) > hubActivityLimit {
+		m.hubActivity = slices.Clone(m.hubActivity[len(m.hubActivity)-hubActivityLimit:])
+	}
+	for i := range m.hubActivity {
+		e := &m.hubActivity[i]
+		m.hubSequence = max(m.hubSequence, e.ID)
+		if e.Status == "pending" {
+			e.Status = "aborted"
+		}
+	}
 }
 
 func (m *Manager) HubActivity() []HubActivity {
@@ -299,6 +316,15 @@ func (m *Manager) persistRecord(snapshot Record) error {
 		if r.ID == snapshot.ID {
 			snapshot = cloneRecord(r.Record)
 			break
+		}
+	}
+	// Store this agent's retained events with its existing session record.
+	// Iterate the ring chronologically, including updated tool results.
+	snapshot.HubActivity = nil
+	for i := 0; i < len(m.hubActivity); i++ {
+		e := m.hubActivity[(m.hubNext+i)%len(m.hubActivity)]
+		if e.AgentID == snapshot.ID {
+			snapshot.HubActivity = append(snapshot.HubActivity, e)
 		}
 	}
 	m.mu.Unlock()

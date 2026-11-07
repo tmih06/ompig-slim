@@ -94,7 +94,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | Usage | `/usage` plan-grouped quota dashboard, detail view, refresh/caching, reset/daybreak/credit displays, and local 371-day activity heatmap with fork de-duplication |
 | Model metadata | Persisted catalog, two-hour freshness, ETag/304 handling, failed-fetch backoff, safe model-family matching, explicit-field protection, and generation-aware enrichment caches |
 | Model selectors | Intelligence/TPS/context/cost columns and selected-model facts in both `/model` and `/scoped-models` |
-| Output and themes | Per-run throughput including tool/wait time, contrasting dark/light palettes, semantic Agent Hub surfaces, and a fitting-line ANSI truncation fast path |
+| Output and themes | Per-run throughput including tool/wait time, shared OMP theme tokens, native Agent Hub styling, and a fitting-line ANSI truncation fast path |
 | Distribution | Linux/macOS x64/arm64 archives, checksums, bundled license notices, native Go validation, and personal-fork release notifications |
 
 Added provider IDs: `aiand`, `aimlapi`, `alibaba-coding-plan`, `alibaba-token-plan`, `cline-pass`, `commandcode`, `coralbricks`, `deepinfra`, `inception`, `kilo`, `modular`, `ollama-cloud`, `sambanova`, `scaleway`, `synthetic`, and `venice`.
@@ -117,6 +117,14 @@ scheduled jobs, and settings. Enabled sessions expose the `Agent`,
 Agents run in the background by default, with ten background slots and a
 separate foreground pool. Completion notifications reach the parent at a
 turn boundary; callers can also retrieve the full result or resume an agent.
+The default `smart` join batches sibling completions for up to 30 seconds while
+its parent is idle, avoiding a separate parent turn for each completion.
+
+Cost-saving defaults use compact tool descriptions and dispatch `@agent`
+mentions directly, without a model call just to route the task. Human-directed
+child conversations do not wake the parent model on completion. Cache warming
+retains its savings-based policy; it is not disabled merely to reduce token
+counts. See [cost audit](docs/cost-audit.md) for findings and trade-offs.
 
 The above-editor tree shows live activity, turns (`0/2 turns`), tool uses,
 tokens, context usage, and compactions. Agent creation cards stay on one line:
@@ -130,11 +138,10 @@ session without a model turn, and **x** to kill the selected agent. On narrow
 terminals, **Shift+Tab** opens its details. In Activity, **f** changes event filters,
 **s** changes scope, and **Space** toggles following.
 
-The Hub uses a full-row selection highlight, separate roster and inspector
-surfaces, colored status labels, and a context meter that changes color as it
-fills. The agent tree and tool cards share the same palette. The `system`
-theme follows terminal colors and uses the built-in dark/light palette when
-the terminal cannot report its colors; custom themes keep their own tokens.
+The Hub follows OMP's default styling: terminal-native backgrounds, accent
+chips for the active tab and view, an accent cursor for keyboard selection,
+and a background highlight on mouse hover. Headings and statuses use the
+selected theme's semantic colors.
 
 In a focused agent conversation, type to steer a running agent or resume a
 settled session. Empty **Esc** or double **Left** returns to the main prompt;

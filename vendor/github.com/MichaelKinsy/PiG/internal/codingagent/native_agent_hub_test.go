@@ -177,14 +177,31 @@ func BenchmarkHubTreeProjection(b *testing.B) {
 	}
 }
 
-func TestHubMouseSelectionAndInspectorScroll(t *testing.T) {
+func TestHubMouseSelectionAndFixedInspector(t *testing.T) {
 	m, _ := observerFixture(t)
 	m.toggleAgentHub()
 	h := m.subagentUI.hub
-	h.Render(120)
-	result := h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseWheel, X: 110, WheelDelta: 1})
-	if !result.Handled || h.detailScroll != 3 {
-		t.Fatal("inspector wheel was not local")
+	before := strings.Join(h.Render(120), "\n")
+	selected := h.selected
+	for _, delta := range []int{1, -1, 20} {
+		result := h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseWheel, X: 110, WheelDelta: delta})
+		if !result.Handled || h.selected != selected || strings.Join(h.Render(120), "\n") != before {
+			t.Fatal("inspector wheel changed the fixed panel or roster selection")
+		}
+	}
+	for _, key := range []string{"\x1b[6~", "\x1b[5~"} {
+		h.HandleInput(key)
+		if strings.Join(h.Render(120), "\n") != before {
+			t.Fatal("page key scrolled the inspector")
+		}
+	}
+	h.Render(80)
+	h.HandleInput("\x1b[Z")
+	before = strings.Join(h.Render(80), "\n")
+	h.HandleInput("\x1b[6~")
+	h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseWheel, X: 40, WheelDelta: 1})
+	if strings.Join(h.Render(80), "\n") != before {
+		t.Fatal("narrow inspector scrolled")
 	}
 	h.HandleInput("2")
 	h.HandleInput("f")
@@ -194,35 +211,126 @@ func TestHubMouseSelectionAndInspectorScroll(t *testing.T) {
 	}
 }
 
-func TestHubSelectionUsesWholeRowSurfaces(t *testing.T) {
+func TestHubInspectorCompactRecentActivity(t *testing.T) {
+	m, manager := observerFixture(t)
+	m.toggleAgentHub()
+	h := m.subagentUI.hub
+	h.Render(130)
+	for range 10 {
+		if err := manager.KillObserved(h.selected); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.refresh()
+	for _, height := range []int{8, 24, 40, 100} {
+		h.height = height
+		lines := h.details(50)
+		text := widthx.StripTerminalSequences(strings.Join(lines, "\n"))
+		if strings.Contains(text, "Last response") || strings.Contains(text, "Found auth.go") {
+			t.Fatal("inspector still shows the last response")
+		}
+		if len(lines) > height-5 {
+			t.Fatalf("inspector exceeds available height: %d > %d", len(lines), height-5)
+		}
+		count := strings.Count(text, "Killed · Agent instance released")
+		if count > 3 || (height >= 24 && count != 3) {
+			t.Fatalf("expected at most three compact recent events, got %d", count)
+		}
+		for _, line := range lines {
+			if widthx.VisibleWidth(line) > 50 {
+				t.Fatal("inspector overflowed its width")
+			}
+		}
+	}
+	// Narrow summaries stay one row per event instead of wrapping the log.
+	lines := h.details(18)
+	text := widthx.StripTerminalSequences(strings.Join(lines, "\n"))
+	if strings.Count(text, "Killed") != 3 {
+		t.Fatal("narrow inspector lost its three-event summary")
+	}
+	for _, line := range lines {
+		if widthx.VisibleWidth(line) > 18 {
+			t.Fatal("recent event was not trimmed to inspector width")
+		}
+	}
+}
+
+func TestHubUsesOMPSelectionAndHoverStyling(t *testing.T) {
 	m, _ := observerFixture(t)
 	m.toggleAgentHub()
 	h := m.subagentUI.hub
 	lines := h.Render(130)
 	theme := tui.ActiveTheme()
 	selected := theme.GetBgAnsi("selectedBg")
+	firstRow := -1
+	for row, index := range h.hitRows {
+		if index != h.index {
+			continue
+		}
+		if firstRow < 0 || row < firstRow {
+			firstRow = row
+		}
+		if strings.Contains(lines[row], selected) {
+			t.Fatal("keyboard selection must use an accent cursor, not a filled row")
+		}
+	}
+	if firstRow < 0 || !strings.Contains(lines[firstRow], theme.Fg("accent", "›")) {
+		t.Fatal("selected row is missing OMP's accent cursor")
+	}
+	for _, row := range []int{0, 5, 10, len(lines) - 1} {
+		for _, token := range []string{"customMessageBg", "toolPendingBg", "selectedBg"} {
+			if strings.Contains(lines[row], theme.GetBgAnsi(token)) {
+				t.Fatalf("row %d has an unwanted panel fill", row)
+			}
+		}
+	}
+	h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseMove, X: 5, Y: firstRow})
+	lines = h.Render(130)
 	count := 0
 	for row, index := range h.hitRows {
 		if index == h.index {
 			if !strings.Contains(lines[row], selected) {
-				t.Fatalf("selected agent row %d has no selection surface", row)
+				t.Fatalf("hovered row %d has no hover background", row)
 			}
 			if widthx.VisibleWidth(lines[row]) != 130 {
-				t.Fatal("surface did not fill the viewport width")
+				t.Fatal("hover fill overflowed")
 			}
 			count++
 		}
 	}
 	if count != 3 {
-		t.Fatalf("expected all three selected rows to be highlighted, got %d", count)
+		t.Fatalf("expected three hovered lines, got %d", count)
 	}
-	if !strings.Contains(lines[0], theme.GetBgAnsi("customMessageBg")) || !strings.Contains(lines[5], theme.GetBgAnsi("toolPendingBg")) {
-		t.Fatal("Hub chrome and roster must use separate surfaces")
+	h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseMove, X: 110, Y: firstRow})
+	if h.hovered != "" {
+		t.Fatal("hover did not clear in the inspector")
 	}
-	// Nested chips must restore the surrounding panel, including full resets.
-	panel := theme.GetBgAnsi("toolPendingBg")
-	painted := hubSurface(theme.Bg("selectedBg", "selected")+"\x1b[0m tail", 30, "toolPendingBg")
-	if !strings.Contains(painted, "\x1b[0m"+panel) {
-		t.Fatal("full reset did not restore enclosing surface")
+	h.narrow = true // Remembered inspector pane after resizing back to a wide terminal.
+	h.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseMove, X: 5, Y: firstRow})
+	if h.hovered == "" {
+		t.Fatal("remembered narrow details blocked hover in a wide Hub")
+	}
+	h.HandleInput("j")
+	if h.hovered != "" {
+		t.Fatal("keyboard navigation retained hover fill")
+	}
+}
+
+func TestHubOMPChipsAndModelBadge(t *testing.T) {
+	theme := tui.ActiveTheme()
+	if hubChip("Flat", true) != theme.Bg("selectedBg", tui.ChalkBold(theme.Fg("accent", " Flat "))) {
+		t.Fatal("active view chip differs from OMP styling")
+	}
+	if hubChip("By parent", false) != theme.Fg("muted", " By parent ") {
+		t.Fatal("inactive chip differs from OMP styling")
+	}
+	if strings.Contains(widthx.StripTerminalSequences(hubModel("fixture", "off")), "off") {
+		t.Fatal("off thinking level should be hidden")
+	}
+	if !strings.Contains(hubModel("fixture", "high"), theme.Fg("thinkingHigh", "high")) {
+		t.Fatal("thinking badge lost its level color")
+	}
+	if hubStatus("parked", "parked") != theme.Fg("muted", "parked") {
+		t.Fatal("parked status must use OMP's muted tone")
 	}
 }
