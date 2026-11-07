@@ -32,6 +32,10 @@ type Editor struct {
 	// EmbedWorkingStatus opts into the coding-agent status border.
 	EmbedWorkingStatus     bool
 	workingStatusIndicator *StatusIndicator
+	// TopRightStatus supplies an optional single-line border label within the available cells. It runs on the editor owner loop.
+	TopRightStatus   func(int) string
+	topRightBudget   int
+	topRightRendered string
 	// BorderColor colors a complete border after layout and truncation. Nil selects the application-derived default.
 	BorderColor func(string) string
 	// Focused emits widthx.CursorMarker so the TUI can position the hardware cursor for IME candidate windows.
@@ -1022,6 +1026,7 @@ func (e *Editor) Render(width int) []string {
 	// Mirrors editor.ts:451-465.
 	top := e.renderTopBorder(width, e.scrollOffset)
 	top = e.renderStatusBorder(width, e.scrollOffset, top)
+	top = e.renderTopRightStatus(width, top)
 	out := make([]string, 0, len(visible)+2)
 	out = append(out, top)
 	out = append(out, visible...)

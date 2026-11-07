@@ -124,6 +124,7 @@ func (m *InteractiveMode) switchModel(ctx context.Context, spec string, persist 
 	}
 	showModel := func() {
 		m.opts.Model = newModel
+		m.promptQuotaModelChanged()
 		m.statusLine.SetModel(newModel)
 		m.refreshThinkingLevel()
 	}
@@ -277,6 +278,7 @@ func (m *InteractiveMode) cycleModel(forward bool) {
 		return
 	}
 	m.opts.Model = result.Model
+	m.promptQuotaModelChanged()
 	m.statusLine.SetModel(result.Model)
 	m.refreshThinkingLevel()
 	m.awaitModelChange(ctx, func() error {

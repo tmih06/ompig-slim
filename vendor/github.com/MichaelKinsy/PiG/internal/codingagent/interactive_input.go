@@ -848,6 +848,7 @@ func (m *InteractiveMode) defaultCustomEditor() *CustomEditor {
 	} else {
 		m.customEditor = wrapCustomEditor(m.editor, m.keybindings, superInput, options)
 	}
+	m.editor.TopRightStatus = m.promptQuotaLabel
 	m.setupKeyHandlers(m.customEditor)
 	return m.customEditor
 }

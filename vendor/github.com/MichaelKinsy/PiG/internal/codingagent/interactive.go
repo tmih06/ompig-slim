@@ -424,6 +424,7 @@ type InteractiveMode struct {
 	// usageService fetches provider quotas for the board. nil leaves the board
 	// without a quota source (no credentials wired), which it reports as empty.
 	usageService UsageQuotaService
+	promptQuota  *promptQuotaState
 
 	// App-level keybinding registry loaded from <agentDir>/keybindings.json.
 	// Mirrors upstream core/keybindings.ts for interactive-mode bindings.
@@ -1039,7 +1040,7 @@ type InteractiveModeOptions struct {
 	// tools are active (caller/extension tools unaffected). nil = all
 	// built-in tools. Mirrors upstream defaultActiveToolNames (sdk.ts:244),
 	// except that omp-slim's default set is [read, bash, edit, write, grep,
-	// find, codemode]; `ls` and `powershell` are inactive unless requested
+	// find, codemode, web_search, web_fetch]; `ls` and `powershell` are inactive unless requested
 	// via --tools.
 	ActiveBuiltinTools map[string]struct{}
 	// InitialActiveToolNames is the --tools list in the caller's order (upstream initialActiveToolNames, sdk.ts:272-276):
@@ -1129,8 +1130,8 @@ type InteractiveModeOptions struct {
 	// it from the session's credential store and auth runtime; nil leaves the
 	// board without a quota source.
 	UsageService UsageQuotaService
-	// UsageAccountKey reports the account this session is routed to for a
-	// provider. present is false when the runtime holds no routing decision,
+	// UsageAccountKey reports the accepted live attempt or last confirmed account for this session's
+	// selected model. present is false when the runtime holds no routing decision,
 	// which asks the quota service for the store's active account; a present
 	// result passes its key through, nil included, because a nil key names an
 	// identity-less account rather than the default.
@@ -1676,6 +1677,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	mark("tui-layout-built")
 	editorPaddingX, autocompleteMaxVisible := m.opts.Settings.GetEditorPaddingX(), m.opts.Settings.GetAutocompleteMaxVisible()
 	m.editor = NewEditorWithOptions(CustomEditorOptions{UI: m.tuiInst, PaddingX: &editorPaddingX, AutocompleteMaxVisible: &autocompleteMaxVisible, EmbedWorkingStatus: true})
+	m.editor.TopRightStatus = m.promptQuotaLabel
 	m.bindEditorSnapshot()
 	m.defaultCustomEditor()
 	m.bindEditorSnapshot()
@@ -1954,6 +1956,7 @@ func (m *InteractiveMode) run(ctx context.Context) error {
 
 	// Start spinner ticker
 	go m.tickSpinner(ctx)
+	m.startPromptQuota(m.backgroundCtx)
 
 	m.startGitBranchWatcher(ctx)
 

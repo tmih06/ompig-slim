@@ -34,8 +34,7 @@ type AccountRotation struct {
 
 // AccountRouteRequest is what one request tells the router about itself.
 type AccountRouteRequest struct {
-	// SessionID pins a session's successes per model, so its next turn reuses the account that
-	// worked for it.
+	// SessionID pins a session's successes per model within the router's plan priority.
 	SessionID string
 	// APIKeySet reports that the request carries an explicit key. An explicit key is the caller's
 	// account decision: routing is bypassed so it is never rotated past.
@@ -82,7 +81,10 @@ type AccountRouter struct {
 	credentials AccountCredentialStore
 	now         func() time.Time
 
-	mu sync.Mutex
+	mu              sync.Mutex
+	activeRoutes    map[accountRouteIdentity]map[uint64]*string
+	confirmedRoutes map[accountRouteIdentity]*string
+	routeSequence   uint64
 	// affinity is provider → session → model → the account key that session's last success used.
 	affinity map[string]map[string]map[string]*string
 	// localBlocks holds this run's blocks by provider → account → scope, so an account stays
@@ -129,8 +131,8 @@ func (r *AccountRouter) OnRotation(listener func(AccountRotation)) func() {
 	}
 }
 
-// ClearProvider drops this runtime's successful-request affinity for a provider, so an explicit
-// login or account change takes effect on the next request.
+// ClearProvider drops this runtime's successful-request affinity for a provider, so the next
+// request uses the selected account within the router's plan priority.
 func (r *AccountRouter) ClearProvider(providerID string) {
 	if r == nil {
 		return
@@ -138,6 +140,11 @@ func (r *AccountRouter) ClearProvider(providerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.affinity, providerID)
+	for identity := range r.confirmedRoutes {
+		if identity.provider == providerID {
+			delete(r.confirmedRoutes, identity)
+		}
+	}
 }
 
 // PeekAccountKey reports the account this provider's recent requests were pinned to, for
@@ -192,6 +199,7 @@ func (r *AccountRouter) pin(providerID, modelID string, accountKey *string, requ
 		sessions[request.SessionID] = models
 	}
 	models[modelID] = accountKey
+	r.confirmRouteLocked(accountRouteIdentity{providerID, request.SessionID, modelID}, accountKey)
 }
 
 func (r *AccountRouter) reportRotation(providerID, modelID string, failed accountFailure, next *CredentialAccountInfo, request AccountRouteRequest) {
@@ -240,8 +248,9 @@ type accountFailure struct {
 	scope   string
 }
 
-// Candidates returns the accounts one request may use, best first: the session's pinned
-// account, then the provider's selected account, then row order. Accounts whose Codex plan
+// Candidates returns the accounts one request may use, best first: eligible Codex free-tier
+// accounts, then other eligible accounts. Within each group, the session's pinned account
+// precedes the provider's selected account, then row order. Accounts whose Codex plan
 // cannot serve the model are dropped up front; accounts whose plan cannot be read follow every
 // known-eligible account. It returns nil when the router does not route this request.
 func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request AccountRouteRequest) ([]*CredentialAccountInfo, error) {
@@ -276,7 +285,7 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 	slices.SortStableFunc(accounts, func(left, right *CredentialAccountInfo) int {
 		return accountRank(right, pinned, pinnedSet) - accountRank(left, pinned, pinnedSet)
 	})
-	var eligible, unknown []*CredentialAccountInfo
+	var freeTier, eligible, unknown []*CredentialAccountInfo
 	for _, account := range accounts {
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
@@ -297,9 +306,16 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 		case meets == nil:
 			unknown = append(unknown, account)
 		case *meets:
-			eligible = append(eligible, account)
+			// Personal runtime policy: preserve paid quota when a free account can serve this model, even after a paid fallback established affinity.
+			plan, _ := codexPlanClaim(credential.Access)
+			if slices.Contains(strings.Split(plan, "_"), "free") {
+				freeTier = append(freeTier, account)
+			} else {
+				eligible = append(eligible, account)
+			}
 		}
 	}
+	eligible = append(freeTier, eligible...)
 	eligible = append(eligible, unknown...)
 	if len(eligible) == 0 {
 		return nil, fmt.Errorf("No stored account meets the plan requirement for %s/%s. Sign in with an eligible account.", providerID, modelID)
@@ -433,6 +449,7 @@ func (r *AccountRouter) Fail(ctx context.Context, model AnyModel, account *Crede
 		return nil
 	}
 	r.rememberBlock(model.ProviderID(), account.AccountKey, block.Scope, block.Until)
+	r.invalidateConfirmedRoutes(model.ProviderID(), account.AccountKey, block.Scope)
 	if context.Cause(ctx) == nil && r.credentials != nil {
 		// A store failure leaves the in-memory block in place, so this run still retires the
 		// account.
@@ -529,6 +546,8 @@ func (r *AccountRouter) SetStore(store CredentialStore) {
 	r.mu.Lock()
 	r.credentials = accounts
 	r.affinity = map[string]map[string]map[string]*string{}
+	r.activeRoutes = nil
+	r.confirmedRoutes = nil
 	r.localBlocks = map[string]map[accountKeyValue]map[string]int64{}
 	r.mu.Unlock()
 }
