@@ -3,6 +3,7 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -319,7 +320,7 @@ func codexWebSocketHref(endpoint string) (string, error) {
 func codexWebSocketHeaders(target ClientIdentityTarget, identity *ClientIdentity, base map[string]string, options ProviderHeaders, token, accountID, requestID string) http.Header {
 	headers := make(http.Header, len(base)+7)
 	// Defaults first so model and caller headers override them (buildBaseCodexHeaders, #10429).
-	// pig divergence (D26): PiG names itself as the Codex originator.
+	// ompig-slim addition: share the native Codex login originator.
 	headers.Set("originator", pigidentity.CodexOriginator)
 	// Codex expects an originator on every request; it is not attribution (openai-codex-responses.ts identityHeaders).
 	applyIdentityHeaders(headers, target, identity)
@@ -334,7 +335,9 @@ func codexWebSocketHeaders(target ClientIdentityTarget, identity *ClientIdentity
 		}
 	}
 	headers.Set("Authorization", "Bearer "+token)
-	headers.Set("chatgpt-account-id", accountID)
+	if accountID != "" {
+		headers.Set("chatgpt-account-id", accountID)
+	}
 	headers.Set("OpenAI-Beta", codexWebSocketBeta)
 	headers.Set("x-client-request-id", requestID)
 	headers.Set("session-id", requestID)
@@ -739,7 +742,13 @@ func (p *openAIResponsesProvider) startCodexWebSocketAttempt(ctx context.Context
 	if opts.WebSocketConnectTimeoutMs != nil {
 		connectTimeout = time.Duration(*opts.WebSocketConnectTimeoutMs) * time.Millisecond
 	}
-	acquired, err := acquireCodexWebSocket(ctx, endpoint, headers, cacheSessionID, accountID, connectTimeout)
+	// ompig-slim addition: free accounts can lack a workspace ID. Never pool
+	// all such accounts under "": isolate cached sockets by bearer digest.
+	cacheAccountID := accountID
+	if cacheAccountID == "" {
+		cacheAccountID = fmt.Sprintf("token:%x", sha256.Sum256([]byte(apiKey)))
+	}
+	acquired, err := acquireCodexWebSocket(ctx, endpoint, headers, cacheSessionID, cacheAccountID, connectTimeout)
 	if err != nil {
 		if ctx.Err() != nil {
 			// connectWebSocket's onAbort rejects with "Request was aborted" (openai-codex-responses.ts:1134-1136, 1148-1150), and an aborted

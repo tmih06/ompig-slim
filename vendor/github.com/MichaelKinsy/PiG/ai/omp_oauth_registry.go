@@ -69,6 +69,9 @@ func init() {
 // this file registers, or reports false for any other provider.
 func ompOAuthProviderAPIKey(providerID string) (*APIKeyAuth, bool) {
 	switch providerID {
+	case codexJSONProviderID:
+		// The JSON importer is OAuth-only, not an ambient API-key login.
+		return nil, true
 	case "cursor":
 		return EnvAPIKeyAuth(cursorAPIKeyName, cursorAPIKeyEnv), true
 	case "perplexity":
@@ -240,10 +243,12 @@ func snowflakeStreams(streams *ProviderStreams) *ProviderStreams {
 }
 
 // ompProviderDisplayName and ompProviderBaseURL are the catalog facts of a provider
-// the OAuth ports register. Snowflake is the only one: Cursor, Perplexity and Z.ai
-// keep their existing catalog rows, while Snowflake's roster is account-scoped and
-// has no generated entry.
+// the OAuth ports register. Snowflake and Codex JSON add their own rosters;
+// Cursor, Perplexity and Z.ai keep their existing catalog rows.
 func ompProviderDisplayName(providerID string) (string, bool) {
+	if providerID == codexJSONProviderID {
+		return codexJSONName, true
+	}
 	if providerID != "snowflake" {
 		return "", false
 	}
@@ -251,8 +256,12 @@ func ompProviderDisplayName(providerID string) (string, bool) {
 }
 
 // ompProviderBaseURL is the provider-level endpoint of a provider the OAuth ports
-// register. Snowflake's is the account placeholder every request replaces.
+// register. Codex JSON shares Codex's origin; Snowflake's placeholder is replaced
+// with the account host on every request.
 func ompProviderBaseURL(providerID string) (string, bool) {
+	if providerID == codexJSONProviderID {
+		return ProviderBaseURL("openai-codex"), true
+	}
 	if providerID != "snowflake" {
 		return "", false
 	}

@@ -40,6 +40,35 @@ Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactiv
 
 Codemode and other agent tools run with your user permissions; codemode is not an OS security sandbox. Account credentials are stored locally in SQLite and are not encrypted at rest.
 
+## Provider login and Codex JSON
+
+For browser or device-code sign-in, choose **OpenAI Codex** in `/login` (or run
+`/login openai-codex`) and select the login method. Both flows use the Codex
+public client, with the native `codex_cli_rs` originator shared by browser
+sign-in and API requests. Free-tier accounts without a workspace ID can sign
+in using their token's email identity; model eligibility and quotas still depend
+on the account plan and OpenAI's backend. Existing accounts should sign in again
+to obtain the updated login scopes.
+
+`/login` opens one fuzzy-searchable list of account and API-key login options.
+Choose **Codex JSON** (or run `/login codex-json`) to paste an exported JSON
+credential object. Select a model under `codex-json` with `/model` afterward.
+
+The importer keeps only `accessToken`, optional `refreshToken`, account ID from
+the token or `providerSpecificData.chatgptAccountId`, and expiry. It accepts
+`expiresAt` (RFC3339), `expiresIn` (seconds), or the token's JWT expiry; JWT expiry
+caps the imported lifetime. Other fields, including `idToken`, are discarded.
+Expired imports are rejected. Terminal CLI imports are also available through
+`ompig-slim login codex-json`; use a single-line JSON string there.
+
+Multiple imports participate in the existing quota-aware account fallback.
+Refreshable tokens rotate normally. When a request or refresh discovers that an
+imported account can no longer refresh, its secrets and routing blocks are
+removed from live database state, retaining only an OMP-compatible disabled row.
+Timeouts, rate limits, server errors, and unclassified failures do not delete
+credentials. Cleanup occurs when credentials are used, not on a background timer;
+ordinary Codex browser-login accounts are unaffected.
+
 ## Saved rate-limit resets
 
 Use `/usage reset` to spend a banked Codex or Claude rate-limit reset. The

@@ -17,6 +17,10 @@ import (
 // matter to usage reports: cursor, google-gemini-cli, google-antigravity,
 // openai-codex and factory-droid.
 func quotaTierFor(provider, model string) (string, bool) {
+	// ompig-slim addition: JSON imports share Codex's chat/spark meters.
+	if provider == codexJSONProviderID {
+		provider = "openai-codex"
+	}
 	rule, ok := usageQuotaTierRules[provider]
 	if !ok {
 		return "", false

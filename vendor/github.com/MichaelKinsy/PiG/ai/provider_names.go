@@ -32,7 +32,7 @@ var builtinProviderNames = sync.OnceValue(func() map[string]string {
 		"moonshotai-cn":              "Moonshot AI CN",
 		"nvidia":                     "NVIDIA",
 		"openai":                     "OpenAI",
-		"openai-codex":               "OpenAI Codex (legacy)",
+		"openai-codex":               "OpenAI Codex",
 		"opencode":                   "OpenCode Zen",
 		"opencode-go":                "OpenCode Go",
 		"openrouter":                 "OpenRouter",

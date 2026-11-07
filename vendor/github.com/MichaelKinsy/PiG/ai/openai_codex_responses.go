@@ -50,7 +50,7 @@ func NewOpenAICodexResponsesProvider(cfg OpenAICodexResponsesConfig) Provider {
 	// Defaults first so model and caller headers can override them (openai-codex-responses.ts buildBaseCodexHeaders, #10429).
 	extraHeaders := map[string]string{
 		"OpenAI-Beta": "responses=experimental",
-		// pig divergence (D26): PiG names itself as the Codex originator.
+		// ompig-slim addition: share the native Codex public-client login identity.
 		"originator": pigidentity.CodexOriginator,
 	}
 	for name, value := range cfg.ExtraHeaders {
