@@ -3,6 +3,7 @@ package codingagent
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -404,19 +405,19 @@ const webFetchPreviewLines = 10
 func makeWebFetchBodyRenderer(content string) func(width int, expanded bool) []string {
 	output := jsTrim(shellTextOutput(content))
 	// The card renders every frame while the transcript is redrawn, and a
-	// rendering can be hundreds of lines, so the styled text and the collapsed
-	// preview are built once and rebuilt only when the active theme changes:
-	// colors are baked into both, and a theme switch must not leave the old ones.
+	// rendering can be hundreds of lines. Both components cache their own rows
+	// by width, so they are rebuilt only when the active theme changes: colors
+	// are baked into them, and a theme switch must not leave the old ones.
 	var (
 		theme   *tui.Theme
-		text    string
+		body    *tui.Text
 		preview *tui.VisualLinePreview
 	)
-	// refresh rebuilds the styled text and the preview when the active theme
-	// changed; every other frame reuses them.
+	// refresh rebuilds the styled text and both components when the active
+	// theme changed; every other frame reuses them.
 	refresh := func() {
 		current := tui.ActiveTheme()
-		if preview != nil && theme == current {
+		if body != nil && theme == current {
 			return
 		}
 		theme = current
@@ -424,13 +425,14 @@ func makeWebFetchBodyRenderer(content string) func(width int, expanded bool) []s
 		for line := range strings.SplitSeq(output, "\n") {
 			lines = append(lines, themeFg(current.ToolOutput, line))
 		}
-		text = strings.Join(lines, "\n")
+		text := strings.Join(lines, "\n")
+		body = tui.NewPaddedText(text, 0, 0, nil)
 		preview = tui.NewVisualLinePreview(tui.VisualLinePreviewOptions{
 			Text:           text,
 			MaxVisualLines: webFetchPreviewLines,
 			Keep:           tui.VisualKeepStart,
 			FormatHint: func(hidden int) string {
-				return themeFg(current.Muted, fmt.Sprintf("... (%d more lines,", hidden)) + " " + expandKeyHint() + themeFg(current.Muted, ")")
+				return moreLinesHint("... (" + strconv.Itoa(hidden) + " more lines,")
 			},
 		})
 	}
@@ -440,7 +442,7 @@ func makeWebFetchBodyRenderer(content string) func(width int, expanded bool) []s
 		}
 		refresh()
 		if expanded {
-			return tui.NewPaddedText(text, 0, 0, nil).Render(width)
+			return body.Render(width)
 		}
 		return preview.Render(width)
 	}

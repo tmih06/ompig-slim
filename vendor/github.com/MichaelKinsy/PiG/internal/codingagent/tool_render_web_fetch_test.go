@@ -107,3 +107,31 @@ func TestWebFetchCardErrorStaysVisible(t *testing.T) {
 		t.Errorf("collapsed error card hid its message:\n%s", joined)
 	}
 }
+
+// TestWebFetchCardFollowsThemeSwitch covers the invariant the renderer's cache
+// rests on: the styled rows are baked from the active theme and reused every
+// frame, so a theme switch must rebuild them instead of leaving the old colors.
+func TestWebFetchCardFollowsThemeSwitch(t *testing.T) {
+	dark, light := tui.ThemeByName("dark"), tui.ThemeByName("light")
+	if dark == nil || light == nil || dark.ToolOutput == light.ToolOutput {
+		t.Skip("the registered themes do not differ in toolOutput")
+	}
+	t.Cleanup(func() { tui.SetThemeInstance(dark) })
+
+	tui.SetThemeInstance(dark)
+	comp := webFetchCard(t, webFetchBody(40))
+	const width = 80
+	if joined := strings.Join(comp.Render(width), "\n"); !strings.Contains(joined, dark.ToolOutput) {
+		t.Fatal("the card did not draw in the active theme")
+	}
+
+	tui.SetThemeInstance(light)
+	comp.Invalidate()
+	joined := strings.Join(comp.Render(width), "\n")
+	if !strings.Contains(joined, light.ToolOutput) {
+		t.Error("the card kept the previous theme's colors after a theme switch")
+	}
+	if strings.Contains(joined, dark.ToolOutput) {
+		t.Error("the card still carries colors from the previous theme")
+	}
+}
