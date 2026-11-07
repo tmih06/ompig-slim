@@ -112,6 +112,8 @@ The native executable was also exercised with isolated profiles: streamed file/s
 
 Release archives are named `ompig-slim-{linux,darwin}-{x64,arm64}.tar.gz` and contain the executable, documentation, license notices, and dependency licenses. Windows, Android, p2, and Nix distributions are not personal release targets.
 
+For startup diagnostics, run `PIG_STARTUP_TRACE=1 ompig-slim`; `PI_TIMING=1` adds phase durations. Cached metadata is restored before the first model listing, without a network request. Snapshot decoding traverses the JSON once, the matching index reuses parsed identities, and unchanged/offline refreshes retain enrichment instead of rebuilding it. A downloaded catalog still invalidates enrichment, and an ETag/304 revalidation updates provenance without losing model metrics.
+
 ## Maintaining the library port
 
 Source provenance: `/home/ubuntu/omp-slim`, HEAD `ba23ed9c3` over baseline `5a31a6d5f`, including the existing working-tree auth, account-selection, usage, and metadata fixes. No source profile credentials belong in this repository.

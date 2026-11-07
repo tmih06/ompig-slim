@@ -114,6 +114,7 @@ func (r *ModelRegistry) ModelMetadataResult() (modelmetadata.RefreshResult, bool
 // never lose labels or prices because the network was down.
 func (r *ModelRegistry) RefreshModelMetadata(ctx context.Context, allowNetwork, force bool) (modelmetadata.RefreshResult, error) {
 	service := r.modelMetadata()
+	generation, source := service.Generation(), service.Source()
 	result, err := service.Refresh(ctx, modelmetadata.RefreshOptions{AllowNetwork: &allowNetwork, Force: force})
 	if err != nil {
 		return result, err
@@ -121,10 +122,12 @@ func (r *ModelRegistry) RefreshModelMetadata(ctx context.Context, allowNetwork, 
 	r.mu.Lock()
 	r.metadataResult, r.metadataRefreshed = result, true
 	r.mu.Unlock()
-	// The rows changed, so every memoized enrichment is stale; dropping it makes the next read
-	// re-resolve and repaint without recomposition.
-	r.enricher.forget()
-	r.notifyModelDataChanged()
+	// Offline, fresh, failed, and unchanged refreshes keep the same rows. Do not
+	// throw away their enrichment or publish a spurious model-list change.
+	if generation != service.Generation() || source != service.Source() {
+		r.enricher.forget()
+		r.notifyModelDataChanged()
+	}
 	return result, nil
 }
 

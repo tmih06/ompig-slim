@@ -524,9 +524,35 @@ func ParseModelCatalogMetadata(payload []byte) []ModelCatalogMetadataRow {
 	return rows
 }
 
+// Snapshot values are decoded once, rather than copying raw JSON at each level
+// and starting another decoder for every row and scalar. UseNumber preserves the
+// open-object boundary: an unknown field with an enormous number is still ignored.
+func storedCatalogNumber(value any) (float64, bool) {
+	if value == nil {
+		return 0, true
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	decoded, err := number.Float64()
+	return decoded, err == nil
+}
+
+func storedCatalogScalar[T string | bool](value any) (*T, bool) {
+	if value == nil {
+		return nil, true
+	}
+	decoded, ok := value.(T)
+	if !ok {
+		return nil, false
+	}
+	return &decoded, true
+}
+
 // decodeStoredCatalogRow validates one pruned row read from disk (CatalogStoredRowSchema).
-func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool) {
-	members, ok := jsonObjectMembers(raw)
+func decodeStoredCatalogRow(value any) (ModelCatalogMetadataRow, bool) {
+	members, ok := value.(map[string]any)
 	if !ok {
 		return ModelCatalogMetadataRow{}, false
 	}
@@ -534,7 +560,7 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 	if !present {
 		return ModelCatalogMetadataRow{}, false
 	}
-	provider, ok := jsonString(providerRaw)
+	provider, ok := storedCatalogScalar[string](providerRaw)
 	if !ok || provider == nil {
 		return ModelCatalogMetadataRow{}, false
 	}
@@ -542,13 +568,13 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 	if !present {
 		return ModelCatalogMetadataRow{}, false
 	}
-	id, ok := jsonString(idRaw)
+	id, ok := storedCatalogScalar[string](idRaw)
 	if !ok || id == nil {
 		return ModelCatalogMetadataRow{}, false
 	}
 	row := ModelCatalogMetadataRow{Provider: *provider, ID: *id}
 	if value, present := members["name"]; present {
-		name, valid := jsonString(value)
+		name, valid := storedCatalogScalar[string](value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
@@ -556,22 +582,22 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 			row.Name = *name
 		}
 	}
-	if value, present := members["int"]; present && !jsonNullOrAbsent(value) {
-		number, valid := jsonNumber(value)
+	if value := members["int"]; value != nil {
+		number, valid := storedCatalogNumber(value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.Int = &number
 	}
-	if value, present := members["tps"]; present && !jsonNullOrAbsent(value) {
-		number, valid := jsonNumber(value)
+	if value := members["tps"]; value != nil {
+		number, valid := storedCatalogNumber(value)
 		if !valid || number <= 0 {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.TPS = &number
 	}
 	if value, present := members["description"]; present {
-		description, valid := jsonString(value)
+		description, valid := storedCatalogScalar[string](value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
@@ -579,31 +605,37 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 			row.Description = *description
 		}
 	}
-	if value, present := members["input"]; present && !jsonNullOrAbsent(value) {
-		var modalities []string
-		if err := json.Unmarshal(value, &modalities); err != nil {
+	if value := members["input"]; value != nil {
+		modalities, ok := value.([]any)
+		if !ok {
 			return ModelCatalogMetadataRow{}, false
 		}
-		for _, modality := range modalities {
-			if modality != ModelInputText && modality != ModelInputImage {
+		for _, value := range modalities {
+			modality, ok := value.(string)
+			if !ok || modality != ModelInputText && modality != ModelInputImage {
 				return ModelCatalogMetadataRow{}, false
 			}
 			row.Input = append(row.Input, modality)
 		}
 	}
 	if value, present := members["reasoning"]; present {
-		reasoning, valid := jsonBool(value)
+		reasoning, valid := storedCatalogScalar[bool](value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.Reasoning = reasoning
 	}
-	if value, present := members["efforts"]; present && !jsonNullOrAbsent(value) {
-		var efforts []string
-		if err := json.Unmarshal(value, &efforts); err != nil {
+	if value := members["efforts"]; value != nil {
+		efforts, ok := value.([]any)
+		if !ok {
 			return ModelCatalogMetadataRow{}, false
 		}
 		for _, effort := range efforts {
+			// A null string element decodes as "" and is rejected below.
+			effort, valid := effort.(string)
+			if !valid {
+				return ModelCatalogMetadataRow{}, false
+			}
 			// An effort outside the canonical tiers would reach a request as an unsupported value.
 			if effort == "none" {
 				continue
@@ -622,24 +654,24 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 		}
 	}
 	if value, present := members["supportsOffEffort"]; present {
-		off, valid := jsonBool(value)
+		off, valid := storedCatalogScalar[bool](value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.SupportsOffEffort = off != nil && *off
 	}
-	if value, present := members["cost"]; present && !jsonNullOrAbsent(value) {
-		costMembers, ok := jsonObjectMembers(value)
+	if value := members["cost"]; value != nil {
+		costMembers, ok := value.(map[string]any)
 		if !ok {
 			return ModelCatalogMetadataRow{}, false
 		}
 		cost := ModelCatalogCostRates{}
 		for name, target := range map[string]**float64{"input": &cost.Input, "output": &cost.Output, "cacheRead": &cost.CacheRead, "cacheWrite": &cost.CacheWrite} {
 			member, present := costMembers[name]
-			if !present || jsonNullOrAbsent(member) {
+			if !present || member == nil {
 				continue
 			}
-			number, valid := jsonNumber(member)
+			number, valid := storedCatalogNumber(member)
 			if !valid {
 				return ModelCatalogMetadataRow{}, false
 			}
@@ -647,22 +679,24 @@ func decodeStoredCatalogRow(raw json.RawMessage) (ModelCatalogMetadataRow, bool)
 		}
 		row.Cost = &cost
 	}
-	if value, present := members["contextWindow"]; present && !jsonNullOrAbsent(value) {
-		number, ok := jsonTokenCount(value)
+	if value := members["contextWindow"]; value != nil {
+		count, ok := storedCatalogNumber(value)
+		number := int(count)
 		if !ok || number <= 0 {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.ContextWindow = &number
 	}
-	if value, present := members["maxTokens"]; present && !jsonNullOrAbsent(value) {
-		number, ok := jsonTokenCount(value)
+	if value := members["maxTokens"]; value != nil {
+		count, ok := storedCatalogNumber(value)
+		number := int(count)
 		if !ok || number <= 0 {
 			return ModelCatalogMetadataRow{}, false
 		}
 		row.MaxTokens = &number
 	}
 	if value, present := members["status"]; present {
-		status, valid := jsonString(value)
+		status, valid := storedCatalogScalar[string](value)
 		if !valid {
 			return ModelCatalogMetadataRow{}, false
 		}
@@ -681,15 +715,17 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
-	members, ok := jsonObjectMembers(trimmed)
-	if !ok {
+	var members map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+	if err := decoder.Decode(&members); err != nil || members == nil || decoder.InputOffset() != int64(len(trimmed)) {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
 	versionRaw, present := members["version"]
 	if !present {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
-	version, ok := jsonNumber(versionRaw)
+	version, ok := storedCatalogNumber(versionRaw)
 	if !ok || version != ModelCatalogMetadataVersion {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
@@ -697,7 +733,7 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 	if !present {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
-	fetchedAt, ok := jsonNumber(fetchedRaw)
+	fetchedAt, ok := storedCatalogNumber(fetchedRaw)
 	if !ok {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
@@ -705,7 +741,7 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 	if !present {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
-	checkedAt, ok := jsonNumber(checkedRaw)
+	checkedAt, ok := storedCatalogNumber(checkedRaw)
 	if !ok {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
@@ -713,15 +749,12 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 		return ModelCatalogMetadataSnapshot{}, false
 	}
 	snapshot := ModelCatalogMetadataSnapshot{Version: ModelCatalogMetadataVersion, FetchedAt: int64(fetchedAt), CheckedAt: int64(checkedAt), Rows: []ModelCatalogMetadataRow{}}
-	if value, present := members["etag"]; present {
-		etag, valid := jsonString(value)
-		if valid && etag != nil {
-			snapshot.ETag = *etag
-		}
+	if etag, ok := members["etag"].(string); ok {
+		snapshot.ETag = etag
 	}
-	if value, present := members["rows"]; present && !jsonNullOrAbsent(value) {
-		var listed []json.RawMessage
-		if err := json.Unmarshal(value, &listed); err != nil {
+	if value := members["rows"]; value != nil {
+		listed, ok := value.([]any)
+		if !ok {
 			return ModelCatalogMetadataSnapshot{}, false
 		}
 		for _, raw := range listed {
