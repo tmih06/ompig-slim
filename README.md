@@ -9,7 +9,7 @@ The entry point calls `coding/cli.Main`; it does not launch an installed `pig`, 
 ```sh
 make build
 ./bin/ompig-slim --version
-./bin/ompig-slim --detailed-version
+./bin/ompig-slim version
 ./bin/ompig-slim
 
 make run ARGS='--help'
@@ -57,11 +57,18 @@ providers:
 On first use of an empty credential database, valid legacy `auth.json` entries are imported and the original is retained as **`auth.json.migrated`**. Existing database rows and logout tombstones prevent stale legacy credentials from being silently restored. Back up the agent directory before sharing it between applications. Credentials are stored locally, not encrypted at rest; filesystem permissions remain part of the trust boundary.
 
 ```sh
+ompig-slim auth login anthropic
+ompig-slim auth login anthropic --no-browser
+ompig-slim auth login aiand --api-key
 ompig-slim auth accounts
 ompig-slim auth accounts --provider openai --json
 ompig-slim auth use openai ACCOUNT_KEY
 ompig-slim auth logout openai --account ACCOUNT_KEY
 ```
+
+`auth login` requires an interactive terminal and masks secret input. Account sign-in is preferred when available; `--api-key` explicitly chooses API-key setup. `--no-browser` selects an alternative sign-in method when offered and never launches a browser. It cannot be combined with `--api-key`. Successful Radius sign-in also configures its global MCP server without a second prompt.
+
+Perplexity uses email OTP in CLI hosts without a managed-browser callback; SDK hosts can supply `OnBrowserSession` to offer SSO. Cursor and Perplexity sign-in availability does not imply a new model request transport beyond those in the source harness.
 
 The SQLite schema is interoperable with OMP. The personal preferred-account cache key remains `omp-slim:auth-active:<provider>` for compatibility with the source fork; this preference is not a promise that OMP itself follows the same selection. Explicit request API keys bypass account-pool fallback.
 
@@ -100,6 +107,8 @@ make release ARGS='--platform linux-arm64 --out bin/releases'
 ```
 
 CI validates Linux and macOS and runs the actual compiled codemode scenario against a local HTTP provider fixture. The fixture requires no account credentials or paid provider calls. Unit/protocol fixtures and local executable scenarios do not establish that every remote provider's current login service has been live-tested.
+
+The native executable was also exercised with isolated profiles: streamed file/shell/nested-code tools, session continuation, JSON/RPC, HTML export, SQLite migration and account logout, quota rotation, all 802 added catalog entries, and local requests through all 16 added provider IDs. A real HTTP fixture additionally verified forced OAuth refresh after a 401 and persisted credential rotation through the library's request path. Real terminal sessions covered masked API-key entry/cancellation, startup, throughput, `/usage` navigation, and both model selectors. Race checks passed for AI/account routing, the coding runtime, metadata, TUI, and CLI packages. Other platform archives are cross-built; only the Linux arm64 executable was run on this host.
 
 Release archives are named `ompig-slim-{linux,darwin}-{x64,arm64}.tar.gz` and contain the executable, documentation, license notices, and dependency licenses. Windows, Android, p2, and Nix distributions are not personal release targets.
 
