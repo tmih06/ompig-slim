@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -44,10 +43,10 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 	requests := make(chan authPromptRequest)
 	notifications := make(chan ai.AuthEvent)
 	done := make(chan error, 1)
-	authPath := filepath.Join(m.opts.AgentDir, "auth.json")
+	authPath := ai.SQLiteAuthPath(m.opts.AgentDir)
 	if method.Login == nil {
 		dialog = m.newLoginDialog(provider.Name, func() { cancel(errLoginAborted) }, provider.Name+" setup")
-		dialog.ShowInfo(method.Name+" is configured outside pig.", nil, true)
+		dialog.ShowInfo(method.Name+" is configured outside "+AppName+".", nil, true)
 		go func() { <-ctx.Done(); done <- nil }()
 		if err := m.runAuthDialog(ctx, cancel, dialog, nil, nil, done); err != nil {
 			return err
@@ -99,13 +98,18 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 			err = context.Cause(ctx)
 		}
 		if err == nil {
-			auth, openErr := ai.NewAuthStorage(authPath)
-			err = openErr
-			if err == nil {
-				var credentials ai.CredentialStore = auth
-				if registry != nil {
-					credentials = registryCredentials{registry}
+			var credentials ai.CredentialStore
+			if registry != nil {
+				credentials = registryCredentials{registry}
+			} else {
+				store, openErr := ai.OpenCredentialStore(m.opts.AgentDir)
+				err = openErr
+				if store != nil {
+					defer func() { _ = store.Close() }()
 				}
+				credentials = store
+			}
+			if err == nil {
 				_, err = credentials.Modify(ctx, provider.ID, func(*ai.Credential) (*ai.Credential, error) { return &credential, nil })
 			}
 			if err == nil && registry != nil {

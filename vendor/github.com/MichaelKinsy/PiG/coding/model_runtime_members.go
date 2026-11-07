@@ -118,7 +118,12 @@ func (runtime *ModelRuntime) SetRuntimeApiKey(ctx context.Context, providerID, a
 	if runtime == nil || runtime.services == nil {
 		return ErrNoServices
 	}
-	return runtime.services.Registry().SetRuntimeAPIKeyOperation(ctx, providerID, apiKey)
+	if err := runtime.services.Registry().SetRuntimeAPIKeyOperation(ctx, providerID, apiKey); err != nil {
+		return err
+	}
+	// A runtime key is that provider's own request credential from now on.
+	runtime.clearAccountAffinity(providerID)
+	return nil
 }
 
 // RemoveRuntimeApiKey drops the non-persistent API key of a provider, serialized with the provider's other credential operations and followed by local synchronization.
@@ -126,7 +131,11 @@ func (runtime *ModelRuntime) RemoveRuntimeApiKey(ctx context.Context, providerID
 	if runtime == nil || runtime.services == nil {
 		return ErrNoServices
 	}
-	return runtime.services.Registry().RemoveRuntimeAPIKeyOperation(ctx, providerID)
+	if err := runtime.services.Registry().RemoveRuntimeAPIKeyOperation(ctx, providerID); err != nil {
+		return err
+	}
+	runtime.clearAccountAffinity(providerID)
+	return nil
 }
 
 // UnregisterProvider removes a provider registration, native or legacy, and queues the local refresh. An unknown ID is not an error.

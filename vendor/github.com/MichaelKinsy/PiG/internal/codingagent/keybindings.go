@@ -70,6 +70,8 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.model.cycleForward", description: "Cycle to next model", keys: []KeyID{"ctrl+p"}},
 	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"shift+ctrl+p"}, Windows: []KeyID{"alt+p"}}},
 	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"ctrl+l"}},
+	{id: "app.usage.toggleView", description: "Switch usage overview and detailed report", keys: []KeyID{"tab", "enter"}},
+	{id: "app.usage.refresh", description: "Refresh provider usage quotas", keys: []KeyID{"r"}},
 	{id: "app.tools.expand", description: "Toggle tool output", keys: []KeyID{"ctrl+o"}},
 	{id: "app.thinking.toggle", description: "Toggle thinking blocks", keys: []KeyID{"ctrl+t"}},
 	{id: "app.session.toggleNamedFilter", description: "Toggle named session filter", keys: []KeyID{"ctrl+n"}},
@@ -144,7 +146,8 @@ func keybindingDefinitionsFor(platform tui.KeybindingPlatform) map[string]tui.TU
 
 var appKeybindingOrder = []string{
 	"app.interrupt", "app.clear", "app.exit", "app.suspend", "app.thinking.cycle", "app.thinking.save",
-	"app.model.cycleForward", "app.model.cycleBackward", "app.model.select", "app.tools.expand",
+	"app.model.cycleForward", "app.model.cycleBackward", "app.model.select",
+	"app.usage.toggleView", "app.usage.refresh", "app.tools.expand",
 	"app.thinking.toggle", "app.session.toggleNamedFilter", "app.editor.external", "app.message.copy",
 	"app.message.followUp", "app.message.dequeue", "app.clipboard.pasteImage", "app.session.new", "app.session.tree",
 	"app.session.fork", "app.session.resume", "app.tree.foldOrUp", "app.tree.unfoldOrDown",

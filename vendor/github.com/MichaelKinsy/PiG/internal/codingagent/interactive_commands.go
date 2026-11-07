@@ -367,6 +367,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		},
 		ShowHotkeys:   m.handleHotkeysCommand,
 		ShowChangelog: m.handleChangelogCommand,
+		ShowUsage:     m.showUsageDashboard,
 
 		// Session ops.
 		CurrentSession: func() *Session { return m.currentSession() },

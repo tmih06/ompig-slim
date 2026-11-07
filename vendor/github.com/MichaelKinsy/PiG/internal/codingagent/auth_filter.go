@@ -17,7 +17,6 @@ package codingagent
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/MichaelKinsy/PiG/ai"
 )
@@ -41,17 +40,17 @@ func ReachableProviders() map[string]bool {
 }
 
 // AuthenticatedProviders returns the subset of ReachableProviders for
-// which credentials are detectable in the environment / auth.json /
+// which credentials are detectable in the environment / agent.db /
 // model registry, without probing the network.
 //
 //   - every other provider: ModelRegistry.HasConfiguredAuth (models.json, then
-//     Pi's checkProviderAuth over the stored auth.json credential and the environment)
+//     Pi's checkProviderAuth over the stored credential and the environment)
 //   - ollama: OLLAMA_HOST env set (cheap heuristic; we do NOT probe
 //     localhost:11434: picking ollama with no daemon running is a
 //     user error caught at switch time)
 //   - amazon-bedrock, google-vertex, cloudflare-*: their resolvers' env signals (Pi reads no shared AWS config file)
 //
-// agentDir is the pig config dir (typically ~/.pig/agent). auth.json
+// agentDir is the shared agent config dir. agent.db
 // and models.json are read from there.
 func AuthenticatedProviders(agentDir string) map[string]bool {
 	if agentDir == "" {
@@ -64,14 +63,19 @@ func AuthenticatedProviders(agentDir string) map[string]bool {
 	out := make(map[string]bool)
 	registry := NewModelRegistry(agentDir)
 
-	if auth, err := ai.NewAuthStorage(filepath.Join(agentDir, "auth.json")); err == nil {
-		registry.SetAuthStorage(auth)
+	credentials, err := ai.OpenCredentialStore(agentDir)
+	if err == nil {
+		registry.SetCredentialStore(credentials)
 	}
 
 	for providerID := range ReachableProviders() {
 		if registry.HasConfiguredAuth(providerID) {
 			out[providerID] = true
 		}
+	}
+	// The store exists only for this pass; its registry is not returned.
+	if err == nil {
+		_ = credentials.Close()
 	}
 
 	if os.Getenv("OLLAMA_HOST") != "" {

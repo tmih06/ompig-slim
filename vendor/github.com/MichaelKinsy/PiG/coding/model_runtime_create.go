@@ -31,21 +31,27 @@ type CreateModelRuntimeOptions struct {
 // CreateModelRuntime creates a model runtime without a Session. The caller owns ModelRuntime.Close. Initial refresh restores cached catalogs without network unless explicitly enabled, and shares the caller's cancellation with every refresh operation.
 func CreateModelRuntime(ctx context.Context, options CreateModelRuntimeOptions) (*ModelRuntime, error) {
 	agentDir := icodingagent.AgentDir()
-	var auth *ai.AuthStorage
-	credentials := options.Credentials
-	if credentials == nil {
+	var credentials ai.CredentialStore
+	// ownedCredentials is the store this call opened; the caller-supplied store stays the caller's.
+	var ownedCredentials ai.CredentialStore
+	if options.Credentials != nil {
+		credentials = options.Credentials
+	} else if options.AuthPath != "" {
+		// An explicit auth path keeps the single-file store, as upstream's `authPath` option does.
 		authPath := options.AuthPath
-		if authPath == "" {
-			authPath = filepath.Join(agentDir, "auth.json")
-		}
-		var err error
-		auth, err = ai.NewAuthStorage(authPath)
+		store, err := ai.NewAuthStorage(authPath)
 		if err != nil {
 			return nil, err
 		}
-		credentials = auth
+		credentials = store
+	} else {
+		store, err := ai.OpenCredentialStore(agentDir)
+		if err != nil {
+			return nil, err
+		}
+		credentials, ownedCredentials = store, store
 	}
-	modelsPath := filepath.Join(agentDir, "models.json")
+	modelsPath := icodingagent.ModelsPath(agentDir)
 	if options.ModelsPath != nil {
 		modelsPath = ""
 		if *options.ModelsPath != nil {
@@ -68,10 +74,14 @@ func CreateModelRuntime(ctx context.Context, options CreateModelRuntimeOptions) 
 	registry.SetCredentialStore(credentials)
 	registry.SetModelsStore(store)
 	registry.SetCatalogBaseURL(options.CatalogBaseURL)
-	services, err := newConfiguredServices("", agentDir, auth, credentials, nil, registry)
+	services, err := newConfiguredServices("", agentDir, credentials, nil, registry)
 	if err != nil {
+		closeOwnedCredentials(ownedCredentials)
 		return nil, err
 	}
+	// The runtime owns what this call opened, so ModelRuntime.Close releases it; a caller-supplied
+	// store stays open for its caller.
+	services.ownedCredentials = ownedCredentials
 	runtime := services.ModelRuntime()
 	allowNetwork := runtime.modelNetworkEnabled && options.AllowModelNetwork
 	if options.RefreshOnCreate == nil || *options.RefreshOnCreate {

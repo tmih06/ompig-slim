@@ -111,6 +111,17 @@ func rpcAgentEvent(event agent.AgentEvent) ([]any, error) {
 		return []any{out}, nil
 	case agent.SummarizationRetryFinishedEvent:
 		return []any{rpcObject{{"type", "summarization_retry_finished"}}}, nil
+	case agent.AccountRotationEvent:
+		// account_rotation carries both nullable account keys (agent-session.ts:237); a nil key is
+		// the identity-less account and is written as null, never omitted.
+		return []any{rpcObject{
+			{"type", "account_rotation"},
+			{"providerId", event.ProviderID},
+			{"fromAccountKey", event.FromAccountKey},
+			{"toAccountKey", event.ToAccountKey},
+			{"reason", event.Reason},
+			{"message", event.Message},
+		}}, nil
 	case agent.TurnStartEvent:
 		return []any{rpcObject{{"type", "turn_start"}}}, nil
 	case agent.TurnEndEvent:

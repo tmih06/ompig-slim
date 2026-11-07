@@ -148,6 +148,8 @@ func (b *cliRuntimeBuilder) interactiveReplacement(build *cliBuild, session *cod
 		ModelClassify:           session.ModelRuntime().Classify,
 		ModelGenerateImages:     session.ModelRuntime().GenerateImages,
 		RequestAuthRuntime:      requestAuth,
+		UsageService:            newSessionUsageService(build, requestAuth),
+		UsageAccountKey:         session.UsageAccountKey,
 	}
 	// A typed nil pointer would make these interfaces non-nil.
 	if build.Bridge != nil {

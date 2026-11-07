@@ -436,6 +436,10 @@ type RPCModel struct {
 	Headers                       map[string]string                `json:"headers,omitempty"`
 	Compat                        *ai.ModelCompat                  `json:"compat,omitempty"`
 	InputLimits                   *ai.ModelInputLimits             `json:"inputLimits,omitempty"`
+	Int                           *float64                         `json:"int,omitempty"`
+	TPS                           *float64                         `json:"tps,omitempty"`
+	Description                   string                           `json:"description,omitempty"`
+	Catalog                       *ai.ModelCatalogProvenance       `json:"catalog,omitempty"`
 	// catalog is the model's catalog JSON when it came from a catalog record (ai.CatalogModelJSON).
 	catalog json.RawMessage
 }
@@ -817,6 +821,10 @@ func rpcModelValue(model *ai.Model) *RPCModel {
 		Headers:                       model.ProviderMeta.Headers,
 		Compat:                        model.ProviderMeta.Compat,
 		InputLimits:                   model.InputLimits.Clone(),
+		Int:                           model.Int,
+		TPS:                           model.TPS,
+		Description:                   model.Description,
+		Catalog:                       model.Catalog,
 		catalog:                       rpcCatalogJSON(model),
 	}
 }

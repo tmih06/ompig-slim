@@ -43,7 +43,7 @@ func (r *ModelRegistry) readSnapshotContext(ctx context.Context, catalogs bool) 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	switch r.credentialStore.(type) {
-	case nil, *ai.AuthStorage, *ai.InMemoryAuthStorage, *ai.InMemoryCredentialStore:
+	case nil, *ai.AuthStorage, *ai.SQLiteAuthStorage, *ai.InMemoryAuthStorage, *ai.InMemoryCredentialStore:
 	default:
 		return ai.WithFileReadSnapshot(ctx)
 	}

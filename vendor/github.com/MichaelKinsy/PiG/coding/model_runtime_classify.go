@@ -15,7 +15,14 @@ func (runtime *ModelRuntime) Classify(ctx context.Context, model *ai.ClassifierM
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	result, err := runtime.classify(ctx, model, request, opts)
+	router := runtime.accountRouter()
+	accountRequest := ai.AccountRouteRequest{APIKeySet: opts.APIKey != "" || opts.APIKeySet}
+	result, err := router.ClassifyRoutes(ctx, model, accountRequest, func(attemptCtx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (ai.ClassifierResult, error) {
+		attemptCtx = ai.WithAccountSelection(attemptCtx, selection, forceOAuthRefresh)
+		attempt := opts
+		attempt.OnResponse = ai.ObserveClassifierOnResponse(attempt.OnResponse, observe)
+		return runtime.classify(attemptCtx, model, request, attempt)
+	})
 	if err != nil {
 		return ai.ClassifierErrorResult(model, err, ctx.Err() != nil)
 	}
@@ -36,7 +43,8 @@ func (runtime *ModelRuntime) classify(ctx context.Context, model *ai.ClassifierM
 	if provider == nil {
 		return ai.ClassifierResult{}, ai.NewModelsError(ai.ModelsErrorProvider, "Unknown provider: "+model.Provider, nil)
 	}
-	overrides := ai.AuthResolutionOverrides{Env: options.Env}
+	// ctx carries one attempt's account selection when the pool routes this request.
+	overrides := ai.ApplyAccountRequest(ctx, ai.AuthResolutionOverrides{Env: options.Env})
 	if options.APIKey != "" || options.APIKeySet {
 		overrides.APIKey = new(options.APIKey)
 	}

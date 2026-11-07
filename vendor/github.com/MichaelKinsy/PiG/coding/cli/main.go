@@ -120,7 +120,7 @@ func selfUpdateVersion() string {
 	if codingagent.PigletBinaryRelease != "" {
 		return codingagent.PigletBinaryRelease
 	}
-	return PigVersion
+	return Version
 }
 
 // cliVersionString is the `pig --version` output.
@@ -135,13 +135,13 @@ func cliVersionString() string {
 // versionString returns pig's self-identification string for help
 // and diagnostics banners.
 func versionString() string {
-	return fmt.Sprintf("pig %s [%s %s/%s build=%s]",
+	return fmt.Sprintf("ompig-slim %s [%s %s/%s build=%s]",
 		Version, runtime.Version(), runtime.GOOS, runtime.GOARCH, buildIdentity())
 }
 
 func detailedVersionString() string {
-	return fmt.Sprintf("pig: %s\nupstream pi: %s\ngo: %s\nplatform: %s/%s\nbuild: %s",
-		PigVersion, UpstreamVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH, buildIdentity())
+	return fmt.Sprintf("ompig-slim: %s\nPiG library: %s\nupstream pi: %s\ngo: %s\nplatform: %s/%s\nbuild: %s",
+		Version, PigVersion, UpstreamVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH, buildIdentity())
 }
 
 // ─── Extension Loading ────────────────────────────────────────────────────────
@@ -1560,6 +1560,8 @@ func Main(args []string, options *MainOptions) {
 		ModelClassify:           codingSess.ModelRuntime().Classify,
 		ModelGenerateImages:     codingSess.ModelRuntime().GenerateImages,
 		RequestAuthRuntime:      requestAuthRuntime,
+		UsageService:            newSessionUsageService(build, requestAuthRuntime),
+		UsageAccountKey:         codingSess.UsageAccountKey,
 		ModelRegistry:           services.Registry().ModelRegistry,
 		ExtensionRunner:         codingSess.ExtensionRunner(),
 		ExtensionContext:        rt.ExtensionContext(),
@@ -1696,9 +1698,6 @@ func resolveSessionDir(flagValue string, sm *codingagent.SettingsManager) (strin
 		return flagValue, nil
 	}
 	envName := codingagent.ENV_SESSION_DIR
-	if codingagent.UsePiDirs() {
-		envName = "PI_CODING_AGENT_SESSION_DIR"
-	}
 	if envValue := os.Getenv(envName); envValue != "" {
 		return codingagent.ExpandTildePath(envValue), nil
 	}

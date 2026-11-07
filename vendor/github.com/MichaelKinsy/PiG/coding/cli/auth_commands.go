@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -31,7 +30,10 @@ type loginCLIOptions struct {
 	list     bool
 	json     bool
 	noInput  bool
-	invalid  string
+	// accountKey is --account <key> for a single-account logout.
+	accountKey    string
+	accountKeySet bool
+	invalid       string
 }
 
 func parseLoginCommand(args []string) (*loginCLIOptions, bool) {
@@ -44,7 +46,8 @@ func parseLoginCommand(args []string) (*loginCLIOptions, bool) {
 		return nil, false
 	}
 	opts := &loginCLIOptions{command: loginCommand(args[0])}
-	for _, arg := range args[1:] {
+	for index := 1; index < len(args); index++ {
+		arg := args[index]
 		switch arg {
 		case "-h", "--help":
 			opts.help = true
@@ -54,6 +57,13 @@ func parseLoginCommand(args []string) (*loginCLIOptions, bool) {
 			opts.json = true
 		case "--no-input":
 			opts.noInput = true
+		case "--account":
+			index++
+			if index >= len(args) || args[index] == "" || strings.HasPrefix(args[index], "-") {
+				opts.invalid = "--account"
+				continue
+			}
+			opts.accountKey, opts.accountKeySet = args[index], true
 		default:
 			if strings.HasPrefix(arg, "-") || opts.provider != "" {
 				opts.invalid = arg
@@ -70,8 +80,12 @@ func runLoginCommand(args []string) int {
 	if !ok {
 		return -1
 	}
-	if opts.invalid != "" || (opts.list && opts.command != authLogin) || (opts.list && opts.provider != "") {
-		fmt.Fprintf(os.Stderr, "Usage: pig %s [provider] [--list] [--json] [--no-input]\n", opts.command)
+	if opts.invalid != "" || (opts.list && opts.command != authLogin) || (opts.list && opts.provider != "") ||
+		(opts.accountKeySet && (opts.command != authLogout || opts.list)) {
+		fmt.Fprintf(os.Stderr, "Usage: %s %s [provider] [--list] [--json] [--no-input]\n", codingagent.AppName, opts.command)
+		if opts.command == authLogout {
+			fmt.Fprintf(os.Stderr, "       %s\n", authLogoutUsage())
+		}
 		return 2
 	}
 	if opts.help {
@@ -84,13 +98,13 @@ func runLoginCommand(args []string) int {
 		var err error
 		contributions, err = discoverAuthContributions()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "pig login --list:", err)
+			fmt.Fprintln(os.Stderr, "ompig-slim login --list:", err)
 			return 1
 		}
 		return listAuthTargets(opts.json, contributions)
 	}
 	if opts.noInput && opts.provider == "" {
-		fmt.Fprintf(os.Stderr, "pig %s: --no-input requires an explicit provider; use `pig login --list --json` to discover targets\n", opts.command)
+		fmt.Fprintf(os.Stderr, "ompig-slim %s: --no-input requires an explicit provider; use `ompig-slim login --list --json` to discover targets\n", opts.command)
 		return 2
 	}
 	cwd, err := os.Getwd()
@@ -99,7 +113,6 @@ func runLoginCommand(args []string) int {
 		return 1
 	}
 	agentDir := codingagent.AgentDir()
-	authPath := filepath.Join(agentDir, "auth.json")
 
 	switch opts.command {
 	case authLogin:
@@ -115,23 +128,18 @@ func runLoginCommand(args []string) int {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
 		}
-		credentialPath := "auth.json"
+		// Extension-owned credentials report their own path below.
+		credentialPath := ai.SQLiteAuthPath(agentDir)
 		// pig additive (D40): extension-owned credentials do not open core storage; failed logins do not create it.
 		if credentialStore, ok := provider.(ai.OAuthCredentialStore); ok {
 			credentialPath, err = credentialStore.StoreOAuthCredentials(cred)
 		} else {
-			// cli.ts saveAuth keeps OAuth tokens readable by their owner only: chmod covers a file an older version created.
-			if _, statErr := os.Stat(authPath); statErr == nil { //perf:ok once per interactive `pig login`, which waits on a browser or a pasted code
-				if err = os.Chmod(authPath, 0o600); err != nil {
-					fmt.Fprintln(os.Stderr, "Error:", err)
-					return 1
-				}
-			}
-			store, openErr := ai.NewAuthStorage(authPath)
+			store, openErr := ai.OpenCredentialStore(agentDir)
 			if openErr != nil {
 				printCLIError("%v", openErr)
 				return 1
 			}
+			defer func() { _ = store.Close() }()
 			var credential ai.Credential
 			if credential, err = ai.CredentialFromOAuth(cred); err == nil {
 				// As interactive login does, store through the cancellable lock, which waits for another process's lock like Pi's credentials.modify.
@@ -145,12 +153,8 @@ func runLoginCommand(args []string) int {
 		fmt.Printf("\nCredentials saved to %s\n", credentialPath)
 		return 0
 	case authLogout:
-		store, err := ai.NewAuthStorage(authPath)
-		if err != nil {
-			printCLIError("%v", err)
-			return 1
-		}
-		if opts.provider == "" {
+		providerID := opts.provider
+		if providerID == "" {
 			contributions, err = discoverAuthContributions()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
@@ -160,35 +164,61 @@ func runLoginCommand(args []string) int {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				return 1
 			}
-		} else if err := loadDeclaredAuthProvider(opts.provider, &contributions); err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 1
-		}
-		providerID, err := resolveLogoutProvider(store, opts.provider)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		removedFromExtension := false
-		if provider, ok := ai.GetOAuthProvider(providerID); ok {
-			if credentialStore, ok := provider.(ai.OAuthCredentialStore); ok {
-				removedFromExtension, err = credentialStore.DeleteOAuthCredentials()
+			providers, err := logoutProviders(agentDir)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return 1
+			}
+			if len(providers) == 0 {
+				fmt.Fprintln(os.Stderr, "No OAuth providers logged in.")
+				return 1
+			}
+			if len(providers) == 1 {
+				providerID = providers[0]
+			} else {
+				fmt.Println("Select a provider to logout:")
+				fmt.Println()
+				for i, provider := range providers {
+					fmt.Printf("  %d. %s\n", i+1, provider)
+				}
+				fmt.Println()
+				fmt.Printf("Enter number (1-%d): ", len(providers))
+				line, err := readLine(os.Stdin)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "Error:", err)
 					return 1
 				}
+				idx, ok := menuChoice(line, len(providers))
+				if !ok {
+					fmt.Fprintln(os.Stderr, "Error: Invalid selection")
+					return 1
+				}
+				providerID = providers[idx-1]
 			}
-		}
-		if err := store.Delete(context.Background(), providerID); err != nil {
+		} else if err := loadDeclaredAuthProvider(opts.provider, &contributions); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 1
 		}
-		if removedFromExtension {
-			fmt.Printf("Logged out from %s. Credentials removed from extension store\n", providerID)
-		} else {
-			fmt.Printf("Logged out from %s. Credentials removed from auth.json\n", providerID)
+		// One logout behavior for `ompig-slim auth logout` and `ompig-slim logout`: the shared handler reports
+		// extension-owned removals and the core store's result with Pi's wording.
+		logoutArgs := []string{providerID}
+		if opts.accountKeySet {
+			logoutArgs = append(logoutArgs, "--account", opts.accountKey)
 		}
-		return 0
+		code := runAuthLogout(logoutArgs, authRunEnv{stdout: os.Stdout, stderr: os.Stderr, agentDir: agentDir, color: chalkStdoutColor()})
+		if code == 0 {
+			if provider, ok := ai.GetOAuthProvider(providerID); ok {
+				if credentialStore, ok := provider.(ai.OAuthCredentialStore); ok {
+					if removed, err := credentialStore.DeleteOAuthCredentials(); err != nil {
+						fmt.Fprintln(os.Stderr, "Error:", err)
+						return 1
+					} else if removed {
+						fmt.Printf("Credentials removed for %s from the extension store.\n", providerID)
+					}
+				}
+			}
+		}
+		return code
 	default:
 		return -1
 	}
@@ -216,7 +246,7 @@ func listAuthTargets(jsonMode bool, registry *authContributionRegistry) int {
 		}
 		data, err := json.Marshal(output)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "pig login --list: encode JSON:", err)
+			fmt.Fprintln(os.Stderr, "ompig-slim login --list: encode JSON:", err)
 			return 1
 		}
 		fmt.Println(string(data))
@@ -224,7 +254,7 @@ func listAuthTargets(jsonMode bool, registry *authContributionRegistry) int {
 	}
 	if registry != nil {
 		for _, diagnostic := range registry.diagnostics {
-			fmt.Fprintf(os.Stderr, "pig login --list: extension %q inspection failed: %s\n", diagnostic.Extension, diagnostic.Error)
+			fmt.Fprintf(os.Stderr, "ompig-slim login --list: extension %q inspection failed: %s\n", diagnostic.Extension, diagnostic.Error)
 		}
 	}
 	if len(targets) == 0 {
@@ -241,9 +271,9 @@ func listAuthTargets(jsonMode bool, registry *authContributionRegistry) int {
 func printLoginCommandHelp(cmd loginCommand) {
 	switch cmd {
 	case authLogin:
-		fmt.Print("Usage:\n  pig login [provider] [--no-input]\n  pig login --list [--json]\n\nLogin to an OAuth provider or list registered auth targets.\n\nExamples:\n  pig login\n  pig login github-copilot\n  pig login --list --json\n")
+		fmt.Print("Usage:\n  ompig-slim login [provider] [--no-input]\n  ompig-slim login --list [--json]\n\nLogin to an OAuth provider or list registered auth targets.\n\nExamples:\n  ompig-slim login\n  ompig-slim login github-copilot\n  ompig-slim login --list --json\n")
 	case authLogout:
-		fmt.Print("Usage:\n  pig logout [provider] [--no-input]\n\nRemove stored OAuth credentials from auth.json.\n\nExamples:\n  pig logout\n  pig logout github-copilot\n")
+		fmt.Print("Usage:\n  ompig-slim logout [provider] [--account <key>] [--no-input]\n\nRemove stored credentials from the shared agent.db.\n\nExamples:\n  ompig-slim logout\n  ompig-slim logout github-copilot\n")
 	}
 }
 
@@ -277,21 +307,27 @@ func resolveLoginProvider(input string, registry **authContributionRegistry) (ai
 	return authProviderFromContribution(targets[idx-1].ID, registry)
 }
 
-func resolveLogoutProvider(store *ai.AuthStorage, input string) (string, error) {
-	if input != "" {
-		return input, nil
-	}
-	creds, err := store.Load()
+// logoutProviders lists providers with stored OAuth credentials, matching Pi's interactive
+// selection: the store's providers first, then extension-owned OAuth stores, sorted by id.
+func logoutProviders(agentDir string) ([]string, error) {
+	store, err := ai.OpenCredentialStore(agentDir)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	defer func() { _ = store.Close() }()
+	//portlint:allow ctxbackground the logout picker has no caller context
+	stored, err := store.List(context.Background())
+	if err != nil {
+		return nil, err
 	}
 	var providers []string
 	providersByID := make(map[string]struct{})
-	for id, cred := range creds {
-		if cred.Type == ai.CredentialOAuth {
-			providers = append(providers, id)
-			providersByID[id] = struct{}{}
+	for _, info := range stored {
+		if info.Type != ai.CredentialOAuth {
+			continue
 		}
+		providers = append(providers, info.ProviderID)
+		providersByID[info.ProviderID] = struct{}{}
 	}
 	for _, provider := range ai.GetOAuthProviders() {
 		if _, exists := providersByID[provider.ID()]; exists {
@@ -307,28 +343,7 @@ func resolveLogoutProvider(store *ai.AuthStorage, input string) (string, error) 
 		}
 	}
 	slices.Sort(providers)
-	if len(providers) == 0 {
-		return "", fmt.Errorf("No OAuth providers logged in.")
-	}
-	if len(providers) == 1 {
-		return providers[0], nil
-	}
-	fmt.Println("Select a provider to logout:")
-	fmt.Println()
-	for i, provider := range providers {
-		fmt.Printf("  %d. %s\n", i+1, provider)
-	}
-	fmt.Println()
-	fmt.Printf("Enter number (1-%d): ", len(providers))
-	line, err := readLine(os.Stdin)
-	if err != nil {
-		return "", err
-	}
-	idx, ok := menuChoice(line, len(providers))
-	if !ok {
-		return "", fmt.Errorf("Invalid selection")
-	}
-	return providers[idx-1], nil
+	return providers, nil
 }
 
 func runOAuthProviderLogin(provider ai.OAuthProviderInterface, noInput bool, getDeviceID func() string) (ai.OAuthCredentials, error) {

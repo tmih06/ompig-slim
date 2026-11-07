@@ -41,7 +41,7 @@ func cliCLIError(format string, args ...any) *cliStartupFailure {
 }
 
 func cliPigError(format string, args ...any) *cliStartupFailure {
-	return &cliStartupFailure{message: fmt.Sprintf(format, args...), report: func(message string) { fmt.Fprintf(os.Stderr, "pig: %s\n", message) }}
+	return &cliStartupFailure{message: fmt.Sprintf(format, args...), report: func(message string) { fmt.Fprintf(os.Stderr, "ompig-slim: %s\n", message) }}
 }
 
 // ambientScopes returns the ambient scopes extensions and skills are discovered from. A Piglet Binary discovers none, because its
@@ -248,7 +248,7 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 				reportExtensionSDKStageFailure(os.Stderr, err)
 				return
 			}
-			sdkDiagnostics = append(sdkDiagnostics, codingagent.AgentSessionRuntimeDiagnostic{Type: "warning", Message: fmt.Sprintf("extension SDK staging failed: %v; extensions that need the SDK may fail to build; run 'pig diagnose' for detail", err)})
+			sdkDiagnostics = append(sdkDiagnostics, codingagent.AgentSessionRuntimeDiagnostic{Type: "warning", Message: fmt.Sprintf("extension SDK staging failed: %v; extensions that need the SDK may fail to build; run 'ompig-slim diagnose' for detail", err)})
 		})
 	}
 
@@ -373,11 +373,11 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	missingLocal := packagemanager.MissingLocalPackages(cwd, services.SettingsManager().AgentDir(), services.SettingsManager())
 	if reinstalled, missingPkgs := packagemanager.EnsureConfiguredPackagesInstalled(cwd, services.SettingsManager().AgentDir(), services.SettingsManager()); len(reinstalled)+len(missingPkgs) > 0 {
 		if len(reinstalled) > 0 {
-			fmt.Fprintf(os.Stderr, "[pig] Reinstalled missing packages: %s\n", strings.Join(reinstalled, ", "))
+			fmt.Fprintf(os.Stderr, "[ompig-slim] Reinstalled missing packages: %s\n", strings.Join(reinstalled, ", "))
 		}
 		missingPkgs = slices.DeleteFunc(missingPkgs, func(source string) bool { return packagemanager.DetectSourceKind(source) == "local" })
 		if len(missingPkgs) > 0 {
-			fmt.Fprintf(os.Stderr, "[pig] Could not install: %s (run `pig update` when online)\n", strings.Join(missingPkgs, ", "))
+			fmt.Fprintf(os.Stderr, "[ompig-slim] Could not install: %s (run `ompig-slim update` when online)\n", strings.Join(missingPkgs, ", "))
 		}
 	}
 	trace.Mark("packages-reinstall-done")
@@ -708,7 +708,8 @@ type toolSelection struct {
 //
 // upstream: sdk.ts:260-276 (allowedToolNames, excludedToolNames, initialActiveToolNames), agent-session.ts:3552-3562
 func resolveToolSelection(flags Args, defaultTools, registryToolNames []string) toolSelection {
-	agentToolNames := []string{"read", "bash", "edit", "write"}
+	// DEFAULT_TOOL_NAMES names the default built-ins, codemode included (settings-manager.ts:89).
+	agentToolNames := codingagent.DefaultToolNames()
 	if defaultTools != nil {
 		agentToolNames = defaultTools
 	}

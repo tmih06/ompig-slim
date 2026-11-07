@@ -6,17 +6,18 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/MichaelKinsy/PiG/internal/codingagent"
 )
 
 type packageModelRuntime interface {
 	Refresh(context.Context, ...ai.ModelsRefreshOptions) ai.ModelsRefreshResult
+	Close()
 }
 
 var createPackageModelRuntime = func(ctx context.Context, options coding.CreateModelRuntimeOptions) (packageModelRuntime, error) {
@@ -28,12 +29,18 @@ func refreshModelCatalogs(agentDir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15000*time.Millisecond)
 	defer cancel()
 	modelsPath := codingagent.ModelsPath(agentDir)
+	credentials, err := ai.OpenCredentialStore(agentDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = credentials.Close() }()
 	runtime, err := createPackageModelRuntime(ctx, coding.CreateModelRuntimeOptions{
-		AuthPath: filepath.Join(agentDir, "auth.json"), ModelsPath: new(&modelsPath), AllowModelNetwork: false,
+		Credentials: credentials, ModelsPath: new(&modelsPath), AllowModelNetwork: false,
 	})
 	if err != nil {
 		return err
 	}
+	defer runtime.Close()
 	result := runtime.Refresh(ctx, ai.ModelsRefreshOptions{AllowNetwork: new(true), Force: new(true)})
 	if result.Aborted {
 		return fmt.Errorf("Model catalog refresh timed out.")

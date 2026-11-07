@@ -19,13 +19,11 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/configvalue"
-	"github.com/MichaelKinsy/PiG/internal/text"
 )
 
 // RuntimeModel carries the model identity, reasoning flag, and intrinsic headers used by request-auth and CLI resolution.
@@ -124,7 +122,7 @@ func NewRequestAuthRuntime(ctx context.Context, options RequestAuthRuntimeOption
 	if options.AgentDir != "" {
 		registry := &ModelRegistry{agentDir: options.AgentDir}
 		runtime.config, runtime.configError = registry.readConfig()
-		runtime.configOrder = modelsJSONProviderOrder(filepath.Join(options.AgentDir, "models.json"))
+		runtime.configOrder = modelsConfigProviderOrder(registry.modelConfigPath())
 	}
 	runtime.configureRadiusProviders()
 	runtime.rebuildProviders()
@@ -543,15 +541,22 @@ func composeOAuthAuth(providerID string, oauth *ai.OAuthAuth, config providerCon
 	return &composed
 }
 
-// modelsJSONProviderOrder returns models.json provider ids in file order, the
-// order upstream ModelConfig.getProviderIds reports.
-func modelsJSONProviderOrder(path string) []string {
+// modelsConfigProviderOrder returns models-configuration provider ids in file order, the order upstream
+// ModelConfig.getProviderIds reports. The file may be models.yml or models.json.
+func modelsConfigProviderOrder(path string) []string {
+	if path == "" {
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
+	content, parseError := parseModelsFile(string(data), path)
+	if parseError != "" {
+		return nil
+	}
 	var top map[string]json.RawMessage
-	if json.Unmarshal([]byte(stripJSONComments(text.StripBom(string(data)))), &top) != nil {
+	if json.Unmarshal(content, &top) != nil {
 		return nil
 	}
 	decoder := json.NewDecoder(bytes.NewReader(top["providers"]))

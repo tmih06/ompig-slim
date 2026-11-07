@@ -252,10 +252,11 @@ func (m *InteractiveMode) probeOAuthCopilotEnv() (string, error) {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	auth, err := ai.NewAuthStorage(filepath.Join(dir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(dir)
 	if err != nil {
 		return "", err
 	}
+	defer func() { _ = auth.Close() }()
 	const envToken = "tid=parity;proxy-ep=proxy.individual.githubcopilot.com;exp=4102444800"
 	bearer, base, err := ai.ResolveCopilotEnvFallback(auth, envToken)
 	if err != nil {

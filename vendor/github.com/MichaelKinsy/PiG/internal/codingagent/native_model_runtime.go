@@ -46,6 +46,174 @@ func (store registryCredentials) Delete(ctx context.Context, id string) error {
 	return store.current().Delete(ctx, id)
 }
 
+func (store registryCredentials) ReadAccount(ctx context.Context, id string, key *string) (*ai.Credential, error) {
+	return store.current().ReadAccount(ctx, id, key)
+}
+func (store registryCredentials) ListAccounts(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
+	return store.current().ListAccounts(ctx)
+}
+func (store registryCredentials) SaveAccount(ctx context.Context, id string, key *string, credential ai.Credential) ([]ai.CredentialAccountInfo, error) {
+	return store.current().SaveAccount(ctx, id, key, credential)
+}
+func (store registryCredentials) SelectAccount(ctx context.Context, id, key string) (bool, error) {
+	return store.current().SelectAccount(ctx, id, key)
+}
+func (store registryCredentials) DeleteAccount(ctx context.Context, id, key string) (bool, error) {
+	return store.current().DeleteAccount(ctx, id, key)
+}
+func (store registryCredentials) ModifyAccount(ctx context.Context, id string, key *string, fn func(*ai.Credential) (*ai.Credential, error)) (*ai.Credential, error) {
+	return store.current().ModifyAccount(ctx, id, key, fn)
+}
+func (store registryCredentials) GetAccountBlockedUntil(ctx context.Context, id string, key *string, scopes []string) (*int64, error) {
+	return store.current().GetAccountBlockedUntil(ctx, id, key, scopes)
+}
+func (store registryCredentials) BlockAccount(ctx context.Context, id string, key *string, scope string, until int64) error {
+	return store.current().BlockAccount(ctx, id, key, scope, until)
+}
+func (store registryCredentials) AccountCount() (int, error) {
+	return store.current().AccountCount()
+}
+
+// registryCredentialAccounts is the base store's multi-account surface, reached past the runtime
+// key overlay: a runtime key is one provider's override, not an account the pool may route to.
+type registryCredentialAccounts struct{ registry *ModelRegistry }
+
+func (store registryCredentialAccounts) Read(ctx context.Context, id string) (*ai.Credential, error) {
+	return (registryCredentials{store.registry}).Read(ctx, id)
+}
+func (store registryCredentialAccounts) List(ctx context.Context) ([]ai.CredentialInfo, error) {
+	return (registryCredentials{store.registry}).List(ctx)
+}
+func (store registryCredentialAccounts) Modify(ctx context.Context, id string, fn func(*ai.Credential) (*ai.Credential, error)) (*ai.Credential, error) {
+	return (registryCredentials{store.registry}).Modify(ctx, id, fn)
+}
+func (store registryCredentialAccounts) Delete(ctx context.Context, id string) error {
+	return (registryCredentials{store.registry}).Delete(ctx, id)
+}
+
+func (store registryCredentialAccounts) store() ai.AccountCredentialStore {
+	store.registry.mu.RLock()
+	base := store.registry.credentialStore
+	store.registry.mu.RUnlock()
+	if base == nil {
+		return nil
+	}
+	accounts, _ := base.(ai.AccountCredentialStore)
+	return accounts
+}
+
+func (store registryCredentialAccounts) ReadAccount(ctx context.Context, providerID string, accountKey *string) (*ai.Credential, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return nil, nil
+	}
+	return accounts.ReadAccount(ctx, providerID, accountKey)
+}
+
+func (store registryCredentialAccounts) ListAccounts(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return nil, nil
+	}
+	return accounts.ListAccounts(ctx)
+}
+
+func (store registryCredentialAccounts) SaveAccount(ctx context.Context, providerID string, accountKey *string, credential ai.Credential) ([]ai.CredentialAccountInfo, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return nil, nil
+	}
+	return accounts.SaveAccount(ctx, providerID, accountKey, credential)
+}
+
+func (store registryCredentialAccounts) SelectAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return false, nil
+	}
+	return accounts.SelectAccount(ctx, providerID, accountKey)
+}
+
+func (store registryCredentialAccounts) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return false, nil
+	}
+	return accounts.DeleteAccount(ctx, providerID, accountKey)
+}
+
+func (store registryCredentialAccounts) ModifyAccount(ctx context.Context, providerID string, accountKey *string, fn func(*ai.Credential) (*ai.Credential, error)) (*ai.Credential, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return nil, nil
+	}
+	return accounts.ModifyAccount(ctx, providerID, accountKey, fn)
+}
+
+func (store registryCredentialAccounts) GetAccountBlockedUntil(ctx context.Context, providerID string, accountKey *string, scopes []string) (*int64, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return nil, nil
+	}
+	return accounts.GetAccountBlockedUntil(ctx, providerID, accountKey, scopes)
+}
+
+func (store registryCredentialAccounts) BlockAccount(ctx context.Context, providerID string, accountKey *string, scope string, untilMs int64) error {
+	accounts := store.store()
+	if accounts == nil {
+		return nil
+	}
+	return accounts.BlockAccount(ctx, providerID, accountKey, scope, untilMs)
+}
+
+func (store registryCredentialAccounts) AccountCount() (int, error) {
+	accounts := store.store()
+	if accounts == nil {
+		return 0, nil
+	}
+	return accounts.AccountCount()
+}
+
+// RegistryCredentialAccounts returns the base credential store's multi-account surface, or nil
+// when the store holds one credential per provider. The runtime key overlay is deliberately not
+// part of it.
+func (r *ModelRegistry) RegistryCredentialAccounts() ai.AccountCredentialStore {
+	store := registryCredentialAccounts{registry: r}
+	if store.store() == nil {
+		return nil
+	}
+	return store
+}
+
+// AccountRouter returns this registry's request-local account router, which shares the base
+// credential store and reports handoffs to every subscriber. Its own lock keeps it out of the
+// mu/nativeMu order.
+func (r *ModelRegistry) AccountRouter() *ai.AccountRouter {
+	r.accountRouterMu.Lock()
+	defer r.accountRouterMu.Unlock()
+	if r.accountRouter == nil {
+		r.accountRouter = ai.NewAccountRouter(registryCredentialAccounts{registry: r})
+	}
+	return r.accountRouter
+}
+
+// ClearAccountProvider drops the runtime's successful-request affinity for a provider after an
+// explicit login, logout or account change.
+func (r *ModelRegistry) ClearAccountProvider(providerID string) {
+	r.AccountRouter().ClearProvider(providerID)
+}
+
+// PeekAccountKey reports the account this registry's requests are pinned to for a session and
+// model, for read-only display.
+func (r *ModelRegistry) PeekAccountKey(providerID, sessionID, modelID string) (*string, bool) {
+	return r.AccountRouter().PeekAccountKey(providerID, sessionID, modelID)
+}
+
+// OnAccountRotation subscribes to request-local account handoffs.
+func (r *ModelRegistry) OnAccountRotation(listener func(ai.AccountRotation)) func() {
+	return r.AccountRouter().OnRotation(listener)
+}
+
 // NativeModels returns the provider-owned collection sharing this registry's credentials and ModelsStore.
 func (r *ModelRegistry) NativeModels() *ai.Models {
 	r.nativeMu.Lock()
@@ -54,7 +222,7 @@ func (r *ModelRegistry) NativeModels() *ai.Models {
 		r.nativeModels = ai.CreateModelsWithModelAuth(func(ctx context.Context, model *ai.Model, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error) {
 			// ResolveRegistryModelAuth resolves provider auth with GetAuth(providerID); it must never call GetModelAuth.
 			return r.ResolveRegistryModelAuth(ctx, model, overrides)
-		}, ai.CreateModelsOptions{Credentials: registryCredentials{r}, ModelsStore: registryModelsStore{r}})
+		}, ai.CreateModelsOptions{Credentials: registryCredentials{r}, AccountRouter: r.AccountRouter(), ModelsStore: registryModelsStore{r}})
 		r.nativeOriginal = map[string]*ai.ModelsProvider{}
 		r.nativeBase = map[string]*ai.ModelsProvider{}
 		r.nativeInputs = map[string]*ProviderConfigInput{}

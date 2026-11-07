@@ -313,7 +313,19 @@ func ExtensionToolInfosScoped(runner ExtensionToolLister, allowed, excluded map[
 	index := make(map[string]int)
 	for _, schema := range tools.BuiltinToolSchemas() {
 		sourceInfo := CreateSyntheticSourceInfo(BuiltinPathPrefix+schema.Name, SyntheticSourceInfoOptions{Source: "builtin"})
-		if !admitted(extension.ToolInfo{Name: schema.Name, SourceInfo: sourceInfo, Source: "builtin"}) {
+		// An extended built-in is `model-only` and reaches the tools its input names: codemode is declared to the model
+		// but scripts, not the model, call the other tools (agent-session.ts getAllTools reads both from the definition).
+		extended := tools.StaticExtendedBuiltinDefinition(schema.Name)
+		exposure := extension.ToolExposureDirect
+		var reaches extension.ToolReachesToolsFunc
+		if extended.Name != "" {
+			exposure = extended.Exposure
+			if exposure == "" {
+				exposure = extension.ToolExposureDirect
+			}
+			reaches = extended.ReachesTools
+		}
+		if !admitted(extension.ToolInfo{Name: schema.Name, SourceInfo: sourceInfo, Source: "builtin", Exposure: exposure}) {
 			continue
 		}
 		parameters, err := schema.ParametersJSON()
@@ -326,7 +338,8 @@ func ExtensionToolInfosScoped(runner ExtensionToolLister, allowed, excluded map[
 			Name: schema.Name, Description: schema.Description, Parameters: parameters,
 			PromptGuidelines: schema.PromptGuidelines,
 			SourceInfo:       sourceInfo,
-			Exposure:         extension.ToolExposureDirect,
+			Exposure:         exposure,
+			ReachesTools:     subprocess.ToolInfoReachesTools(reaches),
 			Source:           "builtin",
 		})
 	}

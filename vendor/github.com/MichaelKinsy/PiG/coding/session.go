@@ -115,7 +115,10 @@ type Session struct {
 	eventsSubscribed    atomic.Bool
 	modelChangeMu       sync.Mutex
 	detachModelObserver func()
-	detachAgentEvents   func()
+	// detachAccountRotations unsubscribes this Session from the runtime's request-local account
+	// handoffs; the Session owns it from its runtime and releases it on close.
+	detachAccountRotations func()
+	detachAgentEvents      func()
 	// agentEventHold holds the Agent at its next event while a termination signal's disposal runs; see HoldAgentEvents.
 	agentEventHold agentEventHold
 
@@ -767,6 +770,15 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 		sess.applyTranscriptTools(restoredTranscript, opts.DefaultToolModifiers)
 	}
 	sess.detachModelObserver = sync.OnceFunc(svcs.Registry().ObserveChanges(sess.refreshCurrentModelFromRegistry))
+	// A request-local account handoff becomes one session event, for the session that made the
+	// request (agent-session.ts:537 onAccountRotation). The listener outlives the runtime's own
+	// lifetime because the Session releases it on close.
+	sess.detachAccountRotations = svcs.Registry().OnAccountRotation(func(rotation ai.AccountRotation) {
+		if rotation.SessionID != "" && rotation.SessionID != sess.ID() {
+			return
+		}
+		sess.emitAccountRotation(rotation)
+	})
 	// Initial rebinding follows backend ownership; declared metadata alone does not own a caller-supplied transport.
 	if opts.Model != nil && opts.Model.Provider != nil && svcs.Registry().HasRegisteredProvider(opts.Model.Provider.ID()) {
 		sess.refreshCurrentModelFromRegistry()
@@ -1538,6 +1550,10 @@ func (s *Session) Dispose() {
 	if s.detachModelObserver != nil {
 		s.detachModelObserver()
 	}
+	if s.detachAccountRotations != nil {
+		s.detachAccountRotations()
+		s.detachAccountRotations = nil
+	}
 	s.AbortRetry()
 	s.AbortCompaction()
 	s.AbortBranchSummary()
@@ -1569,6 +1585,10 @@ func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
 		if s.detachModelObserver != nil {
 			s.detachModelObserver()
+		}
+		if s.detachAccountRotations != nil {
+			s.detachAccountRotations()
+			s.detachAccountRotations = nil
 		}
 		close(s.closeDone)
 	})

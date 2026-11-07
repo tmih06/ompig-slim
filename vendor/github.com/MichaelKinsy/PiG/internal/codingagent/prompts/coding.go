@@ -71,7 +71,7 @@ type Options struct {
 	AppendMode string
 }
 
-const preamble = "You are a coding assistant running inside pig, a coding agent harness. Help users inspect files, run commands, and modify code."
+const preamble = "You are a coding assistant running inside ompig-slim, a coding agent harness. Help users inspect files, run commands, and modify code."
 
 type section struct{ name, content string }
 

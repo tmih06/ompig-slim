@@ -4,7 +4,6 @@ package codingagent
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -27,12 +26,13 @@ func (m *InteractiveMode) providerAuth(id string) ai.ProviderAuth {
 }
 
 func (m *InteractiveMode) getLogoutProviderOptions() ([]tui.OAuthProvider, error) {
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return nil, err
 	}
-	// listCredentials({ signal: AbortSignal.timeout(15_000) }) (interactive-mode.ts:5836) yields the providers in auth.json's member order, which the stable
-	// name sort below keeps for equal names. With a signal, a failed reload is an error rather than the last snapshot (auth-storage.ts:431-432).
+	defer func() { _ = auth.Close() }()
+	// listCredentials({ signal: AbortSignal.timeout(15_000) }) (interactive-mode.ts:5836) yields the providers in the store's order, which the stable
+	// name sort below keeps for equal names. With a signal, a failed read is an error rather than an empty list.
 	//portlint:allow ctxbackground AbortSignal.timeout(15_000) is the listing's only abort; it is not tied to the mode or a caller (interactive-mode.ts:5836)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -119,10 +119,11 @@ func (m *InteractiveMode) getLoginProviderOptions(includeStatus ...bool) []tui.O
 					status := registry.GetProviderAuthStatus(id)
 					usingOAuth := false
 					if status.Configured && status.Source == ai.AuthSourceStored {
-						if store, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json")); err == nil {
+						if store, err := ai.OpenCredentialStore(m.opts.AgentDir); err == nil {
 							if credential, exists, err := store.GetRaw(id); err == nil && exists {
 								usingOAuth = credential.Type == ai.CredentialOAuth
 							}
+							_ = store.Close()
 						}
 					}
 					option.Status = authSelectorStatus(status, usingOAuth)

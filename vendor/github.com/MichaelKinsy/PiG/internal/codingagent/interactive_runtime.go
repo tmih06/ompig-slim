@@ -79,6 +79,10 @@ type InteractiveReplacement struct {
 	ModelClassify           func(context.Context, *ai.ClassifierModel, ai.ClassifierContext, ...ai.ModelsClassifierOptions) ai.ClassifierResult
 	ModelGenerateImages     func(context.Context, *ai.ImageModel, ai.ImagesContext, ...ai.ModelsImagesOptions) ai.AssistantImages
 	RequestAuthRuntime      *RequestAuthRuntime
+	// UsageService is the replacement Session's quota service, built from its own
+	// credential store so the board never reads the outgoing Session's accounts.
+	UsageService    UsageQuotaService
+	UsageAccountKey func(provider string) (*string, bool)
 }
 
 // installRuntimeHooks binds the runtime host to this mode as the constructor of Pi's InteractiveMode does: the mode resets extension UI before the outgoing Session's contexts go stale, drains active work before the outgoing Session aborts, and rebinds to the replacement Session.
@@ -194,6 +198,8 @@ func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r I
 	m.opts.ModelClassify = r.ModelClassify
 	m.opts.ModelGenerateImages = r.ModelGenerateImages
 	m.opts.RequestAuthRuntime = r.RequestAuthRuntime
+	m.opts.UsageService = r.UsageService
+	m.opts.UsageAccountKey = r.UsageAccountKey
 	if m.extCtx != nil {
 		m.extCtx.CWD = r.CWD
 	}

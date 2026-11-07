@@ -201,11 +201,23 @@ func (m *InteractiveMode) wireInprocContextActions() {
 			// would be invisible to GetAllTools → ScopeTools → SetActiveTools,
 			// causing them to be filtered out after a rescope.
 			for _, name := range builtinNames {
+				exposure := extension.ToolExposureDirect
+				var reaches extension.ToolReachesToolsFunc
+				if definition := tools.StaticExtendedBuiltinDefinition(name); definition.Name != "" {
+					// An extended built-in declares its own exposure and reachesTools (agent-session.ts getAllTools).
+					exposure = definition.Exposure
+					if exposure == "" {
+						exposure = extension.ToolExposureDirect
+					}
+					reaches = definition.ReachesTools
+				}
 				result = append(result, extension.ToolInfo{
-					Name:        name,
-					Description: tools.BuiltinToolDescription(name),
-					SourceInfo:  CreateSyntheticSourceInfo(BuiltinPathPrefix+name, SyntheticSourceInfoOptions{Source: "builtin"}),
-					Source:      "builtin",
+					Name:         name,
+					Description:  tools.BuiltinToolDescription(name),
+					SourceInfo:   CreateSyntheticSourceInfo(BuiltinPathPrefix+name, SyntheticSourceInfoOptions{Source: "builtin"}),
+					Source:       "builtin",
+					Exposure:     exposure,
+					ReachesTools: reaches,
 				})
 			}
 			return result

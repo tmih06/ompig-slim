@@ -55,12 +55,21 @@ func (runtime *ModelRuntime) Refresh(ctx context.Context, options ...ai.ModelsRe
 
 // Login awaits same-provider credential operations, authentication by the auth methods of the composed provider GetProvider returns for the ID, and local synchronization. Optional LoginOptions reach the provider's OAuth login, as Pi's login(providerId, type, interaction, options) does (model-runtime.ts:817-825). A committed login whose synchronization fails returns CredentialSynchronizationError.
 func (runtime *ModelRuntime) Login(ctx context.Context, id string, kind ai.AuthType, interaction ai.AuthInteraction, options ...ai.LoginOptions) (ai.Credential, error) {
-	return runtime.services.Registry().LoginNativeProvider(ctx, id, kind, interaction, options...)
+	credential, err := runtime.services.Registry().LoginNativeProvider(ctx, id, kind, interaction, options...)
+	if err == nil {
+		// A fresh login supersedes this runtime's successful-request affinity (model-runtime.ts login).
+		runtime.clearAccountAffinity(id)
+	}
+	return credential, err
 }
 
 // Logout awaits same-provider credential operations before deleting credentials and synchronizing local models. A committed deletion whose synchronization fails returns CredentialSynchronizationError.
 func (runtime *ModelRuntime) Logout(ctx context.Context, id string) error {
-	return runtime.services.Registry().LogoutNativeProvider(ctx, id)
+	if err := runtime.services.Registry().LogoutNativeProvider(ctx, id); err != nil {
+		return err
+	}
+	runtime.clearAccountAffinity(id)
+	return nil
 }
 
 // StreamDeferred forwards the selected model, handle and optional request overrides through the same native model collection as FetchDeferred. A model of a provider an extension registered goes to that provider object's fetchDeferred after the same request authentication its stream gets.

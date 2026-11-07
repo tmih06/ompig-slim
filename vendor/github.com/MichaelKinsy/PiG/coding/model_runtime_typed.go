@@ -94,15 +94,50 @@ func (runtime *ModelRuntime) GetAvailableOfType(ctx context.Context, modelType a
 }
 
 // GetModelAuth resolves request auth for a model of any type. Auth is provider-scoped, so one credential serves chat, image and classifier models.
+//
+// A request that names no account resolves the one the account pool would route to for this
+// model, so a credential export uses the same account inference would (model-runtime.ts
+// getAuth(model) over accountPool.resolveAccount).
 func (runtime *ModelRuntime) GetModelAuth(ctx context.Context, model ai.AnyModel, overrides ...ai.AuthResolutionOverrides) (*ai.AuthResult, error) {
 	if runtime == nil || runtime.services == nil {
 		return nil, ErrNoServices
 	}
 	registry := runtime.services.Registry()
+	overrides = runtime.resolveAccountOverrides(ctx, model, overrides)
 	if chat, ok := model.(*ai.Model); ok {
 		return registry.ResolveRegistryModelAuth(ctx, chat, overrides...)
 	}
 	return registry.ResolveRegistryTypedModelAuth(ctx, model, overrides...)
+}
+
+// resolveAccountOverrides binds an unnamed account resolution to the pool's choice. A caller that
+// already named an account, or a request attempt that carries its own selection, is left alone.
+func (runtime *ModelRuntime) resolveAccountOverrides(ctx context.Context, model ai.AnyModel, overrides []ai.AuthResolutionOverrides) []ai.AuthResolutionOverrides {
+	var current ai.AuthResolutionOverrides
+	if len(overrides) > 0 {
+		current = overrides[0]
+	}
+	if current.AccountKeySet || current.APIKey != nil || model == nil {
+		return overrides
+	}
+	if _, routed := ai.AccountRequestFromContext(ctx); routed {
+		return overrides
+	}
+	router := runtime.accountRouter()
+	if !router.Pooled() {
+		return overrides
+	}
+	_, apiKeySet := runtime.services.Registry().RuntimeAPIKey(model.ProviderID())
+	accountKey, present, err := router.ResolveAccount(ctx, model, ai.AccountRouteRequest{APIKeySet: apiKeySet})
+	if err != nil || !present {
+		return overrides
+	}
+	bound := ai.WithAccountKey(current, accountKey)
+	if len(overrides) == 0 {
+		return []ai.AuthResolutionOverrides{bound}
+	}
+	overrides[0] = bound
+	return overrides
 }
 
 // GenerateImages generates images through the owning provider with auth resolved like a chat request. It never returns an error: an unknown provider, unconfigured auth, cancellation and a provider without image generation become an error or aborted result.
@@ -111,7 +146,14 @@ func (runtime *ModelRuntime) GenerateImages(ctx context.Context, model *ai.Image
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	result, err := runtime.generateImages(ctx, model, request, opts)
+	router := runtime.accountRouter()
+	accountRequest := ai.AccountRouteRequest{APIKeySet: opts.APIKey != "" || opts.APIKeySet}
+	result, err := router.ImagesRoutes(ctx, model, accountRequest, func(attemptCtx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (ai.AssistantImages, error) {
+		attemptCtx = ai.WithAccountSelection(attemptCtx, selection, forceOAuthRefresh)
+		attempt := opts
+		attempt.OnResponse = ai.ObserveImageOnResponse(attempt.OnResponse, observe)
+		return runtime.generateImages(attemptCtx, model, request, attempt)
+	})
 	if err != nil {
 		return ai.ImageErrorResult(model, err, ctx.Err() != nil)
 	}
@@ -126,7 +168,8 @@ func (runtime *ModelRuntime) generateImages(ctx context.Context, model *ai.Image
 	if provider == nil {
 		return ai.AssistantImages{}, ai.NewModelsError(ai.ModelsErrorProvider, "Unknown provider: "+model.Provider, nil)
 	}
-	overrides := ai.AuthResolutionOverrides{Env: options.Env}
+	// ctx carries one attempt's account selection when the pool routes this request.
+	overrides := ai.ApplyAccountRequest(ctx, ai.AuthResolutionOverrides{Env: options.Env})
 	if options.APIKey != "" || options.APIKeySet {
 		overrides.APIKey = new(options.APIKey)
 	}

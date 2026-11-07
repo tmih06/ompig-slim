@@ -246,13 +246,30 @@ func graphModelObject(model ai.AnyModel) (json.RawMessage, error) {
 func graphAuthOverrides(args icodingagent.GraphArgs, i int) (ai.AuthResolutionOverrides, error) {
 	var wire struct {
 		APIKey             *string           `json:"apiKey"`
+		AccountKey         *string           `json:"accountKey"`
+		AccountKeySet      bool              `json:"accountKeySet"`
+		ForceOAuthRefresh  bool              `json:"forceOAuthRefresh"`
 		Env                map[string]string `json:"env"`
 		MinOAuthValidityMs *float64          `json:"minOAuthValidityMs"`
 	}
 	if err := args.Unmarshal(i, func(raw json.RawMessage) error { return json.Unmarshal(raw, &wire) }); err != nil {
 		return ai.AuthResolutionOverrides{}, err
 	}
-	return ai.AuthResolutionOverrides{APIKey: wire.APIKey, Env: wire.Env, MinOAuthValidityMs: wire.MinOAuthValidityMs}, nil
+	// An explicit accountKey member names that account; its absence resolves the selected one. A
+	// present null member is the identity-less account, which is a different request.
+	var members map[string]json.RawMessage
+	if raw := args.Raw(i); len(raw) > 0 {
+		_ = json.Unmarshal(raw, &members)
+	}
+	_, accountKeySet := members["accountKey"]
+	return ai.AuthResolutionOverrides{
+		APIKey:             wire.APIKey,
+		AccountKey:         wire.AccountKey,
+		AccountKeySet:      accountKeySet || wire.AccountKeySet,
+		ForceOAuthRefresh:  wire.ForceOAuthRefresh,
+		Env:                wire.Env,
+		MinOAuthValidityMs: wire.MinOAuthValidityMs,
+	}, nil
 }
 
 func graphAuthResult(result *ai.AuthResult) any {

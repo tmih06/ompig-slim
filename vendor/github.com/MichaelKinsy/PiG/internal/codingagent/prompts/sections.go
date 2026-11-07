@@ -41,5 +41,8 @@ func DefaultToolSnippets() map[string]string {
 		"grep":       "Search file contents for patterns (respects .gitignore)",
 		"find":       "Find files by glob pattern (respects .gitignore)",
 		"ls":         "List directory contents",
+		// codemode's own promptSnippet (core/tools/codemode/tool.ts codemodeToolSystemPromptContribution): a built-in
+		// tool like the others, so the prompt lists it.
+		"codemode": "Run JavaScript that calls other tools",
 	}
 }

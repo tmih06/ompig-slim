@@ -472,6 +472,12 @@ func (r *ModelRegistry) RefreshCatalogs(ctx context.Context, options CatalogRefr
 	})
 	wg.Wait()
 	maps.Copy(result.Errors, r.refreshNativeProviders(ctx, options.Providers, options.AllowNetwork, options.Force))
+	// The public catalog metrics refresh with the model catalogs: a failed fetch keeps the previous
+	// rows, so a network outage never removes labels from the selectors (model-runtime.ts refresh).
+	force := options.Force != nil && *options.Force
+	if _, err := r.RefreshModelMetadata(ctx, options.AllowNetwork, force); err != nil && ctx.Err() != nil {
+		result.Aborted = true
+	}
 	availability := r.reconcileAvailability(ctx, options.Providers, ai.ModelsRefreshResult{Aborted: ctx.Err() != nil, Errors: result.Errors, ErrorOrder: result.errorOrder})
 	result.Aborted, result.Errors, result.errorOrder = availability.Aborted, availability.Errors, availability.ErrorOrder
 	if backgroundRefresh(ctx) {

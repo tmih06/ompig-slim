@@ -77,14 +77,49 @@ func IsAuthCommandHelp(args []string) bool {
 	return len(args) < 2 || args[1] == "help" || slices.Contains(args, "--help") || slices.Contains(args, "-h")
 }
 
-// authCommandHelp is upstream printAuthCommandHelp's text, with PiG's command
-// name (D2) where upstream prints the literal `pi`.
-const authCommandHelp = `Usage:
-  pig auth print-api-key [--provider <provider>] [--model <model>]
-  pig auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]
-  pig auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
+// authCommandHelpText is upstream printAuthCommandHelp's text, with the application's command name in
+// place of upstream's literal `pi`.
+func authCommandHelpText() string {
+	name := codingagent.AppName
+	return fmt.Sprintf(`Usage:
+  %[1]s auth login <provider> [--api-key] [--no-browser]
+  %[1]s auth logout <provider> [--account <key>]
+  %[1]s auth accounts [--provider <provider>] [--json]
+  %[1]s auth use <provider> <account>
+  %[1]s auth print-api-key [--provider <provider>] [--model <model>]
+  %[1]s auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]
+  %[1]s auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
 
-Auth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.`
+Log in to and out of model providers, print their credentials for external clients, or check that they are ready.
+Credentials are stored in the shared agent database (agent.db, SQLite). Each provider can hold several accounts.
+
+Commands:
+  login <provider>        Sign in with an account in the browser, or save an API key, then exit
+  logout <provider>       Remove the stored credentials; environment variables and models.yml stay
+  accounts                List stored accounts, marking the active one per provider
+  use <provider> <acct>   Make a stored account the active one for that provider
+  print-api-key           Print the resolved API key
+  print-bearer-token      Print a resolved OAuth bearer token (refreshes if expired)
+  check                   Print ready, not_ready, or invalid; exit with 0, 1, or 2
+
+Options for print-api-key, print-bearer-token, and check (at least one is required):
+  --provider <provider>   Resolve credentials for a provider
+  --model <model>         Resolve credentials from a model
+
+Options for login:
+  --api-key               Save an API key instead of signing in with an account
+  --no-browser            Do not open a browser; use another sign-in method, e.g. device code
+
+Options for logout and accounts:
+  --account <key>         Remove only that account instead of every credential of the provider
+  --json                  Print accounts as JSON
+
+Other options:
+  --min-expiry <duration> Minimum remaining token lifetime for print-bearer-token, e.g. 30m or 1h
+  --json                  Print the check result as JSON
+  --credentials           Emit the credential from check, or include it in JSON output
+  --no-refresh            Do not refresh expired OAuth credentials during check`, name)
+}
 
 var minExpiryPattern = lazyregexp.New(`(?i)^(\d+)(ms|s|m|h)$`)
 
@@ -106,8 +141,11 @@ func ParseAuthCommand(args []string) (*AuthCommand, error) {
 		kind = AuthCommandAPIKey
 	case "print-bearer-token":
 		kind = AuthCommandBearerToken
+	case "login", "logout", "accounts", "use":
+		// Dispatched before parsing (auth_run.go); these never reach ParseAuthCommand.
+		return nil, nil
 	default:
-		return nil, authCommandError(`Unknown auth command "%s". Use "%s auth print-api-key", "%s auth print-bearer-token", or "%s auth check".`, subcommand, codingagent.AppName, codingagent.AppName, codingagent.AppName)
+		return nil, authCommandError(`Unknown auth command "%s". Use "%s auth login", "%s auth logout", "%s auth print-api-key", "%s auth print-bearer-token", or "%s auth check".`, subcommand, codingagent.AppName, codingagent.AppName, codingagent.AppName, codingagent.AppName, codingagent.AppName)
 	}
 	command := &AuthCommand{Kind: kind, Args: []string{}}
 	for index := 2; index < len(args); index++ {

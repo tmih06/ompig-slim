@@ -48,7 +48,9 @@ func graphServicesResolve(cwd string, agentDir *string) (any, error) {
 			return nil, err
 		}
 	}
-	return map[string]any{"cwd": resolvedCwd, "agentDir": resolvedAgentDir}, nil
+	// modelsPath is getModelsPath(agentDir): models.yml when present, else models.yaml, else models.json. An SDK builds
+	// ModelRuntime.create with it, so the extension sees the same custom providers the CLI does.
+	return map[string]any{"cwd": resolvedCwd, "agentDir": resolvedAgentDir, "modelsPath": icodingagent.ModelsPath(resolvedAgentDir)}, nil
 }
 
 // graphServicesApply runs the end of createAgentSessionServices over the objects the extension built. The result is the diagnostics, which are the services' own: Pi appends them to the same list the registrations' errors go to.
