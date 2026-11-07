@@ -290,7 +290,7 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		if providerID != "openai-codex" || account.Type != CredentialOAuth {
+		if !isCodexAccountProvider(providerID) || account.Type != CredentialOAuth {
 			eligible = append(eligible, account)
 			continue
 		}

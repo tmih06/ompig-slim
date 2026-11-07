@@ -335,6 +335,9 @@ func oauthToAuth(providerID string, provider OAuthProviderInterface) func(Creden
 			return auth, nil
 		}
 		switch providerID {
+		case codexJSONProviderID:
+			// ompig-slim addition: imported accounts can supply an explicit account ID.
+			return codexJSONToAuth(credential)
 		case "kimi-coding":
 			return ModelAuth{Headers: ProviderHeaders{"Authorization": new("Bearer " + credential.Access)}}, nil
 		case "github-copilot":

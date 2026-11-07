@@ -1601,6 +1601,15 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 	accountID := ""
 	if p.cfg.Codex {
 		accountID = CodexAccountID(apiKey)
+		// ompig-slim addition: an imported opaque token carries its account in
+		// resolved auth headers rather than JWT claims. Other providers stay strict.
+		if accountID == "" && p.cfg.ProviderID == codexJSONProviderID {
+			for name, value := range opts.Headers {
+				if strings.EqualFold(name, "chatgpt-account-id") && value != nil {
+					accountID = *value
+				}
+			}
+		}
 		if accountID == "" {
 			return nil, errors.New("Failed to extract accountId from token")
 		}

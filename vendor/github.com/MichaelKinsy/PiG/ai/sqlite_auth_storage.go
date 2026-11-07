@@ -983,6 +983,13 @@ func (s *SQLiteAuthStorage) modify(ctx context.Context, providerID string, accou
 	}
 	next, err := fn(resolveRowCredential(leased))
 	if err != nil {
+		// ompig-slim addition: only a definitive rejection from the JSON importer
+		// retires secrets, under the same lease and compare-and-swap as refresh.
+		if providerID == codexJSONProviderID && errors.Is(err, errCodexJSONExpired) {
+			if cleanupErr := s.retireCodexJSON(ctx, leased, lease); cleanupErr != nil {
+				return nil, fmt.Errorf("Codex JSON cleanup failed: %w", cleanupErr)
+			}
+		}
 		return nil, err
 	}
 	if err := context.Cause(ctx); err != nil {

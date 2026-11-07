@@ -156,7 +156,10 @@ func postCodexTokenForm(ctx context.Context, form formFields, operation string) 
 		if message == "" {
 			message = fetchStatusText(resp.Status, resp.StatusCode)
 		}
-		return OAuthCredentials{}, fmt.Errorf("OpenAI Codex token %s failed (%d): %s", operation, resp.StatusCode, message)
+		return OAuthCredentials{}, &codexTokenRequestError{
+			status: resp.StatusCode, code: codexTokenErrorCode(respBody),
+			message: fmt.Sprintf("OpenAI Codex token %s failed (%d): %s", operation, resp.StatusCode, message),
+		}
 	}
 	if readErr != nil {
 		return OAuthCredentials{}, fetchBodyReadError(ctx)
