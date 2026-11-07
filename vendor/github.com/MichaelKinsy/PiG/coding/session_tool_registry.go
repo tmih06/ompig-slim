@@ -170,6 +170,17 @@ func syntheticToolSource(name, source string) icodingagent.PiSourceInfo {
 	return icodingagent.CreateSyntheticSourceInfo(path, icodingagent.SyntheticSourceInfoOptions{Source: source})
 }
 
+// extendedToolOptions builds the options of the base tool set: the settings view every built-in reads, plus the working
+// directory, live settings and sandbox cache directory of an extended built-in (upstream's ToolsOptions.codemode).
+func extendedToolOptions(services *AgentSessionServices) *tools.ToolsOptions {
+	options := tools.ToolsOptionsFromSettings(services.Settings(), filepath.Join(services.AgentDir(), "bin"))
+	options.Extended = tools.ExtendedBuiltinOptions{CWD: services.CWD(), CacheDir: tools.WazeroCacheDir()}
+	if manager := services.SettingsManager(); manager != nil {
+		options.Extended.Settings = manager.ExtensionSettings
+	}
+	return options
+}
+
 func toolDefinition(tool agent.AgentTool) (extension.ToolDefinition, error) {
 	if bridged, ok := tool.(*bridgeTool); ok {
 		return bridged.def, nil
@@ -254,8 +265,10 @@ func createSessionToolRegistry(services *AgentSessionServices, opts SessionOptio
 	if !opts.SkipBuiltinTools {
 		var baseTools []agent.AgentTool
 		var overrideKeys []string
+		var baseOptions *tools.ToolsOptions
 		if opts.BaseToolsOverride == nil {
-			baseTools = tools.CreateAllTools(services.CWD(), tools.ToolsOptionsFromSettings(services.Settings(), filepath.Join(services.AgentDir(), "bin")))
+			baseOptions = extendedToolOptions(services)
+			baseTools = tools.CreateAllTools(services.CWD(), baseOptions)
 		} else {
 			// upstream: agent-session.ts:3614-3620: an override is the minimal definition createToolDefinitionFromAgentTool synthesizes, with no built-in prompt snippet.
 			for _, entry := range opts.BaseToolsOverride {
@@ -268,7 +281,15 @@ func createSessionToolRegistry(services *AgentSessionServices, opts SessionOptio
 			}
 		}
 		for _, tool := range baseTools {
-			definition := builtinToolDefinition(tool)
+			// An extended built-in's registration is its own definition, which carries the metadata the agent tool
+			// interface cannot hold (prepareLoadout, exposure, reachesTools, output schema): upstream's
+			// createAllToolDefinitions returns that definition, and the session registers it as it is.
+			var definition extension.ToolDefinition
+			if tools.IsExtendedBuiltinTool(tool.Name()) {
+				definition = tools.ExtendedBuiltinDefinition(tool.Name(), baseOptions.Extended)
+			} else {
+				definition = builtinToolDefinition(tool)
+			}
 			registry.base = append(registry.base, sessionToolEntry{tool: tool, registration: extension.RegisteredTool{Definition: definition, SourceInfo: syntheticToolSource(tool.Name(), "builtin")}})
 		}
 		switch {

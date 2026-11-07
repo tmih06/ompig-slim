@@ -40,6 +40,8 @@ type Options struct {
 // pig additive (D92): each row comes from a registration shim a Piglet Binary compiles out with pig_strip_<name>.
 func All(options Options) []Extension {
 	registerCompiledInReferences()
+	// codemode is a built-in tool, not an extension: its package registers the definition with the base tools when it is
+	// linked, so it exists with --no-extensions and is active by default (upstream core/tools/codemode).
 	entries := append(codemodeEntries(options), toolSearchEntries()...)
 	entries = append(entries, mcpEntries(options)...)
 	// pig divergence (D2): the sprite login is PiG's own built-in; upstream's index.ts lists no such entry.

@@ -11,8 +11,9 @@ import "slices"
 // by name: FormatBuiltinToolHeader is the renderCall half and
 // internal/codingagent toolBodyRenderer the renderResult half.
 
-// builtInToolRendererNames lists the keys of upstream createAllToolRenderers.
-var builtInToolRendererNames = [...]string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls"}
+// builtInToolRendererNames lists the keys of upstream createAllToolRenderers. codemode is a built-in tool there
+// (core/tools/renderers/index.ts), not an extension.
+var builtInToolRendererNames = [...]string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode"}
 
 // HasBuiltInToolRenderers reports whether upstream createAllToolRenderers has
 // an entry for toolName. withBuiltInRenderers falls back to that entry for a

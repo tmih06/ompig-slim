@@ -23,16 +23,35 @@ import (
 
 // ExportToolRenderers is upstream AgentSession's getToolRenderers for HTML
 // exports: the resolvers of runner's extensions in load order, then the tools
-// they registered. A nil runner draws no tool through renderers.
+// they registered, then built-in definitions even when no extension runner exists.
 // upstream: packages/coding-agent/src/core/agent-session.ts:exportToHtml (getToolRenderers)
 func ExportToolRenderers(runner *inproc.Runner) func(name string) *extension.ToolRenderers {
 	// pig additive (D92): a Piglet that strips export-html draws no tool renderers, as its Binary does.
-	if runner == nil || pigstrip.Has(pigstrip.ListFeatures, pigstrip.ExportHTML) {
+	if pigstrip.Has(pigstrip.ListFeatures, pigstrip.ExportHTML) {
 		return nil
 	}
-	registered := export.ToolRenderersOf(runner.Tools())
+	var tools []extension.RegisteredTool
+	if runner != nil {
+		tools = runner.Tools()
+	}
+	registered := export.ToolRenderersOf(tools)
+	builtIn := CreateAllToolRenderers()
+	base := func(name string) *extension.ToolRenderers {
+		if renderers := registered(name); renderers != nil && (renderers.RenderCall != nil || renderers.RenderResult != nil) {
+			return renderers
+		}
+		// A built-in tool has no registration: its renderers are the built-in ones by name, as an export of a
+		// codemode call draws the script card (core/tools/renderers/index.ts createAllToolRenderers).
+		if renderers, ok := builtIn[name]; ok {
+			return &renderers
+		}
+		return registered(name)
+	}
+	if runner == nil {
+		return base
+	}
 	return func(name string) *extension.ToolRenderers {
-		return runner.ResolveToolRenderers(name, func() *extension.ToolRenderers { return registered(name) })
+		return runner.ResolveToolRenderers(name, func() *extension.ToolRenderers { return base(name) })
 	}
 }
 

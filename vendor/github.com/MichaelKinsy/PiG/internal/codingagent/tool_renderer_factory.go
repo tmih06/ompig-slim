@@ -20,7 +20,8 @@ type ToolRenderers = extension.ToolRenderers
 // CreateAllToolRenderers returns the shared built-in render functions, keyed by tool name. Each card supplies its own state and owns its background work.
 func CreateAllToolRenderers() map[string]ToolRenderers {
 	renderers := make(map[string]ToolRenderers)
-	for _, name := range []string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls"} {
+	// createAllToolRenderers: every built-in tool, codemode included (core/tools/renderers/index.ts).
+	for _, name := range []string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode"} {
 		call, result := builtInToolRenderers(name)
 		renderers[name] = ToolRenderers{RenderShell: builtInRenderShell(name), RenderCall: call, RenderResult: result}
 	}

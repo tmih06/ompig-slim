@@ -25,6 +25,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/internal/codingagent/prompts"
 	"github.com/MichaelKinsy/PiG/internal/nodespawn"
 	"github.com/MichaelKinsy/PiG/internal/truncate"
 )
@@ -118,13 +119,27 @@ var builtinToolDescriptions = map[string]string{
 	"ls":         "List directory contents.",
 }
 
-// BuiltinToolNames returns the canonical built-in names in registry order.
+// BuiltinToolNames returns the canonical built-in names in registry order, the extended built-ins last
+// (createAllTools order: codemode follows ls).
 // The returned slice is a copy and cannot mutate future host callbacks.
-func BuiltinToolNames() []string { return append([]string(nil), builtinToolNames[:]...) }
+func BuiltinToolNames() []string {
+	names := make([]string, 0, len(builtinToolNames)+len(extendedBuiltins))
+	names = append(names, builtinToolNames[:]...)
+	return append(names, extendedBuiltinNames()...)
+}
 
 // BuiltinToolDescription returns short host-action metadata without creating a
 // tool instance.
-func BuiltinToolDescription(name string) string { return builtinToolDescriptions[name] }
+func BuiltinToolDescription(name string) string {
+	if description, ok := builtinToolDescriptions[name]; ok {
+		return description
+	}
+	if IsExtendedBuiltinTool(name) {
+		// A short host summary, like the plain built-ins above: the full description is built with the tool itself.
+		return prompts.DefaultToolSnippets()[name]
+	}
+	return ""
+}
 
 // BuiltinToolActive reports whether the registered built-in name is active.
 // A non-nil active set is explicit. A nil active set means PiG's full
@@ -227,6 +242,9 @@ type ToolsOptions struct {
 	Ls         *LsToolOptions
 	// BinDir is <agentDir>/bin: grep and find resolve rg and fd there first, then on PATH, and download them when missing (upstream ensureTool); bash and powershell put it on PATH. Empty means PATH-only lookup and no downloads. It stands in for Pi's process-wide getBinDir().
 	BinDir string
+	// Extended carries the per-session inputs of the extended built-ins (codemode), which upstream's createAllTools gets
+	// from its ToolsOptions: the live settings and the sandbox cache directory.
+	Extended ExtendedBuiltinOptions
 }
 
 // ToolsOptionsFromSettings builds the options a session passes for its settings: the command prefix, the live shell path and the image auto-resize flag. agentBinDir is ToolsOptions.BinDir.
@@ -369,23 +387,39 @@ func CreateCodingTools(cwd string, options *ToolsOptions) []agent.AgentTool {
 func CreateAllTools(cwd string, options *ToolsOptions) []agent.AgentTool {
 	o := orEmpty(options)
 	coding := CreateCodingTools(cwd, options)
-	all := make([]agent.AgentTool, 0, len(coding)+1)
+	// createAllTools order: read, bash, powershell, edit, write, grep, find, ls, then the extended built-ins (codemode).
+	all := make([]agent.AgentTool, 0, len(coding)+1+len(extendedBuiltins))
 	all = append(all, coding[:2]...) // read, bash
 	all = append(all, CreatePowerShellTool(cwd, withOption(o.Powershell, func(p *PowerShellToolOptions) { p.BinDir = o.BinDir })))
-	return append(all, coding[2:]...)
+	all = append(all, coding[2:]...)
+	extended := o.Extended
+	if extended.CWD == "" {
+		extended.CWD = cwd
+	}
+	if extended.CacheDir == "" {
+		extended.CacheDir = WazeroCacheDir()
+	}
+	for _, tool := range CreateExtendedBuiltinTools(extended) {
+		all = append(all, DefinitionAgentTool(tool.Definition))
+	}
+	return all
 }
 
 // BuiltinToolSchemas returns the schema of every built-in tool, in registry
 // order (upstream createAllToolDefinitions), without creating runnable
 // tools. The schemas are the definitions upstream getAllTools reports.
 func BuiltinToolSchemas() []ai.ToolSchema {
-	byName := make(map[string]ai.ToolSchema, len(builtinToolNames))
+	names := BuiltinToolNames()
+	byName := make(map[string]ai.ToolSchema, len(names))
 	for _, t := range builtinSchemaTools() {
 		s := t.Schema()
 		byName[s.Name] = s
 	}
-	out := make([]ai.ToolSchema, 0, len(builtinToolNames))
-	for _, name := range builtinToolNames {
+	for _, name := range extendedBuiltinNames() {
+		byName[name] = DefinitionAgentTool(StaticExtendedBuiltinDefinition(name)).Schema()
+	}
+	out := make([]ai.ToolSchema, 0, len(names))
+	for _, name := range names {
 		out = append(out, byName[name])
 	}
 	return out
@@ -408,6 +442,12 @@ func DefaultToolGuidelines() map[string][]string {
 		s := t.Schema()
 		if len(s.PromptGuidelines) > 0 {
 			m[s.Name] = s.PromptGuidelines
+		}
+	}
+	// The extended built-ins carry their guidelines on their registration definition.
+	for _, name := range extendedBuiltinNames() {
+		if guidelines := StaticExtendedBuiltinDefinition(name).PromptGuidelines; len(guidelines) > 0 {
+			m[name] = guidelines
 		}
 	}
 	return m

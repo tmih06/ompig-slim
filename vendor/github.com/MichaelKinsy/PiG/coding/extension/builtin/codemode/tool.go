@@ -11,6 +11,7 @@ import (
 	sandbox "github.com/MichaelKinsy/PiG/codemode"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
 )
@@ -373,6 +374,13 @@ func constrainedSampling() json.RawMessage {
 // Ports packages/coding-agent/src/extensions/codemode/index.ts (createCodemodeExtension).
 func CreateCodemodeExtension(options Options) extension.ExtensionFactory {
 	return func(pi extension.API) error {
+		// codemode is a built-in tool now (upstream moved it into core/tools, so it is available with --no-extensions):
+		// the host registers its definition with the base tools, and a session that keeps the defaults already has it.
+		// An extension that asks for another mode, budget or models namespace still registers its own definition, which
+		// replaces the base registration as any extension tool of that name does.
+		if tools.IsExtendedBuiltinTool(ToolName) && options.Mode == "" && options.InlineBudget == nil && !options.DisableModels {
+			return nil
+		}
 		o := options
 		o.Models = !o.DisableModels
 		o.GetSettings = pi.GetSettings

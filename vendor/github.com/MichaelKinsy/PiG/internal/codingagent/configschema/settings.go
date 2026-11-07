@@ -31,7 +31,8 @@ var settingsDefaults = struct {
 	fullscreenWheelScrollLines                                                            string
 }{
 	transport: "auto", sessionShareDestination: "auto", steeringMode: "one-at-a-time", followUpMode: "one-at-a-time",
-	compactionEnabled: true, compactionReserveTokens: 16384, compactionKeepRecentTokens: 20000,
+	showCacheMissNotices: true,
+	compactionEnabled:    true, compactionReserveTokens: 16384, compactionKeepRecentTokens: 20000,
 	branchSummaryReserveTokens: 16384,
 	retryEnabled:               true, retryMaxRetries: 3, retryBaseDelayMs: 2000, retryMaxAgentDelayMs: ai.DefaultMaxAgentRetryDelayMs, retryProviderMaxRetryDelayMs: 60000,
 	defaultProjectTrust: "ask", enableInstallTelemetry: true, enableSkillCommands: true,

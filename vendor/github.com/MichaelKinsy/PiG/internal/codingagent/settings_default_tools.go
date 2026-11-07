@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
-// defaultToolNames are the tools enabled at startup when `defaultTools` does not change them.
-// Mirrors upstream DEFAULT_TOOL_NAMES (settings-manager.ts:213).
-var defaultToolNames = []string{"read", "bash", "edit", "write"}
+// defaultToolNames are the tools enabled at startup when `defaultTools` does not change them. `codemode` is a built-in
+// tool, not an extension, so it is active with --no-extensions as well; it stays out of the system prompt's default
+// selected tools, which lists only read, bash, edit and write (system-prompt.ts:64).
+// Mirrors upstream DEFAULT_TOOL_NAMES (settings-manager.ts:89).
+var defaultToolNames = []string{"read", "bash", "edit", "write", "codemode"}
 
 // DefaultToolNames returns the tools enabled at startup when `defaultTools` does not change them.
 func DefaultToolNames() []string { return slices.Clone(defaultToolNames) }

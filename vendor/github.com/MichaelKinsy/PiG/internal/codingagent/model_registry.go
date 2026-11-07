@@ -23,8 +23,12 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/jsjson"
 	"github.com/MichaelKinsy/PiG/internal/jsonparse"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/modelmetadata"
+	"github.com/MichaelKinsy/PiG/internal/orderedjson"
 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
 	"github.com/MichaelKinsy/PiG/internal/text"
+	"github.com/MichaelKinsy/PiG/internal/yaml12"
+	"github.com/MichaelKinsy/PiG/internal/yamljson"
 )
 
 // ─── Model Registry ──────────────────────────────────────────────────────────
@@ -66,8 +70,15 @@ type ModelEntry struct {
 	CacheWriteCost                float64
 	CostTiers                     []ai.CostTier
 	PromptCache                   ai.ModelPromptCache
-	Env                           map[string]string // provider-scoped env overrides (auth.json env)
-	Insecure                      bool              // skip TLS verification (self-signed/internal-CA on-prem endpoints)
+	// Int, TPS and Description are the catalog metrics a model or its models.json entry declares
+	// (types.ts BaseModel.int/tps/description). Int and TPS stay nil when no source publishes them;
+	// Catalog records which metadata source filled them.
+	Int         *float64
+	TPS         *float64
+	Description string
+	Catalog     *ai.ModelCatalogProvenance
+	Env         map[string]string // provider-scoped env overrides (auth.json env)
+	Insecure    bool              // skip TLS verification (self-signed/internal-CA on-prem endpoints)
 }
 
 // ─── models.json schema (upstream-compatible) ────────────────────────────────
@@ -75,7 +86,8 @@ type ModelEntry struct {
 // modelsConfig is the top-level models.json schema.
 // Matches upstream ModelsConfig: { providers: Record<string, ProviderConfig> }
 type modelsConfig struct {
-	Providers map[string]providerConfig `json:"providers"`
+	Providers     map[string]providerConfig `json:"providers"`
+	providerOrder []string
 	// composeFailures maps each provider dropped as uncomposable to upstream's composition error message.
 	composeFailures map[string]string
 }
@@ -151,6 +163,11 @@ type modelDefinition struct {
 	Headers                       map[string]*string               `json:"headers,omitempty"`
 	headerEntries                 []orderedHeaderEntry
 	Compat                        *providerCompat `json:"compat,omitempty"`
+	// Int, TPS and Description pin the catalog metrics (model-config.ts ModelCatalogMetricsFields).
+	// Declaring them stops enrichment from overwriting the value, exactly like any other explicit field.
+	Int         *float64 `json:"int,omitempty"`
+	TPS         *float64 `json:"tps,omitempty"`
+	Description *string  `json:"description,omitempty"`
 	// registration is the definition as the registering extension wrote it (extension.ProviderModelConfig.Definition); nil for a
 	// models.json model. Pi's model object is that definition spread (provider-composer.ts extensionModelFromDefinition), not the
 	// member-by-member object modelFromJson builds, so the definition fixes its members and their order.
@@ -189,6 +206,10 @@ type modelOverrideJSON struct {
 	Headers                       map[string]*string               `json:"headers,omitempty"`
 	headerEntries                 []orderedHeaderEntry
 	Compat                        *providerCompat `json:"compat,omitempty"`
+	// Int, TPS and Description pin the catalog metrics for a model override as well.
+	Int         *float64 `json:"int,omitempty"`
+	TPS         *float64 `json:"tps,omitempty"`
+	Description *string  `json:"description,omitempty"`
 }
 
 type orderedHeaderEntry struct {
@@ -331,6 +352,10 @@ type ModelRegistry struct {
 
 	// credentialStore, when non-nil, provides stored credential lookup for HasConfiguredAuth and GetAvailable filtering.
 	credentialStore ai.CredentialStore
+	// accountRouter routes requests across a provider's stored accounts. It has its own lock so
+	// acquiring it never orders against mu and nativeMu.
+	accountRouterMu sync.Mutex
+	accountRouter   *ai.AccountRouter
 	onChange        *modelRegistryChangeListener
 	observers       []*modelRegistryChangeListener
 
@@ -346,6 +371,15 @@ type ModelRegistry struct {
 
 	refreshMu     sync.Mutex
 	refreshStates map[string]*catalogRefreshState
+
+	// metadata is the public model-metadata catalog (models-metadata.json beside models-store.json). It is
+	// an atomic pointer because every list path reads it while provider locks are held.
+	metadata          atomic.Pointer[modelmetadata.Service]
+	metadataResult    modelmetadata.RefreshResult
+	metadataRefreshed bool
+	// enricher memoizes catalog enrichment per base model object and per source list, keyed by the
+	// catalog generation (model-metadata-provider.ts withModelMetadata).
+	enricher metadataEnricher
 
 	// availabilityRefresh reconciles the Services-owned snapshot before catalog/auth changes notify consumers.
 	availabilityRefresh func(context.Context, []string) ai.ModelsRefreshResult
@@ -444,6 +478,7 @@ func (listener *modelRegistryChangeListener) close() {
 // NewModelRegistry creates a registry, loading from <agent-dir>/models.json if present.
 func NewModelRegistry(agentDir string) *ModelRegistry {
 	r := &ModelRegistry{agentDir: agentDir, modelsStore: defaultModelsStore(agentDir)}
+	r.metadata.Store(newRegistryModelMetadata(agentDir))
 	r.load()
 	return r
 }
@@ -456,6 +491,8 @@ func NewModelRegistryWithModelsPath(modelsPath string) *ModelRegistry {
 		r.agentDir = filepath.Dir(modelsPath)
 		r.modelsStore = defaultModelsStore(r.agentDir)
 	}
+	// Cache identity follows the model configuration: a pinned models path keeps its metadata beside it.
+	r.metadata.Store(newRegistryModelMetadata(r.agentDir))
 	r.load()
 	return r
 }
@@ -464,7 +501,68 @@ func (r *ModelRegistry) modelConfigPath() string {
 	if r.modelsPath != nil {
 		return *r.modelsPath
 	}
-	return filepath.Join(r.agentDir, "models.json")
+	return ModelsPath(r.agentDir)
+}
+
+// ModelsPath is the models configuration file of agentDir: models.yml when it exists, else models.yaml, else models.json.
+// An OMP installation keeps its custom providers in models.yml, so that spelling wins over the JSON file; models.json stays
+// the result for a fresh agent directory that has neither YAML file.
+//
+// upstream: packages/coding-agent/src/config.ts getModelsPath (models.yml, models.yaml, models.json).
+func ModelsPath(agentDir string) string {
+	for _, name := range []string{"models.yml", "models.yaml"} {
+		path := filepath.Join(agentDir, name)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return filepath.Join(agentDir, "models.json")
+}
+
+// isYAMLModelsFile reports whether path names a YAML models file: `models.yml` uses OMP's YAML spelling, and models.json
+// keeps supporting comments and trailing commas.
+//
+// upstream: packages/coding-agent/src/core/model-config.ts isYamlModelsFile (`/\.ya?ml$/i`).
+func isYAMLModelsFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".yml") || strings.HasSuffix(lower, ".yaml")
+}
+
+// parseModelsFile parses the configured models file into the JSON text JSON.parse would have produced for a JSON file, so
+// both spellings validate against the same schema. A YAML file goes through the yaml package and is stringified; a JSON
+// file keeps its comments and trailing commas. The error is upstream's message.
+//
+// upstream: packages/coding-agent/src/core/model-config.ts parseModelsFile.
+func parseModelsFile(content, path string) ([]byte, string) {
+	source := text.StripBom(content)
+	if isYAMLModelsFile(path) {
+		value, err := yaml12.Parse(source)
+		if err != nil {
+			return nil, "Failed to parse " + path + ": " + err.Error()
+		}
+		data, err := yamljson.Marshal(value)
+		if err != nil {
+			return nil, "Failed to parse " + path + ": " + err.Error()
+		}
+		return data, ""
+	}
+	return []byte(stripJSONComments(source)), ""
+}
+
+// isJSONObjectOrArray reports whether the JSON text's top-level value is an object or an array, the two values JavaScript's
+// `typeof parsed === "object"` admits. A null, number, string or boolean is rejected before the schema check.
+func isJSONObjectOrArray(content []byte) bool {
+	for _, c := range content {
+		switch c {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case '{', '[':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // modelsSchema is the models.json schema tree, built on the first read of a models.json: model-config.ts builds ModelsConfigSchema
@@ -492,9 +590,16 @@ func (r *ModelRegistry) readConfig() (*modelsConfig, string) {
 		}
 		return nil, "Failed to load models.json: " + err.Error() + "\n\nFile: " + path
 	}
-	content := []byte(stripJSONComments(text.StripBom(string(data))))
+	content, parseError := parseModelsFile(string(data), path)
+	if parseError != "" {
+		return nil, parseError
+	}
 	if err := jsonparse.Validate(content); err != nil {
 		return nil, "Failed to parse models.json: " + err.Error() + "\n\nFile: " + path
+	}
+	// upstream: model-config.ts ModelConfig.load rejects a parsed document that is not an object before validating it.
+	if !isJSONObjectOrArray(content) {
+		return nil, "Invalid models config: expected an object.\n\nFile: " + path
 	}
 	// upstream: model-config.ts ModelConfig.load lists every typebox error of the parsed document before reading any field.
 	errs, err := modelsConfigSchema().Errors(content)
@@ -508,6 +613,14 @@ func (r *ModelRegistry) readConfig() (*modelsConfig, string) {
 	// JSON.parse reads 128000.0 or 1.28e5 as the number 128000, which ModelDefinitionSchema's Type.Number() accepts.
 	if err := json.Unmarshal(jsjson.NormalizeIntegers(content), &cfg); err != nil {
 		return nil, "Failed to parse models.json: " + err.Error() + "\n\nFile: " + path
+	}
+	// Preserve declaration order once at load, including YAML's JSON projection.
+	if root, err := orderedjson.Parse(content); err == nil {
+		if raw, ok := root.Get("providers"); ok {
+			if providers, err := orderedjson.Parse(raw); err == nil {
+				cfg.providerOrder = providers.Keys()
+			}
+		}
 	}
 	// ModelDefinitionSchema has no `type`, and modelFromJson (provider-composer.ts:210-249) builds every models.json model as a chat
 	// model without one, so a written "type" is ignored.
@@ -1099,22 +1212,21 @@ func (r *ModelRegistry) UnregisterProvider(name string) {
 	r.publishNativeChange()
 }
 
-// SetAuthStorage wires the auth.json credential store for auth-aware
-// filtering. A nil storage leaves the registry without stored credentials.
-func (r *ModelRegistry) SetAuthStorage(auth *ai.AuthStorage) {
-	if auth == nil {
-		r.SetCredentialStore(nil)
-		return
-	}
-	r.SetCredentialStore(auth)
-}
-
 // SetCredentialStore wires the credential store for auth-aware filtering and resets the runtime-key overlay. Call it before using the registry.
 func (r *ModelRegistry) SetCredentialStore(store ai.CredentialStore) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.credentialStore = store
 	r.runtimeCredentials.Store(nil)
+	r.mu.Unlock()
+	// The request router follows the store: an account pinned over the previous store must never
+	// outlive it. Updating the existing router in place also updates a collection that captured it
+	// when it was created. accountRouterMu is taken after r.mu is released, so the two locks never
+	// nest.
+	r.accountRouterMu.Lock()
+	if r.accountRouter != nil {
+		r.accountRouter.SetStore(registryCredentialAccounts{registry: r})
+	}
+	r.accountRouterMu.Unlock()
 }
 
 // runtimeCredentialsLocked returns the runtime key overlay over credentialStore.
@@ -1376,13 +1488,15 @@ func (r *ModelRegistry) GetAvailableModelData() []*ai.Model {
 			if len(builtinChatCatalog(provider.id)) == 0 || !r.providerAvailable(configured, filters, provider.id) {
 				continue
 			}
-			plain := builtinChatCatalogListed(provider.id)
-			for i := range plain {
-				generated := &plain[i]
-				if accept(generated.Provider, generated.ID) {
-					out = append(out, generated.ToModel())
+			plain := ai.OfferedGeneratedModels(builtinChatCatalogListed(provider.id))
+			accepted := make([]*ai.GeneratedModel, 0, len(plain))
+			for _, entry := range plain {
+				if accept(entry.Provider, entry.ID) {
+					accepted = append(accepted, entry)
 				}
 			}
+			// The published list carries the catalog metrics every consumer shows (model-metadata-provider.ts).
+			out = append(out, r.plainModelDataEntriesEnriched(accepted)...)
 			continue
 		}
 		for _, model := range provider.models {
@@ -1684,6 +1798,9 @@ func (r *ModelRegistry) AvailableProviderCount() int {
 // resolveModelDef builds a ModelEntry from a custom model definition.
 func (r *ModelRegistry) resolveModelDef(providerID string, prov providerConfig, md modelDefinition) ModelEntry {
 	entry := modelDefinitionEntry(providerID, prov, md)
+	// The registry's other list paths publish the catalog metrics of this entry, so the request-auth
+	// path must build the same entry rather than a bare one.
+	r.enrichDefinitionEntry(&entry, md)
 	env := r.providerEnv(providerID)
 	if prov.APIKey != "" {
 		entry.APIKey = configvalue.Resolve(prov.APIKey, env)
