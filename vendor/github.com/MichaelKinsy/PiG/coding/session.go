@@ -49,6 +49,7 @@ type Session struct {
 	subagents              *subagents.Manager
 	subagentToolsAllowed   bool
 	subagentRPCUnsubscribe func()
+	builtinEventBuses      []extension.EventBus
 	processImage           imageprocessing.ProcessImageFunc
 	sessionStartEvent      extension.SessionStartEvent
 	// ownedServices are the Services CreateAgentSession built for this Session; Close releases them. Nil for a Session over caller-owned Services.
@@ -247,6 +248,8 @@ type callerHooks struct {
 
 // SessionOptions configures NewSession.
 type SessionOptions struct {
+	// BuiltinEventBuses connects session built-ins to the owning extension buses.
+	BuiltinEventBuses        []extension.EventBus
 	subagentChild            bool
 	subagentBuiltinSelection *bool
 	// SessionManager supplies the actual backing log instead of creating or loading another one.
