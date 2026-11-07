@@ -147,7 +147,7 @@ func hubGlyph(status string) string {
 	case "idle":
 		return theme.Fg("success", "●")
 	case "parked":
-		return theme.Fg("muted", "○")
+		return theme.Fg("warning", "○")
 	}
 	return theme.Fg("error", "✕")
 }
@@ -419,14 +419,14 @@ func (h *agentHub) summary() []string {
 	var status []string
 	for _, state := range []string{"running", "idle", "parked", "aborted"} {
 		if counts[state] > 0 {
-			status = append(status, fmt.Sprintf("%s %d %s", hubGlyph(state), counts[state], state))
+			status = append(status, hubStatus(state, fmt.Sprintf("%s %d %s", hubGlyph(state), counts[state], state)))
 		}
 	}
 	view := "[Flat] / By parent"
 	if h.tree {
 		view = "Flat / [By parent]"
 	}
-	header := "Roster · " + view
+	header := hubHeading("Roster") + " · " + tui.ActiveTheme().Fg("accent", view)
 	if len(status) > 0 {
 		header += " · " + strings.Join(status, " · ")
 	}
@@ -434,7 +434,7 @@ func (h *agentHub) summary() []string {
 	if measured > 0 {
 		usage = fmt.Sprintf("$%.4f · %d req · %d tools · %s tok · %d/%d measured", cost, requests, tools, subagentCompact(int64(tokens)), measured, len(h.rows))
 	}
-	lines := []string{tui.ChalkBold(header), tui.ActiveTheme().Fg("dim", usage)}
+	lines := []string{header, tui.ActiveTheme().Fg("muted", usage)}
 	if h.editing || h.query != "" {
 		lines = append(lines, tui.ActiveTheme().Fg("accent", "/"+h.query))
 	}
@@ -460,7 +460,7 @@ func (h *agentHub) roster(width, height int) []string {
 		r := h.rows[i]
 		cursor := " "
 		if r.ID == h.selected {
-			cursor = "›"
+			cursor = tui.ActiveTheme().Fg("accent", "▌")
 		}
 		indent := ""
 		if h.tree && h.depth[r.ID] > 0 {
@@ -470,7 +470,7 @@ func (h *agentHub) roster(width, height int) []string {
 		if r.ID == h.selected {
 			label = tui.ActiveTheme().Fg("accent", tui.ChalkBold(label))
 		} else {
-			label = tui.ChalkBold(label)
+			label = tui.ActiveTheme().Fg("customMessageLabel", tui.ChalkBold(label))
 		}
 		title := cursor + " " + indent + hubGlyph(r.State) + " " + label
 		if !h.tree && r.ParentID != "" {
@@ -488,11 +488,14 @@ func (h *agentHub) roster(width, height int) []string {
 			detail = r.Activity
 		}
 		metrics := hubMetrics(r) + " · " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"
-		for _, line := range []string{title, "    " + hubSingleLine(detail), tui.ActiveTheme().Fg("dim", "    "+metrics)} {
+		for _, line := range []string{title, "    " + hubSingleLine(detail), tui.ActiveTheme().Fg("muted", "    "+metrics)} {
 			if len(lines) >= height {
 				break
 			}
 			h.hitRows[2+len(lines)] = i
+			if r.ID == h.selected {
+				line = hubSurface(line, width, "selectedBg")
+			}
 			lines = append(lines, line)
 		}
 	}
@@ -517,25 +520,25 @@ func (h *agentHub) details(width int) []string {
 		return []string{"Select an agent to inspect"}
 	}
 	r := h.rows[h.index]
-	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("dim", r.ID), r.State + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
+	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("muted", r.ID), hubStatus(r.State, r.State) + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
 	if r.ModelName != "" {
 		lines = append(lines, hubSingleLine(r.ModelName+" · "+r.Thinking))
 	}
-	lines = append(lines, "", "Task", hubSingleLine(r.Description))
+	lines = append(lines, "", hubHeading("Task"), hubSingleLine(r.Description))
 	if r.Params.Prompt != "" {
 		lines = append(lines, hubSingleLine(r.Params.Prompt))
 	}
 	if r.Activity != "" {
-		lines = append(lines, "", "Current", hubSingleLine(r.Activity))
+		lines = append(lines, "", hubHeading("Current"), hubSingleLine(r.Activity))
 	}
-	lines = append(lines, "", "Usage", hubMetrics(r))
+	lines = append(lines, "", hubHeading("Usage"), hubMetrics(r))
 	if r.ContextWindow > 0 {
 		fraction := min(1.0, max(0.0, float64(r.ContextTokens)/float64(r.ContextWindow)))
 		cells := min(24, max(1, width-4))
 		filled := int(fraction * float64(cells))
-		lines = append(lines, fmt.Sprintf("Context %s/%s · %.0f%%", subagentCompact(r.ContextTokens), subagentCompact(int64(r.ContextWindow)), fraction*100), "["+strings.Repeat("━", filled)+strings.Repeat("─", cells-filled)+"]")
+		lines = append(lines, fmt.Sprintf("Context %s/%s · %.0f%%", subagentCompact(r.ContextTokens), subagentCompact(int64(r.ContextWindow)), fraction*100), tui.ActiveTheme().Fg(contextColor(fraction), strings.Repeat("━", filled))+tui.ActiveTheme().Fg("borderMuted", strings.Repeat("─", cells-filled)))
 	}
-	lines = append(lines, "", "Lineage", "Spawned by "+hubSingleLine(h.labelFor(r.ParentID)))
+	lines = append(lines, "", hubHeading("Lineage"), "Spawned by "+hubSingleLine(h.labelFor(r.ParentID)))
 	var children []string
 	for _, child := range h.agents {
 		if child.ParentID == r.ID {
@@ -556,16 +559,16 @@ func (h *agentHub) details(width int) []string {
 	lines = append(lines, "Registered: "+time.UnixMilli(r.StartedAt).Format(time.RFC3339))
 	for _, path := range []struct{ label, value string }{{"Session", r.SessionFile}, {"Output", r.OutputFile}, {"Worktree", r.WorktreePath}, {"Branch", r.WorktreeBranch}} {
 		if path.value != "" {
-			lines = append(lines, "", path.label, hubSingleLine(path.value))
+			lines = append(lines, "", hubHeading(path.label), tui.ActiveTheme().Fg("mdLink", hubSingleLine(path.value)))
 		}
 	}
 	if r.Error != "" {
 		lines = append(lines, "", tui.ActiveTheme().Fg("error", hubSingleLine(r.Error)))
 	}
 	if r.Result != "" {
-		lines = append(lines, "", "Last response", hubSingleLine(r.Result))
+		lines = append(lines, "", hubHeading("Last response"), hubSingleLine(r.Result))
 	}
-	lines = append(lines, "", "Recent activity")
+	lines = append(lines, "", hubHeading("Recent activity"))
 	events := h.manager.HubActivity()
 	count := 0
 	for i := len(events) - 1; i >= 0 && count < 20; i-- {
@@ -590,7 +593,7 @@ func (h *agentHub) activityLines(width, height int) []string {
 	if h.following {
 		follow = "following"
 	}
-	lines := []string{tui.ActiveTheme().Fg("dim", scopes[h.scope]+" · "+filters[h.filter]+" · "+follow)}
+	lines := []string{hubHeading("Activity") + " · " + tui.ActiveTheme().Fg("accent", filters[h.filter]) + tui.ActiveTheme().Fg("muted", " · "+scopes[h.scope]) + " · " + hubStatus(map[bool]string{true: "running", false: "parked"}[h.following], follow)}
 	if h.editing || h.activityQuery != "" {
 		lines = append(lines, tui.ActiveTheme().Fg("accent", "/"+h.activityQuery))
 	}
@@ -604,20 +607,23 @@ func (h *agentHub) activityLines(width, height int) []string {
 		e := h.events[i]
 		cursor := " "
 		if i == h.activityIndex {
-			cursor = "›"
+			cursor = tui.ActiveTheme().Fg("accent", "▌")
 		}
 		icon := "○"
 		switch e.Kind {
 		case "tool":
-			icon = "→"
+			icon = tui.ActiveTheme().Fg("warning", "→")
 		case "response":
-			icon = "◆"
+			icon = tui.ActiveTheme().Fg("success", "◆")
 		}
 		if e.Status == "error" || e.Status == "aborted" {
 			icon = tui.ActiveTheme().Fg("error", "✕")
 		}
-		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, time.UnixMilli(e.Timestamp).Format("15:04:05"), icon, h.labelFor(e.AgentID), e.Title, hubSingleLine(e.Summary))
+		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, tui.ActiveTheme().Fg("muted", time.UnixMilli(e.Timestamp).Format("15:04:05")), icon, tui.ActiveTheme().Fg("customMessageLabel", h.labelFor(e.AgentID)), tui.ChalkBold(hubSingleLine(e.Title)), tui.ActiveTheme().Fg("muted", hubSingleLine(e.Summary)))
 		h.hitRows[2+len(lines)] = i
+		if i == h.activityIndex {
+			line = hubSurface(line, width, "selectedBg")
+		}
 		lines = append(lines, line)
 	}
 	return lines
@@ -634,11 +640,14 @@ func (h *agentHub) Render(width int) []string {
 	theme := tui.ActiveTheme()
 	inner := width - 4
 	bodyRows := max(1, h.height-5)
-	tabs := "[1 Agents] · 2 Activity"
-	if h.section == 1 {
-		tabs = "1 Agents · [2 Activity]"
+	tabs := []string{tui.ActiveTheme().Fg("muted", " 1 Agents "), tui.ActiveTheme().Fg("muted", " 2 Activity ")}
+	active := []string{" 1 Agents ", " 2 Activity "}[h.section]
+	tabs[h.section] = hubSurface(tui.ChalkBold(active), len(active), "selectedBg")
+	border := func(text string) string { return theme.Fg("border", text) }
+	lines := []string{
+		hubSurface(border("╭─ ")+hubHeading("Agent Hub")+border(" "+strings.Repeat("─", max(0, width-14))+"╮"), width, "customMessageBg"),
+		hubSurface(border("│ ")+hubPad(strings.Join(tabs, "  "), inner)+border(" │"), width, "customMessageBg"),
 	}
-	lines := []string{theme.Fg("borderMuted", "╭─ Agent Hub "+strings.Repeat("─", max(0, width-13))+"╮"), "│ " + hubPad(theme.Fg("accent", tabs), inner) + " │"}
 	split := width >= hubSplitWidth && h.section == 0
 	h.leftWidth = inner
 	var left, right []string
@@ -677,9 +686,13 @@ func (h *agentHub) Render(width int) []string {
 			if i < len(right) {
 				r = right[i]
 			}
-			lines = append(lines, "│ "+hubPad(l, h.leftWidth)+theme.Fg("borderMuted", " │ ")+hubPad(r, width-7-h.leftWidth)+" │")
+			lines = append(lines, hubSurface(border("│ ")+hubPad(l, h.leftWidth)+border(" │ ")+hubSurface(r, width-7-h.leftWidth, "customMessageBg")+border(" │"), width, "toolPendingBg"))
 		} else {
-			lines = append(lines, "│ "+hubPad(l, inner)+" │")
+			surface := "toolPendingBg"
+			if h.narrow && h.section == 0 {
+				surface = "customMessageBg"
+			}
+			lines = append(lines, hubSurface(border("│ ")+hubPad(l, inner)+border(" │"), width, surface))
 		}
 	}
 	footer := "j/k:select  enter:open  tab:by parent  /:filter  r:revive  x:kill  esc:close"
@@ -698,7 +711,7 @@ func (h *agentHub) Render(width int) []string {
 	if h.notice != "" {
 		footer = h.notice + " · " + footer
 	}
-	lines = append(lines, theme.Fg("borderMuted", "├"+strings.Repeat("─", width-2)+"┤"), "│ "+hubPad(theme.Fg("dim", footer), inner)+" │", theme.Fg("borderMuted", "╰"+strings.Repeat("─", width-2)+"╯"))
+	lines = append(lines, hubSurface(border("├"+strings.Repeat("─", width-2)+"┤"), width, "toolPendingBg"), hubSurface(border("│ ")+hubPad(hubKeys(footer), inner)+border(" │"), width, "toolPendingBg"), hubSurface(border("╰"+strings.Repeat("─", width-2)+"╯"), width, "toolPendingBg"))
 	for i := range lines {
 		lines[i] = clampAgentLine(lines[i], width)
 	}

@@ -6,7 +6,9 @@ package tui
 //
 // A contrast level is a target-lightness curve: the OKLab lightness a token needs, given the lightness of the surface below it. On dark backgrounds they aim for nearly fixed lightness; on light backgrounds the required difference grows as the background darkens.
 //
-// Depending on what the terminal reports, the theme is generated in one of three tiers: background and palette (hues from the palette, lightness from the background); background only (the families' own hues, lightness from the background); nothing (ANSI palette indices and the default colors, which the terminal renders itself).
+// Native presentation uses the readable built-in light/dark palette after color
+// discovery when the terminal reports only its appearance. Other inputs follow
+// the upstream recipe. Depending on what the terminal reports, it has three tiers: background and palette (hues from the palette, lightness from the background); background only (the families' own hues, lightness from the background); nothing (ANSI palette indices and the default colors, which the terminal renders itself).
 
 import (
 	"math"
@@ -528,6 +530,11 @@ func GenerateSystemThemeColors(input SystemThemeInput) SystemThemeColors {
 	}
 	saturation = clampFloat(saturation, 0, 1)
 	if input.Background == nil {
+		// Native presentation: after discovery, retain colored surfaces even
+		// when OSC replies are unavailable. Keep the initial neutral frame.
+		if saturation == 1 && (input.AppearanceHint == "dark" || input.AppearanceHint == "light") {
+			return nativeFallbackThemeColors(input.AppearanceHint)
+		}
 		return systemIndexedColors(saturation, input.AppearanceHint)
 	}
 	background, foreground := *input.Background, input.Foreground

@@ -196,13 +196,13 @@ func (w *nativeAgentWidget) Render(width int) []string {
 			overflow++
 			continue
 		}
-		lines = append(lines, theme.Fg("dim", "├─ ")+subagentIcon(r)+" "+subagentName(r)+"  "+theme.Fg("muted", r.Description)+theme.Fg("dim", " · "+subagentStats(r, s)))
+		lines = append(lines, theme.Fg("border", "├─ ")+subagentIcon(r)+" "+subagentName(r)+"  "+theme.Fg("text", r.Description)+theme.Fg("muted", " · "+subagentStats(r, s)))
 		if r.Active() {
 			activity := r.Activity
 			if activity == "" {
 				activity = "thinking…"
 			}
-			lines = append(lines, theme.Fg("dim", "│    ⎿  "+activity))
+			lines = append(lines, theme.Fg("border", "│    ⎿  ")+theme.Fg("accent", activity))
 		}
 	}
 	if queued > 0 {
@@ -223,9 +223,13 @@ func (w *nativeAgentWidget) Render(width int) []string {
 			break
 		}
 	}
-	lines = append([]string{theme.Fg("accent", "● Agents")}, lines...)
+	lines = append([]string{theme.Fg("accent", tui.ChalkBold("● Agents"))}, lines...)
 	for i := range lines {
-		lines[i] = clampAgentLine(lines[i], width)
+		background := "toolPendingBg"
+		if i == 0 {
+			background = "customMessageBg"
+		}
+		lines[i] = hubSurface(lines[i], width, background)
 	}
 	return lines
 }
@@ -751,7 +755,7 @@ func (v *subagentViewer) Render(width int) []string {
 		v.follow = true
 		v.newMessages = 0
 	}
-	lines := []string{clampAgentLine(title, width), theme.Fg("borderMuted", strings.Repeat("─", max(1, width)))}
+	lines := []string{hubSurface(tui.ChalkBold(title), width, "customMessageBg"), theme.Fg("border", strings.Repeat("─", max(1, width)))}
 	for i := 0; i < viewport; i++ {
 		line := ""
 		if idx := v.scroll + i; idx < len(body) {
@@ -790,7 +794,7 @@ func (v *subagentViewer) Render(width int) []string {
 		footer = "Press x again to stop · esc cancel"
 	}
 	v.footerRow = len(lines)
-	lines = append(lines, theme.Fg("dim", clampAgentLine(footer, width)))
+	lines = append(lines, hubSurface(hubKeys(footer), width, "toolPendingBg"))
 	return lines
 }
 func (v *subagentViewer) HandleInput(data string) {
