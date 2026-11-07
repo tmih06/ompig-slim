@@ -43,6 +43,8 @@ func DefaultToolSnippets() map[string]string {
 		"ls":         "List directory contents",
 		// codemode's own promptSnippet (core/tools/codemode/tool.ts codemodeToolSystemPromptContribution): a built-in
 		// tool like the others, so the prompt lists it.
-		"codemode": "Run JavaScript that calls other tools",
+		"codemode":   "Run JavaScript that calls other tools",
+		"web_search": "Search the web using free providers and return cited sources",
+		"web_fetch":  "Fetch a URL as readable text, Markdown, or an image",
 	}
 }
