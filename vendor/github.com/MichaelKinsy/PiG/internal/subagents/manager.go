@@ -120,6 +120,9 @@ type Params struct {
 }
 
 type Record struct {
+	Requests       int             `json:"requests,omitempty"`
+	LastActivity   int64           `json:"lastActivity,omitempty"`
+	Killed         bool            `json:"killed,omitempty"`
 	ID             string          `json:"id"`
 	Type           string          `json:"type"`
 	DisplayName    string          `json:"displayName"`
@@ -163,6 +166,7 @@ func (r Record) Active() bool   { return r.Status == "running" || r.Status == "q
 func (r Record) TopLevel() bool { return r.ParentID == "" && r.WorkflowID == "" }
 
 type run struct {
+	reviving bool
 	Record
 	child         Child
 	cancel        context.CancelFunc
@@ -187,6 +191,11 @@ type run struct {
 }
 
 type Manager struct {
+	persistMu         sync.Mutex
+	hubActivity       []HubActivity
+	hubNext           int
+	hubSequence       uint64
+	hubTools          map[string]int
 	mu                sync.Mutex
 	mutationMu        sync.Mutex
 	host              Host
@@ -477,6 +486,13 @@ func (m *Manager) Close() {
 }
 
 func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string) (Record, error) {
+	return m.spawn(ctx, p, owner, workflowID, false)
+}
+
+// observedResume permits a human to resume an existing child after its parent
+// settles. Model callers always use Spawn and retain delegation checks.
+func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string, observedResume bool) (Record, error) {
+	observedResume = observedResume && p.Resume != ""
 	if strings.TrimSpace(p.Prompt) == "" {
 		return Record{}, errors.New("prompt must not be empty")
 	}
@@ -506,7 +522,7 @@ func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string)
 	}
 	var parent *run
 	depth := 1
-	if owner != "" {
+	if owner != "" && !observedResume {
 		for _, r := range m.runs {
 			if r.ID == owner {
 				parent = r
@@ -533,7 +549,7 @@ func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string)
 		m.mu.Unlock()
 		return Record{}, err
 	}
-	if owner != "" && !slices.Contains(parent.Config.AllowedSubagents, "all") && !slices.ContainsFunc(parent.Config.AllowedSubagents, func(s string) bool { return strings.EqualFold(s, c.Name) }) {
+	if owner != "" && !observedResume && !slices.Contains(parent.Config.AllowedSubagents, "all") && !slices.ContainsFunc(parent.Config.AllowedSubagents, func(s string) bool { return strings.EqualFold(s, c.Name) }) {
 		m.mu.Unlock()
 		return Record{}, fmt.Errorf("fallback agent %q is outside parent's allowlist", c.Name)
 	}
@@ -554,6 +570,14 @@ func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string)
 		if r.Active() {
 			m.mu.Unlock()
 			return Record{}, errors.New("agent is still running; use steer_subagent")
+		}
+		if r.reviving {
+			m.mu.Unlock()
+			return Record{}, errors.New("agent session is reopening; try again shortly")
+		}
+		if r.Killed {
+			m.mu.Unlock()
+			return Record{}, errors.New("agent was killed; start a new agent")
 		}
 		if r.WorktreeLost {
 			m.mu.Unlock()
@@ -582,9 +606,13 @@ func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string)
 		r.handoff = make(chan struct{})
 		r.handed = false
 		r.stop = false
+		r.Killed = false
 		r.retry = false
 		r.consumed = false
 		r.limited = false
+		if r.Requests == 0 {
+			r.Requests = r.Turns
+		}
 		r.Turns = 0
 		r.group = m.groupIndex
 		r.StructuredJSON = nil
@@ -643,6 +671,7 @@ func (m *Manager) Spawn(ctx context.Context, p Params, owner, workflowID string)
 	runCtx, cancel := context.WithCancel(m.ctx)
 	r.cancel = cancel
 	m.runs = append(m.runs, r)
+	m.hubEventLocked(r, "lifecycle", "Created", r.Description, "pending", 0)
 	m.wg.Add(1)
 	go m.execute(runCtx, r)
 	m.admitLocked()
@@ -899,6 +928,9 @@ func (m *Manager) onEvent(r *run, event agent.AgentEvent) {
 		r.partial = nil
 		b, _ := json.Marshal(e.Message)
 		r.transcript = append(r.transcript, b)
+		if e.Message.Assistant != nil {
+			r.Requests++
+		}
 		if a := e.Message.Assistant; a != nil && a.Usage != nil {
 			u := a.Usage
 			r.Tokens += int64(u.Input + u.Output + u.CacheWrite)
@@ -963,6 +995,7 @@ func (m *Manager) onEvent(r *run, event agent.AgentEvent) {
 			}
 		}
 	}
+	m.recordHubEventLocked(r, event)
 	child := r.child
 	m.mu.Unlock()
 	if eventName != "" {
@@ -1029,7 +1062,7 @@ func (m *Manager) finish(r *run, status, text string, err error) {
 	if r.evictionTimer != nil {
 		r.evictionTimer.Stop()
 	}
-	if !m.closed {
+	if !m.closed && !r.Killed {
 		r.evictionTimer = time.AfterFunc(10*time.Minute, func() {
 			m.mu.Lock()
 			if m.closed || r.Active() || r.CompletedAt != completedAt {
@@ -1065,9 +1098,18 @@ func (m *Manager) finish(r *run, status, text string, err error) {
 	}
 	m.admitLocked()
 	close(r.done)
+	var release Child
+	if r.Killed {
+		release = r.child
+		r.child = nil
+	}
+	m.hubEventLocked(r, "lifecycle", status, text, status, max(0, len(r.transcript)-1))
 	m.mu.Unlock()
-	if m.host.Persist != nil && snapshot.TopLevel() {
-		if err := m.host.Persist(snapshot); err != nil {
+	if release != nil {
+		_ = release.Close()
+	}
+	if m.host.Persist != nil {
+		if err := m.persistRecord(snapshot); err != nil {
 			m.mu.Lock()
 			m.warnings = append(m.warnings, "Persist agent record: "+err.Error())
 			m.mu.Unlock()

@@ -34,6 +34,9 @@ const (
 // built-in tool name that lacks renderCall or renderResult gets the built-in
 // renderer for it.
 func withBuiltInRenderers(name string, definition extension.ToolDefinition) extension.ToolDefinition {
+	if name == "Agent" {
+		definition.RenderShell = extension.ToolRenderShellSelf
+	}
 	call, result := builtInToolRenderers(name)
 	if call == nil {
 		return definition

@@ -50,7 +50,7 @@ func (m *InteractiveMode) buildChatViewport() ChatViewport {
 		Status:              m.statusContainer,
 		WidgetsAbove:        tui.NewContainer(m.widgetContainer, &nativeAgentWidget{m: m}),
 		Editor:              m.editorContainer,
-		WidgetsBelow:        tui.NewContainer(m.widgetContainerBelow, &nativeAgentWidget{m: m, below: true}),
+		WidgetsBelow:        m.widgetContainerBelow,
 		Footer:              tui.NewContainer(m.extFooter, m.statusLine),
 		Scrollbar:           (&SettingsManager{merged: m.opts.Settings}).GetFullscreenScrollbar(),
 		ScrollbarTrackStyle: themedScrollbarTrackStyle,
@@ -83,7 +83,6 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		&nativeAgentWidget{m: m},
 		m.editorContainer,
 		m.widgetContainerBelow,
-		&nativeAgentWidget{m: m, below: true},
 		m.extFooter,
 		m.statusLine,
 	}

@@ -29,7 +29,6 @@ type Settings struct {
 	ScopeModels             bool   `json:"scopeModels"`
 	StrictAgentFiles        bool   `json:"strictAgentFiles"`
 	DisableDefaultAgents    bool   `json:"disableDefaultAgents"`
-	FleetView               bool   `json:"fleetView"`
 	AgentMentions           string `json:"agentMentions"`
 	RememberAgents          bool   `json:"rememberAgents"`
 	WidgetMode              string `json:"widgetMode"`
@@ -48,7 +47,7 @@ type Settings struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, FleetView: true, AgentMentions: "model", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant", FallbackSubagent: "general-purpose"}
+	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, AgentMentions: "model", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant", FallbackSubagent: "general-purpose"}
 }
 
 func LoadSettings(cwd, agentDir string) (Settings, []string) {
