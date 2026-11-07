@@ -157,6 +157,7 @@ github.com/MichaelKinsy/PiG/internal/utf8stream
 github.com/MichaelKinsy/PiG/internal/watchentered
 github.com/MichaelKinsy/PiG/internal/wordsegmenter
 github.com/MichaelKinsy/PiG/internal/yaml12
+github.com/MichaelKinsy/PiG/internal/yamljson
 github.com/MichaelKinsy/PiG/mcp
 github.com/MichaelKinsy/PiG/mcp/oauth
 github.com/MichaelKinsy/PiG/schema

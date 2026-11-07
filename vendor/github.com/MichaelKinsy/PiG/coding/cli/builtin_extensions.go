@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/builtin"
 	"github.com/MichaelKinsy/PiG/internal/codingagent"
-	"github.com/MichaelKinsy/PiG/internal/configroot"
+	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 )
 
 // llamaBuiltinName is the name of the built-in llama.cpp extension, the first entry of builtInExtensions.
@@ -15,12 +12,14 @@ import (
 const llamaBuiltinName = "llama.cpp"
 
 // nativeBuiltInExtensions are the built-in extensions of the CLI, in extensions/index.ts order: llama.cpp (whose provider the llama
-// host supplies), codemode (its sandbox runs the model's JavaScript in QuickJS on wazero), tool-search and mcp. settings supplies
-// `codemode.mode`, `codemode.inlineBudget` and the agent directory of `mcp.json` on every use; nil means the defaults.
-// Ports .upstream/v0.99.2/packages/coding-agent/src/extensions/index.ts:7-14.
+// host supplies), tool-search and mcp. settings supplies the agent directory of `mcp.json` on every use; nil means the defaults.
+// codemode is not an extension any more: it is a built-in tool registered by [builtin.All] alongside these extensions, so it
+// stays available with --no-extensions and is active by default.
+// Ports .upstream/v0.99.2/packages/coding-agent/src/extensions/index.ts:7-14, after beb830782.
 func nativeBuiltInExtensions(settings *codingagent.SettingsManager) []extension.InlineExtension {
 	var options builtin.Options
-	options.ConfigureCodemode(wazeroCacheDir())
+	// The codemode sandbox keeps wazero's compilation cache; the built-in tool reads it through the tool options.
+	options.ConfigureCodemode(tools.WazeroCacheDir())
 	var agentDir string
 	if settings != nil {
 		agentDir = settings.AgentDir()
@@ -37,18 +36,4 @@ func nativeBuiltInExtensions(settings *codingagent.SettingsManager) []extension.
 		inline = append(inline, extension.NamedInlineExtension{Name: entry.Name, Factory: entry.Factory, Replaceable: entry.Replaceable, Builtin: true})
 	}
 	return inline
-}
-
-// wazeroCacheDir is where the codemode sandbox keeps wazero's compilation cache: `cache/wazero` under PIG_HOME, else
-// under the user cache directory. It is an optimization only; an unusable directory is ignored.
-func wazeroCacheDir() string {
-	if os.Getenv("PIG_HOME") != "" {
-		if root, err := configroot.Resolve(); err == nil {
-			return filepath.Join(root, "cache", "wazero")
-		}
-	}
-	if dir, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(dir, "pig", "wazero")
-	}
-	return ""
 }

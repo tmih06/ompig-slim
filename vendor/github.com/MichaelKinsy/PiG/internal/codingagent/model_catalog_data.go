@@ -250,7 +250,17 @@ func (r *ModelRegistry) modelProviderIDs() []string {
 	r.mu.RLock()
 	var configured []string
 	if r.config != nil {
-		configured = slices.Sorted(maps.Keys(r.config.Providers))
+		for _, id := range r.config.providerOrder {
+			if _, ok := r.config.Providers[id]; ok {
+				configured = append(configured, id)
+			}
+		}
+		// Programmatic configurations have no source declaration order.
+		for _, id := range slices.Sorted(maps.Keys(r.config.Providers)) {
+			if !slices.Contains(configured, id) {
+				configured = append(configured, id)
+			}
+		}
 	}
 	// Pi's ModelRuntime composes an extension provider into its Models map when the extension registers it, so the
 	// map, and getAll, list registered providers in registration order (model-runtime.ts:921-933, models.ts setProvider).
@@ -267,7 +277,6 @@ func (r *ModelRegistry) modelProviderIDs() []string {
 	}
 	r.mu.RUnlock()
 	order := ai.ListProviders()
-	order = append(order, modelsJSONProviderOrder(r.modelConfigPath())...)
 	order = append(order, configured...)
 	order = append(order, dynamic...)
 	order = append(order, r.nativeCollectionProviderIDs()...)

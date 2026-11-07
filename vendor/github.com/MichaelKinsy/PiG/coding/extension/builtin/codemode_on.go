@@ -41,8 +41,10 @@ func createCodemodeReference(raw json.RawMessage) (extension.InlineExtension, er
 // CodemodeOptions configures the codemode extension.
 type CodemodeOptions = codemode.Options
 
-// codemodeEntries is the codemode registry row, absent while codemode is stripped at runtime as in a build without it.
-// pig additive (D92): a runtime stripped codemode registers nothing, like the pig_strip_codemode build.
+// codemodeEntries is the `builtin:codemode` row. codemode is a built-in tool now (core/tools/codemode), so the row loads
+// nothing by default ([codemode.CreateCodemodeExtension] returns without registering while the base tool exists); it stays
+// so that `-e builtin:codemode`, a strip list naming `codemode`, and an SDK's createCodemodeExtension keep resolving.
+// A stripped runtime leaves the row out, as in a build without codemode.
 func codemodeEntries(options Options) []Extension {
 	if pigstrip.Has(pigstrip.ListExtensions, "codemode") {
 		return nil

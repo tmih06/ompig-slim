@@ -66,7 +66,9 @@ func (m *InteractiveMode) resolveToolRenderers(name string) *extension.ToolRende
 		if m.newRunner != nil {
 			definition, ok = m.newRunner.GetToolDefinition(name)
 		}
-		if !ok && (name == "read" || name == "write" || name == "edit") {
+		if !ok && (name == "read" || name == "write" || name == "edit" || name == "codemode") {
+			// codemode is a built-in tool, not an extension, so the runner holds no registration of it: the card is drawn
+			// by the definition's own renderers (core/tools/codemode/renderer.ts).
 			definition, ok = extension.ToolDefinition{Name: name}, true
 			if name == "edit" {
 				// upstream: core/tools/edit.ts renderShell: "self"

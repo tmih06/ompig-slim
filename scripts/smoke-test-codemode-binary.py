@@ -16,6 +16,7 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
     stage = 0
     nested = False
     failure = ""
+    only_mode = False
 
     def log_message(self, *_):
         pass
@@ -31,6 +32,8 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
         result_text = result if isinstance(result, str) else json.dumps(result)
         if cls.stage == 0 and "codemode" not in offered:
             cls.failure = "codemode is not declared to the model"
+        if cls.stage == 0 and cls.only_mode and offered != {"codemode"}:
+            cls.failure = "codemode-only mode exposed direct tools: " + repr(offered)
         if cls.stage == 1 and not re.search(r"(?:^|\n)16(?:\n|$)", result_text):
             cls.failure = "QuickJS arithmetic result is missing: " + result_text
         if cls.stage == 2 and not re.search(r"(?:^|\n)32(?:\n|$)", result_text):
@@ -79,16 +82,20 @@ def main():
         thread.start()
         try:
             (agent / "models.json").write_text(json.dumps({"providers": {"codemode-smoke": {"api": "openai-completions", "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "local-fixture-only", "models": [{"id": "codemode-smoke"}]}}}))
-            (agent / "settings.json").write_text(json.dumps({"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False}))
             env = dict(os.environ, HOME=str(root), PIG_HOME=str(root / "library"), OMPIG_SLIM_CODING_AGENT_DIR=str(agent), PI_OFFLINE="1", PI_TELEMETRY="0", PI_SKIP_VERSION_CHECK="1")
             for name in list(env):
                 if name.endswith(("_API_KEY", "_AUTH_TOKEN", "_OAUTH_TOKEN")):
                     del env[name]
-            for name, flags, nested in [
-                ("explicit codemode", ["--no-extensions", "--tools", "codemode"], False),
-                ("default codemode without extensions", ["--no-extensions"], True),
+            for name, flags, nested, only_mode in [
+                ("explicit codemode", ["--no-extensions", "--tools", "codemode"], False, False),
+                ("default codemode without extensions", ["--no-extensions"], True, False),
+                ("codemode-only mode with zero inline budget", ["--no-extensions"], True, True),
             ]:
-                ModelServer.stage, ModelServer.nested, ModelServer.failure = 0, nested, ""
+                settings = {"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False}
+                if only_mode:
+                    settings["codemode"] = {"mode": "only", "inlineBudget": 0}
+                (agent / "settings.json").write_text(json.dumps(settings))
+                ModelServer.stage, ModelServer.nested, ModelServer.failure, ModelServer.only_mode = 0, nested, "", only_mode
                 command = [str(binary), "--provider", "codemode-smoke", "--model", "codemode-smoke", *flags, "--print", "--no-session", "--offline", "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-themes", "Exercise the compiled codemode runtime."]
                 result = subprocess.run(command, cwd=root, env=env, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=30)
                 if result.returncode or ModelServer.failure or "CODEMODE_RUNTIME_OK" not in result.stdout:

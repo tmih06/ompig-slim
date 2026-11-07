@@ -130,6 +130,10 @@ func builtInToolRenderers(name string) (extension.ToolRenderCallFunc, extension.
 		return headerRenderCall(func(args json.RawMessage, _ string) string { return tui.FormatFindHeader(args) }), listRenderResult("find")
 	case "ls":
 		return headerRenderCall(tui.FormatLsHeader), listRenderResult("ls")
+	case "codemode":
+		// codemode is a built-in tool now (upstream core/tools/codemode spreads codemodeRenderers into the definition),
+		// so a card of it, or of a definition an extension overrode, is drawn by the same renderers.
+		return CodemodeRenderers.RenderCall, CodemodeRenderers.RenderResult
 	}
 	return nil, nil
 }

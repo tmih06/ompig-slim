@@ -650,7 +650,7 @@ type Settings struct {
 	collapseChangelogSet bool `json:"-"`
 
 	// ShowCacheMissNotices controls transcript notices for significant prompt
-	// cache misses. Default: false. Mirrors upstream settings.showCacheMissNotices
+	// cache misses. Default: true; an explicit false disables them.
 	// (settings-manager.ts:96).
 	ShowCacheMissNotices    bool `json:"showCacheMissNotices,omitempty"`
 	showCacheMissNoticesSet bool `json:"-"`
@@ -1694,7 +1694,9 @@ func (s Settings) GetCodeBlockIndent() string {
 func (s Settings) GetHideThinkingBlock() bool { return s.HideThinkingBlock }
 
 // GetShowCacheMissNotices returns whether transcript cache-miss notices are shown.
-func (s Settings) GetShowCacheMissNotices() bool { return s.ShowCacheMissNotices }
+func (s Settings) GetShowCacheMissNotices() bool {
+	return !s.showCacheMissNoticesSet || s.ShowCacheMissNotices
+}
 
 // GetQuietStartup returns the quiet startup setting: true, "header" or false.
 func (s Settings) GetQuietStartup() QuietStartup { return s.QuietStartup }
@@ -2700,7 +2702,38 @@ func (sm *SettingsManager) GetHideThinkingBlock() bool {
 
 // GetShowCacheMissNotices returns whether transcript cache-miss notices are shown.
 func (sm *SettingsManager) GetShowCacheMissNotices() bool {
-	return readMerged(sm, func(s *Settings) bool { return s.ShowCacheMissNotices })
+	return readMerged(sm, func(s *Settings) bool { return s.GetShowCacheMissNotices() })
+}
+
+// GetCodemodeMode returns how the codemode tool presents tools: `only` when the effective settings say so, else `on`.
+func (sm *SettingsManager) GetCodemodeMode() CodemodeMode {
+	return readMerged(sm, func(s *Settings) CodemodeMode { return s.GetCodemodeMode() })
+}
+
+// GetCodemodeInlineBudget returns the effective codemode declaration budget, or nil for the default budget.
+func (sm *SettingsManager) GetCodemodeInlineBudget() *int {
+	return readMerged(sm, func(s *Settings) *int { return s.GetCodemodeInlineBudget() })
+}
+
+// GetCodemodeMode returns how the codemode tool presents tools while it is active: `only` when the setting says so, else
+// the default `on`. Settings files are parsed without schema validation, so the value is normalized here on every read.
+// Mirrors upstream SettingsManager.getCodemodeMode (settings-manager.ts:1367-1370).
+func (s Settings) GetCodemodeMode() CodemodeMode {
+	if s.Codemode != nil && s.Codemode.Mode == CodemodeModeOnly {
+		return CodemodeModeOnly
+	}
+	return CodemodeModeOn
+}
+
+// GetCodemodeInlineBudget returns the token budget codemode may spend on tool declarations, or nil for the default
+// budget. Only a finite, non-negative budget holds; a negative or absent one reads as unset. A budget of 0 is valid.
+// Mirrors upstream SettingsManager.getCodemodeInlineBudget (settings-manager.ts:1372-1375).
+func (s Settings) GetCodemodeInlineBudget() *int {
+	if s.Codemode == nil || s.Codemode.InlineBudget == nil || *s.Codemode.InlineBudget < 0 {
+		return nil
+	}
+	budget := *s.Codemode.InlineBudget
+	return &budget
 }
 
 // GetShellPath returns the configured shell path (for bash tool). An invalid
