@@ -48,19 +48,16 @@ const resetUsageVisibleRows = 10
 // HandleInput; Done reports when the host may restore the editor.
 type ResetUsageSelectorComponent struct {
 	*Container
-	list          *SelectList
 	accounts      []ResetUsageAccount
 	selected      int
 	pending       int // index awaiting confirmation, -1 when none
 	status        string
-	titleText     *Text
 	listContainer *Container
 	footerText    *Text
 	onSelect      func(account ResetUsageAccount)
 	onCancel      func()
 	done          bool
 	cancelled     bool
-	title         string
 	themeList     SelectListTheme
 }
 
@@ -97,15 +94,14 @@ func NewResetUsageSelectorComponent(accounts []ResetUsageAccount, onSelect func(
 		pending:   -1,
 		onSelect:  onSelect,
 		onCancel:  onCancel,
-		title:     "Spend a saved rate-limit reset",
 		themeList: GetSelectListTheme(),
 	}
-	selector.titleText = NewPaddedText(ActiveTheme().Bold(ActiveTheme().Fg("accent", selector.title)), 0, 0, nil)
+	title := NewText(ActiveTheme().Bold(ActiveTheme().Fg("accent", "Spend a saved rate-limit reset")))
 	selector.listContainer = NewContainer()
 	selector.footerText = NewPaddedText("", 0, 0, nil)
 	selector.Add(NewDynamicBorder())
 	selector.Add(NewSpacer(1))
-	selector.Add(selector.titleText)
+	selector.Add(title)
 	selector.Add(NewSpacer(1))
 	selector.Add(selector.listContainer)
 	selector.Add(NewSpacer(1))
@@ -148,13 +144,12 @@ func (s *ResetUsageSelectorComponent) rebuild() {
 	}
 	list := NewSelectList(items, resetUsageVisibleRows, s.themeList)
 	list.SetSelectedIndex(s.selected)
-	s.list = list
 	s.listContainer.SetChildren(list)
 	s.footerText.SetText(s.footer())
 	s.Invalidate()
 }
 
-// footerText renders the confirmation question or the navigation hint.
+// footer renders the confirmation question or the navigation hint.
 func (s *ResetUsageSelectorComponent) footer() string {
 	theme := ActiveTheme()
 	if s.status != "" {

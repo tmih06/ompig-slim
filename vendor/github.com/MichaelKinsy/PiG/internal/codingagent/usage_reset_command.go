@@ -7,6 +7,7 @@ package codingagent
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -135,7 +136,7 @@ func resetUsageAccountFromInventory(entry UsageResetCreditAccount, nowMs int64) 
 		ProviderLabel: resetProviderLabel(entry.ProviderID),
 		Active:        entry.Active,
 		Err:           tui.SanitizeDisplayLine(entry.Err),
-		TargetRef:     accountKeyText(entry.AccountKey),
+		TargetRef:     usageAccountKeyText(entry.AccountKey),
 	}
 	if row.Label == "" {
 		row.Label = "account"
@@ -172,10 +173,7 @@ func selectedResetCredit(credits *ai.UsageResetCredits) *ai.UsageResetCreditDeta
 			}
 		}
 	}
-	if picked := ai.PickSoonestExpiringResetCredit(credits.Credits); picked != nil {
-		return picked
-	}
-	return nil
+	return ai.PickSoonestExpiringResetCredit(credits.Credits)
 }
 
 // resetUsageAccounts converts an inventory listing into sorted picker rows:
@@ -186,13 +184,10 @@ func resetUsageAccounts(entries []UsageResetCreditAccount) []tui.ResetUsageAccou
 	for _, entry := range entries {
 		rows = append(rows, resetUsageAccountFromInventory(entry, nowMs))
 	}
-	// Stable insertion sort keeps the store's own order among equals, which is
-	// the order the account listing already reported.
-	for index := 1; index < len(rows); index++ {
-		for current := index; current > 0 && resetUsageRowLess(rows[current], rows[current-1]); current-- {
-			rows[current], rows[current-1] = rows[current-1], rows[current]
-		}
-	}
+	// Keep the store's order among equally ranked accounts.
+	sort.SliceStable(rows, func(left, right int) bool {
+		return resetUsageRowLess(rows[left], rows[right])
+	})
 	return rows
 }
 

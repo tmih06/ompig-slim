@@ -259,6 +259,45 @@ func TestResetUsageAccountsRankTheSpendableAccountFirst(t *testing.T) {
 	}
 }
 
+// TestResetUsageAccountsPreserveTieOrder pins stable ordering independently of
+// the sorting algorithm: equivalent rows retain their inventory order.
+func TestResetUsageAccountsPreserveTieOrder(t *testing.T) {
+	entries := []UsageResetCreditAccount{
+		{ProviderID: "openai-codex", Label: "same", AccountKey: new("first")},
+		{ProviderID: "openai-codex", Label: "same", AccountKey: new("second")},
+	}
+	rows := resetUsageAccounts(entries)
+	if len(rows) != 2 || rows[0].TargetRef != "first" || rows[1].TargetRef != "second" {
+		t.Fatalf("equal-ranked rows lost inventory order: %+v", rows)
+	}
+}
+
+// TestResetAccountsKeepProviderAndStoreOrder checks the service-level order
+// before presentation ranking: Codex precedes Claude, with each store's order
+// retained even when other providers are interleaved in its listing.
+func TestResetAccountsKeepProviderAndStoreOrder(t *testing.T) {
+	store := newUsageTestStore()
+	store.add("anthropic", new("claude-first"), resetTestOAuthCredential())
+	store.add("openrouter", new("ignored"), ai.Credential{Type: ai.CredentialAPIKey})
+	store.add("openai-codex", new("codex-first"), resetTestOAuthCredential())
+	store.add("anthropic", new("claude-second"), resetTestOAuthCredential())
+	store.add("openai-codex", new("codex-second"), resetTestOAuthCredential())
+	service := NewUsageService(UsageServiceOptions{Credentials: store, Accounts: store})
+	accounts, err := service.resetAccounts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"codex-first", "codex-second", "claude-first", "claude-second"}
+	if len(accounts) != len(want) {
+		t.Fatalf("accounts = %+v", accounts)
+	}
+	for index, account := range accounts {
+		if account.AccountKey == nil || *account.AccountKey != want[index] {
+			t.Fatalf("account %d = %+v, want %s", index, account, want[index])
+		}
+	}
+}
+
 func TestResolveResetTargetAcceptsActiveAndKeepsProblems(t *testing.T) {
 	rows := []tui.ResetUsageAccount{
 		{Label: "selected@example.com", ProviderID: "openai-codex", ProviderLabel: "Codex", Active: true, AvailableCount: 1, RedeemableCount: 1, TargetRef: "key-1"},
@@ -473,6 +512,17 @@ func TestResetBlockScopesKeepUncoveredBlocks(t *testing.T) {
 	}
 	if got := resetBlockScopes("openrouter", []string{"x"}); got != nil {
 		t.Fatalf("unknown provider scopes = %v", got)
+	}
+}
+
+// TestResetBlockScopesDoNotAliasProviderCoverage protects ownership: callers
+// may change the returned scopes without mutating the provider's cleared list.
+func TestResetBlockScopesDoNotAliasProviderCoverage(t *testing.T) {
+	cleared := []string{"anthropic:5h", "anthropic:7d"}
+	scopes := resetBlockScopes("anthropic", cleared)
+	scopes[0] = "changed"
+	if len(cleared) != 2 || cleared[0] != "anthropic:5h" || cleared[1] != "anthropic:7d" {
+		t.Fatalf("scope calculation mutated provider coverage: %v", cleared)
 	}
 }
 

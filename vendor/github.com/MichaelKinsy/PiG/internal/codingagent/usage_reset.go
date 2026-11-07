@@ -9,6 +9,7 @@ package codingagent
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 
@@ -115,7 +116,7 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 	entry := UsageResetCreditAccount{
 		ProviderID: account.ProviderID,
 		AccountKey: copyAccountKey(account.AccountKey),
-		Label:      service.resetAccountLabel(account),
+		Label:      service.unavailableLabel(account.ProviderID, &account),
 		Active:     account.Active,
 	}
 	credential, err := service.resetCredential(ctx, account)
@@ -160,10 +161,6 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 // resetAccounts lists the stored accounts of every reset provider, in provider
 // order and then the store's own order (active first).
 func (service *UsageService) resetAccounts(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
-	allowed := make(map[string]bool, len(ResetCreditProviders))
-	for _, providerID := range ResetCreditProviders {
-		allowed[providerID] = true
-	}
 	var out []ai.CredentialAccountInfo
 	if service.options.Accounts != nil {
 		accounts, err := service.options.Accounts.ListAccounts(ctx)
@@ -171,7 +168,7 @@ func (service *UsageService) resetAccounts(ctx context.Context) ([]ai.Credential
 			return nil, err
 		}
 		for _, account := range accounts {
-			if allowed[account.ProviderID] {
+			if slices.Contains(ResetCreditProviders, account.ProviderID) {
 				out = append(out, account)
 			}
 		}
@@ -183,37 +180,18 @@ func (service *UsageService) resetAccounts(ctx context.Context) ([]ai.Credential
 			return nil, err
 		}
 		for _, entry := range entries {
-			if allowed[entry.ProviderID] {
+			if slices.Contains(ResetCreditProviders, entry.ProviderID) {
 				out = append(out, ai.CredentialAccountInfo{ProviderID: entry.ProviderID, Type: entry.Type, Active: true})
 			}
 		}
 	}
+	// Only listed reset providers reach the sort. Preserve the store's order
+	// within each provider while following the declared provider order.
 	sort.SliceStable(out, func(left, right int) bool {
-		if out[left].ProviderID != out[right].ProviderID {
-			return resetProviderRank(out[left].ProviderID) < resetProviderRank(out[right].ProviderID)
-		}
-		// The store already lists the active account first; keep that order.
-		return false
+		return slices.Index(ResetCreditProviders, out[left].ProviderID) <
+			slices.Index(ResetCreditProviders, out[right].ProviderID)
 	})
 	return out, nil
-}
-
-// resetProviderRank orders providers as ResetCreditProviders declares them.
-func resetProviderRank(providerID string) int {
-	for index, candidate := range ResetCreditProviders {
-		if candidate == providerID {
-			return index
-		}
-	}
-	return len(ResetCreditProviders)
-}
-
-// resetAccountLabel renders the account identity a picker row shows.
-func (service *UsageService) resetAccountLabel(account ai.CredentialAccountInfo) string {
-	if account.Label != "" {
-		return account.Label
-	}
-	return service.unavailableLabel(account.ProviderID, &account)
 }
 
 // providerBaseURL reports the configured base URL of a provider.
@@ -267,7 +245,7 @@ func (service *UsageService) RedeemResetCredit(ctx context.Context, target Usage
 		outcome.Code = "unsupported_provider"
 		return outcome, nil
 	}
-	accountKey := accountKeyText(target.AccountKey)
+	accountKey := usageAccountKeyText(target.AccountKey)
 	service.resetRedeemMu.Lock()
 	if service.redeemInFlight == nil {
 		service.redeemInFlight = map[string]*redeemInFlight{}
@@ -316,7 +294,7 @@ func (service *UsageService) redeemResetCredit(ctx context.Context, target Usage
 		}
 		for index := range accounts {
 			candidate := accounts[index]
-			if candidate.ProviderID == target.ProviderID && accountKeyText(candidate.AccountKey) == accountKeyText(target.AccountKey) {
+			if candidate.ProviderID == target.ProviderID && usageAccountKeyText(candidate.AccountKey) == usageAccountKeyText(target.AccountKey) {
 				account = &candidate
 				break
 			}
@@ -333,7 +311,7 @@ func (service *UsageService) redeemResetCredit(ctx context.Context, target Usage
 		return outcome, nil
 	}
 	if outcome.Label == "" {
-		outcome.Label = service.resetAccountLabel(*account)
+		outcome.Label = service.unavailableLabel(account.ProviderID, account)
 	}
 	credential, err := service.resetCredential(ctx, *account)
 	if err != nil || credential == nil {
@@ -347,13 +325,12 @@ func (service *UsageService) redeemResetCredit(ctx context.Context, target Usage
 	usageCredential := ai.UsageCredentialFromStored(credential)
 	fctx := ai.UsageFetchContext{HTTPClient: service.options.HTTPClient, Logger: service.options.Logger}
 	baseURL := service.providerBaseURL(target.ProviderID)
-	creditID := target.CreditID
+	outcome.CreditID = target.CreditID
 	if target.ProviderID == "anthropic" {
-		creditID, outcome = service.redeemClaudeReset(ctx, fctx, usageCredential, baseURL, creditID, outcome)
+		outcome = service.redeemClaudeReset(ctx, fctx, usageCredential, baseURL, outcome)
 	} else {
-		creditID, outcome = service.redeemCodexReset(ctx, fctx, usageCredential, baseURL, creditID, outcome)
+		outcome = service.redeemCodexReset(ctx, fctx, usageCredential, baseURL, outcome)
 	}
-	outcome.CreditID = creditID
 	if !outcome.Ok {
 		return outcome, nil
 	}
@@ -415,19 +392,15 @@ func (service *UsageService) resetBlockClearer() (ai.AccountBlockClearer, bool) 
 // resetBlockScopes names the block scopes a spent reset covers. A nil result
 // means the provider's answer did not say what it reset, so no block is lifted.
 func resetBlockScopes(providerID string, cleared []string) []string {
-	windows := make([]string, 0, len(cleared))
-	for _, window := range cleared {
-		windows = append(windows, window)
-	}
 	switch providerID {
 	case "anthropic":
-		if len(windows) == 0 {
+		if len(cleared) == 0 {
 			return nil
 		}
-		scopes := append([]string{}, windows...)
+		scopes := slices.Clone(cleared)
 		// The unscoped row is where a whole-account wall lands, so only a reset
 		// that covered both shared windows may lift it.
-		if len(windows) > 0 && containsAll(windows, []string{"anthropic:5h", "anthropic:7d"}) {
+		if slices.Contains(cleared, "anthropic:5h") && slices.Contains(cleared, "anthropic:7d") {
 			scopes = append(scopes, "")
 		}
 		return scopes
@@ -437,64 +410,46 @@ func resetBlockScopes(providerID string, cleared []string) []string {
 	return nil
 }
 
-// containsAll reports whether every wanted value is present.
-func containsAll(values, wanted []string) bool {
-	for _, want := range wanted {
-		found := false
-		for _, value := range values {
-			if value == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
 // redeemCodexReset spends a Codex credit, choosing the soonest-expiring one when
 // the caller names none.
-func (service *UsageService) redeemCodexReset(ctx context.Context, fctx ai.UsageFetchContext, credential ai.UsageCredential, baseURL, creditID string, outcome UsageResetOutcome) (string, UsageResetOutcome) {
-	if creditID == "" {
+func (service *UsageService) redeemCodexReset(ctx context.Context, fctx ai.UsageFetchContext, credential ai.UsageCredential, baseURL string, outcome UsageResetOutcome) UsageResetOutcome {
+	if outcome.CreditID == "" {
 		list, ok := ai.ListCodexResetCredits(ctx, fctx, credential, baseURL)
 		if !ok {
 			outcome.Code = "credit_list_failed"
-			return creditID, outcome
+			return outcome
 		}
 		credit := ai.PickSoonestExpiringResetCredit(list.Credits)
 		if credit == nil {
 			outcome.Code = "no_credit"
-			return creditID, outcome
+			return outcome
 		}
-		creditID = credit.ID
+		outcome.CreditID = credit.ID
 	}
 	redeemCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
 	defer cancel()
-	consumed, err := ai.ConsumeCodexResetCredit(redeemCtx, fctx, credential, baseURL, creditID)
+	consumed, err := ai.ConsumeCodexResetCredit(redeemCtx, fctx, credential, baseURL, outcome.CreditID)
 	if err != nil {
 		outcome.Code = "network_error"
-		return creditID, outcome
+		return outcome
 	}
 	applyConsumeResult(&outcome, consumed)
-	return creditID, outcome
+	return outcome
 }
 
 // redeemClaudeReset spends Claude's server-selected reset. Claude names the one
 // grant that may be spent, so an inventory without that pin is a refusal rather
 // than an invitation to spend whichever grant looks current.
-func (service *UsageService) redeemClaudeReset(ctx context.Context, fctx ai.UsageFetchContext, credential ai.UsageCredential, baseURL, creditID string, outcome UsageResetOutcome) (string, UsageResetOutcome) {
+func (service *UsageService) redeemClaudeReset(ctx context.Context, fctx ai.UsageFetchContext, credential ai.UsageCredential, baseURL string, outcome UsageResetOutcome) UsageResetOutcome {
 	list := ai.ListClaudeResetCredits(ctx, fctx, credential, baseURL)
 	if list == nil {
 		outcome.Code = "credit_list_failed"
-		return creditID, outcome
+		return outcome
 	}
 	selected := resetCreditByID(list, list.NextCreditID)
-	if creditID != "" && creditID != list.NextCreditID {
+	if outcome.CreditID != "" && outcome.CreditID != list.NextCreditID {
 		outcome.Code = "offer_changed"
-		outcome.CreditID = creditID
-		return creditID, outcome
+		return outcome
 	}
 	redeemable := 0
 	if list.RedeemableCount != nil {
@@ -508,11 +463,11 @@ func (service *UsageService) redeemClaudeReset(ctx context.Context, fctx ai.Usag
 			outcome.Code = "no_credit"
 		}
 		outcome.Reason = list.Reason
-		return creditID, outcome
+		return outcome
 	}
-	creditID = selected.ID
+	outcome.CreditID = selected.ID
 	applyConsumeResult(&outcome, ai.ConsumeClaudeResetCredit(ctx, fctx, credential, baseURL, *selected, ""))
-	return creditID, outcome
+	return outcome
 }
 
 // applyConsumeResult copies a provider verdict onto the redeem outcome.
@@ -549,15 +504,7 @@ func (service *UsageService) invalidateUsageAfterReset(providerID string, accoun
 		baseURL:    service.providerBaseURL(providerID),
 		credential: ai.UsageCredentialFromStored(credential),
 	}
-	service.purge(usageCacheKey(target, "store:"+accountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential)))
-}
-
-// accountKeyText renders a nullable account key as a comparable string.
-func accountKeyText(key *string) string {
-	if key == nil {
-		return ""
-	}
-	return *key
+	service.purge(usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential)))
 }
 
 // copyAccountKey copies a nullable account key, preserving "set to nil" as an
