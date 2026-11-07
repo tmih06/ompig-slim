@@ -21,8 +21,8 @@ can steer the model. That prompt-injection surface cannot be defended against by
 
 ## Reporting a vulnerability
 
-Report privately through GitHub private vulnerability reporting on this repository (**Security** →
-**Advisories** → **Report a vulnerability**). Do not open a public issue or describe the issue in a
+Report privately through [this repository's GitHub security page](https://github.com/tmih06/ompig-slim/security) (**Security** →
+**Advisories** → **Report a vulnerability**). Private vulnerability reporting is enabled. Do not open a public issue or describe the issue in a
 comment for a security-sensitive report. If that entry point is unavailable, open an issue that only
 asks for a private reporting channel and wait for a reply before sending details.
 

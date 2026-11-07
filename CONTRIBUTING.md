@@ -6,7 +6,7 @@ This is a personal coding harness built on PiG, not an official PiG, Pi, or oh-m
 
 Understand the code you submit and its interactions with the rest of the system. Agent-written code is acceptable; unread output is not. Label model-generated issue and review text. Discuss changes with the maintainer before submitting a pull request.
 
-This local repository does not configure a hosted contributor-approval gate. The original fork's remote approval list and workflows are not implicitly installed by this migration.
+Public development and CI run at [tmih06/ompig-slim](https://github.com/tmih06/ompig-slim). The original fork's contributor approval list is not inherited; this repository does not configure a separate hosted contributor-approval gate.
 
 ## Reports
 
