@@ -193,7 +193,8 @@ var (
 
 // accountQuotaMessagePattern classifies error text that means the account is exhausted rather
 // than the request being throttled or the provider failing. It is the full source list
-// (retry.ts NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN).
+// (retry.ts NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN) plus the exhausted-account prose Codex
+// sends mid-stream (pig divergence, see below).
 var accountQuotaMessagePattern = buildProviderErrorPattern([]string{
 	"GoUsageLimitError",
 	"FreeUsageLimitError",
@@ -210,6 +211,15 @@ var accountQuotaMessagePattern = buildProviderErrorPattern([]string{
 	"out of credits",
 	"subscription_sharing_workplace_individual_usage_limit_exceeded",
 	`"code"` + jsSpaceClass + `*:` + jsSpaceClass + `*"?1308([^0-9]|$)`,
+	// pig additive (D251): Codex accepts the request with HTTP 200 and then ends the stream with an
+	// `error` event whose message is prose, not the `usage_limit_reached` code the classifier above
+	// keys on. mapCodexEvent keeps only that prose ("Codex error: " + message), so an exhausted
+	// account reached the router unclassified: no block was recorded and the request stopped on the
+	// first account instead of rotating to a sibling. These spell the account-exhausted sentence
+	// without accepting rate/throttle wording, which a sibling account cannot repair.
+	`usage limit (?:has been |was |is )?reached`,
+	`(?:(?:you(?:'ve| have)) ?)?(?:hit|reached) your (?:ChatGPT )?usage limit`,
+	`usage limit (?:exceeded|exhausted)`,
 })
 
 // IsAccountQuotaErrorMessage reports whether provider error text describes an exhausted account
