@@ -15,6 +15,9 @@ type registryModelsStore struct{ registry *ModelRegistry }
 func (store registryModelsStore) Read(ctx context.Context, id string) (*ai.ModelsStoreEntry, error) {
 	return store.registry.catalogStore().Read(ctx, id)
 }
+func (store registryModelsStore) ReadSnapshot(ctx context.Context, id string) (*ai.ModelsStoreEntry, error) {
+	return ai.ReadModelsStoreSnapshot(ctx, store.registry.catalogStore(), id)
+}
 func (store registryModelsStore) Write(ctx context.Context, id string, entry ai.ModelsStoreEntry) error {
 	return store.registry.catalogStore().Write(ctx, id, entry)
 }

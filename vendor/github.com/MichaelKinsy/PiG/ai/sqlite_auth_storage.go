@@ -349,7 +349,7 @@ func (s *SQLiteAuthStorage) Close() error {
 	return s.db.Close()
 }
 
-func scanCredentialRow(scanner interface{ Scan(dest ...any) error }) (credentialRow, error) {
+func scanCredentialRow(scanner interface{ Scan(dest ...any) error }, selection ...*sql.NullString) (credentialRow, error) {
 	var (
 		row    credentialRow
 		ident  sql.NullString
@@ -360,7 +360,13 @@ func scanCredentialRow(scanner interface{ Scan(dest ...any) error }) (credential
 		id     int64
 		create int64
 	)
-	if err := scanner.Scan(&id, &prov, &kindID, &data, &ident, &cause, &create); err != nil {
+	var err error
+	if len(selection) == 0 {
+		err = scanner.Scan(&id, &prov, &kindID, &data, &ident, &cause, &create)
+	} else {
+		err = scanner.Scan(&id, &prov, &kindID, &data, &ident, &cause, &create, selection[0])
+	}
+	if err != nil {
 		return credentialRow{}, err
 	}
 	row = credentialRow{
@@ -522,22 +528,50 @@ func (s *SQLiteAuthStorage) rowFor(ctx context.Context, providerID string, accou
 	if accountKey != nil {
 		return s.exactRow(ctx, providerID, accountKey)
 	}
-	rows, err := s.rowsFor(ctx, providerID)
-	if err != nil || len(rows) == 0 {
-		return nil, err
+	// Read only the oldest row and its preference, not every account's token
+	// payload. A valid preference needs at most one additional primary-key read.
+	hasSelection := true
+	if s.readOnly {
+		var err error
+		hasSelection, err = s.hasTable(ctx, "cache")
+		if err != nil {
+			return nil, err
+		}
 	}
-	selected, ok, err := s.selectedID(ctx, providerID)
+	query := `SELECT ` + rowColumns
+	args := []any{providerID}
+	var preferred sql.NullString
+	if hasSelection {
+		query += `, (SELECT value FROM cache WHERE key = ?)`
+		args = []any{selectionKey(providerID), providerID}
+	}
+	query += ` FROM auth_credentials WHERE provider = ? AND disabled_cause IS NULL ORDER BY id ASC LIMIT 1`
+	scanner := s.db.QueryRowContext(ctx, query, args...)
+	var row credentialRow
+	var err error
+	if hasSelection {
+		row, err = scanCredentialRow(scanner, &preferred)
+	} else {
+		row, err = scanCredentialRow(scanner)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	if ok {
-		for i := range rows {
-			if rows[i].ID == selected {
-				return &rows[i], nil
+	if preferred.Valid {
+		if selected, parseErr := strconv.ParseInt(jsstring.Trim(preferred.String), 10, 64); parseErr == nil && selected != row.ID {
+			chosen, err := s.rowByID(ctx, selected)
+			if err != nil {
+				return nil, err
+			}
+			if chosen != nil && chosen.Provider == providerID && !chosen.DisabledCause.Valid {
+				return chosen, nil
 			}
 		}
 	}
-	return &rows[0], nil
+	return &row, nil
 }
 
 func (s *SQLiteAuthStorage) rowByID(ctx context.Context, id int64) (*credentialRow, error) {

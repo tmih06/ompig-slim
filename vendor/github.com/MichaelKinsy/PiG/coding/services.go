@@ -204,11 +204,16 @@ func CreateAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentS
 			testFauxProvider: shared.services.testFauxProvider, sharedRuntime: true,
 		}
 	} else {
+		// Registry restoration and credential opening are independent. Join
+		// both before wiring providers so no task escapes Services creation.
+		var reg *icodingagent.ModelRegistry
+		var prepare sync.WaitGroup
+		prepare.Go(func() { reg = icodingagent.NewModelRegistry(agentDir) })
 		credentials, err := ai.OpenCredentialStore(agentDir)
+		prepare.Wait()
 		if err != nil {
 			return nil, fmt.Errorf("coding.CreateAgentSessionServices: open auth storage at %s: %w", ai.SQLiteAuthPath(agentDir), err)
 		}
-		reg := icodingagent.NewModelRegistry(agentDir)
 		reg.SetCredentialStore(credentials)
 		// Mirrors ModelRuntime.create: restore stored dynamic catalogs (Radius)
 		// without network access. Network refreshes run from the modes.

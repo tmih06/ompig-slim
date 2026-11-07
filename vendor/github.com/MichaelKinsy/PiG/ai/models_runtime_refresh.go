@@ -105,13 +105,9 @@ func (m *Models) Refresh(ctx context.Context, options ...ModelsRefreshOptions) M
 }
 
 func (m *Models) runProviderRefreshPhase(provider *ModelsProvider, credential *Credential, allowNetwork bool, force *bool, generation uint64, signal context.Context) error {
-	stored, err := m.modelsStore.Read(signal, provider.ID)
+	stored, err := ReadModelsStoreSnapshot(signal, m.modelsStore, provider.ID)
 	if err != nil {
 		return err
-	}
-	if stored != nil {
-		// Records of model types this version does not know stay aside in the entry and never reach the provider.
-		stored = new(stored.Clone())
 	}
 	return provider.RefreshModels(RefreshModelsContext{Credential: credential, Stored: stored, AllowNetwork: allowNetwork, Force: force, Signal: signal, BaseURL: provider.BaseURL, Publish: func(publication ModelsPublication) (bool, error) {
 		return m.publishProviderModels(provider.ID, generation, signal, publication)

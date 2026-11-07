@@ -13,6 +13,7 @@ package modelmetadata
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -367,12 +368,16 @@ var familyProviders = map[string][]string{
 	"sonar":    {"perplexity"},
 }
 
-// providerSuffixPattern strips the regional/plan suffix of zai-cn, minimax-cn and friends.
-var providerSuffixPattern = regexp.MustCompile(`-cn$|-(?:token-plan|token-plan-cn|individual|individual-cn|coding-plan|plan)$`)
-
 // normalizeProviderID maps regional and plan variants onto their owner (zai-cn is zai).
 func normalizeProviderID(provider string) string {
-	return providerSuffixPattern.ReplaceAllString(strings.ToLower(provider), "")
+	provider = strings.ToLower(provider)
+	// Longest suffix first preserves the regexp's leftmost-match behavior.
+	for _, suffix := range []string{"-token-plan-cn", "-individual-cn", "-coding-plan", "-token-plan", "-individual", "-plan", "-cn"} {
+		if base, found := strings.CutSuffix(provider, suffix); found {
+			return base
+		}
+	}
+	return provider
 }
 
 // IsCanonicalProvider reports whether the row's provider publishes this family's canonical metadata.
@@ -449,39 +454,62 @@ func catalogStatusRank(row ai.ModelCatalogMetadataRow) int {
 // non-deprecated, richer, then a deterministic provider/id order.
 func RankCatalogMetadataCandidates(matches []ai.ModelCatalogMetadataRow, family, modelID string) {
 	targetID := strings.ToLower(modelID)
-	sort.SliceStable(matches, func(i, j int) bool {
-		left, right := matches[i], matches[j]
-		// The family's canonical row wins even when a reseller republished the exact id: its prices
-		// are the model's list prices, while a reseller row quotes that gateway's own markup, which
-		// says nothing about the configured endpoint.
-		leftCanonical := IsCanonicalProvider(left.Provider, family)
-		rightCanonical := IsCanonicalProvider(right.Provider, family)
-		if leftCanonical != rightCanonical {
-			return leftCanonical
+	// Compute rank facts once and sort small references rather than repeatedly
+	// copying catalog rows and normalizing strings inside the comparator.
+	type ranked struct {
+		row              *ai.ModelCatalogMetadataRow
+		canonical, exact bool
+		status, score    int
+	}
+	ranks := make([]ranked, len(matches))
+	for i := range matches {
+		row := &matches[i]
+		ranks[i] = ranked{row, IsCanonicalProvider(row.Provider, family), strings.ToLower(row.ID) == targetID, catalogStatusRank(*row), catalogRowScore(*row)}
+	}
+	slices.SortStableFunc(ranks, func(left, right ranked) int {
+		if left.canonical != right.canonical {
+			if left.canonical {
+				return -1
+			}
+			return 1
 		}
-		leftExact := strings.ToLower(left.ID) == targetID
-		rightExact := strings.ToLower(right.ID) == targetID
-		if leftExact != rightExact {
-			return leftExact
+		if left.exact != right.exact {
+			if left.exact {
+				return -1
+			}
+			return 1
 		}
-		if leftStatus, rightStatus := catalogStatusRank(left), catalogStatusRank(right); leftStatus != rightStatus {
-			return leftStatus < rightStatus
+		if left.status != right.status {
+			return left.status - right.status
 		}
-		if leftScore, rightScore := catalogRowScore(left), catalogRowScore(right); leftScore != rightScore {
-			return leftScore > rightScore
+		if left.score != right.score {
+			return right.score - left.score
 		}
-		if left.Provider != right.Provider {
-			return left.Provider < right.Provider
+		if order := strings.Compare(left.row.Provider, right.row.Provider); order != 0 {
+			return order
 		}
-		return left.ID < right.ID
+		return strings.Compare(left.row.ID, right.row.ID)
 	})
+	sorted := make([]ai.ModelCatalogMetadataRow, len(matches))
+	for i, rank := range ranks {
+		sorted[i] = *rank.row
+	}
+	copy(matches, sorted)
 }
 
 // Index holds precomputed candidate lists, so enrichment never scans the whole catalog per model.
 type Index struct {
 	byKey     map[string][]indexedCatalogRow
 	byExactID map[string][]indexedCatalogRow
+	// Only used under Service.mu; replaced with the index when rows change.
+	matches map[modelIdentity][]ai.ModelCatalogMetadataRow
 }
+
+type modelIdentity struct{ id, name string }
+
+// Bound host-supplied model identities without evicting hot entries or allowing
+// arbitrary SDK queries to grow a process-lifetime cache.
+const metadataMatchCacheLimit = 4096
 
 // Rows are immutable for an index's lifetime. Keep references instead of copying
 // each row into both buckets, and retain its parsed identity for every lookup.
@@ -509,8 +537,10 @@ func variantKeyID(key *VariantKey) string {
 
 // buildIndex builds the lookup index for one snapshot.
 func buildIndex(rows []ai.ModelCatalogMetadataRow) Index {
-	index := Index{byKey: map[string][]indexedCatalogRow{}, byExactID: map[string][]indexedCatalogRow{}}
-	type modelIdentity struct{ id, name string }
+	index := Index{
+		byKey: map[string][]indexedCatalogRow{}, byExactID: map[string][]indexedCatalogRow{},
+		matches: make(map[modelIdentity][]ai.ModelCatalogMetadataRow),
+	}
 	keys := make(map[modelIdentity]*VariantKey)
 	for i := range rows {
 		row := &rows[i]
@@ -532,9 +562,13 @@ func buildIndex(rows []ai.ModelCatalogMetadataRow) Index {
 	return index
 }
 
-// indexedCandidates lists the candidates for one model: the rows sharing its identity key plus the
-// rows whose id equals the model id, deduplicated. Best-first ordering is applied by the ranker.
+// indexedCandidates returns best-first candidates, memoized for this immutable
+// snapshot. Rebuilt model objects across refreshes share the same identity lookup.
 func indexedCandidates(index Index, modelID, modelName string) []ai.ModelCatalogMetadataRow {
+	identity := modelIdentity{modelID, modelName}
+	if matches, found := index.matches[identity]; found {
+		return matches
+	}
 	target, ok := VariantKeyFor(modelID, modelName)
 	if !ok {
 		return nil
@@ -559,6 +593,12 @@ func indexedCandidates(index Index, modelID, modelName string) []ai.ModelCatalog
 	}
 	for _, row := range index.byExactID[strings.ToLower(modelID)] {
 		add(row)
+	}
+	if len(bucket) > 1 {
+		RankCatalogMetadataCandidates(bucket, target.Family, modelID)
+	}
+	if len(index.matches) < metadataMatchCacheLimit {
+		index.matches[identity] = bucket
 	}
 	return bucket
 }

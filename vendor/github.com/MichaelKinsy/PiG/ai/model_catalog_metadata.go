@@ -715,6 +715,9 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
+	if snapshot, ok := decodeTypedCatalogSnapshot(trimmed); ok {
+		return snapshot, true
+	}
 	var members map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 	decoder.UseNumber()
