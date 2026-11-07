@@ -19,6 +19,9 @@ var compactAgentDescription string
 //go:embed workflow-description.txt
 var fullWorkflowDescription string
 
+//go:embed workflow-description-compact.txt
+var compactWorkflowDescription string
+
 func (m *Manager) toolDescription(workflow bool) string {
 	s := m.Settings()
 	var full, compact []string
@@ -51,6 +54,9 @@ func (m *Manager) toolDescription(workflow bool) string {
 	template := fullAgentDescription
 	if workflow {
 		template = fullWorkflowDescription
+		if s.ToolDescriptionMode == "compact" {
+			template = compactWorkflowDescription
+		}
 	} else {
 		switch s.ToolDescriptionMode {
 		case "compact":

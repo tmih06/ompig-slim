@@ -52,7 +52,6 @@ type Host struct {
 	ParentRunning                        func() bool
 	Subscribe                            func(func(agent.AgentEvent)) func()
 	InstalledPackages                    func() []PackageRoot
-	Mention                              func(context.Context, string, string) error
 }
 
 // Mention starts an off-screen orchestration clone in model mode; direct mode
@@ -76,25 +75,6 @@ func (m *Manager) Mention(handle, message string) error {
 	}
 	if !found {
 		return fmt.Errorf("unknown agent @%s", handle)
-	}
-	if m.Settings().AgentMentions == "model" && m.host.Mention != nil {
-		m.mu.Lock()
-		if m.closed || !m.settings.Enabled {
-			m.mu.Unlock()
-			return fmt.Errorf("subagents are disabled")
-		}
-		m.wg.Add(1)
-		m.mu.Unlock()
-		go func() {
-			defer m.wg.Done()
-			if err := m.host.Mention(m.ctx, c.Name, message); err != nil {
-				m.mu.Lock()
-				m.warnings = append(m.warnings, "Agent mention: "+err.Error())
-				m.mu.Unlock()
-				m.changed()
-			}
-		}()
-		return nil
 	}
 	_, err := m.Spawn(m.ctx, Params{Prompt: message, Description: clip(message, 80), Type: c.Name, Background: new(true), Detached: true}, "", "")
 	return err
@@ -120,6 +100,7 @@ type Params struct {
 }
 
 type Record struct {
+	HubActivity    []HubActivity   `json:"hubActivity,omitempty"`
 	Requests       int             `json:"requests,omitempty"`
 	LastActivity   int64           `json:"lastActivity,omitempty"`
 	Killed         bool            `json:"killed,omitempty"`
@@ -232,6 +213,7 @@ func New(host Host) *Manager {
 	m.configs = configs
 	m.warnings = append(m.warnings, cw...)
 	if host.Restore != nil && s.RememberAgents {
+		recovered := false
 		for _, r := range host.Restore() {
 			if r.Active() {
 				r.Status = "aborted"
@@ -239,8 +221,36 @@ func New(host Host) *Manager {
 			}
 			done := make(chan struct{})
 			close(done)
+			if len(r.HubActivity) == 0 && r.SessionFile != "" {
+				activity, err := readHubActivity(ctx, r.SessionFile, r.ID)
+				if err != nil {
+					m.warnings = append(m.warnings, "Restore agent activity: "+err.Error())
+				} else if len(activity) > 0 {
+					r.HubActivity = activity
+					recovered = true
+				}
+			}
+			m.hubActivity = append(m.hubActivity, r.HubActivity...)
+			r.HubActivity = nil // The manager's bounded ring owns activity in memory.
 			m.runs = append(m.runs, &run{Record: r, done: done, handoff: make(chan struct{}), consumed: true})
 		}
+		if recovered {
+			// Transcript-derived IDs are local to each child; merge by saved
+			// timestamps and give the combined history unique sequence IDs.
+			slices.SortStableFunc(m.hubActivity, func(a, b HubActivity) int {
+				if a.Timestamp < b.Timestamp {
+					return -1
+				}
+				if a.Timestamp > b.Timestamp {
+					return 1
+				}
+				return 0
+			})
+			for i := range m.hubActivity {
+				m.hubActivity[i].ID = uint64(i + 1)
+			}
+		}
+		m.restoreHubActivity()
 	}
 	m.restoreJobs()
 	if host.Subscribe != nil {
@@ -293,7 +303,11 @@ func (m *Manager) Records() []Record {
 	}
 	return records
 }
-func cloneRecord(r Record) Record { r.StructuredJSON = slices.Clone(r.StructuredJSON); return r }
+func cloneRecord(r Record) Record {
+	r.StructuredJSON = slices.Clone(r.StructuredJSON)
+	r.HubActivity = slices.Clone(r.HubActivity)
+	return r
+}
 func (m *Manager) findLocked(ref, owner string) *run {
 	ref = strings.TrimPrefix(strings.ToLower(ref), "@")
 	for _, r := range m.runs {
@@ -1090,7 +1104,9 @@ func (m *Manager) finish(r *run, status, text string, err error) {
 	r.pool = ""
 	r.cancel()
 	snapshot := cloneRecord(r.Record)
-	if r.Background && r.TopLevel() && !r.consumed && !m.closed {
+	// Human-directed child conversations are visible in the Hub already;
+	// completing one must not purchase a separate parent synthesis turn.
+	if r.Background && r.TopLevel() && !r.Params.Detached && !r.consumed && !m.closed {
 		m.notifications = append(m.notifications, completion{r.ID, r.CompletedAt})
 		if m.notificationTimer == nil && (m.host.ParentRunning == nil || !m.host.ParentRunning()) {
 			m.notificationTimer = time.AfterFunc(40*time.Millisecond, m.flushNotifications)
@@ -1125,6 +1141,9 @@ func (m *Manager) flushNotifications() {
 	m.mu.Lock()
 	var messages []string
 	var retained []completion
+	// An idle parent would need a new paid turn per notification. Batch those
+	// siblings; a running parent can receive useful results at its next boundary.
+	batch := m.settings.DefaultJoinMode == "group" || m.settings.DefaultJoinMode == "smart" && (m.host.ParentRunning == nil || !m.host.ParentRunning())
 	for _, pending := range m.notifications {
 		if strings.HasPrefix(pending.id, "wf_") {
 			for _, w := range m.workflows {
@@ -1137,13 +1156,22 @@ func (m *Manager) flushNotifications() {
 		}
 		r := m.findLocked(pending.id, "")
 		if r != nil && !r.consumed && !r.Active() && r.CompletedAt == pending.at {
-			if m.settings.DefaultJoinMode == "group" && time.Now().UnixMilli()-pending.at < 30000 && slices.ContainsFunc(m.runs, func(other *run) bool {
-				return other.TopLevel() && other.Background && other.group == r.group && other.Active()
+			if batch && time.Now().UnixMilli()-pending.at < 30000 && slices.ContainsFunc(m.runs, func(other *run) bool {
+				return other.TopLevel() && other.Background && !other.Params.Detached && other.group == r.group && other.Active()
 			}) {
 				retained = append(retained, pending)
 				continue
 			}
-			messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<summary>%s</summary>\n<result>%s</result>\nUse get_subagent_result for the full result.\n</task-notification>", r.ID, r.Status, xmlEscape(r.Description), xmlEscape(clip(r.Result+r.Error, 1500))))
+			text := r.Result
+			if r.Error != "" && r.Error != r.Result {
+				text += "\nError: " + r.Error
+			}
+			preview := clip(text, 1500)
+			hint := ""
+			if preview != text {
+				hint = "\nResult truncated; use get_subagent_result for the full result."
+			}
+			messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<summary>%s</summary>\n<result>%s</result>%s\n</task-notification>", r.ID, r.Status, xmlEscape(r.Description), xmlEscape(preview), hint))
 			r.consumed = true
 		}
 	}

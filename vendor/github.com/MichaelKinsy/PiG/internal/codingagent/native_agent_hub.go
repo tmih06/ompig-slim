@@ -36,6 +36,7 @@ type agentHub struct {
 	ranks                    map[string]hubRank
 	depth                    map[string]int
 	selected                 string
+	hovered                  string
 	index, activityIndex     int
 	section                  int
 	tree, narrow, following  bool
@@ -43,7 +44,6 @@ type agentHub struct {
 	editing                  bool
 	input                    *tui.Editor
 	filter, scope            int
-	detailScroll, detailMax  int
 	width, height, leftWidth int
 	hitRows                  map[int]int
 	notice                   string
@@ -147,7 +147,7 @@ func hubGlyph(status string) string {
 	case "idle":
 		return theme.Fg("success", "●")
 	case "parked":
-		return theme.Fg("warning", "○")
+		return theme.Fg("muted", "○")
 	}
 	return theme.Fg("error", "✕")
 }
@@ -422,11 +422,8 @@ func (h *agentHub) summary() []string {
 			status = append(status, hubStatus(state, fmt.Sprintf("%s %d %s", hubGlyph(state), counts[state], state)))
 		}
 	}
-	view := "[Flat] / By parent"
-	if h.tree {
-		view = "Flat / [By parent]"
-	}
-	header := hubHeading("Roster") + " · " + tui.ActiveTheme().Fg("accent", view)
+	view := hubChip("Flat", !h.tree) + tui.ActiveTheme().Fg("dim", "/") + hubChip("By parent", h.tree)
+	header := tui.ChalkBold("Roster") + tui.ActiveTheme().Fg("dim", " · ") + view
 	if len(status) > 0 {
 		header += " · " + strings.Join(status, " · ")
 	}
@@ -434,7 +431,7 @@ func (h *agentHub) summary() []string {
 	if measured > 0 {
 		usage = fmt.Sprintf("$%.4f · %d req · %d tools · %s tok · %d/%d measured", cost, requests, tools, subagentCompact(int64(tokens)), measured, len(h.rows))
 	}
-	lines := []string{header, tui.ActiveTheme().Fg("muted", usage)}
+	lines := []string{header, tui.ActiveTheme().Fg("dim", usage)}
 	if h.editing || h.query != "" {
 		lines = append(lines, tui.ActiveTheme().Fg("accent", "/"+h.query))
 	}
@@ -460,7 +457,7 @@ func (h *agentHub) roster(width, height int) []string {
 		r := h.rows[i]
 		cursor := " "
 		if r.ID == h.selected {
-			cursor = tui.ActiveTheme().Fg("accent", "▌")
+			cursor = tui.ActiveTheme().Fg("accent", "›")
 		}
 		indent := ""
 		if h.tree && h.depth[r.ID] > 0 {
@@ -470,30 +467,27 @@ func (h *agentHub) roster(width, height int) []string {
 		if r.ID == h.selected {
 			label = tui.ActiveTheme().Fg("accent", tui.ChalkBold(label))
 		} else {
-			label = tui.ActiveTheme().Fg("customMessageLabel", tui.ChalkBold(label))
+			label = tui.ChalkBold(label)
 		}
 		title := cursor + " " + indent + hubGlyph(r.State) + " " + label
 		if !h.tree && r.ParentID != "" {
 			title += "  ↳ " + hubSingleLine(h.labelFor(r.ParentID))
 		}
-		model := hubSingleLine(r.ModelName)
-		if r.Thinking != "" && r.Thinking != "off" {
-			model += " · " + r.Thinking
-		}
-		if model != "" && widthx.VisibleWidth(title)+widthx.VisibleWidth(model)+2 <= width {
-			title += strings.Repeat(" ", width-widthx.VisibleWidth(title)-widthx.VisibleWidth(model)) + tui.ActiveTheme().Fg("muted", model)
+		model := hubModel(r.ModelName, r.Thinking)
+		if r.ModelName != "" && widthx.VisibleWidth(title)+widthx.VisibleWidth(model)+2 <= width {
+			title += strings.Repeat(" ", width-widthx.VisibleWidth(title)-widthx.VisibleWidth(model)) + model
 		}
 		detail := r.Description
 		if detail == "" {
 			detail = r.Activity
 		}
 		metrics := hubMetrics(r) + " · " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"
-		for _, line := range []string{title, "    " + hubSingleLine(detail), tui.ActiveTheme().Fg("muted", "    "+metrics)} {
+		for _, line := range []string{title, tui.ActiveTheme().Fg("muted", "    "+hubSingleLine(detail)), tui.ActiveTheme().Fg("dim", "    "+metrics)} {
 			if len(lines) >= height {
 				break
 			}
 			h.hitRows[2+len(lines)] = i
-			if r.ID == h.selected {
+			if r.ID == h.hovered {
 				line = hubSurface(line, width, "selectedBg")
 			}
 			lines = append(lines, line)
@@ -520,9 +514,9 @@ func (h *agentHub) details(width int) []string {
 		return []string{"Select an agent to inspect"}
 	}
 	r := h.rows[h.index]
-	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("muted", r.ID), hubStatus(r.State, r.State) + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
+	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("dim", r.ID), hubStatus(r.State, r.State) + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
 	if r.ModelName != "" {
-		lines = append(lines, hubSingleLine(r.ModelName+" · "+r.Thinking))
+		lines = append(lines, hubModel(r.ModelName, r.Thinking))
 	}
 	lines = append(lines, "", hubHeading("Task"), hubSingleLine(r.Description))
 	if r.Params.Prompt != "" {
@@ -534,9 +528,9 @@ func (h *agentHub) details(width int) []string {
 	lines = append(lines, "", hubHeading("Usage"), hubMetrics(r))
 	if r.ContextWindow > 0 {
 		fraction := min(1.0, max(0.0, float64(r.ContextTokens)/float64(r.ContextWindow)))
-		cells := min(24, max(1, width-4))
+		cells := min(10, max(1, width-4))
 		filled := int(fraction * float64(cells))
-		lines = append(lines, fmt.Sprintf("Context %s/%s · %.0f%%", subagentCompact(r.ContextTokens), subagentCompact(int64(r.ContextWindow)), fraction*100), tui.ActiveTheme().Fg(contextColor(fraction), strings.Repeat("━", filled))+tui.ActiveTheme().Fg("borderMuted", strings.Repeat("─", cells-filled)))
+		lines = append(lines, tui.ActiveTheme().Fg("accent", strings.Repeat("━", filled))+tui.ActiveTheme().Fg("dim", strings.Repeat("─", cells-filled))+fmt.Sprintf(" %s/%s %.0f%%", subagentCompact(r.ContextTokens), subagentCompact(int64(r.ContextWindow)), fraction*100))
 	}
 	lines = append(lines, "", hubHeading("Lineage"), "Spawned by "+hubSingleLine(h.labelFor(r.ParentID)))
 	var children []string
@@ -559,30 +553,41 @@ func (h *agentHub) details(width int) []string {
 	lines = append(lines, "Registered: "+time.UnixMilli(r.StartedAt).Format(time.RFC3339))
 	for _, path := range []struct{ label, value string }{{"Session", r.SessionFile}, {"Output", r.OutputFile}, {"Worktree", r.WorktreePath}, {"Branch", r.WorktreeBranch}} {
 		if path.value != "" {
-			lines = append(lines, "", hubHeading(path.label), tui.ActiveTheme().Fg("mdLink", hubSingleLine(path.value)))
+			lines = append(lines, "", hubHeading(path.label), hubSingleLine(path.value))
 		}
 	}
 	if r.Error != "" {
 		lines = append(lines, "", tui.ActiveTheme().Fg("error", hubSingleLine(r.Error)))
 	}
-	if r.Result != "" {
-		lines = append(lines, "", hubHeading("Last response"), hubSingleLine(r.Result))
-	}
-	lines = append(lines, "", hubHeading("Recent activity"))
-	events := h.manager.HubActivity()
-	count := 0
-	for i := len(events) - 1; i >= 0 && count < 20; i-- {
-		if events[i].AgentID == r.ID {
-			count++
-			lines = append(lines, hubSingleLine(events[i].Title+" · "+events[i].Summary))
-		}
-	}
-	if count == 0 {
-		lines = append(lines, tui.ActiveTheme().Fg("dim", "No response or tool activity yet"))
-	}
+	// The inspector is a fixed summary, not a second transcript. Fit metadata
+	// to the viewport and use only the remaining rows for compact recent events.
+	height := max(1, h.height-5)
 	var wrapped []string
 	for _, line := range lines {
 		wrapped = append(wrapped, widthx.WrapTextWithAnsi(line, max(1, width))...)
+	}
+	// Reserve the compact activity summary so saved session/output paths do
+	// not push every event off-screen when inspecting a resumed agent.
+	budget := min(3, max(0, height-5))
+	metadataRows := height
+	if budget > 0 {
+		metadataRows -= budget + 2
+	}
+	wrapped = wrapped[:min(len(wrapped), metadataRows)]
+	if budget == 0 {
+		return wrapped
+	}
+	wrapped = append(wrapped, "", hubHeading("Recent activity"))
+	events := h.manager.HubActivity()
+	count := 0
+	for i := len(events) - 1; i >= 0 && count < budget; i-- {
+		if events[i].AgentID == r.ID {
+			count++
+			wrapped = append(wrapped, clampAgentLine(hubSingleLine(events[i].Title+" · "+events[i].Summary), width))
+		}
+	}
+	if count == 0 {
+		wrapped = append(wrapped, clampAgentLine(tui.ActiveTheme().Fg("dim", "No response or tool activity yet"), width))
 	}
 	return wrapped
 }
@@ -593,7 +598,7 @@ func (h *agentHub) activityLines(width, height int) []string {
 	if h.following {
 		follow = "following"
 	}
-	lines := []string{hubHeading("Activity") + " · " + tui.ActiveTheme().Fg("accent", filters[h.filter]) + tui.ActiveTheme().Fg("muted", " · "+scopes[h.scope]) + " · " + hubStatus(map[bool]string{true: "running", false: "parked"}[h.following], follow)}
+	lines := []string{tui.ActiveTheme().Fg("dim", scopes[h.scope]+" · "+filters[h.filter]+" · "+follow)}
 	if h.editing || h.activityQuery != "" {
 		lines = append(lines, tui.ActiveTheme().Fg("accent", "/"+h.activityQuery))
 	}
@@ -607,7 +612,7 @@ func (h *agentHub) activityLines(width, height int) []string {
 		e := h.events[i]
 		cursor := " "
 		if i == h.activityIndex {
-			cursor = tui.ActiveTheme().Fg("accent", "▌")
+			cursor = tui.ActiveTheme().Fg("accent", "›")
 		}
 		icon := "○"
 		switch e.Kind {
@@ -619,11 +624,8 @@ func (h *agentHub) activityLines(width, height int) []string {
 		if e.Status == "error" || e.Status == "aborted" {
 			icon = tui.ActiveTheme().Fg("error", "✕")
 		}
-		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, tui.ActiveTheme().Fg("muted", time.UnixMilli(e.Timestamp).Format("15:04:05")), icon, tui.ActiveTheme().Fg("customMessageLabel", h.labelFor(e.AgentID)), tui.ChalkBold(hubSingleLine(e.Title)), tui.ActiveTheme().Fg("muted", hubSingleLine(e.Summary)))
+		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, tui.ActiveTheme().Fg("dim", time.UnixMilli(e.Timestamp).Format("15:04:05")), icon, tui.ChalkBold(hubSingleLine(h.labelFor(e.AgentID))), tui.ActiveTheme().Fg(map[bool]string{true: "success", false: "muted"}[e.Kind == "response"], hubSingleLine(e.Title)), hubSingleLine(e.Summary))
 		h.hitRows[2+len(lines)] = i
-		if i == h.activityIndex {
-			line = hubSurface(line, width, "selectedBg")
-		}
 		lines = append(lines, line)
 	}
 	return lines
@@ -640,13 +642,11 @@ func (h *agentHub) Render(width int) []string {
 	theme := tui.ActiveTheme()
 	inner := width - 4
 	bodyRows := max(1, h.height-5)
-	tabs := []string{tui.ActiveTheme().Fg("muted", " 1 Agents "), tui.ActiveTheme().Fg("muted", " 2 Activity ")}
-	active := []string{" 1 Agents ", " 2 Activity "}[h.section]
-	tabs[h.section] = hubSurface(tui.ChalkBold(active), len(active), "selectedBg")
+	tabs := []string{hubChip("1 Agents", h.section == 0), hubChip("2 Activity", h.section == 1)}
 	border := func(text string) string { return theme.Fg("border", text) }
 	lines := []string{
-		hubSurface(border("╭─ ")+hubHeading("Agent Hub")+border(" "+strings.Repeat("─", max(0, width-14))+"╮"), width, "customMessageBg"),
-		hubSurface(border("│ ")+hubPad(strings.Join(tabs, "  "), inner)+border(" │"), width, "customMessageBg"),
+		hubSurface(border("╭─ ")+hubHeading("Agent Hub")+border(" "+strings.Repeat("─", max(0, width-14))+"╮"), width, ""),
+		hubSurface(border("│ ")+hubPad(strings.Join(tabs, theme.Fg("dim", " · ")), inner)+border(" │"), width, ""),
 	}
 	split := width >= hubSplitWidth && h.section == 0
 	h.leftWidth = inner
@@ -663,19 +663,6 @@ func (h *agentHub) Render(width int) []string {
 	} else {
 		left = h.roster(inner, bodyRows)
 	}
-	if split || h.narrow {
-		details := left
-		if split {
-			details = right
-		}
-		h.detailMax = max(0, len(details)-bodyRows)
-		h.detailScroll = min(h.detailScroll, h.detailMax)
-		if split {
-			right = right[h.detailScroll:]
-		} else {
-			left = left[h.detailScroll:]
-		}
-	}
 	for i := 0; i < bodyRows; i++ {
 		l := ""
 		if i < len(left) {
@@ -686,13 +673,9 @@ func (h *agentHub) Render(width int) []string {
 			if i < len(right) {
 				r = right[i]
 			}
-			lines = append(lines, hubSurface(border("│ ")+hubPad(l, h.leftWidth)+border(" │ ")+hubSurface(r, width-7-h.leftWidth, "customMessageBg")+border(" │"), width, "toolPendingBg"))
+			lines = append(lines, hubSurface(border("│ ")+hubPad(l, h.leftWidth)+border(" │ ")+hubSurface(r, width-7-h.leftWidth, "")+border(" │"), width, ""))
 		} else {
-			surface := "toolPendingBg"
-			if h.narrow && h.section == 0 {
-				surface = "customMessageBg"
-			}
-			lines = append(lines, hubSurface(border("│ ")+hubPad(l, inner)+border(" │"), width, surface))
+			lines = append(lines, hubSurface(border("│ ")+hubPad(l, inner)+border(" │"), width, ""))
 		}
 	}
 	footer := "j/k:select  enter:open  tab:by parent  /:filter  r:revive  x:kill  esc:close"
@@ -711,7 +694,7 @@ func (h *agentHub) Render(width int) []string {
 	if h.notice != "" {
 		footer = h.notice + " · " + footer
 	}
-	lines = append(lines, hubSurface(border("├"+strings.Repeat("─", width-2)+"┤"), width, "toolPendingBg"), hubSurface(border("│ ")+hubPad(hubKeys(footer), inner)+border(" │"), width, "toolPendingBg"), hubSurface(border("╰"+strings.Repeat("─", width-2)+"╯"), width, "toolPendingBg"))
+	lines = append(lines, hubSurface(border("├"+strings.Repeat("─", width-2)+"┤"), width, ""), hubSurface(border("│ ")+hubPad(theme.Fg("dim", footer), inner)+border(" │"), width, ""), hubSurface(border("╰"+strings.Repeat("─", width-2)+"╯"), width, ""))
 	for i := range lines {
 		lines[i] = clampAgentLine(lines[i], width)
 	}
@@ -727,7 +710,6 @@ func (h *agentHub) selectRow(index int) {
 	if len(h.rows) > 0 {
 		h.selected = h.rows[h.index].ID
 	}
-	h.detailScroll = 0
 	h.notice = ""
 }
 func (h *agentHub) activate() {
@@ -757,6 +739,7 @@ func (h *agentHub) activate() {
 	}
 }
 func (h *agentHub) HandleInput(data string) {
+	h.hovered = ""
 	h.refresh()
 	if tui.MatchesKeyID(data, "alt+a") || tui.MatchesKeyID(data, "ctrl+s") {
 		h.close()
@@ -825,10 +808,6 @@ func (h *agentHub) HandleInput(data string) {
 		} else {
 			h.selectRow(h.index - 1)
 		}
-	case tui.MatchesKeyID(data, "pageUp"):
-		h.detailScroll = max(0, h.detailScroll-5)
-	case tui.MatchesKeyID(data, "pageDown"):
-		h.detailScroll += 5
 	case tui.MatchesKeyID(data, "shift+tab") && h.section == 0 && h.width < hubSplitWidth:
 		h.narrow = !h.narrow
 	case tui.MatchesKeyID(data, "tab") && h.section == 0:
@@ -861,9 +840,23 @@ func (h *agentHub) HandleInput(data string) {
 	h.m.requestRender()
 }
 func (h *agentHub) HandleMouse(event tui.TuiMouseEvent) *tui.TuiMouseDispatchResult {
+	if event.Type == tui.MouseMove {
+		hovered := ""
+		if h.section == 0 && (h.width >= hubSplitWidth || !h.narrow) && event.X <= h.leftWidth+2 {
+			if index, ok := h.hitRows[event.Y]; ok && index >= 0 && index < len(h.rows) {
+				hovered = h.rows[index].ID
+			}
+		}
+		if h.hovered != hovered {
+			h.hovered = hovered
+			h.m.requestRender()
+		}
+		return &tui.TuiMouseDispatchResult{TuiMouseEventResult: tui.TuiMouseEventResult{Handled: true}}
+	}
+	h.hovered = ""
 	if event.Type == tui.MouseWheel {
-		if h.section == 0 && h.width >= hubSplitWidth && event.X > h.leftWidth+2 {
-			h.detailScroll = max(0, h.detailScroll+event.WheelDelta*3)
+		if h.section == 0 && ((h.width >= hubSplitWidth && event.X > h.leftWidth+2) || (h.width < hubSplitWidth && h.narrow)) {
+			// Consume wheel input without scrolling the fixed inspector or roster.
 		} else if h.section == 1 {
 			h.following = false
 			h.activityIndex = min(max(0, h.activityIndex+event.WheelDelta), max(0, len(h.events)-1))
