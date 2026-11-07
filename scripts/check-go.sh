@@ -27,19 +27,21 @@ export PIG_HOME="$cache_root/profile/library" PI_HOME="$cache_root/profile/libra
 export PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 case "${1:-check}" in
     test|race|check)
-        flags=()
-        if [[ "${1:-check}" == race ]]; then flags+=(-race); fi
-        "$compiler" test -mod=vendor "${flags[@]}" ./...
+        # Bash 3.2 (macOS) treats an empty array as unset under nounset.
+        # Keep the command nonempty, including when no flags are requested.
+        test_command=(test)
+        if [[ "${1:-check}" == race ]]; then test_command+=(-race); fi
+        "$compiler" "${test_command[@]}" -mod=vendor ./...
         # Resolve patterns in module mode: GOPATH wildcard discovery ignores
         # symlinked trees, while explicit canonical imports resolve them.
         packages=()
         package_list="$("$compiler" list -mod=vendor ./vendor/github.com/MichaelKinsy/PiG/...)"
+        if [[ -z "$package_list" ]]; then printf 'No PiG packages found\n' >&2; exit 1; fi
         while IFS= read -r package; do
             if [[ -n "$package" ]]; then packages+=("$package"); fi
         done <<< "$package_list"
-        if ((${#packages[@]} == 0)); then printf 'No PiG packages found\n' >&2; exit 1; fi
         (cd "$cache_root/gopath/src" && GO111MODULE=off GOPATH="$cache_root/gopath" GOTOOLCHAIN=local \
-            "$compiler" test "${flags[@]}" "${packages[@]}")
+            "$compiler" "${test_command[@]}" "${packages[@]}")
         ;;
     vet) ;;
     *) printf 'Usage: %s [check|test|race|vet]\n' "$0" >&2; exit 2 ;;

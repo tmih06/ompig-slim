@@ -46,6 +46,8 @@ jobs:
             go-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
       # A cache hit never skips commands. Go checks source, dependencies, build
       # flags and observed test inputs before reusing a successful result.
+      - name: Check script compatibility with the platform Bash
+        run: python3 scripts/test-check-go.py
       - run: make check
       - run: make race
       - run: make smoke
