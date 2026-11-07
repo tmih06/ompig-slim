@@ -85,6 +85,7 @@ func (m *InteractiveMode) switchExtensionModel(ctx context.Context, model *ai.Mo
 		m.agent.SetModel(model)
 	}
 	m.opts.Model = model
+	m.promptQuotaModelChanged()
 	if m.statusLine != nil {
 		m.statusLine.SetModel(model)
 	}

@@ -398,8 +398,8 @@ func resolveUsageResetRange(limits []ai.UsageLimit, nowMs int64) string {
 	return verb + " in " + FormatDuration(minReset)
 }
 
-// renderUsageBar draws one account's quota bar.
-func renderUsageBar(theme *Theme, limit ai.UsageLimit, barWidth int) string {
+// RenderUsageBar draws one account's quota bar.
+func RenderUsageBar(theme *Theme, limit ai.UsageLimit, barWidth int) string {
 	if limit.Amount.Used != nil && IsUsedOnlyAbsoluteAmount(limit) {
 		used := ""
 		if limit.Amount.Unit == ai.UsageUnitUSD {
@@ -723,7 +723,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 								formatUsagePercentFree((1-math.Min(math.Max(fraction, 0), 1))*100))
 						}
 						lines = append(lines, strings.TrimRight(
-							"  "+renderUsageBar(theme, account.limit, block.barWidth)+suffix, " "))
+							"  "+RenderUsageBar(theme, account.limit, block.barWidth)+suffix, " "))
 					}
 					continue
 				}
@@ -732,7 +732,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, " "), " "))
 				bars := make([]string, 0, len(blockAccounts))
 				for _, account := range blockAccounts {
-					bars = append(bars, padUsageColumn(renderUsageBar(theme, account.limit, block.barWidth), block.columnWidth))
+					bars = append(bars, padUsageColumn(RenderUsageBar(theme, account.limit, block.barWidth), block.columnWidth))
 				}
 				barLine := "  " + strings.Join(bars, " ")
 				if blockIndex == 0 && !wrapped && amountText != "" {

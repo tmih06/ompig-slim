@@ -5,16 +5,11 @@ import (
 	"strings"
 )
 
-// defaultToolNames are the tools enabled at startup when `defaultTools` does not change them. `codemode` is a built-in
-// tool, not an extension, so it is active with --no-extensions as well.
-//
-// omp-slim divergence: upstream DEFAULT_TOOL_NAMES is [read, bash, edit, write], which leaves `grep` and `find`
-// inactive unless --tools or `defaultTools` names them (settings-manager.ts:89, sdk.ts:244). The rg-backed search
-// tools are enabled by default here instead: the model otherwise improvises `grep -rn` through `bash`, whose result
-// the shell tool truncates to 2000 lines / 50KB and spills to a temp file, where these tools cap output and report
-// it. `ls` stays opt-in. The order follows the registry (read, bash, edit, write, grep, find, then codemode), so a
-// loadout and codemode's tool listing agree.
-var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode"}
+// defaultToolNames are active unless defaultTools or command-line selection overrides them.
+// omp-slim enables bounded grep/find search by default instead of requiring shell searches.
+// Codemode and the free web tools are built-ins and remain available with --no-extensions.
+// ls and powershell remain opt-in.
+var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode", "web_search", "web_fetch"}
 
 // DefaultToolNames returns the tools enabled at startup when `defaultTools` does not change them.
 func DefaultToolNames() []string { return slices.Clone(defaultToolNames) }

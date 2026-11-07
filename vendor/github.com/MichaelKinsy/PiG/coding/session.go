@@ -340,7 +340,7 @@ type SessionOptions struct {
 	// as sdk.ts:274-276 does. A name that is not a built-in activates the
 	// registered extension or SDK tool of that name. nil uses the
 	// defaultTools setting or omp-slim's default [read, bash, edit, write, grep,
-	// find, codemode]. `ls` remains registered but inactive unless named.
+	// find, codemode, web_search, web_fetch]. `ls` remains registered but inactive unless named.
 	InitialActiveToolNames []string
 
 	// DefaultToolModifiers are the `+name`/`-name` entries of a `--tools` list that changed the default selection instead of replacing it. The Session keeps them: a settings reload applies them to the new defaultTools, so a tool removed with `-name` stays removed.
