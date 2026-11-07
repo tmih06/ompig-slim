@@ -164,7 +164,33 @@ Largest embedded payloads are the codemode/QuickJS runtime, syntax-highlighting 
 
 `benchmarks/evidence/footprint.json` records these numbers with the command that produced them.
 The footprint figures come from a single short session whose purpose is only to emit the distribution columns; the 120-turn timing numbers above come from separate full runs.
-## Measured optimization
+## Session memory trace
+
+`PIG_PROFILE=heap,allocs,metrics` already writes whole-process profiles on exit, so no new instrumentation was needed.
+Driving 200 turns through one persisted RPC session and reading the profiles gave these numbers before and after the change below.
+Two runs per binary, medians reported; `benchmarks/evidence/session-allocations.json` retains both runs.
+
+| Metric | Before | After | Change |
+|---|---:|---:|---:|
+| Allocated bytes | 508,769,012 | 314,804,852 | -38.1% |
+| GC cycles | 18 | 14 | -22% |
+| Mapped heap | 80,939,288 | 68,385,032 | -15.5% |
+| Live heap at exit | 10,666,800 | 9,620,240 | -9.8% |
+| Peak RSS from metrics | 120,217,600 | 108,349,440 | -9.9% |
+
+The allocation profile put `strings.Builder.WriteString` inside `convertCompletionsMessages` at 42.6% of all allocated bytes: every request re-joined each historical assistant answer into a fresh copy.
+Only an assistant message with several text blocks needs concatenation; one text block is the ordinary case, and returning that block's string as it stands costs nothing.
+The join is now a single helper with a sized buffer for the multi-block case, and a single block is passed through unchanged.
+Empty content keeps its previous meaning, so a message with blank text is still dropped and a tool-call-only message still carries no text member.
+
+Correctness is covered by comparing the helper's output with the accumulation it replaces, including empty parts and multibyte text, and by asserting the converted content of single-block, multi-block, blank, and tool-call-only assistant messages.
+`make check`, `make race` (isolated cache), the codemode/subagent/web-tool smoke tests, and the CLI comparison all still pass.
+
+Turn latency was unchanged within noise across repeated runs, so this is a memory and allocation result, not a speed claim.
+The FIPS DRBG scratch buffer is untouched, so the executable is byte-identical in size at 72,614,151 bytes.
+Regular heap growth with history remains: the session keeps every message, the conversion memo retains provider copies above 64 messages, and the append-only transcript is never truncated within a session.
+
+## Measured CPU optimization
 
 Local evidence is retained under `benchmarks/evidence/`.
 The host was Linux arm64 with four reported CPUs, Go 1.27.3, Node 24.18.0, and Bun 1.4.4.
