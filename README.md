@@ -91,6 +91,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | Sign-in | Subscription/API-key setup flows plus native browser/device OAuth and credential refresh |
 | Google | Gemini CLI and Antigravity sign-in, project/model discovery, and native Cloud Code Assist streaming, thinking, tools, usage, and error handling |
 | Codemode | Default built-in code execution with persistent per-run state and nested tools; survives `--no-extensions` and respects tool-selection flags |
+| Web tools | Default-active, credential-free `web_search` with sequential provider fallback and local `web_fetch` rendering; both survive `--no-extensions` |
 | Usage | `/usage` plan-grouped quota dashboard, detail view, refresh/caching, reset/daybreak/credit displays, and local 371-day activity heatmap with fork de-duplication |
 | Model metadata | Persisted catalog, two-hour freshness, ETag/304 handling, failed-fetch backoff, safe model-family matching, explicit-field protection, and generation-aware enrichment caches |
 | Model selectors | Intelligence/TPS/context/cost columns and selected-model facts in both `/model` and `/scoped-models` |
@@ -102,6 +103,57 @@ Added provider IDs: `aiand`, `aimlapi`, `alibaba-coding-plan`, `alibaba-token-pl
 Additional sign-in/setup paths cover Z.ai, Kilo, Xiaomi, Alibaba Coding Plan, Alibaba Token Plan/QwenCloud, Cloudflare Workers AI, Cloudflare AI Gateway, Mistral Vibe, Cursor, Snowflake, Perplexity, Google Antigravity, and Gemini CLI. These are native protocol implementations, not fabricated credentials or a TypeScript compatibility subprocess.
 
 Codemode is available with extensions disabled. Use `--tools read,codemode`, `--exclude-tools codemode`, `--no-tools`, or `--no-builtin-tools` to select the tools exposed to a run. It is not an operating-system security sandbox: the agent's tools run with your user permissions.
+
+### Built-in web tools
+
+`web_search` uses **DuckDuckGo → Startpage → Parallel → Exa → Firecrawl**,
+stopping at the first usable response. No API keys, paid accounts, browser
+downloads, or hosted reader are required. Sources include URLs and short
+snippets; bot walls, rate limits, and failed providers are reported. Search
+operators include `site:`, `-site:`, `inurl:`, `intitle:`, `filetype:`,
+`after:`, `before:`, quoted phrases, exclusions, and `OR`. Filters are
+best-effort: an eliminating constraint is relaxed with a note rather than
+silently returning unrelated results.
+
+`web_fetch` accepts a `url`, optional `offset`/`limit`, and `timeoutSeconds`.
+HTML becomes Markdown locally; text, JSON, feeds, notebooks, images,
+Office/EPUB documents, and archive/SQLite listings have native handlers.
+PDF extraction is best-effort text extraction, not OCR or a full PDF renderer.
+Append `:raw` to bypass text shaping or `:50-80` to select rendered lines.
+The body cap is 50 MiB; model-visible output is capped at 300 lines / 50 KiB,
+with full oversized text saved to a file that `read` can paginate.
+
+Optional settings in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "webSearch": {
+    "chain": ["duckduckgo", "startpage", "parallel", "exa", "firecrawl"],
+    "timeoutSeconds": 60,
+    "results": 10
+  },
+  "webFetch": {
+    "reader": "auto",
+    "maxBytes": 52428800,
+    "timeoutSeconds": 30
+  }
+}
+```
+
+A configured search chain replaces the default; only the five listed engines
+are supported. Search also accepts `limit`, `num_search_results`, `recency`
+(`day`, `week`, `month`, `year`), and `timeout` in seconds. Time filters cannot
+be verified for undated sources; responses explain that limitation.
+`webFetch.reader` accepts `auto` or `native`; both use the local reader.
+Search providers can be redirected through `webSearch.endpoints`, a map from
+provider ID to transport URL, for local instances or fixtures.
+
+Both tools are active by default and respect the normal tool-selection flags.
+Use `--tools web_search,web_fetch` to select them or
+`--exclude-tools web_search,web_fetch` to remove them. There is no network
+request until a tool is called. Free endpoints are shared and may change or
+rate-limit requests; JavaScript-only pages and scanned/font-encoded PDFs may
+not yield usable text.
 
 ### Built-in subagents
 
@@ -160,7 +212,7 @@ Release notices follow the actual source fork, **`tmih06/omp-slim`**; renaming t
 ```sh
 make check                      # root + vendored PiG tests and vet (native Go caches)
 make race                       # the same packages under the race detector
-make smoke                      # compiled-binary codemode/state/nested-tool scenario
+make smoke                      # compiled codemode, subagent, and web-tool scenarios
 make release                    # all four supported native targets
 make release ARGS='--platform linux-arm64 --out bin/releases'
 ```
