@@ -42,6 +42,14 @@ Codemode and other agent tools run with your user permissions; codemode is not a
 
 ## Provider login and Codex JSON
 
+For browser or device-code sign-in, choose **OpenAI Codex** in `/login` (or run
+`/login openai-codex`) and select the login method. Both flows use the Codex
+public client, with the native `codex_cli_rs` originator shared by browser
+sign-in and API requests. Free-tier accounts without a workspace ID can sign
+in using their token's email identity; model eligibility and quotas still depend
+on the account plan and OpenAI's backend. Existing accounts should sign in again
+to obtain the updated login scopes.
+
 `/login` opens one fuzzy-searchable list of account and API-key login options.
 Choose **Codex JSON** (or run `/login codex-json`) to paste an exported JSON
 credential object. Select a model under `codex-json` with `/model` afterward.

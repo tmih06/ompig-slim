@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -31,7 +30,7 @@ const (
 	codexCallbackPort = 1455
 	codexCallbackPath = "/auth/callback"
 	codexRedirectURI  = "http://localhost:1455/auth/callback"
-	codexScope        = "openid profile email offline_access"
+	codexScope        = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 	codexJWTClaimPath = "https://api.openai.com/auth"
 
 	// Codex device-code (RFC 8628) endpoints. Mirrors openai-codex.ts:36-39.
@@ -40,6 +39,10 @@ const (
 	codexDeviceVerificationURI    = "https://auth.openai.com/codex/device"
 	codexDeviceRedirectURI        = "https://auth.openai.com/deviceauth/callback"
 	codexDeviceCodeTimeoutSeconds = 15 * 60
+	// OMP leaves a three-second safety margin between device polls and bounds
+	// the number of attempts even if the endpoint repeatedly returns pending.
+	codexDevicePollSafetySeconds = 3
+	codexDeviceMaxPolls          = 120
 
 	// OpenAICodexBrowserLoginMethod and OpenAICodexDeviceCodeLoginMethod are
 	// the onSelect option ids for the two Codex login methods. Mirror
@@ -82,6 +85,7 @@ func parseCodexAuthorizationInput(input string) (code, state string) {
 // codexTokenResponse holds the members readTokenResponse reads (openai-codex.ts:127-146). Each member stays raw: Pi tests truthiness and typeof on the parsed value, so a mistyped member is a missing field, not a decode error.
 type codexTokenResponse struct {
 	AccessToken  json.RawMessage `json:"access_token"`
+	IDToken      json.RawMessage `json:"id_token"`
 	RefreshToken json.RawMessage `json:"refresh_token"`
 	ExpiresIn    json.RawMessage `json:"expires_in"`
 }
@@ -125,7 +129,7 @@ func RefreshCodexToken(ctx context.Context, refreshToken string) (OAuthCredentia
 
 // postCodexTokenForm sends a token request; operation is readTokenResponse's "exchange" or "refresh" (openai-codex.ts:164,184).
 func postCodexTokenForm(ctx context.Context, form formFields, operation string) (OAuthCredentials, error) {
-	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx2, http.MethodPost, codexTokenURL, strings.NewReader(form.Encode()))
@@ -188,52 +192,17 @@ func postCodexTokenForm(ctx context.Context, form formFields, operation string) 
 	creds := OAuthCredentials{Refresh: refresh, Access: access, order: credentialKeyOrder{keys: codexCredentialMembers}}
 	// Mirror upstream's "Date.now() + expires_in * 1000": no safety margin, a fractional value stays exact and an overflowing literal is Infinity.
 	creds.SetExpiresMillis(float64(nowMillis()) + float64(jsnumber.FromJSON(tok.ExpiresIn)*1000))
-	return creds, nil
+	// ompig-slim addition: port OMP profile extraction for workspace-less
+	// free-tier tokens, including the ID-token fallback. Never retain id_token.
+	idToken, _ := nonEmptyJSONString(tok.IDToken)
+	return enrichCodexProfile(creds, idToken, operation == "exchange"), nil
 }
 
-// jsAtob is `atob(value)`: the forgiving-base64 decode of the WHATWG infra standard. It strips ASCII whitespace, drops one or two trailing "=" when
-// the length is a multiple of 4, and reads each decoded byte as one character U+0000 to U+00FF. The unpadded standard decoder rejects the rest: a
-// length of 1 mod 4, any character outside the standard alphabet ("-" and "_" included) and any other "=".
-func jsAtob(value string) (string, bool) {
-	value = strings.Map(func(r rune) rune {
-		if r == '\t' || r == '\n' || r == '\f' || r == '\r' || r == ' ' {
-			return -1
-		}
-		return r
-	}, value)
-	if len(value)%4 == 0 {
-		value = strings.TrimSuffix(strings.TrimSuffix(value, "="), "=")
-	}
-	data, err := base64.RawStdEncoding.DecodeString(value)
-	if err != nil {
-		return "", false
-	}
-	runes := make([]rune, len(data))
-	for i, b := range data {
-		runes[i] = rune(b)
-	}
-	return string(runes), true
-}
-
-// CodexAccountID is Pi's getAccountId (openai-codex.ts:310): the chatgpt_account_id claim of the access token, "" when the token lacks the JWT shape
-// or the claim. Pi's decodeJwt reads the payload with atob and JSON.parse, so the claim is read as Latin-1 characters of the decoded bytes.
+// CodexAccountID reads optional workspace metadata, not token validity. OMP
+// decodes JWT payloads as UTF-8/base64url; workspace-less free tokens return "".
 func CodexAccountID(accessToken string) string {
-	parts := strings.Split(accessToken, ".")
-	if len(parts) != 3 {
-		return ""
-	}
-	payload, ok := jsAtob(parts[1])
-	if !ok {
-		return ""
-	}
-	var claims map[string]any
-	if err := json.Unmarshal([]byte(payload), &claims); err != nil {
-		return ""
-	}
-	auth, ok := claims[codexJWTClaimPath].(map[string]any)
-	if !ok {
-		return ""
-	}
+	claims := codexJWTProfile(accessToken)
+	auth, _ := claims[codexJWTClaimPath].(map[string]any)
 	id, _ := auth["chatgpt_account_id"].(string)
 	return id
 }
@@ -257,6 +226,9 @@ type codexDeviceToken struct {
 // returns the status code and raw body. The request is ctx-bound so the
 // parity harness can mock http.DefaultClient.
 func postCodexDeviceJSON(ctx context.Context, urlStr string, payload any) (int, []byte, error) {
+	// OMP bounds each request as well as the overall polling lifetime.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return 0, nil, err
@@ -344,7 +316,12 @@ func startCodexDeviceAuth(ctx context.Context) (codexDeviceAuthInfo, error) {
 	deviceAuthID, _ := members["device_auth_id"].(string)
 	userCode, _ := members["user_code"].(string)
 	interval, intervalOK := codexParseInterval(members["interval"])
-	if deviceAuthID == "" || userCode == "" || !intervalOK || interval < 0 {
+	// OMP defaults an omitted interval to five seconds. Treat invalid or
+	// nonpositive values the same way rather than busy-polling the endpoint.
+	if !intervalOK || interval <= 0 {
+		interval = deviceCodeDefaultPollIntervalSeconds
+	}
+	if deviceAuthID == "" || userCode == "" {
 		return codexDeviceAuthInfo{}, fmt.Errorf("Invalid OpenAI Codex device code response: %s", canonical)
 	}
 	return codexDeviceAuthInfo{deviceAuthID: deviceAuthID, userCode: userCode, intervalSeconds: interval}, nil
@@ -353,12 +330,25 @@ func startCodexDeviceAuth(ctx context.Context) (codexDeviceAuthInfo, error) {
 // pollCodexDeviceAuth polls the Codex device token endpoint until the user
 // approves. Mirrors pollOpenAICodexDeviceAuth (openai-codex.ts:239-300).
 func pollCodexDeviceAuth(ctx context.Context, device codexDeviceAuthInfo) (codexDeviceToken, error) {
-	interval := device.intervalSeconds
+	// OMP waits up to five seconds before the first poll, then the requested
+	// interval plus a safety margin. Retain the shared cancellation/slow_down
+	// machinery rather than introducing a second polling loop.
+	interval := device.intervalSeconds + codexDevicePollSafetySeconds
+	if err := deviceCodeSleep(ctx, min(interval, 5)*1000); err != nil {
+		return codexDeviceToken{}, err
+	}
 	expires := float64(codexDeviceCodeTimeoutSeconds)
+	polls := 0
 	return PollOAuthDeviceCodeFlow(ctx, DeviceCodePollOptions[codexDeviceToken]{
 		IntervalSeconds:  &interval,
 		ExpiresInSeconds: &expires,
-		Poll:             func() (DeviceCodePollResult[codexDeviceToken], error) { return codexPollStep(ctx, device) },
+		Poll: func() (DeviceCodePollResult[codexDeviceToken], error) {
+			if polls >= codexDeviceMaxPolls {
+				return DeviceCodePollResult[codexDeviceToken]{Status: DevicePollFailed, Message: "OpenAI Codex device authorization timed out"}, nil
+			}
+			polls++
+			return codexPollStep(ctx, device)
+		},
 	})
 }
 
@@ -410,9 +400,8 @@ func codexPollStep(ctx context.Context, device codexDeviceAuthInfo) (DeviceCodeP
 }
 
 // LoginOpenAICodexDeviceCode runs the Codex device-code login: request a user
-// code, surface it via onDeviceCode, poll for approval, then exchange the
-// authorization code for credentials. Mirrors loginOpenAICodexDeviceCode
-// (openai-codex.ts:433-451).
+// code, surface it via onDeviceCode, poll with OMP timing and cancellation,
+// then exchange against the fixed Codex device redirect URI.
 func LoginOpenAICodexDeviceCode(ctx context.Context, onDeviceCode func(OAuthDeviceCodeInfo)) (OAuthCredentials, error) {
 	device, err := startCodexDeviceAuth(ctx)
 	if err != nil {
@@ -459,11 +448,9 @@ func LoginOpenAICodex(ctx context.Context, callbacks OAuthLoginCallbacks) (OAuth
 		defer callback.Close()
 	}
 
-	// pig divergence (D26): PiG names itself as the OpenAI login's originator. An app-supplied agentName replaces the default, as createAuthorizationFlow(options?.agentName) does (openai-codex.ts:363); an empty name is kept.
+	// ompig-slim addition: Codex login must use the same native originator as
+	// API requests, not the generic host AgentName (Pi/ompig-slim).
 	originator := pigidentity.CodexOriginator
-	if callbacks.AgentName != nil {
-		originator = *callbacks.AgentName
-	}
 	// Build the authorize URL with the exact parameter order upstream uses: URLSearchParams preserves insertion order and
 	// url.Values would alphabetize (openai-codex.ts:295-309).
 	authURL := codexAuthorizeURL +
@@ -502,9 +489,9 @@ func LoginOpenAICodex(ctx context.Context, callbacks OAuthLoginCallbacks) (OAuth
 	return exchangeCodexAuthorizationCode(ctx, code, pkce.Verifier, codexRedirectURI)
 }
 
-// OpenAICodexOAuthDisplayName is the OAuth method label upstream renders for
-// ChatGPT Plus/Pro Codex subscription login.
-const OpenAICodexOAuthDisplayName = "OpenAI (ChatGPT Plus/Pro)"
+// OpenAICodexOAuthDisplayName labels browser/device login without implying a
+// paid-only requirement; free accounts are accepted when the backend permits them.
+const OpenAICodexOAuthDisplayName = "Codex (ChatGPT account)"
 
 // CodexOAuthProvider implements OAuthProviderInterface for OpenAI Codex.
 type CodexOAuthProvider struct{}
@@ -553,18 +540,24 @@ func (c CodexOAuthProvider) LoginContext(ctx context.Context, callbacks OAuthLog
 func (c CodexOAuthProvider) RefreshToken(creds OAuthCredentials) (OAuthCredentials, error) {
 	return c.RefreshTokenContext(context.Background(), creds)
 }
+
+// RefreshTokenContext preserves stored account/workspace identity when a rotated
+// token omits claims, matching OMP without turning a refresh into a new login.
 func (CodexOAuthProvider) RefreshTokenContext(ctx context.Context, creds OAuthCredentials) (OAuthCredentials, error) {
-	return codexCredentialsFromToken(RefreshCodexToken(ctx, creds.Refresh))
+	refreshed, err := RefreshCodexToken(ctx, creds.Refresh)
+	if err != nil {
+		return OAuthCredentials{}, err
+	}
+	return preserveCodexProfile(refreshed, creds), nil
 }
 
 func codexCredentialsFromToken(credentials OAuthCredentials, err error) (OAuthCredentials, error) {
 	if err != nil {
 		return OAuthCredentials{}, err
 	}
-	accountID := CodexAccountID(credentials.Access)
-	if accountID == "" {
-		return OAuthCredentials{}, errors.New("Failed to extract accountId from token")
+	// OMP permits an email identity when free-tier tokens omit workspace claims.
+	if credentials.AccountID == "" && codexProfileString(credentials, "email") == "" {
+		return OAuthCredentials{}, errors.New("Failed to extract account identity from token")
 	}
-	credentials.AccountID = accountID
 	return credentials, nil
 }

@@ -213,6 +213,9 @@ func (codexJSONOAuthProvider) RefreshTokenContext(ctx context.Context, c OAuthCr
 		return OAuthCredentials{}, errors.New("Codex JSON refresh account mismatch; credentials retained")
 	}
 	refreshed.AccountID = c.AccountID
+	// JSON accounts retain only the minimal import fields, even though the
+	// shared token endpoint enriches regular browser/device login profiles.
+	refreshed.Extra = nil
 	return refreshed, nil
 }
 
@@ -243,5 +246,5 @@ func codexJSONToAuth(c Credential) (ModelAuth, error) {
 	if c.Access == "" || c.AccountID == "" {
 		return ModelAuth{}, errors.New("Codex JSON: missing access token or account ID")
 	}
-	return ModelAuth{APIKey: c.Access, Headers: ProviderHeaders{"ChatGPT-Account-Id": new(c.AccountID)}}, nil
+	return codexRequestAuth(c), nil
 }
