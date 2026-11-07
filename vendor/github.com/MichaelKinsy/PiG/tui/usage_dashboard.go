@@ -55,6 +55,9 @@ type UsageDashboardOptions struct {
 	LoadActivity func(ctx context.Context, push func([]DailyActivityPoint)) error
 	// Refresh re-fetches usage; ctx is cancelled when the dashboard closes.
 	Refresh func(ctx context.Context) (UsageDashboardSnapshot, error)
+	// RefreshProgress publishes usable results before slower requests finish.
+	// force is false on opening and true for the user's refresh action.
+	RefreshProgress func(ctx context.Context, force bool, push func(UsageDashboardSnapshot)) (UsageDashboardSnapshot, error)
 	// InitialRefresh starts the first refresh when the host mounts the board so
 	// an empty board reads as loading.
 	InitialRefresh bool
@@ -316,11 +319,14 @@ type UsageDashboardComponent struct {
 	hasActivity     bool
 	activityError   string
 	syncing         bool
-	detailCache     *usageLinesCache
-	overviewCache   *usageLinesCache
-	lastViewport    int
-	closed          bool
-	closeOnce       sync.Once
+	// revision prevents a render in flight from reinstalling a cache after
+	// a streamed quota/activity update invalidated it.
+	revision      uint64
+	detailCache   *usageLinesCache
+	overviewCache *usageLinesCache
+	lastViewport  int
+	closed        bool
+	closeOnce     sync.Once
 	// runCtx is the lifetime of the mounted dashboard and runCancel ends it;
 	// both are set by Start and cancelled on Dispose. runCtx != nil also means
 	// Start already ran.
@@ -363,7 +369,7 @@ func NewUsageDashboard(options UsageDashboardOptions) *UsageDashboardComponent {
 		unavailableAccounts: unavailable,
 		nowMs:               nowMs,
 		cards:               BuildProviderCards(reports, nowMs, unavailable),
-		awaitingInitial:     options.Refresh != nil && options.InitialRefresh,
+		awaitingInitial:     (options.Refresh != nil || options.RefreshProgress != nil) && options.InitialRefresh,
 		lastViewport:        10,
 		syncing:             true,
 	}
@@ -381,7 +387,7 @@ func (d *UsageDashboardComponent) Start(ctx context.Context) {
 	runCtx, cancel := context.WithCancel(ctx)
 	d.runCtx, d.runCancel = runCtx, cancel
 	loadActivity := d.options.LoadActivity
-	refresh := d.options.InitialRefresh && d.options.Refresh != nil
+	refresh := d.options.InitialRefresh && (d.options.Refresh != nil || d.options.RefreshProgress != nil)
 	d.mu.Unlock()
 
 	if loadActivity != nil {
@@ -392,7 +398,7 @@ func (d *UsageDashboardComponent) Start(ctx context.Context) {
 		d.mu.Unlock()
 	}
 	if refresh {
-		d.Refresh()
+		d.refresh(false)
 	}
 }
 
@@ -426,10 +432,12 @@ func (d *UsageDashboardComponent) loadActivity(ctx context.Context, load func(co
 
 // Refresh re-fetches the reports; the last reports stay on failure, with the
 // error shown in the header.
-func (d *UsageDashboardComponent) Refresh() {
+func (d *UsageDashboardComponent) Refresh() { d.refresh(true) }
+
+func (d *UsageDashboardComponent) refresh(force bool) {
 	d.mu.Lock()
-	refresh := d.options.Refresh
-	if refresh == nil || d.refreshing || d.closed {
+	refresh, progress := d.options.Refresh, d.options.RefreshProgress
+	if (refresh == nil && progress == nil) || d.refreshing || d.closed {
 		d.mu.Unlock()
 		return
 	}
@@ -450,7 +458,24 @@ func (d *UsageDashboardComponent) Refresh() {
 		// Release this refresh's context as soon as its work settles; the field
 		// below is only the handle Dispose cancels while it runs.
 		defer cancel()
-		snapshot, err := refresh(ctx)
+		push := func(snapshot UsageDashboardSnapshot) {
+			d.mu.Lock()
+			if d.closed || ctx.Err() != nil {
+				d.mu.Unlock()
+				return
+			}
+			d.applySnapshotLocked(snapshot)
+			d.awaitingInitial = false
+			d.mu.Unlock()
+			d.changed()
+		}
+		var snapshot UsageDashboardSnapshot
+		var err error
+		if progress != nil {
+			snapshot, err = progress(ctx, force, push)
+		} else {
+			snapshot, err = refresh(ctx)
+		}
 
 		d.mu.Lock()
 		if d.closed {
@@ -462,10 +487,7 @@ func (d *UsageDashboardComponent) Refresh() {
 				d.refreshError = err.Error()
 			}
 		} else {
-			d.reports = snapshot.Reports
-			d.unavailableAccounts = snapshot.UnavailableAccounts
-			d.nowMs = time.Now().UnixMilli()
-			d.cards = BuildProviderCards(d.reports, d.nowMs, d.unavailableAccounts)
+			d.applySnapshotLocked(snapshot)
 		}
 		// Clear the handle before refreshing, under this lock, so the next
 		// refresh cannot inherit a finished one's cancel and Dispose never
@@ -478,9 +500,18 @@ func (d *UsageDashboardComponent) Refresh() {
 	})
 }
 
+// applySnapshotLocked publishes one immutable refresh snapshot under d.mu.
+func (d *UsageDashboardComponent) applySnapshotLocked(snapshot UsageDashboardSnapshot) {
+	d.reports = snapshot.Reports
+	d.unavailableAccounts = snapshot.UnavailableAccounts
+	d.nowMs = time.Now().UnixMilli()
+	d.cards = BuildProviderCards(d.reports, d.nowMs, d.unavailableAccounts)
+}
+
 // Invalidate drops the rendered caches.
 func (d *UsageDashboardComponent) Invalidate() {
 	d.mu.Lock()
+	d.revision++
 	d.detailCache = nil
 	d.overviewCache = nil
 	d.mu.Unlock()
@@ -515,6 +546,7 @@ func (d *UsageDashboardComponent) closedForRender() bool {
 func (d *UsageDashboardComponent) changed() {
 	d.mu.Lock()
 	closed := d.closed
+	d.revision++
 	d.detailCache = nil
 	d.overviewCache = nil
 	d.mu.Unlock()
@@ -971,6 +1003,7 @@ func homeDirectory() string {
 // overviewLines renders the cards grid then the heatmap, cached per width.
 func (d *UsageDashboardComponent) overviewLines(innerWidth int) []string {
 	d.mu.Lock()
+	revision := d.revision
 	if cached := d.overviewCache; cached != nil && cached.width == innerWidth {
 		lines := cached.lines
 		d.mu.Unlock()
@@ -984,7 +1017,7 @@ func (d *UsageDashboardComponent) overviewLines(innerWidth int) []string {
 	lines = append(lines, d.renderHeatmap(innerWidth)...)
 
 	d.mu.Lock()
-	if !d.closed {
+	if !d.closed && revision == d.revision {
 		d.overviewCache = &usageLinesCache{width: innerWidth, lines: lines}
 	}
 	d.mu.Unlock()
@@ -994,6 +1027,7 @@ func (d *UsageDashboardComponent) overviewLines(innerWidth int) []string {
 // detailLines renders the classic per-account report, cached per width.
 func (d *UsageDashboardComponent) detailLines(innerWidth int) []string {
 	d.mu.Lock()
+	revision := d.revision
 	reports := append([]ai.UsageReport(nil), d.reports...)
 	unavailable := append([]UsageUnavailableAccountView(nil), d.unavailableAccounts...)
 	nowMs := d.nowMs
@@ -1024,7 +1058,7 @@ func (d *UsageDashboardComponent) detailLines(innerWidth int) []string {
 	})
 	lines := strings.Split(rendered, "\n")
 	d.mu.Lock()
-	if !d.closed {
+	if !d.closed && revision == d.revision {
 		d.detailCache = &usageLinesCache{width: innerWidth, lines: lines}
 	}
 	d.mu.Unlock()
@@ -1082,7 +1116,7 @@ func (d *UsageDashboardComponent) hint() string {
 		parts = append(parts, strings.Join(keys, "/")+" scroll")
 	}
 	d.mu.Lock()
-	hasRefresh, view := d.options.Refresh != nil, d.view
+	hasRefresh, view := d.options.Refresh != nil || d.options.RefreshProgress != nil, d.view
 	d.mu.Unlock()
 	if hasRefresh {
 		if refresh := usageActionText("app.usage.refresh", "r"); refresh != "" {

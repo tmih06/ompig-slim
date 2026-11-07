@@ -74,10 +74,11 @@ type UsageService struct {
 
 // usageCacheEntry is one cached probe result.
 type usageCacheEntry struct {
-	report    *ai.UsageReport
-	expiresAt time.Time
-	reason    string
-	lastGood  *usageLastGood
+	report      *ai.UsageReport
+	expiresAt   time.Time
+	reason      string
+	unsupported bool
+	lastGood    *usageLastGood
 	// cacheVersion records the provider's cache shape when the entry was built.
 	cacheVersion int
 }
@@ -154,9 +155,23 @@ func (service *UsageService) random() float64 {
 	return defaultUsageRandom()
 }
 
-// FetchSnapshot probes every configured provider account and returns what
-// answered. force bypasses cached freshness for an explicit user refresh.
+// FetchSnapshot probes configured accounts concurrently and returns the final
+// snapshot in provider/account order. force bypasses freshness for user refresh.
 func (service *UsageService) FetchSnapshot(ctx context.Context, force bool) (ai.UsageSnapshot, error) {
+	return service.FetchSnapshotProgress(ctx, force, nil)
+}
+
+type usageSnapshotLabel struct {
+	probe   *usageProviderProbe
+	account *ai.CredentialAccountInfo
+}
+
+// FetchSnapshotProgress publishes completed accounts as they arrive, so an
+// unavailable endpoint cannot hide healthy providers behind its timeout. Each
+// push is a new snapshot in stable provider/account order. Cached accounts are
+// published immediately without network when force is false. The caller owns
+// push and receives no calls after this method returns.
+func (service *UsageService) FetchSnapshotProgress(ctx context.Context, force bool, push func(ai.UsageSnapshot)) (ai.UsageSnapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -167,34 +182,68 @@ func (service *UsageService) FetchSnapshot(ctx context.Context, force bool) (ai.
 	if err != nil {
 		return ai.UsageSnapshot{}, err
 	}
-	type labeledResult struct {
-		probe   *usageProviderProbe
-		account *ai.CredentialAccountInfo
-	}
-	results := make([]usageProbeResult, 0, len(probes))
-	labels := make([]labeledResult, 0, len(probes))
+	var labels []usageSnapshotLabel
 	for _, probe := range probes {
 		if len(probe.accounts) == 0 {
-			result, probeErr := service.fetchAmbient(ctx, probe, force)
-			if probeErr != nil {
-				return ai.UsageSnapshot{}, probeErr
-			}
-			results = append(results, result)
-			labels = append(labels, labeledResult{probe: probe})
+			labels = append(labels, usageSnapshotLabel{probe: probe})
 			continue
 		}
-		for index := range probe.accounts {
-			account := probe.accounts[index]
-			result, probeErr := service.fetchAccount(ctx, probe, account, force)
-			if probeErr != nil {
-				return ai.UsageSnapshot{}, probeErr
-			}
-			results = append(results, result)
-			labels = append(labels, labeledResult{probe: probe, account: &account})
+		for i := range probe.accounts {
+			labels = append(labels, usageSnapshotLabel{probe: probe, account: &probe.accounts[i]})
 		}
 	}
+	results := make([]usageProbeResult, len(labels))
+	completed := make([]bool, len(labels))
+	type response struct {
+		index  int
+		result usageProbeResult
+		err    error
+	}
+	responses := make(chan response, len(labels))
+	workCtx, cancel := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	// provider-usage.ts starts all account requests before Promise.all. Keep
+	// the same independence, including accounts belonging to one provider.
+	for index := range labels {
+		workers.Go(func() {
+			if workCtx.Err() != nil {
+				return
+			}
+			label := labels[index]
+			var result usageProbeResult
+			var err error
+			if label.account == nil {
+				result, err = service.fetchAmbient(workCtx, label.probe, force)
+			} else {
+				result, err = service.fetchAccount(workCtx, label.probe, *label.account, force)
+			}
+			responses <- response{index, result, err}
+		})
+	}
+	defer func() { cancel(); workers.Wait() }()
+	for range labels {
+		select {
+		case <-ctx.Done():
+			return ai.UsageSnapshot{}, context.Cause(ctx)
+		case response := <-responses:
+			if response.err != nil {
+				return ai.UsageSnapshot{}, response.err
+			}
+			results[response.index], completed[response.index] = response.result, true
+			if push != nil && response.result.reason != NoConfiguredCredential && !(labels[response.index].account == nil && response.result.unsupported) {
+				push(service.usageSnapshot(labels, results, completed))
+			}
+		}
+	}
+	return service.usageSnapshot(labels, results, completed), nil
+}
+
+func (service *UsageService) usageSnapshot(labels []usageSnapshotLabel, results []usageProbeResult, completed []bool) ai.UsageSnapshot {
 	snapshot := ai.UsageSnapshot{Reports: make([]ai.UsageReport, 0, len(results))}
 	for index := range results {
+		if !completed[index] {
+			continue
+		}
 		result := results[index]
 		if result.report != nil {
 			snapshot.Reports = append(snapshot.Reports, *result.report)
@@ -228,7 +277,7 @@ func (service *UsageService) FetchSnapshot(ctx context.Context, force bool) (ai.
 		}
 		snapshot.UnavailableAccounts = append(snapshot.UnavailableAccounts, unavailable)
 	}
-	return snapshot, nil
+	return snapshot
 }
 
 // ActiveAccount reads the identity of the account a provider currently uses,
@@ -404,6 +453,20 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 	if credential == nil {
 		return usageProbeResult{reason: "credential is no longer stored"}, nil
 	}
+	target := usageProbeTarget{
+		provider:   probe.provider,
+		impl:       probe.impl,
+		baseURL:    probe.baseURL,
+		credential: ai.UsageCredentialFromStored(credential),
+	}
+	key := usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
+	// Quota freshness does not depend on token freshness. A cached report
+	// must not wait for OAuth renewal that is only needed for a network probe.
+	if !force {
+		if cached, ok := service.cachedUsage(key, target.impl.CacheVersion); ok {
+			return usageAccountResult(cached, account.AccountKey), nil
+		}
+	}
 	if credential.Type == ai.CredentialOAuth && credential.HasExpires() &&
 		service.now().Add(usageOAuthRefreshSkew).UnixMilli() >= credential.Expires {
 		// Advisory: a failed refresh keeps the current token in play, and this
@@ -415,25 +478,18 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 			}
 		}
 	}
-	target := usageProbeTarget{
-		provider:   probe.provider,
-		impl:       probe.impl,
-		baseURL:    probe.baseURL,
-		credential: ai.UsageCredentialFromStored(credential),
-	}
-	key := usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
+	target.credential = ai.UsageCredentialFromStored(credential)
+	key = usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
 	result, err := service.fetchCached(ctx, key, target, force)
-	if err != nil {
-		return usageProbeResult{}, err
+	return usageAccountResult(result, account.AccountKey), err
+}
+
+func usageAccountResult(result usageProbeResult, accountKey *string) usageProbeResult {
+	if result.report != nil && accountKey != nil {
+		report := usageWithAccountKey(*result.report, *accountKey)
+		result.report = &report
 	}
-	if result.report == nil {
-		return result, nil
-	}
-	report := *result.report
-	if account.AccountKey != nil {
-		report = usageWithAccountKey(report, *account.AccountKey)
-	}
-	return usageProbeResult{report: &report, reason: result.reason, unsupported: result.unsupported}, nil
+	return result
 }
 
 // fetchAmbient probes the environment/runtime key when no account is stored.
@@ -501,19 +557,18 @@ func (service *UsageService) fetchCached(ctx context.Context, key string, target
 	}
 	cacheVersion := target.impl.CacheVersion
 	if !force {
-		service.mu.Lock()
-		cached := service.cache[key]
-		service.mu.Unlock()
-		if cached != nil && cached.cacheVersion == cacheVersion && cached.expiresAt.After(service.now()) {
-			return usageProbeResult{report: cached.report, reason: cached.reason}, nil
+		if cached, ok := service.cachedUsage(key, cacheVersion); ok {
+			return cached, nil
 		}
 	}
-	shared := service.sharedProbe(key, target, cacheVersion)
-	shared.waiters.Add(1)
+	shared := service.sharedProbe(key, target, cacheVersion, force)
 	defer func() {
 		// Only the last interested caller cancels upstream work: an aborted
 		// dashboard must not poison a refresh another caller is awaiting.
+		service.mu.Lock()
+		defer service.mu.Unlock()
 		if shared.waiters.Add(-1) == 0 && !shared.settled.Load() {
+			shared.contextErr = context.Canceled
 			shared.cancel()
 		}
 	}()
@@ -525,15 +580,38 @@ func (service *UsageService) fetchCached(ctx context.Context, key string, target
 	}
 }
 
+// cachedUsage reads only fresh entries from the matching provider cache shape.
+func (service *UsageService) cachedUsage(key string, version int) (usageProbeResult, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	cached := service.cache[key]
+	if cached == nil || cached.cacheVersion != version || !cached.expiresAt.After(service.now()) {
+		return usageProbeResult{}, false
+	}
+	return usageProbeResult{report: cached.report, reason: cached.reason, unsupported: cached.unsupported}, true
+}
+
 // sharedProbe returns the in-flight probe for a key, starting one when needed.
-func (service *UsageService) sharedProbe(key string, target usageProbeTarget, cacheVersion int) *usageSharedProbe {
+func (service *UsageService) sharedProbe(key string, target usageProbeTarget, cacheVersion int, force bool) *usageSharedProbe {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if existing, ok := service.inFlight[key]; ok && existing.contextErr == nil {
+		existing.waiters.Add(1)
 		return existing
+	}
+	// Another request may finish between fetchCached's initial lookup and
+	// admission here. Recheck under the same lock that starts a shared probe.
+	if cached := service.cache[key]; !force && cached != nil && cached.cacheVersion == cacheVersion && cached.expiresAt.After(service.now()) {
+		done := make(chan struct{})
+		close(done)
+		ready := &usageSharedProbe{done: done, result: usageProbeResult{report: cached.report, reason: cached.reason, unsupported: cached.unsupported}}
+		ready.settled.Store(true)
+		ready.waiters.Store(1)
+		return ready
 	}
 	probeCtx, cancel := context.WithCancel(context.Background())
 	entry := &usageSharedProbe{done: make(chan struct{}), cancel: cancel}
+	entry.waiters.Store(1)
 	service.inFlight[key] = entry
 	go func() {
 		result := service.probe(probeCtx, key, target, cacheVersion)
@@ -566,6 +644,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 		service.store(key, &usageCacheEntry{
 			expiresAt:    service.now().Add(usageFailureCoolDown),
 			reason:       reason,
+			unsupported:  true,
 			cacheVersion: cacheVersion,
 		})
 		return usageProbeResult{reason: reason, unsupported: true}
