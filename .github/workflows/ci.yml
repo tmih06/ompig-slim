@@ -55,7 +55,7 @@ jobs:
         run: |
           profile="$(mktemp -d)"
           trap 'rm -rf "$profile"' EXIT
-          PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 python3 scripts/measure-startup.py ./bin/ompig-slim --agent-dir "$profile" --runs 1
+          PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 python3 scripts/measure-startup.py ./bin/ompig-slim --agent-dir "$profile" --cwd "$profile" --runs 1
       - run: ./bin/ompig-slim --version
       - run: ./bin/ompig-slim --help
 

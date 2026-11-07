@@ -14,7 +14,7 @@ import termios
 import time
 
 
-def measure(binary, agent_dir):
+def measure(binary, agent_dir, cwd=None):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 130, 0, 0))
     env = dict(os.environ, PIG_STARTUP_TRACE="1")
@@ -23,7 +23,7 @@ def measure(binary, agent_dir):
             env[name] = str(agent_dir)
     started = time.perf_counter()
     process = subprocess.Popen([str(binary), "-ne"], stdin=slave, stdout=slave,
-                               stderr=slave, env=env, start_new_session=True)
+                               stderr=slave, env=env, cwd=cwd, start_new_session=True)
     os.close(slave)
     captured = bytearray()
     typed = False
@@ -62,7 +62,11 @@ def measure(binary, agent_dir):
             process.wait()
         os.close(master)
     if usable is None or initialized is None or process.returncode:
-        raise RuntimeError(f"startup did not reach an editable TUI and exit cleanly (exit={process.returncode})")
+        raise RuntimeError(
+            f"startup did not reach an editable TUI and exit cleanly "
+            f"(exit={process.returncode}, typed={typed}, typing_ms={usable}, initialized_ms={initialized})\n"
+            f"terminal tail: {bytes(captured[-4000:])!r}"
+        )
     return {"typing_ms": round(usable, 2), "initialized_ms": round(initialized, 2)}
 
 
@@ -70,13 +74,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=pathlib.Path)
     parser.add_argument("--agent-dir", type=pathlib.Path, help="Use this profile; default uses normal CLI profile resolution")
+    parser.add_argument("--cwd", type=pathlib.Path, help="Launch in this directory; use an empty fixture for noninteractive CI")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--max-ms", type=float, help="Fail if any rendered edit exceeds this elapsed time")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
     for run in range(args.runs):
-        result = measure(args.binary.resolve(), args.agent_dir.resolve() if args.agent_dir else None)
+        result = measure(args.binary.resolve(), args.agent_dir.resolve() if args.agent_dir else None,
+                         args.cwd.resolve() if args.cwd else None)
         print(json.dumps({"run": run + 1, **result}), flush=True)
         if args.max_ms is not None and result["typing_ms"] >= args.max_ms:
             raise SystemExit(f"editable startup exceeded {args.max_ms} ms")
