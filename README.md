@@ -86,7 +86,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | --- | --- |
 | Identity and startup | `ompig-slim` name, version 0.1.0, personal half-block startup mark, shared Pi paths, and cache-miss notices enabled by default |
 | Account storage | Multiple accounts per provider, account-specific logout, migration, preferred account, refresh leases, cross-process blocks, and preserved OMP SQLite identities |
-| Account routing | Eligible Codex free accounts before paid accounts, per-session/provider/model affinity, plan/model eligibility, quota/auth/policy failure scopes, same-account refresh before rotation, and no replay after streamed output |
+| Account routing | Eligible Codex free accounts before paid accounts, per-session/provider/model affinity, plan/model eligibility, quota/auth/policy failure scopes recognized from both status codes and provider prose, same-account refresh before rotation, and no replay after streamed output |
 | Providers | Added OpenAI-compatible catalogs, provider-specific environments/headers/options, and DeepSeek cache-read accounting that uses the first strictly positive cache counter |
 | Sign-in | Subscription/API-key setup flows plus native browser/device OAuth and credential refresh |
 | Google | Gemini CLI and Antigravity sign-in, project/model discovery, and native Cloud Code Assist streaming, thinking, tools, usage, and error handling |
