@@ -47,6 +47,13 @@ for platform in "${platforms[@]}"; do
         mkdir -p "$(dirname "$target")"
         cp "$license" "$target"
     done < <(find vendor -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' -o -iname 'NOTICE*' -o -iname '*NOTICES*' -o -iname 'PATENTS*' \) -print0)
+    # Canonical SPDX license names (MIT.txt, Unicode-3.0.txt, etc.) do not
+    # match the basename scan above. Keep their complete texts and the
+    # component-specific attribution metadata with every distribution.
+    pig_notices="$package/licenses/github.com/MichaelKinsy/PiG"
+    mkdir -p "$pig_notices"
+    cp -R vendor/github.com/MichaelKinsy/PiG/LICENSES "$pig_notices/"
+    cp vendor/github.com/MichaelKinsy/PiG/REUSE.toml "$pig_notices/"
     cp vendor/github.com/MichaelKinsy/PiG/LICENSE "$package/PiG-LICENSE"
     cp vendor/github.com/MichaelKinsy/PiG/NOTICE "$package/PiG-NOTICE"
     tar -C "$stage/$platform" -czf "$out/ompig-slim-$platform.tar.gz" ompig-slim

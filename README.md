@@ -1,5 +1,9 @@
 # ompig-slim
 
+[![CI](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg)](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml)
+
+Public repository: [tmih06/ompig-slim](https://github.com/tmih06/ompig-slim). Licensed under [MIT](LICENSE), with upstream notices preserved.
+
 A native Go coding harness using [PiG](https://github.com/MichaelKinsy/PiG) **as a library**, with tmih06's personal `omp-slim` behavior ported into the library runtime. The application is `ompig-slim` **0.1.0**; the pinned PiG library remains **0.7.0** (Pi 1.5.0).
 
 The entry point calls `coding/cli.Main`; it does not launch an installed `pig`, wrap another agent process, or replace PiG's agent loop. The vendored library contains the personal patches because account routing, provider transports, and TUI behavior are not all exposed by PiG's public extension hooks.
@@ -7,6 +11,8 @@ The entry point calls `coding/cli.Main`; it does not launch an installed `pig`, 
 ## Build and run
 
 ```sh
+git clone https://github.com/tmih06/ompig-slim.git
+cd ompig-slim
 make build
 ./bin/ompig-slim --version
 ./bin/ompig-slim version
@@ -18,6 +24,8 @@ make install PREFIX=/some/path  # /some/path/bin/ompig-slim
 ```
 
 Go 1.26 or newer is required. `go.mod` selects Go 1.27.3; install that toolchain or permit Go's automatic toolchain download. Dependencies are pinned in `go.mod`/`go.sum` and included in `vendor/`. Normal builds use `-mod=vendor` and need neither Bun nor Node for the default application or codemode. Optional integrations can require their own executables.
+
+Build from the checkout with the vendored dependencies. `go install …@latest` does not use this repository's patched vendor tree and is not a supported installation method.
 
 Use `/login` interactively, `ompig-slim login`, or a provider's API-key environment variable. `--help` documents the complete CLI. Stock PiG tools, interactive/print/JSON/RPC modes, sessions and branching, extensions, skills, themes, MCP, Piglets, and the Lisp extension builder remain linked.
 
@@ -116,7 +124,7 @@ For startup diagnostics, run `PIG_STARTUP_TRACE=1 ompig-slim`; `PI_TIMING=1` add
 
 ## Maintaining the library port
 
-Source provenance: `/home/ubuntu/omp-slim`, HEAD `ba23ed9c3` over baseline `5a31a6d5f`, including the existing working-tree auth, account-selection, usage, and metadata fixes. No source profile credentials belong in this repository.
+Source provenance: `tmih06/omp-slim`, HEAD `ba23ed9c3` over baseline `5a31a6d5f`, including the existing working-tree auth, account-selection, usage, and metadata fixes. No source profile credentials belong in this repository.
 
 **Do not run `go mod vendor` over this tree without preserving and reapplying the personal patches.** It replaces the modified PiG runtime. Stage dependency updates separately, compare the library changes, retain licenses, and run both `make check` and the compiled smoke scenario. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
