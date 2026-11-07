@@ -204,6 +204,7 @@ func (m *InteractiveMode) finishProviderAuthentication(providerID, actionLabel s
 						return
 					}
 					m.opts.Model = model
+					m.promptQuotaModelChanged()
 					expected = model
 					if m.statusLine != nil {
 						m.statusLine.SetModel(model)

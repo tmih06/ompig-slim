@@ -196,6 +196,11 @@ func (s *Session) UsageAccountKey(providerID string) (*string, bool) {
 	return router.PeekRoutedAccountKey(providerID, s.ID(), model.ID)
 }
 
+// ResolveUsageAccount previews the router's model-specific account choice without sending a model request or establishing a confirmed route.
+func (s *Session) ResolveUsageAccount(ctx context.Context, model *ai.Model) (*string, bool, error) {
+	return s.ModelRuntime().ResolveCredentialAccount(ctx, model, s.ID())
+}
+
 // emitAccountRotation publishes one account handoff as the Session event upstream's
 // account_rotation reports (agent-session.ts:237,537). The event carries both nullable account
 // keys unchanged, so an identity-less account stays distinguishable from an unknown one.

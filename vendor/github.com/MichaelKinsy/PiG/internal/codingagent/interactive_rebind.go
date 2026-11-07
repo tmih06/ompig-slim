@@ -143,6 +143,7 @@ func (m *InteractiveMode) applyRuntimeSettings() {
 	m.setAgent(m.opts.SessionHandle.Agent())
 	m.installRunPromptTurnRefresh()
 	m.opts.Model = m.agent.Model()
+	m.promptQuotaModelChanged()
 	m.hideThinking = m.opts.Settings.GetHideThinkingBlock()
 	m.outputPad = int(m.opts.Settings.GetOutputPad())
 	m.thinkingLevel = string(m.agent.ThinkingLevel())

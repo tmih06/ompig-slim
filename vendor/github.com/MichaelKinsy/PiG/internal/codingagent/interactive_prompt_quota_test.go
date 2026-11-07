@@ -15,7 +15,12 @@ import (
 )
 
 func promptTestLimit(id string, fraction float64, reset int64) ai.UsageLimit {
-	return ai.UsageLimit{ID: id, Scope: ai.UsageScope{WindowID: id}, Window: &ai.UsageWindow{ID: id, ResetsAt: &reset}, Amount: ai.UsageAmount{UsedFraction: &fraction}}
+	durations := map[string]time.Duration{"5h": 5 * time.Hour, "7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour}
+	window := &ai.UsageWindow{ID: id, ResetsAt: &reset}
+	if duration, ok := durations[id]; ok {
+		window.DurationMs = new(duration.Milliseconds())
+	}
+	return ai.UsageLimit{ID: id, Scope: ai.UsageScope{WindowID: id}, Window: window, Amount: ai.UsageAmount{UsedFraction: &fraction}}
 }
 
 func TestPromptQuotaTotalsAndEssentialWindow(t *testing.T) {
@@ -52,12 +57,12 @@ func TestPromptQuotaTotalsAndEssentialWindow(t *testing.T) {
 		t.Fatalf("bar rendered without enough room for its fields: %q", compact)
 	}
 
-	// A freshly fetched weekly bottleneck replaces the short-window bar.
+	// A more depleted weekly quota does not override the shorter window.
 	m.promptQuota.snapshot.Reports[0].Limits[1].Amount.UsedFraction = new(1.0)
 	m.promptQuota.snapshot.Reports[1].Limits[1].Amount.UsedFraction = new(.8)
 	label = m.promptQuotaLabel(200)
-	if strings.Count(label, "█") == 0 || !strings.Contains(label, "7d") || !strings.Contains(label, "10% left") || strings.Contains(label, "5h") {
-		t.Fatalf("did not select the new limiting window: %q", label)
+	if !strings.Contains(label, "5h") || !strings.Contains(label, "50% left") || strings.Contains(label, "7d") {
+		t.Fatalf("did not retain the shortest window: %q", label)
 	}
 	m.promptQuota.snapshot.UnavailableAccounts = []ai.UsageUnavailableAccount{{Provider: "openai-codex"}}
 	if label = m.promptQuotaLabel(200); !strings.Contains(label, "partial") {
@@ -65,8 +70,24 @@ func TestPromptQuotaTotalsAndEssentialWindow(t *testing.T) {
 	}
 	m.editor = tui.NewEditor()
 	m.editor.TopRightStatus = m.promptQuotaLabel
-	if row := m.editor.Render(200)[0]; !strings.Contains(row, "10% left") {
+	if row := m.editor.Render(200)[0]; !strings.Contains(row, "50% left") {
 		t.Fatalf("quota did not reach the prompt border: %q", row)
+	}
+
+	// An earlier weekly reset still does not override the five-hour window.
+	nearest := time.Now().Add(time.Hour).UnixMilli()
+	m.promptQuota.snapshot.Reports[0].Limits[1].Window.ResetsAt = &nearest
+	if label = m.promptQuotaLabel(200); !strings.Contains(label, "5h") {
+		t.Fatalf("reset time overrode window duration: %q", label)
+	}
+
+	// Select the shortest duration even when it is not the first window.
+	for i := range m.promptQuota.snapshot.Reports[:2] {
+		limits := m.promptQuota.snapshot.Reports[i].Limits
+		limits[0], limits[1] = limits[1], limits[0]
+	}
+	if label = m.promptQuotaLabel(200); !strings.Contains(label, "5h") {
+		t.Fatalf("window order overrode duration: %q", label)
 	}
 
 	// Select a different model and provider without waiting for another network fetch.
@@ -106,14 +127,148 @@ func TestPromptQuotaWeightsCapacityAndFiltersModels(t *testing.T) {
 	}
 }
 
+func TestPromptQuotaDoesNotGuessTierForUnresolvedSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		selection *promptQuotaSelection
+		visible   bool
+	}{
+		{name: "no resolver", visible: true},
+		{name: "pending or failed", selection: &promptQuotaSelection{provider: "test", model: "selected"}},
+		{name: "previous model", selection: &promptQuotaSelection{provider: "test", model: "previous", resolved: true, present: true, key: new("plus")}},
+		{name: "previous provider", selection: &promptQuotaSelection{provider: "other", model: "selected", resolved: true, present: true, key: new("plus")}},
+		{name: "no router account", selection: &promptQuotaSelection{provider: "test", model: "selected", resolved: true}, visible: true},
+		{name: "missing report", selection: &promptQuotaSelection{provider: "test", model: "selected", resolved: true, present: true, key: new("missing")}},
+		{name: "identity-less account", selection: &promptQuotaSelection{provider: "test", model: "selected", resolved: true, present: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &InteractiveMode{
+				opts: InteractiveModeOptions{Model: &ai.Model{ID: "selected", ProviderMeta: ai.ProviderMetadata{ProviderID: "test"}}},
+				promptQuota: &promptQuotaState{
+					loaded:         true,
+					selection:      tc.selection,
+					activeAccounts: map[string]ai.UsageActiveAccount{"test": {AccountKey: new("plus")}},
+					snapshot: ai.UsageSnapshot{Reports: []ai.UsageReport{
+						{Provider: "test", Metadata: map[string]any{"planType": "plus", "accountKey": "plus"}, Limits: []ai.UsageLimit{promptTestLimit("7d", .9, 0)}},
+					}},
+				},
+			}
+			if label := m.promptQuotaLabel(100); (label != "") != tc.visible {
+				t.Fatalf("quota label = %q, want visible = %v", label, tc.visible)
+			}
+		})
+	}
+}
+
+type promptQuotaTestResolver struct {
+	InteractiveSessionHandle
+	resolve func(context.Context, *ai.Model) (*string, bool, error)
+}
+
+func (r promptQuotaTestResolver) ResolveUsageAccount(ctx context.Context, model *ai.Model) (*string, bool, error) {
+	return r.resolve(ctx, model)
+}
+
+func TestPromptQuotaModelSwitchResolvesTierAndRejectsLateResults(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	m := &InteractiveMode{
+		backgroundCtx: ctx,
+		uiTaskCh:      make(chan func(), 8),
+		tuiInst:       tui.NewWithOutput(io.Discard, 100, 30),
+		editor:        tui.NewEditor(),
+		promptQuota: &promptQuotaState{
+			loaded:         true,
+			activeAccounts: map[string]ai.UsageActiveAccount{"test": {AccountKey: new("plus")}},
+			snapshot: ai.UsageSnapshot{Reports: []ai.UsageReport{
+				{Provider: "test", Metadata: map[string]any{"planType": "plus", "accountKey": "plus"}, Limits: []ai.UsageLimit{promptTestLimit("7d", .9, 0)}},
+				{Provider: "test", Metadata: map[string]any{"planType": "free", "accountKey": "free"}, Limits: []ai.UsageLimit{promptTestLimit("30d", .2, 0)}},
+			}},
+		},
+	}
+	t.Cleanup(func() { cancel(); m.backgroundTasks.Wait() })
+	m.editor.TopRightStatus = m.promptQuotaLabel
+	type request struct {
+		model string
+		reply chan string
+	}
+	requests := make(chan request, 8)
+	m.opts.SessionHandle = promptQuotaTestResolver{resolve: func(ctx context.Context, model *ai.Model) (*string, bool, error) {
+		r := request{model: model.ID, reply: make(chan string, 1)}
+		requests <- r
+		select {
+		case key := <-r.reply:
+			return &key, true, nil
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		}
+	}}
+	switchTo := func(id string) request {
+		t.Helper()
+		m.opts.Model = &ai.Model{ID: id, ProviderMeta: ai.ProviderMetadata{ProviderID: "test"}}
+		m.promptQuotaModelChanged()
+		if label := m.promptQuotaLabel(100); label != "" {
+			t.Fatalf("pending route displayed default account quota: %q", label)
+		}
+		select {
+		case r := <-requests:
+			if r.model != id {
+				t.Fatalf("resolved model %q, want %q", r.model, id)
+			}
+			return r
+		case <-time.After(2 * time.Second):
+			t.Fatal("model switch did not resolve its account")
+			return request{}
+		}
+	}
+	apply := func() {
+		t.Helper()
+		select {
+		case publish := <-m.uiTaskCh:
+			publish()
+		case <-time.After(2 * time.Second):
+			t.Fatal("account resolution was not delivered")
+		}
+	}
+	old := switchTo("paid-model")
+	current := switchTo("free-model")
+	current.reply <- "free"
+	apply()
+	if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "30d ") || !strings.Contains(label, "80% left") {
+		t.Fatalf("selected model did not use resolved free tier: %q", label)
+	}
+	old.reply <- "plus"
+	apply()
+	if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "30d ") {
+		t.Fatalf("late resolution overwrote current model: %q", label)
+	}
+	// A confirmed route always supersedes a preview, including account rotation.
+	m.opts.UsageAccountKey = func(string) (*string, bool) { return new("plus"), true }
+	if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "7d ") {
+		t.Fatalf("confirmed route did not override the preview: %q", label)
+	}
+	m.opts.UsageAccountKey = nil
+	pending := switchTo("replacement-model")
+	replacement := &promptQuotaState{}
+	m.promptQuota = replacement
+	pending.reply <- "plus"
+	apply()
+	if replacement.selection != nil {
+		t.Fatal("old session published its selection to the replacement")
+	}
+}
+
 type promptQuotaTestService struct {
-	fetch func(context.Context) (ai.UsageSnapshot, error)
+	fetch  func(context.Context) (ai.UsageSnapshot, error)
+	active func(context.Context, string) (ai.UsageActiveAccount, bool)
 }
 
 func (s promptQuotaTestService) FetchSnapshot(ctx context.Context, force bool) (ai.UsageSnapshot, error) {
 	return s.fetch(ctx)
 }
-func (promptQuotaTestService) ActiveAccount(context.Context, string, ...*string) (ai.UsageActiveAccount, bool) {
+func (s promptQuotaTestService) ActiveAccount(ctx context.Context, provider string, _ ...*string) (ai.UsageActiveAccount, bool) {
+	if s.active != nil {
+		return s.active(ctx, provider)
+	}
 	return ai.UsageActiveAccount{}, false
 }
 
@@ -123,6 +278,8 @@ func TestPromptQuotaRefreshPublishesOnOwnerAndRejectsReplacedSession(t *testing.
 	m := &InteractiveMode{uiTaskCh: make(chan func(), 8), tuiInst: tui.NewWithOutput(io.Discard, 100, 30), editor: tui.NewEditor()}
 	m.opts.UsageService = promptQuotaTestService{fetch: func(context.Context) (ai.UsageSnapshot, error) {
 		return ai.UsageSnapshot{Reports: []ai.UsageReport{{Provider: "test"}}}, nil
+	}, active: func(context.Context, string) (ai.UsageActiveAccount, bool) {
+		return ai.UsageActiveAccount{AccountKey: new("default")}, true
 	}}
 	m.refreshPromptQuota(ctx)
 	var apply func()
@@ -137,6 +294,9 @@ func TestPromptQuotaRefreshPublishesOnOwnerAndRejectsReplacedSession(t *testing.
 	apply()
 	if !m.promptQuota.loaded || len(m.promptQuota.snapshot.Reports) != 1 {
 		t.Fatal("owner did not publish quota")
+	}
+	if account := m.promptQuota.activeAccounts["test"]; account.AccountKey == nil || *account.AccountKey != "default" {
+		t.Fatal("owner did not publish the default account")
 	}
 	m.refreshPromptQuota(ctx)
 	select {
@@ -222,6 +382,10 @@ func TestPromptQuotaFollowsRoutedTierAndTotalsAllItsAccounts(t *testing.T) {
 			if label := m.promptQuotaLabel(100); label != "" {
 				t.Fatalf("unknown route guessed a subscription tier: %q", label)
 			}
+			m.promptQuota.activeAccounts = map[string]ai.UsageActiveAccount{provider: {AccountKey: new("plus")}}
+			if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "7d ") {
+				t.Fatalf("no route did not fall back to the store's active account: %q", label)
+			}
 			routes[m.opts.Model.ID] = "free-a"
 			assertFree := func() {
 				t.Helper()
@@ -248,8 +412,8 @@ func TestPromptQuotaFollowsRoutedTierAndTotalsAllItsAccounts(t *testing.T) {
 			if !m.editor.IsDirty() {
 				t.Fatal("switching models retained a stale account identity")
 			}
-			if label := m.promptQuotaLabel(100); label != "" {
-				t.Fatalf("new model guessed eligibility from its name: %q", label)
+			if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "7d ") {
+				t.Fatalf("new model did not fall back to the store's active account: %q", label)
 			}
 			routes[m.opts.Model.ID] = "plus"
 			if label := m.promptQuotaLabel(100); !strings.HasPrefix(label, "7d ") {

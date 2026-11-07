@@ -156,6 +156,14 @@ func TestAccountMeetsModelPlan(t *testing.T) {
 	if meets := ai.AccountMeetsModelPlan("openai-codex", "gpt-5.6-sol", free); meets == nil || *meets {
 		t.Fatalf("free plan must be ineligible for gpt-5.6-sol, got %v", meets)
 	}
+	for _, model := range []string{"gpt-6.1-sol", "openai-codex/GPT-6.1-SOL"} {
+		for _, plan := range []string{"free", "go", "plus", "pro"} {
+			want := plan == "plus" || plan == "pro"
+			if meets := ai.AccountMeetsModelPlan("openai-codex", model, codex(plan)); meets == nil || *meets != want {
+				t.Fatalf("%s eligibility for %s = %v, want %v", plan, model, meets, want)
+			}
+		}
+	}
 	// A pro plan can.
 	if meets := ai.AccountMeetsModelPlan("openai-codex", "gpt-5.6-sol", codex("pro")); meets == nil || !*meets {
 		t.Fatalf("pro plan must be eligible for gpt-5.6-sol, got %v", meets)
@@ -741,6 +749,7 @@ func TestRouterPrefersFreeCodexAccountsForEligibleModels(t *testing.T) {
 		{"luna", "openai-codex", "gpt-6-luna", []string{"free", "plus", "pro"}},
 		{"unrestricted", "openai-codex", "gpt-5", []string{"free", "plus", "pro"}},
 		{"paid model", "openai-codex", "gpt-5.6-sol", []string{"plus", "pro"}},
+		{"sol 6.1", "openai-codex", "gpt-6.1-sol", []string{"plus", "pro"}},
 		{"terra", "openai-codex", "gpt-6.1-terra", []string{"plus", "pro"}},
 		{"spark", "openai-codex", "gpt-5.6-spark", []string{"pro"}},
 		{"other provider", "other", "gpt-6-luna", []string{"plus", "pro", "free"}},
@@ -763,6 +772,29 @@ func TestRouterPrefersFreeCodexAccountsForEligibleModels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestResolveAccountSwitchesLunaAndSolBeforeAnyRequest(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("free"), true), accountInfo("openai-codex", keyOf("plus"), false))
+	for _, plan := range []string{"free", "plus"} {
+		store.put("openai-codex", keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken(plan)})
+	}
+	router := ai.NewAccountRouter(store)
+	request := ai.AccountRouteRequest{SessionID: "switch-without-sending"}
+	for _, tc := range []struct{ model, want string }{
+		{"gpt-6-luna", "free"},
+		{"gpt-6.1-sol", "plus"},
+		{"gpt-6-luna", "free"},
+		{"gpt-6.1-sol", "plus"},
+	} {
+		key, present, err := router.ResolveAccount(t.Context(), okModel("openai-codex", tc.model), request)
+		if err != nil || !present || key == nil || *key != tc.want {
+			t.Fatalf("preview for %s = %v, %v, %v; want %s", tc.model, key, present, err, tc.want)
+		}
+		if _, confirmed := router.PeekRoutedAccountKey("openai-codex", request.SessionID, tc.model); confirmed {
+			t.Fatal("preview must not require or establish a confirmed request route")
+		}
 	}
 }
 

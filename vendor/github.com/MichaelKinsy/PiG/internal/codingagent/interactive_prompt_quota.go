@@ -15,10 +15,58 @@ import (
 const promptQuotaInterval = time.Minute
 
 type promptQuotaState struct {
-	snapshot ai.UsageSnapshot
-	fetching bool
-	loaded   bool
-	failed   bool
+	snapshot       ai.UsageSnapshot
+	activeAccounts map[string]ai.UsageActiveAccount
+	selection      *promptQuotaSelection
+	fetching       bool
+	loaded         bool
+	failed         bool
+}
+
+type promptQuotaSelection struct {
+	provider, model   string
+	key               *string
+	resolved, present bool
+}
+
+// Model changes invalidate the border immediately; credential-store reads stay off the UI loop.
+func (m *InteractiveMode) promptQuotaModelChanged() {
+	if m.editor != nil {
+		m.editor.Invalidate()
+	}
+	if m.backgroundCtx != nil {
+		m.refreshPromptQuotaAccount(m.backgroundCtx)
+	}
+}
+
+func (m *InteractiveMode) refreshPromptQuotaAccount(ctx context.Context) {
+	resolver, ok := m.opts.SessionHandle.(interface {
+		ResolveUsageAccount(context.Context, *ai.Model) (*string, bool, error)
+	})
+	if !ok || m.opts.Model == nil || ctx.Err() != nil {
+		return
+	}
+	if m.promptQuota == nil {
+		m.promptQuota = &promptQuotaState{}
+	}
+	state, model := m.promptQuota, m.opts.Model
+	selection := &promptQuotaSelection{provider: model.ProviderID(), model: model.ID}
+	state.selection = selection
+	m.backgroundTasks.Go(func() {
+		resolveCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
+		defer cancel()
+		key, present, err := resolver.ResolveUsageAccount(resolveCtx, model)
+		_ = m.postToMain(ctx, func() {
+			if m.promptQuota != state || state.selection != selection || ctx.Err() != nil {
+				return
+			}
+			selection.key, selection.present, selection.resolved = key, present, err == nil
+			if m.editor != nil {
+				m.editor.Invalidate()
+			}
+			m.requestRender()
+		})
+	})
 }
 
 // Polling and network work belong to the run's joined background task group. Only the owner loop reads or publishes presentation state.
@@ -41,6 +89,7 @@ func (m *InteractiveMode) startPromptQuota(ctx context.Context) {
 }
 
 func (m *InteractiveMode) refreshPromptQuota(ctx context.Context) {
+	m.refreshPromptQuotaAccount(ctx)
 	service := m.opts.UsageService
 	if service == nil {
 		service = m.usageService
@@ -60,12 +109,24 @@ func (m *InteractiveMode) refreshPromptQuota(ctx context.Context) {
 		fetchCtx, cancel := context.WithTimeout(ctx, 2*UsageRequestTimeout)
 		defer cancel()
 		snapshot, err := service.FetchSnapshot(fetchCtx, true)
+		activeAccounts := make(map[string]ai.UsageActiveAccount)
+		seen := make(map[string]bool)
+		for _, report := range snapshot.Reports {
+			if seen[report.Provider] {
+				continue
+			}
+			seen[report.Provider] = true
+			if account, ok := service.ActiveAccount(fetchCtx, report.Provider); ok {
+				activeAccounts[report.Provider] = account
+			}
+		}
 		_ = m.postToMain(ctx, func() {
 			// A replacement session owns a new quota service and state.
 			if m.promptQuota != state || ctx.Err() != nil {
 				return
 			}
 			state.snapshot, state.loaded, state.failed, state.fetching = snapshot, true, err != nil, false
+			state.activeAccounts = activeAccounts
 			if m.editor != nil {
 				m.editor.Invalidate()
 			}
@@ -83,63 +144,83 @@ func (m *InteractiveMode) promptQuotaLabel(maxWidth int) string {
 	if state == nil || !state.loaded || state.failed {
 		return ""
 	}
-	status := ""
 	snapshot := state.snapshot
 	snapshot.Reports = m.promptQuotaTierReports(snapshot.Reports, provider)
 	windows := promptQuotaWindows(snapshot, provider, m.opts.Model.ID)
-	if len(windows) > 0 {
-		window := windows[0]
-		for _, candidate := range windows[1:] {
-			if candidate.used > window.used {
-				window = candidate
-			}
-		}
-		remaining := 1 - window.used
-		reset := "reset unknown"
-		if window.resetsAt > 0 {
-			delta := max(time.Minute, time.Until(time.UnixMilli(window.resetsAt)))
-			minutes := int(math.Ceil(delta.Minutes()))
-			if minutes < 60 {
-				reset = fmt.Sprintf("reset %dm", minutes)
-			} else if minutes < 24*60 {
-				reset = fmt.Sprintf("reset %dh%02dm", minutes/60, minutes%60)
-			} else {
-				reset = fmt.Sprintf("reset %dd%dh", minutes/(24*60), minutes/60%24)
-			}
-		}
-		suffix := fmt.Sprintf(" %.0f%% left · %s", remaining*100, reset)
-		partial := state.failed
-		for _, account := range state.snapshot.UnavailableAccounts {
-			partial = partial || account.Provider == provider
-		}
-		if partial {
-			suffix += " (partial)"
-		}
-		prefix := window.label + " "
-		barWidth := min(24, maxWidth-widthx.VisibleWidth(prefix+suffix))
-		if barWidth < 12 {
-			return ""
-		}
-		quotaStatus := ai.UsageStatusOK
-		if window.used >= 1 {
-			quotaStatus = ai.UsageStatusExhausted
-		} else if window.used >= .8 {
-			quotaStatus = ai.UsageStatusWarning
-		}
-		limit := ai.UsageLimit{Amount: ai.UsageAmount{UsedFraction: &window.used}, Status: quotaStatus}
-		status = prefix + tui.RenderUsageBar(tui.ActiveTheme(), limit, barWidth) + suffix
+	if len(windows) == 0 {
+		return ""
 	}
+	window := windows[0]
+	for _, candidate := range windows[1:] {
+		if candidate.durationMs > 0 && (window.durationMs == 0 || candidate.durationMs < window.durationMs) {
+			window = candidate
+		}
+	}
+	remaining := 1 - window.used
+	reset := "reset unknown"
+	if window.resetsAt > 0 {
+		delta := max(time.Minute, time.Until(time.UnixMilli(window.resetsAt)))
+		minutes := int(math.Ceil(delta.Minutes()))
+		if minutes < 60 {
+			reset = fmt.Sprintf("reset %dm", minutes)
+		} else if minutes < 24*60 {
+			reset = fmt.Sprintf("reset %dh%02dm", minutes/60, minutes%60)
+		} else {
+			reset = fmt.Sprintf("reset %dd%dh", minutes/(24*60), minutes/60%24)
+		}
+	}
+	suffix := fmt.Sprintf(" %.0f%% left · %s", remaining*100, reset)
+	partial := false
+	for _, account := range state.snapshot.UnavailableAccounts {
+		partial = partial || account.Provider == provider
+	}
+	if partial {
+		suffix += " (partial)"
+	}
+	prefix := window.label + " "
+	barWidth := min(24, maxWidth-widthx.VisibleWidth(prefix+suffix))
+	if barWidth < 12 {
+		return ""
+	}
+	quotaStatus := ai.UsageStatusOK
+	if window.used >= 1 {
+		quotaStatus = ai.UsageStatusExhausted
+	} else if window.used >= .8 {
+		quotaStatus = ai.UsageStatusWarning
+	}
+	limit := ai.UsageLimit{Amount: ai.UsageAmount{UsedFraction: &window.used}, Status: quotaStatus}
+	status := prefix + tui.RenderUsageBar(tui.ActiveTheme(), limit, barWidth) + suffix
 	if widthx.VisibleWidth(status) <= maxWidth {
 		return status
 	}
 	return ""
 }
 
-// Total the subscription tier named by the router. Unknown routes and missing reports stay hidden; the renderer never predicts model entitlements.
+// Follow the routed account's tier, falling back to the store's active account as the usage board does. Store reads happen during background refresh, never while rendering.
 func (m *InteractiveMode) promptQuotaTierReports(reports []ai.UsageReport, provider string) []ai.UsageReport {
 	key, routed := m.usageAccountKey(provider)
 	if !routed {
-		return nil
+		if m.promptQuota == nil {
+			return nil
+		}
+		selection := m.promptQuota.selection
+		if selection != nil {
+			// A default account can belong to a different tier than the selected model.
+			// Do not show that tier while its model-specific route is pending or failed.
+			if selection.provider != provider || m.opts.Model == nil || selection.model != m.opts.Model.ID || !selection.resolved {
+				return nil
+			}
+			if selection.present {
+				key, routed = selection.key, true
+			}
+		}
+		if !routed {
+			account, ok := m.promptQuota.activeAccounts[provider]
+			if !ok {
+				return nil
+			}
+			key = account.AccountKey
+		}
 	}
 	for _, group := range tui.GroupUsageReportsByPlan(reports, nil) {
 		if group.Provider != provider {
@@ -156,9 +237,10 @@ func (m *InteractiveMode) promptQuotaTierReports(reports []ai.UsageReport, provi
 }
 
 type promptQuotaWindow struct {
-	label    string
-	used     float64
-	resetsAt int64
+	label      string
+	used       float64
+	resetsAt   int64
+	durationMs int64
 }
 
 // Sum capacities where the provider supplies absolute values; percentage-only accounts contribute equal capacity. Different windows remain separate.
@@ -170,6 +252,7 @@ func promptQuotaWindows(snapshot ai.UsageSnapshot, provider, model string) []pro
 		weighted            bool
 		unit                ai.UsageUnit
 		resetsAt            int64
+		durationMs          int64
 	}
 	var buckets []*bucket
 	byKey := map[string]*bucket{}
@@ -203,6 +286,9 @@ func promptQuotaWindows(snapshot ai.UsageSnapshot, provider, model string) []pro
 				byKey[key] = b
 				buckets = append(buckets, b)
 			}
+			if limit.Window != nil && limit.Window.DurationMs != nil && *limit.Window.DurationMs > 0 {
+				b.durationMs = *limit.Window.DurationMs
+			}
 			if limit.Window != nil && limit.Window.ResetsAt != nil && *limit.Window.ResetsAt > time.Now().UnixMilli() && (b.resetsAt == 0 || *limit.Window.ResetsAt < b.resetsAt) {
 				b.resetsAt = *limit.Window.ResetsAt
 			}
@@ -223,7 +309,7 @@ func promptQuotaWindows(snapshot ai.UsageSnapshot, provider, model string) []pro
 		if b.weighted && b.capacity > 0 {
 			used = b.used / b.capacity
 		}
-		result = append(result, promptQuotaWindow{label: b.label, used: max(0, min(1, used)), resetsAt: b.resetsAt})
+		result = append(result, promptQuotaWindow{label: b.label, used: max(0, min(1, used)), resetsAt: b.resetsAt, durationMs: b.durationMs})
 	}
 	return result
 }
