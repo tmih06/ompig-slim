@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "pr": {
+      "source": "Essential-kit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pr/SKILL.md",
+      "computedHash": "fdb08a41e327bb835567579c3b2f660ef1fe8d5146a5c3da3e00f10e676ae538"
+    },
     "simplify": {
       "source": "Essential-kit/skills",
       "sourceType": "github",
