@@ -105,6 +105,9 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 			}
 			if done != nil {
 				done(strings.HasPrefix(prefix, "/"))
+			} else if strings.HasPrefix(prefix, "/") {
+				// Tab has no submit continuation: query arguments after applying the name.
+				e.refreshAutocomplete()
 			}
 		}, nil
 	})
@@ -317,7 +320,10 @@ func (e *Editor) publishAutocomplete(force, explicit bool, cursor [2]int, result
 		e.autocompleteCursor = bestAutocompleteMatchIndex(result.Items, result.Prefix)
 		if force && explicit && len(result.Items) == 1 {
 			if e.asyncAutocomplete == nil {
-				e.AutocompleteAccept()
+				if e.AutocompleteAccept() {
+					// A forced single name behaves like Tab on the name menu.
+					e.refreshAutocomplete()
+				}
 			} else {
 				e.acceptAsyncAutocomplete(nil)
 			}
