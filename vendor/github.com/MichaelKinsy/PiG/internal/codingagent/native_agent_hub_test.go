@@ -28,11 +28,24 @@ func TestHubResponsiveRosterFilteringAndFocus(t *testing.T) {
 		if width >= 40 && !strings.Contains(strings.Join(lines, "\n"), "explore") {
 			t.Fatal("agent missing from roster", lines)
 		}
+		selected := h.selected
+		h.HandleInput("\t")
+		if !h.tree || h.narrow || h.selected != selected {
+			t.Fatalf("Tab must switch to parent view without changing focus at width %d", width)
+		}
+		h.HandleInput("t")
+		if !h.tree {
+			t.Fatal("t still switches view")
+		}
+		h.HandleInput("\t")
+		if h.tree || h.narrow {
+			t.Fatal("Tab did not return to flat view")
+		}
 	}
 	h.Render(80)
-	h.HandleInput("\t")
+	h.HandleInput("\x1b[Z")
 	if !h.narrow {
-		t.Fatal("Tab did not open narrow inspector")
+		t.Fatal("Shift+Tab did not open narrow inspector")
 	}
 	h.HandleInput("\x1b")
 	if h.narrow || m.subagentUI.hub == nil {

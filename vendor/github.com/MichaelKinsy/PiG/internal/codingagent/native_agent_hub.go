@@ -682,12 +682,12 @@ func (h *agentHub) Render(width int) []string {
 			lines = append(lines, "│ "+hubPad(l, inner)+" │")
 		}
 	}
-	footer := "j/k:select  enter:open  t:by parent  /:filter  r:revive  x:kill  esc:close"
+	footer := "j/k:select  enter:open  tab:by parent  /:filter  r:revive  x:kill  esc:close"
 	if h.tree {
-		footer = strings.Replace(footer, "t:by parent", "t:flat", 1)
+		footer = strings.Replace(footer, "tab:by parent", "tab:flat", 1)
 	}
 	if !split && h.section == 0 {
-		footer = "j/k:select  enter:open  tab:details  t:view  /:filter  r/x:manage  esc:close"
+		footer = "tab:view  shift+tab:details  enter:open  /:filter  r/x:manage  esc:close"
 	}
 	if h.section == 1 {
 		footer = "1:agents  j/k:select  enter:transcript  space:follow  f:filter  s:scope  /:search  esc:close"
@@ -816,9 +816,9 @@ func (h *agentHub) HandleInput(data string) {
 		h.detailScroll = max(0, h.detailScroll-5)
 	case tui.MatchesKeyID(data, "pageDown"):
 		h.detailScroll += 5
-	case tui.MatchesKeyID(data, "tab") && h.section == 0 && h.width < hubSplitWidth:
+	case tui.MatchesKeyID(data, "shift+tab") && h.section == 0 && h.width < hubSplitWidth:
 		h.narrow = !h.narrow
-	case data == "t" && h.section == 0:
+	case tui.MatchesKeyID(data, "tab") && h.section == 0:
 		h.tree = !h.tree
 	case data == "r" && h.section == 0:
 		if err := h.manager.ReviveObserved(h.selected); err != nil {
