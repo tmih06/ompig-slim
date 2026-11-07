@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,8 +26,6 @@ type authRunEnv struct {
 	agentDir       string
 	color          bool
 }
-
-func authJSONPath(agentDir string) string { return filepath.Join(agentDir, "auth.json") }
 
 // runAuthCommand handles `pig auth ...`. It returns -1 for other commands,
 // otherwise the process exit code.
@@ -59,6 +56,19 @@ func (env authRunEnv) dim(text string) string {
 	return codingagent.ChalkApply("\x1b[2m", "\x1b[22m", text)
 }
 
+// filterOfflineFlag drops --offline, which main() applies before dispatch and the account commands
+// do not need.
+func filterOfflineFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--offline" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
 func (env authRunEnv) printError(message string) {
 	writeCLIError(env.stderr, message, env.color)
 }
@@ -72,8 +82,23 @@ func authErrorMessage(err error, fallback string) string {
 
 func runAuthCommandWith(args []string, env authRunEnv) int {
 	if IsAuthCommandHelp(args) {
-		_, _ = fmt.Fprintln(env.stdout, authCommandHelp)
+		_, _ = fmt.Fprintln(env.stdout, authCommandHelpText())
 		return 0
+	}
+	// The account commands run before extension loading, like every other auth command, and have
+	// no side effect beyond the credential store.
+	if len(args) > 1 {
+		subcommandArgs := filterOfflineFlag(args[2:])
+		switch args[1] {
+		case "accounts":
+			return runAuthAccounts(subcommandArgs, env)
+		case "use":
+			return runAuthUse(subcommandArgs, env)
+		case "login":
+			return runAuthLogin(subcommandArgs, env)
+		case "logout":
+			return runAuthLogout(subcommandArgs, env)
+		}
 	}
 	command, err := ParseAuthCommand(args)
 	if err != nil {
@@ -111,10 +136,11 @@ func runParsedAuthCommand(command *AuthCommand, flags Args, env authRunEnv) (int
 	if command.Kind != AuthCommandCheck {
 		ctx, cancel := context.WithTimeout(context.Background(), credentialPrintTimeout)
 		defer cancel()
-		runtime, err := createCredentialPrintRuntime(ctx, env.agentDir)
+		runtime, cleanup, err := createCredentialPrintRuntime(ctx, env.agentDir)
 		if err != nil {
 			return 0, err
 		}
+		defer cleanup()
 		credential, err := ResolveCredentialForPrint(ctx, flags, command.Args, runtime, command.Kind, command.MinExpiryMs)
 		if err != nil {
 			return 0, err
@@ -162,12 +188,17 @@ func runAuthCheck(command *AuthCommand, flags Args, target AuthCommandTarget, ag
 	}
 	var credentials ai.CredentialStore
 	if command.NoRefresh {
-		credentials = ai.NewReadOnlyAuthStorage(authJSONPath(agentDir))
-	} else {
-		store, err := ai.NewAuthStorage(authJSONPath(agentDir))
+		var err error
+		credentials, err = ai.OpenReadOnlyCredentialStore(agentDir)
 		if err != nil {
 			return invalid()
 		}
+	} else {
+		store, err := ai.OpenCredentialStore(agentDir)
+		if err != nil {
+			return invalid()
+		}
+		defer func() { _ = store.Close() }()
 		credentials = store
 	}
 	runtime, err := CreateAuthCheckModelRuntime(ctx, credentials, agentDir)

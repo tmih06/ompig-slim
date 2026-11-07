@@ -23,35 +23,52 @@ import (
 // RadiusMcpURL is the MCP endpoint of the gateway the built-in Radius provider signs in to (core/radius.ts:6).
 var RadiusMcpURL = ai.NormalizeRadiusGatewayURL(ai.DefaultRadiusGateway) + "/mcp"
 
-// offerRadiusMcpServer offers to point the Radius MCP server in the global mcp.json at the Radius login, adding the
-// server when missing. Nothing is asked when a global server already uses this login. Mirrors Pi's
-// offerRadiusMcpServer (interactive-mode.ts:6292-6343).
-func (m *InteractiveMode) offerRadiusMcpServer(providerID, providerName string) {
-	// pig additive (D92): a runtime stripped mcp offers nothing, like a build without it (interactive_radius_mcp_stripped.go).
-	if pigstrip.Has(pigstrip.ListExtensions, "mcp") {
-		return
+// RadiusMcpPlan is the global MCP change shared by interactive and CLI login.
+type RadiusMcpPlan struct {
+	Path   string
+	Name   string
+	Config json.RawMessage
+}
+
+func PlanRadiusMcpServer(providerID, agentDir, cwd string) (*RadiusMcpPlan, error) {
+	if providerID != "radius" || pigstrip.Has(pigstrip.ListExtensions, "mcp") {
+		return nil, nil
 	}
-	mcpPath := filepath.Join(m.opts.AgentDir, "mcp.json")
+	path := filepath.Join(agentDir, "mcp.json")
 	normalizeURL := func(url string) string { return strings.TrimRight(url, "/") }
-	servers := mcpext.LoadMcpConfig(mcpext.LoadOptions{AgentDir: m.opts.AgentDir, Cwd: m.opts.CWD, ProjectTrusted: false}).Servers
+	servers := mcpext.LoadMcpConfig(mcpext.LoadOptions{AgentDir: agentDir, Cwd: cwd, ProjectTrusted: false}).Servers
 	index := slices.IndexFunc(servers, func(server mcpext.McpServerEntry) bool {
 		return server.Config.IsHTTP() && normalizeURL(server.Config.URL) == normalizeURL(RadiusMcpURL)
 	})
 	if index >= 0 && servers[index].Config.Auth != nil && servers[index].Config.Auth.Provider == providerID {
-		return
+		return nil, nil
 	}
-
 	name := "radius"
 	if index >= 0 {
 		name = servers[index].Name
 	} else if slices.ContainsFunc(servers, func(server mcpext.McpServerEntry) bool { return server.Name == name }) {
 		name = "radius-mcp"
 	}
-	config, err := radiusMcpServerConfig(mcpPath, name, index >= 0, providerID)
+	config, err := radiusMcpServerConfig(path, name, index >= 0, providerID)
 	if err != nil {
-		m.showError(fmt.Sprintf("Could not update %s: %v", mcpPath, err))
+		return nil, err
+	}
+	return &RadiusMcpPlan{Path: path, Name: name, Config: config}, nil
+}
+
+// offerRadiusMcpServer offers to point the Radius MCP server in the global mcp.json at the Radius login, adding the
+// server when missing. Nothing is asked when a global server already uses this login. Mirrors Pi's
+// offerRadiusMcpServer (interactive-mode.ts:6292-6343).
+func (m *InteractiveMode) offerRadiusMcpServer(providerID, providerName string) {
+	plan, err := PlanRadiusMcpServer(providerID, m.opts.AgentDir, m.opts.CWD)
+	if err != nil {
+		m.showError(fmt.Sprintf("Could not update %s: %v", filepath.Join(m.opts.AgentDir, "mcp.json"), err))
 		return
 	}
+	if plan == nil {
+		return
+	}
+	mcpPath, name, config := plan.Path, plan.Name, plan.Config
 
 	selector := tui.NewExtensionSelectorComponent(fmt.Sprintf("Configure %s MCP in %s?", providerName, mcpPath), []string{"Yes", "No"}, nil, nil)
 	index, ok := m.runEditorSlotExtensionSelector(selector)
