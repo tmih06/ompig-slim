@@ -485,3 +485,44 @@ func TestCharmHyperBalanceIsSharedAndWindowless(t *testing.T) {
 		t.Fatalf("amount = %+v", limit.Amount)
 	}
 }
+
+func TestCodexFreeUsagePreservesThirtyDayWindowAndProviderReset(t *testing.T) {
+	const now = int64(1_700_000_000_000)
+	const monthSeconds = int64(30 * 24 * 60 * 60)
+	// A partially elapsed monthly window must retain the provider's next reset,
+	// rather than calculating a new reset 30 days after the fetch.
+	reset := now + 10*24*60*60*1000
+	parsed := parseCodexUsagePayload(map[string]any{
+		"plan_type": "free",
+		"rate_limit": map[string]any{
+			"allowed": true, "limit_reached": false,
+			"primary_window": map[string]any{"used_percent": 40.0, "limit_window_seconds": float64(monthSeconds), "reset_at": float64(reset / 1000)},
+		},
+	})
+	if parsed == nil || parsed.primary == nil {
+		t.Fatal("free monthly quota was not parsed")
+	}
+	limit := buildCodexUsageLimit("primary", parsed.primary, parsed.allowed, parsed.limitReached, false, now)
+	headers := parseCodexRateLimitHeaders(map[string]string{
+		"x-codex-primary-used-percent":   "40",
+		"x-codex-primary-window-minutes": "43200",
+		"x-codex-primary-reset-at":       "1700864000",
+	}, now, new(200))
+	if headers == nil || len(headers.Limits) != 1 {
+		t.Fatal("monthly response headers were not parsed")
+	}
+	for _, tc := range []struct {
+		name  string
+		limit UsageLimit
+	}{{"account endpoint", limit}, {"response headers", headers.Limits[0]}} {
+		t.Run(tc.name, func(t *testing.T) {
+			window := tc.limit.Window
+			if window == nil || window.ID != "30d" || window.DurationMs == nil || *window.DurationMs != monthSeconds*1000 {
+				t.Fatalf("monthly quota was mislabeled: %+v", window)
+			}
+			if window.ResetsAt == nil || *window.ResetsAt != reset {
+				t.Fatalf("provider reset was changed: %+v", window)
+			}
+		})
+	}
+}
