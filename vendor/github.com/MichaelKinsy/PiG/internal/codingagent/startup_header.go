@@ -135,7 +135,9 @@ func drawBuiltInHeader(in builtInHeaderKey, bindings *tui.TUIKeybindingsManager)
 			return piWordmark(mode) + " " + tag + " " + version + "\n" + hints
 		}
 		top, bottom := piLogoLines(mode)
-		return top + " " + tag + " " + version + "\n" + bottom + " " + hints
+		inText := tui.ForegroundAnsi(logoWhite, mode) + "in " + logoReset
+		return top + "    " + renderGoLine(0, mode) + " " + tag + " " + version + "\n" +
+			bottom + " " + inText + renderGoLine(2, mode) + " " + hints
 	}
 	// pig additive (D92): a hint of a stripped built-in (an action of a stripped command, or `!` of a stripped bash tool) is
 	// left out. Stock PiG strips nothing and joins Pi's hints unchanged.
