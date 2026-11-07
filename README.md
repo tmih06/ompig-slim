@@ -94,7 +94,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | Usage | `/usage` plan-grouped quota dashboard, detail view, refresh/caching, reset/daybreak/credit displays, and local 371-day activity heatmap with fork de-duplication |
 | Model metadata | Persisted catalog, two-hour freshness, ETag/304 handling, failed-fetch backoff, safe model-family matching, explicit-field protection, and generation-aware enrichment caches |
 | Model selectors | Intelligence/TPS/context/cost columns and selected-model facts in both `/model` and `/scoped-models` |
-| Output and themes | Per-run throughput including tool/wait time, shared OMP theme tokens, and a fitting-line ANSI truncation fast path |
+| Output and themes | Per-run throughput including tool/wait time, contrasting dark/light palettes, semantic Agent Hub surfaces, and a fitting-line ANSI truncation fast path |
 | Distribution | Linux/macOS x64/arm64 archives, checksums, bundled license notices, native Go validation, and personal-fork release notifications |
 
 Added provider IDs: `aiand`, `aimlapi`, `alibaba-coding-plan`, `alibaba-token-plan`, `cline-pass`, `commandcode`, `coralbricks`, `deepinfra`, `inception`, `kilo`, `modular`, `ollama-cloud`, `sambanova`, `scaleway`, `synthetic`, and `venice`.
@@ -129,6 +129,12 @@ select, **Enter** to open an agent conversation, **r** to revive a parked
 session without a model turn, and **x** to kill the selected agent. On narrow
 terminals, **Shift+Tab** opens its details. In Activity, **f** changes event filters,
 **s** changes scope, and **Space** toggles following.
+
+The Hub uses a full-row selection highlight, separate roster and inspector
+surfaces, colored status labels, and a context meter that changes color as it
+fills. The agent tree and tool cards share the same palette. The `system`
+theme follows terminal colors and uses the built-in dark/light palette when
+the terminal cannot report its colors; custom themes keep their own tokens.
 
 In a focused agent conversation, type to steer a running agent or resume a
 settled session. Empty **Esc** or double **Left** returns to the main prompt;

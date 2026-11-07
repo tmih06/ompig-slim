@@ -25,6 +25,9 @@ func TestHubResponsiveRosterFilteringAndFocus(t *testing.T) {
 				t.Fatalf("hub overflows %d: %q", width, line)
 			}
 		}
+		if width >= 40 && !strings.HasSuffix(widthx.StripTerminalSequences(lines[0]), "╮") {
+			t.Fatal("Hub header lost its closing corner", lines[0])
+		}
 		if width >= 40 && !strings.Contains(strings.Join(lines, "\n"), "explore") {
 			t.Fatal("agent missing from roster", lines)
 		}
@@ -188,5 +191,38 @@ func TestHubMouseSelectionAndInspectorScroll(t *testing.T) {
 	h.HandleInput("s")
 	if h.section != 1 || h.filter != 1 || h.scope != 1 {
 		t.Fatal("activity controls ignored")
+	}
+}
+
+func TestHubSelectionUsesWholeRowSurfaces(t *testing.T) {
+	m, _ := observerFixture(t)
+	m.toggleAgentHub()
+	h := m.subagentUI.hub
+	lines := h.Render(130)
+	theme := tui.ActiveTheme()
+	selected := theme.GetBgAnsi("selectedBg")
+	count := 0
+	for row, index := range h.hitRows {
+		if index == h.index {
+			if !strings.Contains(lines[row], selected) {
+				t.Fatalf("selected agent row %d has no selection surface", row)
+			}
+			if widthx.VisibleWidth(lines[row]) != 130 {
+				t.Fatal("surface did not fill the viewport width")
+			}
+			count++
+		}
+	}
+	if count != 3 {
+		t.Fatalf("expected all three selected rows to be highlighted, got %d", count)
+	}
+	if !strings.Contains(lines[0], theme.GetBgAnsi("customMessageBg")) || !strings.Contains(lines[5], theme.GetBgAnsi("toolPendingBg")) {
+		t.Fatal("Hub chrome and roster must use separate surfaces")
+	}
+	// Nested chips must restore the surrounding panel, including full resets.
+	panel := theme.GetBgAnsi("toolPendingBg")
+	painted := hubSurface(theme.Bg("selectedBg", "selected")+"\x1b[0m tail", 30, "toolPendingBg")
+	if !strings.Contains(painted, "\x1b[0m"+panel) {
+		t.Fatal("full reset did not restore enclosing surface")
 	}
 }
