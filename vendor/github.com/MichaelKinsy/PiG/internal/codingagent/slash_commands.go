@@ -658,7 +658,13 @@ func upstreamBuiltinCommandNames() map[string]struct{} {
 
 func defaultBuiltins() []BuiltinSlashCommand {
 	cmds := []BuiltinSlashCommand{
-		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|menu|settings]", TakesArguments: true, Handler: func(sc *SlashContext) error {
+		{Name: "agent-hub", Description: "Open live Agent Hub", Handler: func(sc *SlashContext) error {
+			if sc.Subagents == nil {
+				return errors.New("subagents are unavailable")
+			}
+			return sc.Subagents("hub")
+		}},
+		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|hub|menu|settings]", TakesArguments: true, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}

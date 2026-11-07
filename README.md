@@ -118,14 +118,23 @@ Agents run in the background by default, with ten background slots and a
 separate foreground pool. Completion notifications reach the parent at a
 turn boundary; callers can also retrieve the full result or resume an agent.
 
-The above-editor widget shows live activity, turns, tool uses, tokens,
-context usage, and compactions. At an empty prompt, press **Down** or **Left**
-to enter the fleet list, **Up/Down** to select, and **Enter** to inspect.
-In a conversation, **Enter** opens a steering composer, **x** twice stops the
-agent, **b** backgrounds a foreground agent, **m** cycles Markdown, and
-**Ctrl+O** expands tool output. **Esc** returns. **Ctrl+B** backgrounds all
-currently running foreground calls. `@handle message` addresses an agent;
-`@main message` addresses the parent.
+The above-editor tree shows live activity, turns (`0/2 turns`), tool uses,
+tokens, context usage, and compactions. Agent creation cards stay on one line:
+`Agent  Run sleep loop one`.
+
+Open the Agent Hub with **Alt+A**, **Ctrl+S**, `/agent-hub`, or double **Left**
+at an empty prompt. It provides Agents and Activity tabs, search, flat or
+parent grouping (**t**), and a detail inspector. Use **Up/Down** or **j/k** to
+select, **Enter** to open an agent conversation, **r** to revive a parked
+session without a model turn, and **x** to kill the selected agent. On narrow
+terminals, **Tab** opens its details. In Activity, **f** changes event filters,
+**s** changes scope, and **Space** toggles following.
+
+In a focused agent conversation, type to steer a running agent or resume a
+settled session. Empty **Esc** or double **Left** returns to the main prompt;
+**Alt+A** returns to the Hub. **Ctrl+O** expands conversation tool output.
+**Ctrl+B** backgrounds running foreground calls. `@handle message` addresses
+an agent; `@main message` addresses the parent.
 
 Define custom agents in `.pi/agents/*.md`, `.agents/agents/*.md`, or
 `~/.pi/agent/agents/*.md` with YAML frontmatter. Project definitions override

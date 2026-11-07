@@ -61,6 +61,8 @@ func (r *appKeybindingRow) keysFor(platform tui.KeybindingPlatform) []KeyID {
 // appKeybindingRows are the app.* rows of upstream KEYBINDINGS (core/keybindings.ts), each with its keys by platform column. Like tui's table it is
 // a package-level composite of constants, so the linker emits it as data: a map literal of slice literals is code for every row.
 var appKeybindingRows = [...]appKeybindingRow{
+	{id: "app.agents.hub", description: "Open Agent Hub", keys: []KeyID{"alt+a"}},
+	{id: "app.session.observe", description: "Open Agent Hub (legacy)", keys: []KeyID{"ctrl+s"}},
 	{id: "app.interrupt", description: "Cancel or abort", keys: []KeyID{"escape"}},
 	{id: "app.clear", description: "Clear editor", keys: []KeyID{"ctrl+c"}},
 	{id: "app.exit", description: "Exit when editor is empty", keys: []KeyID{"ctrl+d"}},

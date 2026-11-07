@@ -3,7 +3,6 @@ package codingagent
 import (
 	"context"
 	"encoding/json"
-	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"io"
 	"strings"
@@ -32,11 +31,22 @@ func observerFixture(t *testing.T) (*InteractiveMode, *subagents.Manager) {
 	}
 	t.Cleanup(manager.Close)
 	m := &InteractiveMode{opts: InteractiveModeOptions{SessionHandle: observerSession{manager: manager}}, tuiInst: tui.NewWithOutput(io.Discard, 100, 24), editor: tui.NewEditor()}
+	// These tests own component mutation and render explicitly, just as the
+	// production input loop owns its frame deadline. Do not render on timers.
+	m.tuiInst.SetRenderDeadline(func(time.Time) {})
 	m.subagentUI = &subagentUIState{manager: manager}
+	t.Cleanup(func() {
+		if m.subagentUI.hub != nil {
+			m.subagentUI.hub.close()
+		}
+		for m.subagentUI.viewer != nil {
+			m.subagentUI.viewer.close()
+		}
+	})
 	return m, manager
 }
 
-func TestNativeAgentWidgetAndFleetWidth(t *testing.T) {
+func TestNativeAgentWidgetWidthAndHubShortcut(t *testing.T) {
 	m, _ := observerFixture(t)
 	for _, width := range []int{12, 40, 100} {
 		widget := &nativeAgentWidget{m: m}
@@ -49,19 +59,18 @@ func TestNativeAgentWidgetAndFleetWidth(t *testing.T) {
 				t.Fatalf("widget overflows %d: %q", width, line)
 			}
 		}
-		fleet := m.renderAgentFleet(width)
-		for _, line := range fleet {
-			if widthx.VisibleWidth(line) > width {
-				t.Fatalf("fleet overflows %d: %q", width, line)
-			}
-		}
 	}
-	if !m.handleAgentKey("\x1b[B") || !m.subagentUI.focused {
-		t.Fatal("empty prompt down did not enter fleet")
+	if m.handleAgentKey("\x1b[B") {
+		t.Fatal("plain down arrow was captured by agent navigation")
 	}
+	if !m.handleAgentKey("\x1ba") || m.subagentUI.hub == nil {
+		t.Fatal("Alt+A did not open Agent Hub")
+	}
+	m.subagentUI.hub.close()
+
 	m.editor.SetText("normal input")
 	if m.handleAgentKey("\x1b[B") {
-		t.Fatal("fleet consumed arrow inside nonempty prompt")
+		t.Fatal("agent navigation consumed arrow inside nonempty prompt")
 	}
 }
 
@@ -122,17 +131,34 @@ func TestObserverMouseAndComposerStayLocal(t *testing.T) {
 	}
 }
 
-func TestAgentCardRetainsErrorAndCollapsedResult(t *testing.T) {
-	raw := json.RawMessage(`{"subagent_type":"Explore","description":"Find auth files"}`)
-	call := subagentRenderCall(raw, nil, extension.ToolRenderContext{})
-	if !strings.Contains(strings.Join(call.Render(100), "\n"), "Find auth files") {
-		t.Fatal("call description missing")
+func TestAgentCardStaysMinimal(t *testing.T) {
+	m, _ := observerFixture(t)
+	args := json.RawMessage(`{"subagent_type":"Explore","description":"Run sleep loop one"}`)
+	card := tui.NewToolExecutionComponent("Agent", "minimal", args, tui.ToolExecutionOptions{}, nil, nil, "")
+	m.bindToolCard(card, "minimal", "Agent", args)
+	assertMinimal := func() {
+		t.Helper()
+		var content []string
+		for _, line := range card.Render(80) {
+			if clean := strings.TrimSpace(widthx.StripTerminalSequences(line)); clean != "" {
+				content = append(content, clean)
+			}
+		}
+		if len(content) != 1 || content[0] != "Agent  Run sleep loop one" {
+			t.Fatalf("expected one descriptive line, got %q", content)
+		}
 	}
-	r := subagents.Record{ID: "test", Status: "completed", Result: "line one\nline two", StartedAt: 1, CompletedAt: 1001}
-	card := subagentRenderResult(agent.AgentToolResult{Details: r}, extension.ToolRenderResultOptions{}, nil, extension.ToolRenderContext{})
-	rendered := strings.Join(card.Render(100), "\n")
-	if !strings.Contains(rendered, "line one") || !strings.Contains(rendered, "ctrl+o") {
-		t.Fatal(rendered)
+	assertMinimal()
+	for _, failed := range []bool{false, true} {
+		card.SetResult("tool uses: 99\nprivate result\nctrl+o to expand", failed, time.Hour)
+		for _, expanded := range []bool{false, true} {
+			card.SetExpanded(expanded)
+			assertMinimal()
+		}
+	}
+	call := subagentRenderCall(json.RawMessage(`{"description":"long\nlabel\u001b[31m"}`), nil, extension.ToolRenderContext{})
+	if lines := call.Render(9); len(lines) != 1 || widthx.VisibleWidth(lines[0]) > 9 {
+		t.Fatalf("description must remain one bounded line: %q", lines)
 	}
 }
 
