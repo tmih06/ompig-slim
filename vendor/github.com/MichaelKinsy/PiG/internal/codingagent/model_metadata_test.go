@@ -399,3 +399,30 @@ func TestRegistryMetadataRefreshUpdatesMetricsAndProvenance(t *testing.T) {
 	}
 	assertMetric(55, "cached")
 }
+
+// Selector metrics must scale with matching catalog rows, not with the entire
+// bundled reasoning/cache-policy catalog. Keep the real bundled references here.
+func BenchmarkMetadataSelectorMetrics(b *testing.B) {
+	snapshot, ok := ai.ParseModelCatalogMetadataSnapshot([]byte(`{"version":1,"fetchedAt":1,"checkedAt":1,"rows":` + catalogRows + `}`))
+	if !ok {
+		b.Fatal("invalid snapshot fixture")
+	}
+	store := modelmetadata.NewInMemoryStore()
+	if err := store.Write(context.Background(), snapshot); err != nil {
+		b.Fatal(err)
+	}
+	service := modelmetadata.New(modelmetadata.Options{Store: store, References: builtinMetadataReferences})
+	if err := service.Load(context.Background()); err != nil {
+		b.Fatal(err)
+	}
+	// Resolve before timing so lazy initialization is not part of either path.
+	_ = builtinMetadataReferences()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		patch, ok := service.ResolvePatch("deepseek-ai/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash", nil, modelmetadata.ResolveOptions{Mode: modelmetadata.ModeMetrics})
+		if !ok || patch.Int == nil || *patch.Int != 32.6 {
+			b.Fatal("selector metadata changed")
+		}
+	}
+}

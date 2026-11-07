@@ -122,6 +122,8 @@ Release archives are named `ompig-slim-{linux,darwin}-{x64,arm64}.tar.gz` and co
 
 For startup diagnostics, run `PIG_STARTUP_TRACE=1 ompig-slim`; `PI_TIMING=1` adds phase durations. Cached metadata is restored before the first model listing, without a network request. Snapshot decoding traverses the JSON once, the matching index reuses parsed identities, and unchanged/offline refreshes retain enrichment instead of rebuilding it. A downloaded catalog still invalidates enrichment, and an ETag/304 revalidation updates provenance without losing model metrics.
 
+Selector-only metric lookups do not scan bundled reasoning/cache-policy references: those references cannot contribute selector metrics. Full custom-model enrichment still resolves them for cache policy and effort inheritance. `BenchmarkMetadataSelectorMetrics` exercises the selector path against the actual bundled reference catalog.
+
 ## Maintaining the library port
 
 Source provenance: `tmih06/omp-slim`, HEAD `ba23ed9c3` over baseline `5a31a6d5f`, including the existing working-tree auth, account-selection, usage, and metadata fixes. No source profile credentials belong in this repository.
