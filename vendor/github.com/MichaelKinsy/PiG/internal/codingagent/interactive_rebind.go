@@ -60,6 +60,7 @@ func (m *InteractiveMode) rebindCurrentSession(ctx context.Context, renderBefore
 	var cwd string
 	var event extension.SessionStartEvent
 	if err := m.runOnMainAndWait(ctx, func() error {
+		m.bindSubagentUI()
 		session, runner, cwd = m.opts.SessionHandle, m.newRunner, m.opts.CWD
 		if session == nil {
 			return errors.New("interactive: SessionHandle is required")

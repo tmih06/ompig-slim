@@ -109,6 +109,7 @@ github.com/MichaelKinsy/PiG/internal/jsonstringify
 github.com/MichaelKinsy/PiG/internal/jsonvalid
 github.com/MichaelKinsy/PiG/internal/jsparity
 github.com/MichaelKinsy/PiG/internal/jsstring
+github.com/MichaelKinsy/PiG/internal/subagents
 github.com/MichaelKinsy/PiG/internal/jsstring/localecompare
 github.com/MichaelKinsy/PiG/internal/latex
 github.com/MichaelKinsy/PiG/internal/lazyregexp

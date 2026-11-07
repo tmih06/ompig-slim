@@ -119,6 +119,7 @@ type ReloadCellDiag struct {
 // the requested-exit signal: only `/exit` and `/quit` set it. `Clear`
 // is requested by `/clear` and `/new`.
 type SlashContext struct {
+	Subagents func(string) error
 	// Raw args after the command name (already trimmed). Empty if user
 	// just typed `/foo` with no args.
 	Args string
@@ -657,6 +658,22 @@ func upstreamBuiltinCommandNames() map[string]struct{} {
 
 func defaultBuiltins() []BuiltinSlashCommand {
 	cmds := []BuiltinSlashCommand{
+		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|menu|settings]", TakesArguments: true, Handler: func(sc *SlashContext) error {
+			if sc.Subagents == nil {
+				return errors.New("subagents are unavailable")
+			}
+			return sc.Subagents(sc.Args)
+		}},
+		{Name: "agents", Description: "Manage subagents, workflows and settings", TakesArguments: true, Handler: func(sc *SlashContext) error {
+			if sc.Subagents == nil {
+				return errors.New("subagents are unavailable")
+			}
+			args := sc.Args
+			if args == "" {
+				args = "menu"
+			}
+			return sc.Subagents(args)
+		}},
 		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
 		{Name: "model", Description: "Select model (opens selector UI)", ArgumentHint: "<provider/model>", TakesArguments: true, Handler: modelHandler},
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},

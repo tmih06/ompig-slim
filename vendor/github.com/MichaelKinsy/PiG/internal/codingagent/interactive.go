@@ -121,6 +121,7 @@ type compactionQueuedMessage struct {
 
 // InteractiveMode runs the full interactive TUI session.
 type InteractiveMode struct {
+	subagentUI *subagentUIState
 	// toolCards are the tool cards by tool name and call, which a later tool renderer resolution draws again (D89).
 	// toolCardRecords counts them; recordToolCard sweeps collected cards when it passes toolCardSweepAt.
 	toolCards       map[string]map[string]toolCardRecord

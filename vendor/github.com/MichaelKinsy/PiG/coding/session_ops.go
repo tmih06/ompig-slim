@@ -132,26 +132,27 @@ func (s *Session) Clone() (*Session, error) {
 	// caller hooks, thinking budgets, model runtime and event buffer as any
 	// other Session; its agent state is the cloned path-to-leaf.
 	opts := SessionOptions{
-		ScopedModels:       s.ScopedModels(),
-		Model:              s.Model(),
-		Tools:              s.tools,
-		AllowedTools:       s.toolRegistry.allowed,
-		ExcludedTools:      s.toolRegistry.excluded,
-		ToolScope:          s.toolRegistry.scope,
-		toolRegistry:       &s.toolRegistry,
-		skipExtensionTools: s.toolRegistry.skipExtensions,
-		SkipBuiltinTools:   true,
-		BeforeToolCall:     s.callerHooks.beforeToolCall,
-		AfterToolCall:      s.callerHooks.afterToolCall,
-		Runner:             s.currentRunner(),
-		runnerShared:       true,
-		SessionDir:         s.sessionDir,
-		NoSession:          s.noSession,
-		EventBufferSize:    s.callerHooks.eventBufferSize,
-		Transport:          s.callerHooks.transport,
-		existing:           cloned,
-		ResourceLoader:     s.ResourceLoader(),
-		extensionHost:      s.extensionHost,
+		ScopedModels:             s.ScopedModels(),
+		Model:                    s.Model(),
+		Tools:                    s.tools,
+		AllowedTools:             s.toolRegistry.allowed,
+		ExcludedTools:            s.toolRegistry.excluded,
+		ToolScope:                s.toolRegistry.scope,
+		toolRegistry:             &s.toolRegistry,
+		skipExtensionTools:       s.toolRegistry.skipExtensions,
+		SkipBuiltinTools:         true,
+		BeforeToolCall:           s.callerHooks.beforeToolCall,
+		AfterToolCall:            s.callerHooks.afterToolCall,
+		Runner:                   s.currentRunner(),
+		runnerShared:             true,
+		SessionDir:               s.sessionDir,
+		NoSession:                s.noSession,
+		EventBufferSize:          s.callerHooks.eventBufferSize,
+		Transport:                s.callerHooks.transport,
+		existing:                 cloned,
+		subagentBuiltinSelection: new(s.subagentToolsAllowed),
+		ResourceLoader:           s.ResourceLoader(),
+		extensionHost:            s.extensionHost,
 	}
 	if ref := s.resourceLoader.Load(); ref != nil {
 		opts.boundResourceLoader = &resourceLoaderRef{loader: ref.loader, promptFromLoader: ref.promptFromLoader}
@@ -323,6 +324,31 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 
 	registry := icodingagent.NewSlashRegistry()
 	internalSC := sc.toInternal()
+	internalSC.Subagents = func(args string) error {
+		if s.subagents == nil {
+			return fmt.Errorf("subagents are unavailable")
+		}
+		enabled := !s.subagents.Settings().Enabled
+		switch args {
+		case "", "on", "off":
+			if args == "on" {
+				enabled = true
+			}
+			if args == "off" {
+				enabled = false
+			}
+			if err := s.subagents.Update(map[string]any{"enabled": enabled}); err != nil {
+				return err
+			}
+			output = append(output, fmt.Sprintf("Subagents enabled=%t", enabled))
+			return nil
+		case "status", "menu", "settings":
+			output = append(output, fmt.Sprintf("Subagents enabled=%t", s.subagents.Settings().Enabled))
+			return nil
+		default:
+			return fmt.Errorf("usage: /subagents [on|off|status]")
+		}
+	}
 	if err := registry.DispatchHeadless(internalSC, line, nil); err != nil {
 		return output, err
 	}

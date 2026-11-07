@@ -134,6 +134,8 @@ func builtInToolRenderers(name string) (extension.ToolRenderCallFunc, extension.
 		// codemode is a built-in tool now (upstream core/tools/codemode spreads codemodeRenderers into the definition),
 		// so a card of it, or of a definition an extension overrode, is drawn by the same renderers.
 		return CodemodeRenderers.RenderCall, CodemodeRenderers.RenderResult
+	case "Agent":
+		return subagentRenderCall, subagentRenderResult
 	}
 	return nil, nil
 }

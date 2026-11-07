@@ -179,7 +179,7 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 	// Defer the fd subprocess off the keystroke path (parity with upstream's
 	// async getFuzzyFileSuggestions); only meaningful when fd is present.
 	prov.SetAsyncFileSearch(true)
-	return prov
+	return &subagentAutocomplete{CombinedProvider: prov, m: m}
 }
 
 // modelArgCompletions fuzzy-filters the available runtime snapshot using getModelSearchText.
@@ -239,6 +239,7 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
 func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 	var sc *SlashContext
 	sc = &SlashContext{
+		Subagents: func(args string) error { return m.subagentsCommand(ctx, args) },
 		Append: func(s string) {
 			block := tui.NewMarkdown(s)
 			block.FinishStreaming()

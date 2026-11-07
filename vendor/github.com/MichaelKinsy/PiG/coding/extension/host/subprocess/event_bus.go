@@ -73,7 +73,9 @@ func (h *Host) observeXref(conn *Conn) {
 }
 
 type busListener struct {
-	conn      *Conn
+	conn *Conn
+	// builtin is a session-owned in-process JSON listener.
+	builtin   func(any)
 	realm     string
 	handlerID string
 	channel   string
@@ -350,6 +352,9 @@ func (b *hostEventBus) finish(listeners []*busListener) {
 }
 
 func releaseBusHandler(listener *busListener) {
+	if listener.builtin != nil {
+		return
+	}
 	args, _ := json.Marshal(struct {
 		HandlerID string `json:"handlerId"`
 	}{listener.handlerID})
@@ -564,6 +569,20 @@ func (h *Host) dispatchEvent(ctx context.Context, channel string, payload *busPa
 	defer h.eventBus.finish(listeners)
 	for i := 0; i < len(listeners); {
 		listener := listeners[i]
+		if listener.builtin != nil {
+			view, err := payload.jsonView(ctx)
+			var value any
+			if err == nil {
+				err = json.Unmarshal(view, &value)
+			}
+			if err != nil {
+				reportEventBusError(channel, err)
+			} else {
+				listener.builtin(value)
+			}
+			i++
+			continue
+		}
 		if listener.value {
 			// Native listeners keep their per-listener dispatch.
 			h.dispatchNativeListener(ctx, listener, channel, payload)
@@ -580,7 +599,7 @@ func (h *Host) dispatchEvent(ctx context.Context, channel string, payload *busPa
 		// connection that carries its request. A lone listener keeps the
 		// single-handler wire form.
 		j := i + 1
-		for j < len(listeners) && !listeners[j].value && listeners[j].conn == listener.conn && listeners[j].realm == listener.realm {
+		for j < len(listeners) && !listeners[j].value && listeners[j].builtin == nil && listeners[j].conn == listener.conn && listeners[j].realm == listener.realm {
 			j++
 		}
 		foreign := emission != nil && listener.realm != emitter
