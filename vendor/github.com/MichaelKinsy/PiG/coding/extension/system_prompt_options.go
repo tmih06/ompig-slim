@@ -30,7 +30,7 @@ type BuildSystemPromptOptions struct {
 	// ForceSystemPrompt is the exact full prompt a before_agent_start handler returned as systemPrompt; later handlers observe it (runner.ts:1346-1348). Nil is Pi's undefined; an empty string is a forced empty prompt.
 	ForceSystemPrompt *string `json:"forceSystemPrompt,omitempty"`
 	// SelectedTools is the list of tool names included in the prompt.
-	// Defaults upstream to [read, bash, edit, write].
+	// Defaults to [read, bash, edit, write, grep, find] (omp-slim divergence: upstream defaults to [read, bash, edit, write]).
 	SelectedTools []string `json:"selectedTools,omitzero"`
 	// HiddenTools are the selected tools whose declarations requests leave out (`prepareLoadout` hidden declarations). They are
 	// reachable only through another tool, so the tool list and rules leave them out too. The Session sets it before every
@@ -82,7 +82,8 @@ func (o *BuildSystemPromptOptions) UnmarshalJSON(data []byte) error {
 func NormalizeBuildSystemPromptOptions(input BuildSystemPromptOptions) BuildSystemPromptOptions {
 	out := input
 	if input.SelectedTools == nil {
-		out.SelectedTools = []string{"read", "bash", "edit", "write"}
+		// omp-slim divergence: grep and find are in the default selection (settings_default_tools.go DefaultToolNames), so this must name them too.
+		out.SelectedTools = []string{"read", "bash", "edit", "write", "grep", "find"}
 	} else {
 		out.SelectedTools = append([]string{}, input.SelectedTools...)
 	}

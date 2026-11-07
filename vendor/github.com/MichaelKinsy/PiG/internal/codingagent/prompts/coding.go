@@ -33,7 +33,7 @@ type Skill struct {
 type Options struct {
 	// Cwd is the working directory shown to the model.
 	Cwd string
-	// Tools are the selected tool names in the order the model sees them. Nil selects read, bash, edit, and write; an empty slice selects none.
+	// Tools are the selected tool names in the order the model sees them. Nil selects read, bash, edit, write, grep, and find; an empty slice selects none.
 	Tools []string
 	// HiddenTools are the selected tools whose declarations requests leave out. They are reachable only through another tool, so the tool list and rules leave them out too.
 	HiddenTools []string
@@ -91,7 +91,7 @@ func BuildSystemPromptState(o Options) ai.SystemMessage {
 // BuildSystemPromptSections retains the ordered, independently replaceable prompt sections.
 func BuildSystemPromptSections(o Options) ai.OrderedSections {
 	if o.Tools == nil {
-		o.Tools = []string{"read", "bash", "edit", "write"}
+		o.Tools = []string{"read", "bash", "edit", "write", "grep", "find"}
 	}
 	head := preamble
 	declared := make([]string, 0, len(o.Tools))
@@ -180,7 +180,19 @@ func guidelinesFor(tools []string, toolGuidelines map[string][]string, promptGui
 		}
 	}
 	bash, powershell := has("bash"), has("powershell")
-	if (bash || powershell) && !has("grep") && !has("find") && !has("ls") {
+	// omp-slim divergence: grep and find are in the default tool set, so a run that has them says so. Stated positively
+	// and with the reason: the shell tool truncates its output to 2000 lines / 50KB and spills the rest to a temp file,
+	// where these tools cap their own output and report how to widen the search.
+	if bash && (has("grep") || has("find")) {
+		switch {
+		case has("grep") && has("find"):
+			add("Search file contents with the grep tool and locate files with the find tool; each caps its output and says how to widen the search")
+		case has("grep"):
+			add("Search file contents with the grep tool; it caps its output and says how to widen the search")
+		default:
+			add("Locate files with the find tool; it caps its output and says how to widen the search")
+		}
+	} else if (bash || powershell) && !has("grep") && !has("find") && !has("ls") {
 		switch {
 		case bash && powershell:
 			add("Use bash or PowerShell for file operations like listing, searching, and finding files")
