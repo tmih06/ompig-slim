@@ -288,6 +288,77 @@ func TestUsageReportWrapsAndStacksOnNarrowWidths(t *testing.T) {
 	}
 }
 
+// TestUsageReportKeepsAccountColumnsAlignedAcrossWindows guards against
+// missing quota windows shifting later accounts into different columns.
+func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
+	limit := func(accountID, windowID, label string, used float64) ai.UsageLimit {
+		quota := usageTestLimit("openai", accountID, windowID, label,
+			ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)
+		quota.ID = windowID
+		return quota
+	}
+	reports := []ai.UsageReport{
+		usageTestReport("openai", "a@test", []ai.UsageLimit{
+			limit("a", "7d", "Weekly", 0.9), limit("a", "5h", "5 Hour", 0.7),
+		}, nil),
+		usageTestReport("openai", "b@test", []ai.UsageLimit{
+			limit("b", "7d", "Weekly", 0.5),
+		}, nil),
+		usageTestReport("openai", "c@test", []ai.UsageLimit{
+			limit("c", "7d", "Weekly", 0.1), limit("c", "5h", "5 Hour", 0.2),
+		}, nil),
+	}
+	lines := strings.Split(plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+		Reports: reports, NowMs: 1000, Width: 120,
+	}), "\n")), "\n")
+
+	bucketRows := func(label string) (header, bars string) {
+		for index, line := range lines {
+			if strings.Contains(line, "✔ "+label) && index+2 < len(lines) {
+				return lines[index+1], lines[index+2]
+			}
+		}
+		t.Fatalf("%s bucket missing:\n%s", label, strings.Join(lines, "\n"))
+		return "", ""
+	}
+	barStarts := func(line string) []int {
+		isBarCell := func(index int) bool {
+			for _, glyph := range []string{"█", "▓", "▒", "░", "·"} {
+				if strings.HasPrefix(line[index:], glyph) {
+					return true
+				}
+			}
+			return false
+		}
+		starts := make([]int, 0, 3)
+		for index := 0; index < len(line); {
+			if !isBarCell(index) {
+				index++
+				continue
+			}
+			if index < 3 || !isBarCell(index-3) {
+				starts = append(starts, widthx.VisibleWidth(line[:index]))
+			}
+			index += 3
+		}
+		return starts
+	}
+	weeklyHeader, weeklyBars := bucketRows("Weekly")
+	shortHeader, shortBars := bucketRows("5 Hour")
+	weeklyStarts, shortStarts := barStarts(weeklyBars), barStarts(shortBars)
+	if len(weeklyStarts) != 3 || len(shortStarts) != 2 {
+		t.Fatalf("bar starts weekly=%v, 5h=%v; want 3 account columns and a gap for b@test:\n%s",
+			weeklyStarts, shortStarts, strings.Join(lines, "\n"))
+	}
+	if shortStarts[0] != weeklyStarts[0] || shortStarts[1] != weeklyStarts[2] {
+		t.Errorf("5h bars shifted from their account columns: weekly=%v, 5h=%v",
+			weeklyStarts, shortStarts)
+	}
+	if strings.Index(shortHeader, "c@test") != strings.Index(weeklyHeader, "c@test") {
+		t.Errorf("c@test header shifted between windows:\nweekly: %q\n5h:     %q", weeklyHeader, shortHeader)
+	}
+}
+
 func TestUsageReportMarksOnlyTheKeyedAccountActive(t *testing.T) {
 	now := time.Now().UnixMilli()
 	makeReport := func(accountID, accountKey string, used float64) ai.UsageReport {
