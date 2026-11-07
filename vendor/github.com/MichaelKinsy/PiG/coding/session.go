@@ -120,6 +120,10 @@ type Session struct {
 	eventsSubscribed    atomic.Bool
 	modelChangeMu       sync.Mutex
 	detachModelObserver func()
+	// resetQuota is the saved-reset quota service of this Session's build, built
+	// on first use by resetQuotaService.
+	resetQuota     *icodingagent.UsageService
+	resetQuotaOnce sync.Once
 	// detachAccountRotations unsubscribes this Session from the runtime's request-local account
 	// handoffs; the Session owns it from its runtime and releases it on close.
 	detachAccountRotations func()

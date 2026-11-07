@@ -43,6 +43,9 @@ type UsageServiceOptions struct {
 	Credentials ai.CredentialStore
 	// Accounts, when set, is the multi-account view of the same store.
 	Accounts ai.AccountCredentialStore
+	// AccountRouter owns request-local backoffs; a confirmed reset heals the
+	// same scopes there as in the persisted store. Nil keeps local blocks intact.
+	AccountRouter *ai.AccountRouter
 	// GetAuth resolves request auth, refreshing one account's OAuth token when
 	// it is near expiry. Account scope travels in the overrides so an explicit
 	// identity-less account is distinguishable from "the selected account". It
@@ -70,6 +73,11 @@ type UsageService struct {
 	mu       sync.Mutex
 	cache    map[string]*usageCacheEntry
 	inFlight map[string]*usageSharedProbe
+
+	// resetRedeemMu guards redeemInFlight, the per-account redemption slots that
+	// keep one account from spending two saved resets at once.
+	resetRedeemMu  sync.Mutex
+	redeemInFlight map[string]*redeemInFlight
 }
 
 // usageCacheEntry is one cached probe result.

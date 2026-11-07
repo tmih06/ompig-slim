@@ -54,11 +54,9 @@ func newSessionUsageService(build *cliBuild, auth *codingagent.RequestAuthRuntim
 			auth = composed
 		}
 	}
-	return codingagent.NewUsageService(usageServiceOptions(
-		credentials,
-		requestAuthGetAuth(auth, credentials),
-		sessionProviderBaseURL(build),
-	))
+	options := usageServiceOptions(credentials, requestAuthGetAuth(auth, credentials), sessionProviderBaseURL(build))
+	options.AccountRouter = build.Services.Registry().AccountRouter()
+	return codingagent.NewUsageService(options)
 }
 
 // requestAuthGetAuth adapts the request-auth runtime to the quota service's
