@@ -9,17 +9,16 @@ import (
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-func hubSurface(line string, width int, background string) string {
+// hubHoverLine fills one roster line to width with the selection background.
+// Reopen the fill after nested style resets so hovering covers the whole row.
+func hubHoverLine(line string, width int) string {
 	line = hubPad(line, width)
-	if background == "" {
-		return line
-	}
 	theme := tui.ActiveTheme()
-	open := theme.GetBgAnsi(background)
+	open := theme.GetBgAnsi("selectedBg")
 	line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+open)
 	line = strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+open)
 	line = strings.ReplaceAll(line, "\x1b[49m", open)
-	return theme.Bg(background, line)
+	return theme.Bg("selectedBg", line)
 }
 
 func hubChip(label string, active bool) string {
@@ -47,12 +46,14 @@ func hubStatus(state, text string) string {
 	return tui.ActiveTheme().Fg(token, text)
 }
 
+// hubModel sanitizes the model label and adds a badge only for enabled, known
+// thinking levels. The theme owns their colors; off and unknown remain hidden.
 func hubModel(model, thinking string) string {
 	theme := tui.ActiveTheme()
 	label := theme.Fg("muted", hubSingleLine(model))
-	tokens := map[string]string{"minimal": "thinkingMinimal", "low": "thinkingLow", "medium": "thinkingMedium", "high": "thinkingHigh", "xhigh": "thinkingXhigh", "max": "thinkingMax"}
-	if token, ok := tokens[thinking]; ok {
-		label += " " + theme.Fg(token, hubSingleLine(thinking))
+	switch thinking {
+	case "minimal", "low", "medium", "high", "xhigh", "max":
+		label += " " + theme.GetThinkingBorderColor(thinking)(thinking)
 	}
 	return label
 }

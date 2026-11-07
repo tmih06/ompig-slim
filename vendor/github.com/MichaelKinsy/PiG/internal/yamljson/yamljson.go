@@ -20,9 +20,10 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/yaml12"
 )
 
-// Marshal returns the JSON text of value, a tree built by yaml12.Parse or yaml12.ParseOrdered. A value only an explicit
-// YAML tag builds and JSON.stringify has no member for is an error: a symbol in an object's values, or a JavaScript Set,
-// Map, Date or binary value. JSON.stringify writes `{}` for a Set or Map and the ISO string for a Date, which this follows.
+// Marshal returns JSON text for a tree built by yaml12.Parse or yaml12.ParseOrdered.
+// Symbols become null at the root or in arrays and are omitted from object properties.
+// Sets, Maps and binary values become {}; Dates become ISO strings. Unsupported values
+// return an error.
 func Marshal(value any) ([]byte, error) {
 	var out strings.Builder
 	if err := write(&out, value); err != nil {
@@ -31,6 +32,8 @@ func Marshal(value any) ([]byte, error) {
 	return []byte(out.String()), nil
 }
 
+// write serializes one YAML value, using null for a Symbol at the root or in an
+// array. Object properties omit Symbols before calling write, as JSON.stringify does.
 func write(out *strings.Builder, value any) error {
 	switch value := value.(type) {
 	case nil:
@@ -47,7 +50,7 @@ func write(out *strings.Builder, value any) error {
 			if i > 0 {
 				out.WriteByte(',')
 			}
-			if err := writeArrayItem(out, element); err != nil {
+			if err := write(out, element); err != nil {
 				return err
 			}
 		}
@@ -74,15 +77,6 @@ func write(out *strings.Builder, value any) error {
 		return errors.New("models config holds a value JSON cannot represent (" + typeName(value) + ")")
 	}
 	return nil
-}
-
-// writeArrayItem writes an array element: a Symbol has no JSON form and becomes null, as JavaScript leaves it.
-func writeArrayItem(out *strings.Builder, value any) error {
-	if _, symbol := value.(yaml12.Symbol); symbol {
-		out.WriteString("null")
-		return nil
-	}
-	return write(out, value)
 }
 
 func writeObject(out *strings.Builder, keys []string, values map[string]any) error {

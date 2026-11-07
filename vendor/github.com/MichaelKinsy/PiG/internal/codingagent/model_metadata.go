@@ -278,9 +278,6 @@ func (e *metadataEnricher) recordList(models []*ai.Model, service *modelmetadata
 	entry := &metadataListCacheEntry{head: models[0], length: len(models), service: service, generation: generation, enriched: enriched}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.lists == nil {
-		e.lists = make([]*metadataListCacheEntry, 0, metadataRecentLists)
-	}
 	// Drop an older entry for the same source list, then keep the newest entries bounded.
 	kept := make([]*metadataListCacheEntry, 0, len(e.lists)+1)
 	for _, candidate := range e.lists {

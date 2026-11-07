@@ -127,8 +127,6 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 
 // accountStreamOutcome is what one attempt's event run decided.
 type accountStreamOutcome struct {
-	// emitted reports that content reached the consumer, so nothing may replay.
-	emitted bool
 	// delivered reports that the attempt was delivered and the request is finished.
 	delivered bool
 	// retryRefresh reports that the same account must be retried after a forced token refresh.
@@ -199,7 +197,7 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 		} else {
 			_ = outer.Push(ErrorEvent{Reason: StopReasonError, Error: accountTerminalMessage(model, errors.New("provider stream ended without a result"), StopReasonError)})
 		}
-		return accountStreamOutcome{emitted: true, delivered: true}
+		return accountStreamOutcome{delivered: true}
 	}
 	// The attempt's event iterator closed without a terminal event. A provider that ended its
 	// iterator after ending the stream still has a result; one that closed on our cancellation, or
@@ -214,13 +212,13 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 		} else {
 			pushAccountAbort(outer, model, errors.New("provider stream ended without a result"), StopReasonError, partial)
 		}
-		return accountStreamOutcome{emitted: true, delivered: true}
+		return accountStreamOutcome{delivered: true}
 	}
 	if message.StopReason == StopReasonError || message.StopReason == StopReasonAborted {
 		if emitted || message.StopReason == StopReasonAborted || context.Cause(ctx) != nil {
 			_ = outer.Push(ErrorEvent{Reason: message.StopReason, Error: message})
 			outer.End(message)
-			return accountStreamOutcome{emitted: true, delivered: true}
+			return accountStreamOutcome{delivered: true}
 		}
 		event := ErrorEvent{Reason: message.StopReason, Error: message}
 		var block *AccountFailureScope
@@ -232,7 +230,7 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 		}
 		_ = outer.Push(event)
 		outer.End(message)
-		return accountStreamOutcome{emitted: true, delivered: true}
+		return accountStreamOutcome{delivered: true}
 	}
 	reason := message.StopReason
 	if reason == StopReasonPending {
@@ -246,7 +244,7 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 	if account != nil {
 		r.pin(model.ProviderID(), model.ModelID(), account.AccountKey, request)
 	}
-	return accountStreamOutcome{emitted: true, delivered: true}
+	return accountStreamOutcome{delivered: true}
 }
 
 // pushAccountAbort ends a routed stream that has no usable terminal result: aborted when the
