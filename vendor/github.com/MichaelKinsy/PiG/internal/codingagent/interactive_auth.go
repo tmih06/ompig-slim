@@ -827,6 +827,17 @@ func (m *InteractiveMode) footerUsingSubscription(model *ai.Model) bool {
 	if !ai.IsOAuthSubscriptionProvider(providerID) {
 		return false
 	}
+	// The session already owns this store. Reopening SQLite here repeats schema
+	// initialization for footer construction and every provider-info update.
+	if registry := m.opts.ModelRegistry; registry != nil {
+		registry.mu.RLock()
+		store := registry.credentialStore
+		registry.mu.RUnlock()
+		if store != nil {
+			credential, err := store.Read(context.Background(), providerID)
+			return err == nil && credential != nil && credential.Type == ai.CredentialOAuth
+		}
+	}
 	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return false

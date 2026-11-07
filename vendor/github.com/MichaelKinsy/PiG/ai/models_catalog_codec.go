@@ -82,6 +82,13 @@ type catalogShape struct {
 	original map[string]json.RawMessage
 	// baseline is the record JSON of the typed model as decoded, field by field.
 	baseline map[string]json.RawMessage
+	// Snapshot records are immutable. Lossless shape bookkeeping is only needed
+	// when a catalog is encoded, not while restoring models before the prompt.
+	raw          json.RawMessage
+	originalOnce sync.Once
+	originalErr  error
+	baselineOnce sync.Once
+	baselineErr  error
 }
 
 type catalogPair struct {
@@ -222,14 +229,18 @@ func marshalCatalogModel(model AnyModel) (json.RawMessage, error) {
 // model is rare (an unchanged one never reaches here), so the shape is decoded for each encoding and not retained.
 func modelCatalogShape(model AnyModel, decoded *catalogShape) (*catalogShape, error) {
 	typed, ok := model.(*Model)
-	if decoded != nil || !ok || typed.catalogRecord == "" {
-		return decoded, nil
+	if decoded != nil {
+		return decoded, decoded.ensureBaseline()
+	}
+	if !ok || typed.catalogRecord == "" {
+		return nil, nil
 	}
 	entry, _, err := decodeCatalogModel([]byte(typed.catalogRecord))
 	if err != nil {
 		return nil, err
 	}
-	return entry.(*Model).catalog, nil
+	shape := entry.(*Model).catalog
+	return shape, shape.ensureBaseline()
 }
 
 // catalogRecordBaseline is the typed record encoding of the model decoded from record, a catalog record: what the model
@@ -270,6 +281,9 @@ func CatalogRecordOf(model *Model) string {
 	case model.catalogRecord != "":
 		return model.catalogRecord
 	case model.catalog == nil:
+		return ""
+	}
+	if model.catalog.ensureOriginal() != nil {
 		return ""
 	}
 	pairs := make([]catalogPair, 0, len(model.catalog.order))
@@ -377,10 +391,16 @@ func spreadMerged(original, value json.RawMessage) json.RawMessage {
 	written := make(map[string]bool, len(valuePairs))
 	for _, pair := range originalPairs {
 		next, present := current[pair.key]
-		if !present || written[pair.key] {
+		if written[pair.key] {
 			continue
 		}
 		written[pair.key] = true
+		// A typed nested object cannot represent future catalog members.
+		// Spread keeps those original members when an understood field changes.
+		if !present {
+			merged = append(merged, pair)
+			continue
+		}
 		if sameJSONValue(pair.value, next) {
 			merged = append(merged, pair)
 		} else {
@@ -436,6 +456,13 @@ func encodeCatalogPairs(pairs []catalogPair) (json.RawMessage, error) {
 func decodeCatalogTyped(data []byte) (model AnyModel, known bool, err error) {
 	// The typed fields read the record as JSON.parse does (128000.0 is the integer 128000); the stored record keeps its own bytes.
 	typed := jsjson.NormalizeIntegers(data)
+	// Chat catalogs dominate both bundled and persisted models. Read the chat
+	// discriminator with its fields in one pass. Other types retain their own
+	// decoder so fields outside their schema remain ignored.
+	var chat modelsCatalogRecord
+	if err := json.Unmarshal(typed, &chat); err == nil && (chat.Type == "" || chat.Type == ModelTypeChat) {
+		return chatModelFromRecord(chat), true, nil
+	}
 	var kind struct {
 		Type ModelType `json:"type"`
 	}
@@ -473,29 +500,14 @@ func decodeCatalogModel(data []byte) (model AnyModel, known bool, err error) {
 	if err != nil || !known {
 		return nil, false, err
 	}
-	original, err := orderedCatalogPairs(data)
-	if err != nil {
-		return nil, false, fmt.Errorf("decode stored model: %w", err)
+	if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false, errors.New("decode stored model: not a JSON object")
 	}
-	record, shape, err := anyModelRecord(model)
-	if err != nil {
-		return nil, false, err
-	}
-	baseline, err := catalogRecordJSON(record)
+	_, shape, err := anyModelRecord(model)
 	if err != nil {
 		return nil, false, err
 	}
-	built := &catalogShape{original: map[string]json.RawMessage{}, baseline: map[string]json.RawMessage{}}
-	for _, pair := range original {
-		if _, seen := built.original[pair.key]; !seen {
-			built.order = append(built.order, pair.key)
-		}
-		built.original[pair.key] = pair.value
-	}
-	for _, pair := range baseline {
-		built.baseline[pair.key] = pair.value
-	}
-	*shape = built
+	*shape = &catalogShape{raw: bytes.Clone(data)}
 	return model, true, nil
 }
 

@@ -105,12 +105,6 @@ func (s *Service) ResolvePatch(modelID, modelName string, explicit FieldSet, opt
 	}
 	s.mu.Lock()
 	candidates := indexedCandidates(s.index, modelID, modelName)
-	if len(candidates) > 0 {
-		target, ok := VariantKeyFor(modelID, modelName)
-		if ok {
-			RankCatalogMetadataCandidates(candidates, target.Family, modelID)
-		}
-	}
 	source := s.source
 	s.mu.Unlock()
 	if len(candidates) == 0 {
