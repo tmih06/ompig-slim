@@ -324,6 +324,16 @@ func envSet(env func(string) (string, bool), name string) bool {
 // extension OAuth adapter does.
 func oauthToAuth(providerID string, provider OAuthProviderInterface) func(Credential) (ModelAuth, error) {
 	return func(credential Credential) (ModelAuth, error) {
+		// ompig-slim addition: the API-key sign-in flows (omp_oauth_apikey*.go) keep a composite or
+		// endpoint-bearing credential that their provider decodes here, where a request key is built.
+		if auth, handled, err := ompOAuthToAuth(providerID, credential); handled {
+			return auth, err
+		}
+		// ompig-slim addition: a Snowflake login stores a structured key, and the request needs
+		// its bearer plus the account host (omp_oauth_registry.go).
+		if auth, handled := ompOAuthBrowserToAuth(providerID, credential); handled {
+			return auth, nil
+		}
 		switch providerID {
 		case "kimi-coding":
 			return ModelAuth{Headers: ProviderHeaders{"Authorization": new("Bearer " + credential.Access)}}, nil
@@ -412,6 +422,13 @@ var builtinOAuthNames = map[string]struct {
 	"openrouter":     {"OpenRouter OAuth", false},
 	"radius":         {"Radius", false},
 	"xai":            {"xAI (Grok/X subscription)", true},
+	// ompig-slim addition: the API-key sign-in flows of omp_oauth_apikey*.go that authenticate
+	// providers already in the catalog. Each advertises the lazyOAuth name and subscription flag of
+	// its upstream provider module (providers/<id>.ts).
+	"cloudflare-ai-gateway": {"Cloudflare AI Gateway", true},
+	"cloudflare-workers-ai": {"Cloudflare Workers AI", true},
+	"mistral":               {"Mistral", true},
+	"xiaomi":                {"Xiaomi MiMo", true},
 }
 
 // Provider-owned labels from the matching packages/ai/src/providers/*.ts lazyOAuth metadata.
@@ -421,6 +438,11 @@ var builtinOAuthLoginLabels = map[string]string{
 	"kimi-coding": "Sign in with Kimi Code",
 	"meta":        "Sign in with Meta",
 	"xai":         "Sign in with SuperGrok or X Premium",
+	// ompig-slim addition: see builtinOAuthNames.
+	"cloudflare-ai-gateway": "Sign in with Cloudflare",
+	"cloudflare-workers-ai": "Sign in with Cloudflare",
+	"mistral":               "Sign in with Mistral",
+	"xiaomi":                "Sign in with Xiaomi",
 }
 
 // OAuthProviderAuth returns the OAuth auth method for a provider registered
@@ -435,16 +457,13 @@ func OAuthProviderAuth(providerID string) (*OAuthAuth, bool) {
 
 // oauthProviderAuth is the OAuth auth method of one registered provider. A caller that has looked the provider up uses this, so a concurrent unregister or replacement cannot hand it a different or missing provider.
 func oauthProviderAuth(providerID string, provider OAuthProviderInterface) *OAuthAuth {
-	name, subscription := provider.Name(), false
-	loginLabel := ""
-	if label, ok := builtinOAuthLoginLabels[providerID]; ok {
-		loginLabel = label
-	}
-	if builtin, ok := builtinOAuthNames[providerID]; ok {
-		name, subscription = builtin.name, builtin.subscription
-	} else if flagged, ok := provider.(OAuthSubscriptionProvider); ok {
-		// A registered flow outside the catalog carries its own isSubscription, as Pi's adaptOAuth does (provider-composer.ts:356).
-		subscription = flagged.IsSubscription()
+	name, subscription, loginLabel, inCatalog := builtinOAuthDisplay(providerID)
+	if !inCatalog {
+		name, subscription = provider.Name(), false
+		if flagged, ok := provider.(OAuthSubscriptionProvider); ok {
+			// A registered flow outside the catalog carries its own isSubscription, as Pi's adaptOAuth does (provider-composer.ts:356).
+			subscription = flagged.IsSubscription()
+		}
 	}
 	// providers/openai.ts:14 and its siblings advertise OAuth through lazyOAuth: the flow is built on the first login, refresh or toAuth call.
 	auth := LazyOAuth(LazyOAuthInput{Name: name, IsSubscription: subscription, LoginLabel: loginLabel, Load: func() (*OAuthAuth, error) {
@@ -455,10 +474,37 @@ func oauthProviderAuth(providerID string, provider OAuthProviderInterface) *OAut
 			Login:          oauthNativeLogin(provider),
 			Refresh:        oauthRefresh(provider),
 			ToAuth:         oauthToAuth(providerID, provider),
+			Env:            ompOAuthCredentialEnvFor(provider),
 		}, nil
 	}})
 	auth.store = oauthCredentialStore(provider)
 	return auth
+}
+
+// builtinOAuthDisplay reports the lazyOAuth name, subscription flag and login
+// label a catalogued built-in provider advertises, and false for a provider the
+// catalog does not list. ompig-slim addition: the providers of
+// providers_added.go carry their own entry.
+func builtinOAuthDisplay(providerID string) (name string, subscription bool, loginLabel string, ok bool) {
+	loginLabel = builtinOAuthLoginLabels[providerID]
+	if builtin, listed := builtinOAuthNames[providerID]; listed {
+		return builtin.name, builtin.subscription, loginLabel, true
+	}
+	if name, subscription, label, listed := addedProviderOAuth(providerID); listed {
+		if loginLabel == "" {
+			loginLabel = label
+		}
+		return name, subscription, loginLabel, true
+	}
+	// ompig-slim addition: the flows of omp_oauth_registry.go carry their own display
+	// metadata, so the stock tables stay untouched by them.
+	if name, subscription, label, listed := ompOAuthDisplay(providerID); listed {
+		if loginLabel == "" {
+			loginLabel = label
+		}
+		return name, subscription, loginLabel, true
+	}
+	return "", false, loginLabel, false
 }
 
 // oauthCredentialStore returns the extension-owned credential store an OAuth provider contributes (pig additive (D40)), or nil when its credentials belong in the core store.
@@ -468,8 +514,16 @@ func oauthCredentialStore(provider OAuthProviderInterface) OAuthCredentialStore 
 }
 
 // builtinAPIKeyAuth mirrors each built-in upstream provider's api-key auth.
-// openai-codex is OAuth-only. Like Pi's provider modules, which each construct their auth once, every built-in provider has one API-key method that all callers share; the methods are stateless and nothing modifies them.
+// openai-codex is OAuth-only. Like Pi's provider modules, which each construct the auth once, every built-in provider has one API-key method that all callers share; the methods are stateless and nothing modifies them.
 func builtinAPIKeyAuth(providerID string) (*APIKeyAuth, bool) {
+	// ompig-slim additions: the providers of providers_added.go and the sign-in flows of
+	// omp_oauth_registry.go carry their own API-key method.
+	if auth, ok := addedProviderAPIKeyAuth(providerID); ok {
+		return auth, true
+	}
+	if auth, ok := ompOAuthProviderAPIKey(providerID); ok {
+		return auth, true
+	}
 	auth, ok := builtinAPIKeyAuths()[providerID]
 	return auth, ok
 }
@@ -558,6 +612,14 @@ func BuiltinProviderAuth(providerID string) (ProviderAuth, error) {
 	}
 	auth := ProviderAuth{APIKey: apiKey}
 	if _, ok := builtinOAuthNames[providerID]; ok {
+		auth.OAuth, _ = OAuthProviderAuth(providerID)
+	} else if _, _, _, listed := ompOAuthDisplay(providerID); listed {
+		// ompig-slim addition: the Z.ai, Cursor, Snowflake and Perplexity sign-in flows
+		// registered by omp_oauth_registry.go are login methods of their providers.
+		auth.OAuth, _ = OAuthProviderAuth(providerID)
+	} else if _, _, _, listed := addedProviderOAuth(providerID); listed {
+		// ompig-slim addition: an added provider advertises OAuth too, so /login offers both
+		// auth types as upstream's provider module does.
 		auth.OAuth, _ = OAuthProviderAuth(providerID)
 	}
 	return auth, nil

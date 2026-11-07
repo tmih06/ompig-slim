@@ -833,10 +833,14 @@ type StreamOptions struct {
 	ThinkingBudgets *ThinkingBudgets
 	Thinking        ThinkingLevel `json:"reasoning,omitempty"`
 	// GoogleThinking carries Google's raw thinking object; Thinking is the provider-neutral reasoning option.
-	GoogleThinking       *GoogleThinkingOptions `json:"thinking,omitempty"`
-	ThinkingEnabled      *bool                  `json:"thinkingEnabled,omitempty"`
-	ThinkingBudgetTokens *int                   `json:"thinkingBudgetTokens,omitempty"`
-	Effort               AnthropicEffort        `json:"effort,omitempty"`
+	GoogleThinking *GoogleThinkingOptions `json:"thinking,omitempty"`
+	// GoogleCloudCode carries the Cloud Code Assist transport's provider-specific options (Antigravity
+	// endpoint routing, request wire id, hidden thought summaries, empty-response acceptance and the SSE
+	// observer). Other providers ignore it.
+	GoogleCloudCode      *GoogleCloudCodeOptions `json:"googleCloudCode,omitempty"`
+	ThinkingEnabled      *bool                   `json:"thinkingEnabled,omitempty"`
+	ThinkingBudgetTokens *int                    `json:"thinkingBudgetTokens,omitempty"`
+	Effort               AnthropicEffort         `json:"effort,omitempty"`
 	// ThinkingDisplay controls how Anthropic returns thinking content. Empty means "summarized" when thinking is enabled (anthropic-messages.ts:271, :1238, :1246).
 	ThinkingDisplay     AnthropicThinkingDisplay `json:"thinkingDisplay,omitempty"`
 	InterleavedThinking *bool                    `json:"interleavedThinking,omitempty"`

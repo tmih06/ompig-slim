@@ -6,12 +6,10 @@ package ai_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
 )
-
 
 // TestAlibabaTokenPlanSerializedCredential pins the region-locked credential:
 // the stored JSON keeps the token, cookie and region, and a bare key is its own
@@ -59,6 +57,22 @@ func TestAlibabaTokenPlanSerializedCredential(t *testing.T) {
 	// An unparsable credential is refused instead of being sent as a bearer token.
 	if _, err := ai.ResolveProviderAuth(ctx, "alibaba-token-plan", auth, credentialStoreWith("alibaba-token-plan", "not-a-key"), ai.DefaultProviderAuthContext(), ai.AuthResolutionOverrides{}); err == nil {
 		t.Fatal("resolve of an invalid credential = nil error, want a configuration error")
+	}
+	for _, invalid := range []string{
+		`{"token":"sk-test-key","cookie":null}`,
+		`{"token":"sk-test-key","baseUrl":null}`,
+		`{"token":"sk-test-key","cookie":3}`,
+		`{"token":"sk-test-key","baseUrl":false}`,
+		`{"token":null}`,
+	} {
+		if _, err := ai.ResolveProviderAuth(ctx, "alibaba-token-plan", auth, credentialStoreWith("alibaba-token-plan", invalid), ai.DefaultProviderAuthContext(), ai.AuthResolutionOverrides{}); err == nil {
+			t.Errorf("invalid typed credential accepted: %s", invalid)
+		}
+	}
+	trimmed := `{"token":"  sk-test-key  ","cookie":" c=1 ","baseUrl":" https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 "}`
+	resolved, err = ai.ResolveProviderAuth(ctx, "alibaba-token-plan", auth, credentialStoreWith("alibaba-token-plan", trimmed), ai.DefaultProviderAuthContext(), ai.AuthResolutionOverrides{})
+	if err != nil || resolved == nil || resolved.Auth.APIKey != "sk-test-key" || resolved.Auth.BaseURL != "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1" {
+		t.Fatalf("trimmed credential resolution = %+v, %v", resolved, err)
 	}
 }
 

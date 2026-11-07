@@ -63,6 +63,10 @@ func ProviderDisplayName(providerID string) string {
 	if name, ok := addedProviderDisplayName(providerID); ok {
 		return name
 	}
+	// ompig-slim addition: providers registered by the OAuth ports (omp_oauth_*.go).
+	if name, ok := ompProviderDisplayName(providerID); ok {
+		return name
+	}
 	return providerID
 }
 
@@ -112,6 +116,10 @@ func ProviderBaseURL(providerID string) string {
 	}
 	// ompig-slim addition: the providers of providers_added.go declare their own endpoint.
 	if baseURL, ok := addedProviderBaseURL(providerID); ok {
+		return baseURL
+	}
+	// ompig-slim addition: providers registered by the OAuth ports (omp_oauth_*.go).
+	if baseURL, ok := ompProviderBaseURL(providerID); ok {
 		return baseURL
 	}
 	return ""

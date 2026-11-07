@@ -66,6 +66,10 @@ func directSimpleAPIKey(meta ProviderMetadata, options StreamOptions) (string, e
 	case APIGoogleVertex:
 		// upstream: packages/ai/src/api/google-vertex.ts:313-321 (streamSimple asserts no key) and :430-434 (resolveApiKey: no key selects Application Default Credentials)
 		return "", nil
+	case APIGoogleGeminiCLI:
+		// The Cloud Code Assist credential is the OAuth blob the provider parses itself; a missing one is
+		// the provider's own configuration error, so this assertion does not pre-empt it.
+		return "", nil
 	case APIAnthropicMessages:
 		allowed = []string{"authorization", "x-api-key", "cf-aig-authorization"}
 	case APIOpenAICompletions, APIOpenAIResponses:
@@ -125,6 +129,8 @@ func directAPIProviderFor(api API, model *Model, key string, env ProviderEnv) (P
 		return NewGoogleProvider(GoogleConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers, ThinkingLevelMap: model.ThinkingLevelMap}), nil
 	case APIGoogleVertex:
 		return NewGoogleVertexAPIProvider(GoogleVertexConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, Headers: meta.Headers, ThinkingLevelMap: model.ThinkingLevelMap})
+	case APIGoogleGeminiCLI:
+		return GoogleCloudCodeAssistProviderFromConfig(GoogleCloudCodeAssistConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers})
 	case APIMistralConversations:
 		return NewMistralAPIProvider(MistralConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers, Reasoning: meta.Reasoning})
 	default:

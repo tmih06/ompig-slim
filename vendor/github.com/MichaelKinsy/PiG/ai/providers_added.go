@@ -242,25 +242,26 @@ func parseAlibabaTokenPlanCredential(value string) (alibabaTokenPlanCredential, 
 		return alibabaTokenPlanCredential{Token: trimmed}, true
 	}
 	var stored struct {
-		Token   *string `json:"token"`
-		Cookie  *string `json:"cookie"`
-		BaseURL *string `json:"baseUrl"`
+		Token   string          `json:"token"`
+		Cookie  json.RawMessage `json:"cookie"`
+		BaseURL json.RawMessage `json:"baseUrl"`
 	}
-	if err := json.Unmarshal([]byte(trimmed), &stored); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &stored); err != nil || !validAlibabaTokenPlanToken(strings.TrimSpace(stored.Token)) {
 		return alibabaTokenPlanCredential{}, false
 	}
-	if stored.Token == nil {
-		return alibabaTokenPlanCredential{}, false
+	credential := alibabaTokenPlanCredential{Token: strings.TrimSpace(stored.Token)}
+	// Omitted optional members are valid; an explicit null is not a string.
+	if len(stored.Cookie) > 0 {
+		if stored.Cookie[0] != '"' || json.Unmarshal(stored.Cookie, &credential.Cookie) != nil {
+			return alibabaTokenPlanCredential{}, false
+		}
+		credential.Cookie = strings.TrimSpace(credential.Cookie)
 	}
-	if !validAlibabaTokenPlanToken(strings.TrimSpace(*stored.Token)) {
-		return alibabaTokenPlanCredential{}, false
-	}
-	credential := alibabaTokenPlanCredential{Token: strings.TrimSpace(*stored.Token)}
-	if stored.Cookie != nil {
-		credential.Cookie = strings.TrimSpace(*stored.Cookie)
-	}
-	if stored.BaseURL != nil {
-		credential.BaseURL = strings.TrimSpace(*stored.BaseURL)
+	if len(stored.BaseURL) > 0 {
+		if stored.BaseURL[0] != '"' || json.Unmarshal(stored.BaseURL, &credential.BaseURL) != nil {
+			return alibabaTokenPlanCredential{}, false
+		}
+		credential.BaseURL = strings.TrimSpace(credential.BaseURL)
 	}
 	return credential, true
 }
