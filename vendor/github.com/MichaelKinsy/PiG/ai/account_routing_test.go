@@ -856,3 +856,63 @@ func TestStreamRoutesFallsBackFromFreeCodexQuotaToPlus(t *testing.T) {
 		t.Fatalf("blocked free account was retried: %q %v", text, tried)
 	}
 }
+
+// TestAccountFailureBlockClassifiesMidStreamCodexExhaustion pins the wording Codex actually sends
+// when it accepts a request and then ends the stream with an exhausted account: an `error` event
+// carrying prose rather than the `usage_limit_reached` code. An unclassified rejection recorded no
+// block, so the router stopped on the first account instead of chaining to a sibling.
+func TestAccountFailureBlockClassifiesMidStreamCodexExhaustion(t *testing.T) {
+	for _, message := range []string{
+		"Codex error event: The usage limit has been reached (code=usage_limit_reached)",
+		"The usage limit has been reached (code=usage_limit_reached)",
+		"Codex error: The usage limit has been reached",
+		"Codex error: You've hit your usage limit.",
+		"Codex error: You have hit your usage limit. Try again in ~90 min.",
+	} {
+		block := ai.AccountFailureBlock("openai-codex", "gpt-6.1-sol", message, 0, nil)
+		if block == nil || block.Scope != "chat" {
+			t.Fatalf("%q must block the account's chat meter, got %+v", message, block)
+		}
+	}
+	// Transient throttling stays unclassified: a sibling account would not help, and rotating on it
+	// would burn every account on one burst.
+	for _, message := range []string{
+		"Codex error: Codex is at capacity, please try again later (code=turn_rate_limit_exceeded)",
+		"Codex error: rate limit exceeded, please slow down",
+		"too many requests",
+		"connection reset by peer",
+	} {
+		if block := ai.AccountFailureBlock("openai-codex", "gpt-6.1-sol", message, 0, nil); block != nil {
+			t.Fatalf("%q must not rotate, got %+v", message, block)
+		}
+	}
+}
+
+// TestStreamRoutesChainsTwoPaidCodexAccountsOnMidStreamExhaustion is the reported failure: the
+// first Plus account hits its limit mid-stream and the second Plus account must answer.
+func TestStreamRoutesChainsTwoPaidCodexAccountsOnMidStreamExhaustion(t *testing.T) {
+	store := newFakeAccountStore(
+		accountInfo("openai-codex", keyOf("plus-a"), true),
+		accountInfo("openai-codex", keyOf("plus-b"), false),
+	)
+	for _, plan := range []string{"plus-a", "plus-b"} {
+		store.put("openai-codex", keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken("plus")})
+	}
+	router := ai.NewAccountRouter(store)
+	model := okModel("openai-codex", "gpt-6.1-sol")
+	var tried []string
+	attempt := func(ctx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, force bool) (*ai.AssistantMessageEventStream, error) {
+		tried = append(tried, *selection.AccountKey)
+		if *selection.AccountKey == "plus-a" {
+			return emptyErrorStream("Codex error: The usage limit has been reached"), nil
+		}
+		return okStream(), nil
+	}
+	text, message := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, attempt))
+	if text != "hello" || message == nil || message.StopReason != ai.StopReasonStop {
+		t.Fatalf("expected the sibling Plus account to answer, got %q %+v", text, message)
+	}
+	if len(tried) != 2 || tried[0] != "plus-a" || tried[1] != "plus-b" {
+		t.Fatalf("expected both Plus accounts in order, tried %v", tried)
+	}
+}
