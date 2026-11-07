@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -1605,7 +1606,11 @@ func encodeCredentialData(credential Credential) (string, error) {
 			}
 			fields["env"] = raw
 		}
-		encoded, err := writeOrderedJSONObject([]string{"key", "env"}, fields)
+		keys := []string{"key"}
+		if _, ok := fields["env"]; ok {
+			keys = append(keys, "env")
+		}
+		encoded, err := writeOrderedJSONObject(keys, fields)
 		if err != nil {
 			return "", err
 		}
@@ -1622,7 +1627,8 @@ func encodeCredentialData(credential Credential) (string, error) {
 		return "", err
 	}
 	delete(fields, "type")
-	withoutType, err := writeOrderedJSONObject(orderedKeys(keys, keys, fields), fields)
+	keys = slices.DeleteFunc(keys, func(key string) bool { return key == "type" })
+	withoutType, err := writeOrderedJSONObject(keys, fields)
 	if err != nil {
 		return "", err
 	}

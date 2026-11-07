@@ -188,7 +188,7 @@ func TestSQLiteStoreOAuthLoginReplacesAPIKeys(t *testing.T) {
 		t.Fatalf("save key: %v", err)
 	}
 	oauth := oauthCredential("acct-a", "a@example.com", time.Now().Add(time.Hour))
-	if _, err := store.SaveAccount(ctx, "github-copilot", deriveAccountKey(oauth), oauth); err != nil {
+	if _, err := store.Modify(ctx, "github-copilot", func(*Credential) (*Credential, error) { return &oauth, nil }); err != nil {
 		t.Fatalf("save oauth: %v", err)
 	}
 	accounts, err := store.ListAccounts(ctx)
