@@ -606,12 +606,26 @@ type CompactionEndEvent struct {
 	ErrorMessage         string
 }
 
-func (AgentStartEvent) agentEvent()           {}
-func (AgentEndEvent) agentEvent()             {}
-func (AgentSettledEvent) agentEvent()         {}
-func (BashExecutionUpdateEvent) agentEvent()  {}
-func (QueueUpdateEvent) agentEvent()          {}
-func (SessionInfoChangedEvent) agentEvent()   {}
+func (AgentStartEvent) agentEvent()          {}
+func (AgentEndEvent) agentEvent()            {}
+func (AgentSettledEvent) agentEvent()        {}
+func (BashExecutionUpdateEvent) agentEvent() {}
+func (QueueUpdateEvent) agentEvent()         {}
+func (SessionInfoChangedEvent) agentEvent()  {}
+
+// AccountRotationEvent reports a request-local switch to a sibling stored account. Mirrors
+// upstream AgentSessionEvent account_rotation (agent-session.ts:237). Both account keys are
+// nullable: a nil key is the provider's identity-less account, not an unknown one.
+type AccountRotationEvent struct {
+	ProviderID     string
+	FromAccountKey *string
+	ToAccountKey   *string
+	// Reason is "quota", "policy" or "auth".
+	Reason  string
+	Message string
+}
+
+func (AccountRotationEvent) agentEvent()      {}
 func (ThinkingLevelChangedEvent) agentEvent() {}
 func (TurnStartEvent) agentEvent()            {}
 func (TurnEndEvent) agentEvent()              {}

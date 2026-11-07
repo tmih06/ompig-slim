@@ -13,6 +13,8 @@ const (
 	AppModelCycleForward        AppKeybinding = "app.model.cycleForward"
 	AppModelCycleBackward       AppKeybinding = "app.model.cycleBackward"
 	AppModelSelect              AppKeybinding = "app.model.select"
+	AppUsageToggleView          AppKeybinding = "app.usage.toggleView"
+	AppUsageRefresh             AppKeybinding = "app.usage.refresh"
 	AppToolsExpand              AppKeybinding = "app.tools.expand"
 	AppThinkingToggle           AppKeybinding = "app.thinking.toggle"
 	AppSessionToggleNamedFilter AppKeybinding = "app.session.toggleNamedFilter"
@@ -60,6 +62,8 @@ var appKeybindingIDs = []AppKeybinding{
 	AppModelCycleForward,
 	AppModelCycleBackward,
 	AppModelSelect,
+	AppUsageToggleView,
+	AppUsageRefresh,
 	AppToolsExpand,
 	AppThinkingToggle,
 	AppSessionToggleNamedFilter,

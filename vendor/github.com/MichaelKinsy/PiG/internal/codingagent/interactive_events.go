@@ -95,6 +95,8 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		m.handleEntryAppended(e.Entry)
 
 	case agent.AgentStartEvent:
+		// interactive-mode.ts:3520-3521: agent_start resets the run's timer, so a retried run reports once, from its own start.
+		m.agentStartAt = throughputNow()
 		m.toolMu.Lock()
 		clear(m.toolByID)
 		clear(m.toolStarts)
@@ -125,6 +127,9 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		clear(m.toolByID)
 		clear(m.pendingArgs)
 		m.toolMu.Unlock()
+		// interactive-mode.ts:3771: the finished run reports its throughput from the agent_start timer in one transcript
+		// line; a run that will retry is skipped, since the retried run starts its own timer.
+		m.showThroughput(e.Messages, e.WillRetry)
 		m.tuiInst.RequestRender()
 
 	case agent.TurnStartEvent:
@@ -492,6 +497,12 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		// Retry recovery steers into the imminent Continue turn; other endings
 		// start a new turn from the first queued prompt when idle.
 		m.flushCompactionQueue(m.runCtx, !e.WillRetry)
+		m.tuiInst.Render()
+
+	case agent.AccountRotationEvent:
+		// A request-local account handoff is a transient notice, not a
+		// transcript line (interactive-mode.ts:3851 showStatus(event.message)).
+		m.showStatus(e.Message)
 		m.tuiInst.Render()
 
 	case agent.AutoRetryStartEvent:

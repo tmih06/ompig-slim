@@ -46,15 +46,16 @@ func CreateAgentSessionServices(c Context, options CreateAgentSessionServicesOpt
 		agentDir = &options.AgentDir
 	}
 	paths, err := graphStatic[struct {
-		Cwd      string `json:"cwd"`
-		AgentDir string `json:"agentDir"`
+		Cwd        string `json:"cwd"`
+		AgentDir   string `json:"agentDir"`
+		ModelsPath string `json:"modelsPath"`
 	}](c, "AgentSessionServices", "resolve", options.Cwd, agentDir)
 	if err != nil {
 		return nil, err
 	}
 	modelRuntime := options.ModelRuntime
 	if modelRuntime == nil {
-		modelsPath := filepath.Join(paths.AgentDir, "models.json")
+		modelsPath := paths.ModelsPath
 		if modelRuntime, err = ModelRuntimeCreate(c, ModelRuntimeCreateOptions{AuthPath: filepath.Join(paths.AgentDir, "auth.json"), ModelsPath: &modelsPath}); err != nil {
 			return nil, err
 		}

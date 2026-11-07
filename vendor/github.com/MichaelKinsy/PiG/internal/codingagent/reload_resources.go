@@ -126,8 +126,24 @@ func (m *InteractiveMode) refreshAgentTools() []error {
 	return errs
 }
 
+// builtinToolOptions is the options of a built-in tool set: the settings view every built-in reads, and the live settings
+// and sandbox cache an extended built-in (codemode) reads its own settings from (upstream's ToolsOptions.codemode).
+func (m *InteractiveMode) builtinToolOptions() *tools.ToolsOptions {
+	options := tools.ToolsOptionsFromSettings(m.opts.Settings, filepath.Join(m.opts.AgentDir, "bin"))
+	options.Extended = tools.ExtendedBuiltinOptions{CWD: m.opts.CWD, CacheDir: tools.WazeroCacheDir()}
+	if manager := m.opts.SettingsManager; manager != nil {
+		options.Extended.Settings = manager.ExtensionSettings
+	} else {
+		// Without a manager the run's settings are fixed, so the tool reads that one snapshot.
+		settings := m.opts.Settings
+		manager := &SettingsManager{merged: settings}
+		options.Extended.Settings = manager.ExtensionSettings
+	}
+	return options
+}
+
 func (m *InteractiveMode) buildAgentTools() ([]agent.AgentTool, []error) {
-	builtin := tools.CreateAllTools(m.opts.CWD, tools.ToolsOptionsFromSettings(m.opts.Settings, filepath.Join(m.opts.AgentDir, "bin")))
+	builtin := tools.CreateAllTools(m.opts.CWD, m.builtinToolOptions())
 	// An explicit tool set (--tools, or an extension's setActiveTools) names the
 	// active built-ins itself; the startup default set applies only without one.
 	active := m.opts.ActiveBuiltinTools

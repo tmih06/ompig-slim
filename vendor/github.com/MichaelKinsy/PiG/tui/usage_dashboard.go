@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -245,11 +244,8 @@ func FormatActivityErrorDetail(message, homeDir string) string {
 // forward-slash spellings and in any case, with `~`.
 func shortenUsageHomePath(text, homeDir string) string {
 	variants := []string{homeDir}
-	if forward := filepath.ToSlash(homeDir); forward != homeDir {
+	if forward := strings.ReplaceAll(homeDir, "\\", "/"); forward != homeDir {
 		variants = append(variants, forward)
-	}
-	if native := filepath.FromSlash(homeDir); native != homeDir {
-		variants = append(variants, native)
 	}
 	pattern := make([]string, 0, len(variants))
 	for _, variant := range variants {

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -67,7 +66,6 @@ type ModelRegistry struct {
 type AgentSessionServices struct {
 	cwd          string
 	agentDir     string
-	auth         *ai.AuthStorage
 	credentials  ai.CredentialStore
 	settings     *icodingagent.SettingsManager
 	settingsOnce sync.Once
@@ -78,7 +76,11 @@ type AgentSessionServices struct {
 	testFauxProvider func() (ai.Provider, error)
 
 	// sharedRuntime marks a ModelRuntime owned by the caller: Close leaves it running.
-	sharedRuntime       bool
+	sharedRuntime bool
+	// ownedCredentials is the credential store this Services opened itself (the agent directory's
+	// agent.db). Close closes it exactly once; a caller-supplied or shared store stays open.
+	ownedCredentials    ai.CredentialStore
+	closeCredentials    sync.Once
 	resourceLoader      *DefaultResourceLoader
 	sharedLoader        bool
 	extensionFlagValues []ExtensionFlagValue
@@ -197,25 +199,26 @@ func CreateAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentS
 		// agent-session-services.ts:140: `options.modelRuntime ?? ModelRuntime.create(...)`.
 		services = &AgentSessionServices{
 			cwd: cwd, agentDir: agentDir,
-			auth: shared.services.auth, credentials: shared.services.credentials,
-			settings: sm, registry: shared.services.registry, modelRuntime: shared,
+			credentials: shared.services.credentials,
+			settings:    sm, registry: shared.services.registry, modelRuntime: shared,
 			testFauxProvider: shared.services.testFauxProvider, sharedRuntime: true,
 		}
 	} else {
-		authPath := filepath.Join(agentDir, "auth.json")
-		auth, err := ai.NewAuthStorage(authPath)
+		credentials, err := ai.OpenCredentialStore(agentDir)
 		if err != nil {
-			return nil, fmt.Errorf("coding.CreateAgentSessionServices: open auth storage at %s: %w", authPath, err)
+			return nil, fmt.Errorf("coding.CreateAgentSessionServices: open auth storage at %s: %w", ai.SQLiteAuthPath(agentDir), err)
 		}
 		reg := icodingagent.NewModelRegistry(agentDir)
-		reg.SetAuthStorage(auth)
+		reg.SetCredentialStore(credentials)
 		// Mirrors ModelRuntime.create: restore stored dynamic catalogs (Radius)
 		// without network access. Network refreshes run from the modes.
 		reg.RefreshCatalogs(signal, icodingagent.CatalogRefreshOptions{})
-		services, err = newConfiguredServices(cwd, agentDir, auth, auth, sm, reg)
+		services, err = newConfiguredServices(cwd, agentDir, credentials, sm, reg)
 		if err != nil {
+			closeOwnedCredentials(credentials)
 			return nil, err
 		}
+		services.ownedCredentials = credentials
 		_ = services.ModelRuntime().queueAvailabilityRefresh(signal)
 	}
 	services.extensionFlagValues = opts.ExtensionFlagValues
@@ -244,11 +247,10 @@ func CreateAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentS
 	return services, nil
 }
 
-func newConfiguredServices(cwd, agentDir string, auth *ai.AuthStorage, credentials ai.CredentialStore, sm *icodingagent.SettingsManager, reg *icodingagent.ModelRegistry) (*AgentSessionServices, error) {
+func newConfiguredServices(cwd, agentDir string, credentials ai.CredentialStore, sm *icodingagent.SettingsManager, reg *icodingagent.ModelRegistry) (*AgentSessionServices, error) {
 	services := &AgentSessionServices{
 		cwd:              cwd,
 		agentDir:         agentDir,
-		auth:             auth,
 		credentials:      credentials,
 		settings:         sm,
 		registry:         &ModelRegistry{ModelRegistry: reg},
@@ -272,13 +274,24 @@ func newConfiguredServices(cwd, agentDir string, auth *ai.AuthStorage, credentia
 	return services, nil
 }
 
-// Close stops the Extension Host of the resource loader's default extension load (the loaded extensions stop), stops admission of model background work, cancels its lifetime, and drains admitted tasks. It does not close caller-owned credential or catalog storage. Call it after Sessions finish and outside model callbacks.
+// Close stops the Extension Host of the resource loader's default extension load (the loaded extensions stop), stops admission of model background work, cancels its lifetime, and drains admitted tasks. It closes the credential store this Services opened itself, exactly once, and leaves caller-owned credential and catalog storage open. Call it after Sessions finish and outside model callbacks.
 func (s *AgentSessionServices) Close() {
-	if s != nil && s.resourceLoader != nil && !s.sharedLoader {
+	if s == nil {
+		return
+	}
+	if s.resourceLoader != nil && !s.sharedLoader {
 		s.resourceLoader.Close()
 	}
-	if s != nil && s.registry != nil && !s.sharedRuntime {
+	if s.registry != nil && !s.sharedRuntime {
 		s.registry.CloseModelTasks()
+	}
+	s.closeCredentials.Do(func() { closeOwnedCredentials(s.ownedCredentials) })
+}
+
+// closeOwnedCredentials closes a store Services opened, if it holds one.
+func closeOwnedCredentials(store ai.CredentialStore) {
+	if closer, ok := store.(interface{ Close() error }); ok {
+		_ = closer.Close()
 	}
 }
 
@@ -300,12 +313,13 @@ func (s *AgentSessionServices) CWD() string { return s.cwd }
 // ~/.pig/agent or $PIG_HOME/agent).
 func (s *AgentSessionServices) AgentDir() string { return s.agentDir }
 
-// Auth returns the credential storage backing auth.json. Read-mostly;
-// safe to share across goroutines (file lock serialises writes).
-// It is nil when the ModelRuntime was created with an injected CredentialStore; use Credentials for the store in effect.
-func (s *AgentSessionServices) Auth() *ai.AuthStorage { return s.auth }
+// Auth returns the credential storage the Services use: the multi-account SQLite store (agent.db)
+// over the agent directory, or the caller-supplied store. It is never nil on a constructed
+// Services; the concrete *ai.SQLiteAuthStorage also satisfies ai.AccountCredentialStore.
+func (s *AgentSessionServices) Auth() ai.CredentialStore { return s.credentials }
 
-// Credentials returns the credential store backing model authentication: the auth.json store, or the CredentialStore passed to CreateModelRuntime.
+// Credentials returns the credential store backing model authentication: the multi-account SQLite
+// store over the agent directory, or the CredentialStore passed to CreateModelRuntime.
 func (s *AgentSessionServices) Credentials() ai.CredentialStore { return s.credentials }
 
 // Settings returns the currently merged settings (global ⊕ project).
@@ -518,6 +532,10 @@ func (runtime *ModelRuntime) start(ctx context.Context, model *ai.Model, transcr
 		runtime.fail(ctx, outer, model, fmt.Errorf("model runtime: nil context"))
 		return
 	}
+	if router := runtime.accountRouter(); router.Pooled() {
+		runtime.startRouted(ctx, outer, router, model, transcript, options, simple)
+		return
+	}
 	preparedModel, provider, preparedOptions, err := runtime.prepare(ctx, model, options)
 	if err != nil {
 		failureCtx := ctx
@@ -581,6 +599,91 @@ func (runtime *ModelRuntime) start(ctx context.Context, model *ai.Model, transcr
 	}
 }
 
+// accountRouter is the registry's request-local account router, or nil without services.
+func (runtime *ModelRuntime) accountRouter() *ai.AccountRouter {
+	if runtime == nil || runtime.services == nil {
+		return nil
+	}
+	return runtime.services.Registry().AccountRouter()
+}
+
+// startRouted runs one request through the account pool: each candidate account opens its own
+// prepared attempt, so a rejection retried on a sibling account happens before any content
+// escapes to the consumer (model-runtime.ts stream, over prepareRequest).
+func (runtime *ModelRuntime) startRouted(ctx context.Context, outer *ai.AssistantMessageEventStream, router *ai.AccountRouter, model *ai.Model, transcript ai.TranscriptContext, options ai.StreamOptions, simple bool) {
+	routed := router.StreamRoutes(ctx, model, ai.AccountRouteRequest{SessionID: options.SessionID, APIKeySet: options.APIKey != "" || options.APIKeySet}, func(attemptCtx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (*ai.AssistantMessageEventStream, error) {
+		return runtime.openAttempt(attemptCtx, model, transcript, options, simple, selection, observe, forceOAuthRefresh)
+	})
+	if err := ai.RunStreamContinuation(ctx, func(observation *ai.StreamObservation) error {
+		return outer.ForwardStream(observation.Context(ctx), routed)
+	}); err != nil {
+		runtime.fail(ctx, outer, model, err)
+	}
+}
+
+// openAttempt prepares and starts one account's attempt. The returned stream is the provider's
+// own stream; the caller owns draining it.
+func (runtime *ModelRuntime) openAttempt(ctx context.Context, model *ai.Model, transcript ai.TranscriptContext, options ai.StreamOptions, simple bool, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (*ai.AssistantMessageEventStream, error) {
+	ctx = ai.WithAccountSelection(ctx, selection, forceOAuthRefresh)
+	if observe != nil {
+		options.OnResponse = observeStreamResponse(options.OnResponse, observe)
+	}
+	preparedModel, provider, preparedOptions, err := runtime.prepare(ctx, model, options)
+	if err != nil {
+		return nil, err
+	}
+	apiRequest := extension.ModelStreamRequestFromContext(ctx).API
+	leaf := provider
+	attributed, registryBuilt := leaf.(*requestOptionsProvider)
+	if registryBuilt {
+		leaf = attributed.Provider
+	}
+	_, registeredCallback := leaf.(*registeredStreamProvider)
+	if native, ok := leaf.(*nativeModelProvider); ok {
+		native.simple = simple
+	} else if simple && registryBuilt && !registeredCallback && preparedModel.ProviderMeta.API != ai.APIPiMessages {
+		// Every API module's streamSimple but pi-messages.ts (:432-444) builds its options with buildBaseOptions; pi-messages sends the caller's.
+		ai.ApplyOmittedReasoning(preparedModel, &preparedOptions)
+		maxTokens := preparedOptions.MaxTokens
+		if maxTokens == 0 {
+			maxTokens = preparedModel.Capabilities.MaxOutputTokens
+		}
+		preparedOptions.MaxTokens = ai.ClampMaxTokensToContext(preparedModel, transcript, maxTokens)
+	}
+	if registryBuilt {
+		if !registeredCallback {
+			provider = &apiStreamProvider{Provider: provider, model: preparedModel}
+		}
+		provider = &composedStreamProvider{Provider: provider, model: preparedModel}
+	}
+	inner, err := provider.Stream(ctx, transcript, preparedOptions)
+	if err != nil {
+		return nil, err
+	}
+	if inner == nil {
+		return nil, fmt.Errorf("model runtime: provider %q returned a nil stream", provider.ID())
+	}
+	if apiRequest {
+		// An API-request attempt owns its provider; close it when its stream settles.
+		go func() {
+			inner.Result()
+			_ = provider.Close()
+		}()
+	}
+	return inner, nil
+}
+
+// observeStreamResponse records the routing observation before the caller's own hook runs.
+func observeStreamResponse(existing func(context.Context, ai.ProviderResponse, *ai.Model) error, observe ai.AccountObserve) func(context.Context, ai.ProviderResponse, *ai.Model) error {
+	return func(ctx context.Context, response ai.ProviderResponse, responseModel *ai.Model) error {
+		observe(response)
+		if existing != nil {
+			return existing(ctx, response, responseModel)
+		}
+		return nil
+	}
+}
+
 // knowsProvider reports whether Pi's Models would resolve auth for the model's provider. A caller-owned provider the runtime does not know is Pi's
 // compat path (registerFauxProvider and compat.complete): no auth resolution rejects an aborted request, the provider reports it as aborted.
 func (runtime *ModelRuntime) knowsProvider(model *ai.Model, provider ai.Provider) bool {
@@ -619,7 +722,9 @@ func (runtime *ModelRuntime) prepareRequest(ctx context.Context, model *ai.Model
 	var nativeAuth *ai.AuthResult
 	// Native Go providers expose Pi's auth property through Auth().
 	if native, ok := provider.(interface{ Auth() ai.ProviderAuth }); ok {
-		overrides := ai.AuthResolutionOverrides{Env: options.Env}
+		// The attempt's account selection, when the pool routed this request, resolves that
+		// account instead of the provider's selected one.
+		overrides := ai.ApplyAccountRequest(ctx, ai.AuthResolutionOverrides{Env: options.Env})
 		if options.APIKey != "" {
 			overrides.APIKey = &options.APIKey
 		}
@@ -638,7 +743,9 @@ func (runtime *ModelRuntime) prepareRequest(ctx context.Context, model *ai.Model
 			requestModel = &cloned
 		}
 	} else if model.ProviderMeta.ProviderID != "" && registryOwnsModelBackend(provider) {
-		overrides := ai.AuthResolutionOverrides{Env: options.Env}
+		// The attempt's account selection, when the pool routed this request, resolves that
+		// account instead of the provider's selected one.
+		overrides := ai.ApplyAccountRequest(ctx, ai.AuthResolutionOverrides{Env: options.Env})
 		if options.APIKey != "" {
 			overrides.APIKey = &options.APIKey
 		}

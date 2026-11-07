@@ -148,16 +148,23 @@ func printableProviders(target AuthCommandTarget, runtime *codingagent.RequestAu
 }
 
 // createCredentialPrintRuntime mirrors the ModelRuntime.create call of
-// upstream runAuthCommand for credential printing: file-backed credentials,
-// models.json, and a local availability pass.
-func createCredentialPrintRuntime(ctx context.Context, agentDir string) (*codingagent.RequestAuthRuntime, error) {
-	credentials, err := ai.NewAuthStorage(authJSONPath(agentDir))
+// upstream runAuthCommand for credential printing: credentials, models.json, and a local
+// availability pass. The returned cleanup closes the credential store this call opened; the caller
+// must run it when the command finishes, because a request-auth runtime never closes storage it
+// was handed.
+func createCredentialPrintRuntime(ctx context.Context, agentDir string) (*codingagent.RequestAuthRuntime, func(), error) {
+	credentials, err := ai.OpenCredentialStore(agentDir)
 	if err != nil {
-		return nil, fmt.Errorf("open credentials: %w", err)
+		return nil, nil, fmt.Errorf("open credentials: %w", err)
 	}
-	return codingagent.NewRequestAuthRuntime(ctx, codingagent.RequestAuthRuntimeOptions{
+	runtime, err := codingagent.NewRequestAuthRuntime(ctx, codingagent.RequestAuthRuntimeOptions{
 		Credentials:     credentials,
 		AgentDir:        agentDir,
 		RefreshOnCreate: true,
 	})
+	if err != nil {
+		_ = credentials.Close()
+		return nil, nil, err
+	}
+	return runtime, func() { _ = credentials.Close() }, nil
 }

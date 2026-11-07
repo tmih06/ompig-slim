@@ -35,7 +35,7 @@ func chatModelsOf(models []ai.AnyModel) []*ai.Model {
 // NativeModelEntry lowers native model data to the configured backend representation without resolving credentials.
 func NativeModelEntry(model *ai.Model) ModelEntry {
 	cost := model.CostRates()
-	return ModelEntry{Type: model.Type, CatalogRecord: ai.CatalogRecordOf(model), ProviderID: model.ProviderMeta.ProviderID, ModelID: model.ID, DisplayName: model.DisplayName, API: string(model.ProviderMeta.API), BaseURL: model.ProviderMeta.BaseURL, Reasoning: model.ProviderMeta.Reasoning || model.Capabilities.MaxThinking != "", Input: slices.Clone(model.Input), ContextWindow: model.Capabilities.ContextWindow, MaxTokens: model.Capabilities.MaxOutputTokens, InputCost: cost.Input, OutputCost: cost.Output, CacheReadCost: cost.CacheRead, CacheWriteCost: cost.CacheWrite, CostTiers: slices.Clone(cost.Tiers), ModelHeaders: maps.Clone(model.ProviderMeta.Headers), Headers: maps.Clone(model.ProviderMeta.Headers), Compat: mergeCompat((*providerCompat)(model.ProviderMeta.Compat), nil), ThinkingLevelMap: cloneThinkingLevelMap(model.ThinkingLevelMap), SamplingParams: maps.Clone(model.SamplingParams), SamplingParamsByThinkingLevel: cloneSamplingParamsByThinkingLevel(model.SamplingParamsByThinkingLevel), PromptCache: maps.Clone(model.PromptCache), InputLimits: model.InputLimits.Clone()}
+	return ModelEntry{Type: model.Type, CatalogRecord: ai.CatalogRecordOf(model), ProviderID: model.ProviderMeta.ProviderID, ModelID: model.ID, DisplayName: model.DisplayName, API: string(model.ProviderMeta.API), BaseURL: model.ProviderMeta.BaseURL, Reasoning: model.ProviderMeta.Reasoning || model.Capabilities.MaxThinking != "", Input: slices.Clone(model.Input), ContextWindow: model.Capabilities.ContextWindow, MaxTokens: model.Capabilities.MaxOutputTokens, InputCost: cost.Input, OutputCost: cost.Output, CacheReadCost: cost.CacheRead, CacheWriteCost: cost.CacheWrite, CostTiers: slices.Clone(cost.Tiers), ModelHeaders: maps.Clone(model.ProviderMeta.Headers), Headers: maps.Clone(model.ProviderMeta.Headers), Compat: mergeCompat((*providerCompat)(model.ProviderMeta.Compat), nil), ThinkingLevelMap: cloneThinkingLevelMap(model.ThinkingLevelMap), SamplingParams: maps.Clone(model.SamplingParams), SamplingParamsByThinkingLevel: cloneSamplingParamsByThinkingLevel(model.SamplingParamsByThinkingLevel), PromptCache: maps.Clone(model.PromptCache), InputLimits: model.InputLimits.Clone(), Int: cloneFloat64(model.Int), TPS: cloneFloat64(model.TPS), Description: model.Description, Catalog: cloneCatalogProvenance(model.Catalog)}
 }
 
 func nativeModelFromEntry(entry ModelEntry) *ai.Model {
@@ -44,7 +44,23 @@ func nativeModelFromEntry(entry ModelEntry) *ai.Model {
 	model.Type = entry.Type
 	model.Capabilities = generated.ToCapabilities()
 	model.SamplingParamsByThinkingLevel = cloneSamplingParamsByThinkingLevel(entry.SamplingParamsByThinkingLevel)
+	// The catalog metrics of an entry describe the composed model, so a model rebuilt from it lists
+	// them again (provider-composer.ts modelFromJson keeps int/tps/description on the model object).
+	model.Int = cloneFloat64(entry.Int)
+	model.TPS = cloneFloat64(entry.TPS)
+	model.Description = entry.Description
+	model.Catalog = cloneCatalogProvenance(entry.Catalog)
 	return model
+}
+
+// cloneCatalogProvenance copies provenance so a rebuilt model never aliases the entry's field list.
+func cloneCatalogProvenance(provenance *ai.ModelCatalogProvenance) *ai.ModelCatalogProvenance {
+	if provenance == nil {
+		return nil
+	}
+	copied := *provenance
+	copied.Fields = append([]string(nil), provenance.Fields...)
+	return &copied
 }
 
 func applyNativeExtensionModels(id string, base []*ai.Model, anyDefinitions []ai.AnyModel, extension ProviderConfigInput, carrier bool) ([]*ai.Model, error) {
@@ -394,6 +410,9 @@ func (r *ModelRegistry) composeProvider(base *ai.ModelsProvider, extension *Prov
 			composed := newNativeModelIndex(models)
 			for _, definition := range config.Models {
 				entry := modelDefinitionEntry(base.ID, config, definition)
+				// The public catalog fills what the entry left out; an explicitly configured value always wins
+				// (provider-composer.ts modelFromJson resolves the patch before its defaults).
+				r.enrichDefinitionEntry(&entry, definition)
 				index := composed.indexOf(definition.ID)
 				defaults := composed.find(definition.ID, ai.API(firstModelValue(definition.API, config.API)))
 				if defaults != nil {

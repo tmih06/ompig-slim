@@ -122,7 +122,7 @@ func (r *ModelRegistry) refreshRemoteCatalogs(ctx context.Context, options ai.Mo
 	if r.remoteCollection == nil {
 		r.remoteCollection = ai.CreateModelsWithModelAuth(func(ctx context.Context, model *ai.Model, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error) {
 			return r.ResolveRegistryModelAuth(ctx, model, overrides)
-		}, ai.CreateModelsOptions{Credentials: registryCredentials{r}, ModelsStore: registryModelsStore{r}})
+		}, ai.CreateModelsOptions{Credentials: registryCredentials{r}, AccountRouter: r.AccountRouter(), ModelsStore: registryModelsStore{r}})
 	}
 	collection := r.remoteCollection
 	r.remoteMu.Unlock()

@@ -290,7 +290,7 @@ func runRPCMode(ctx context.Context, flags Args, activePiglet *piglet.Piglet, re
 
 	sessionDir, err := resolveSessionDir(flags.SessionDir, initial.Services.SettingsManager())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pig --rpc: session: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim --rpc: session: %v\n", err)
 		return 1
 	}
 	var promptWG sync.WaitGroup
@@ -318,13 +318,13 @@ func runRPCMode(ctx context.Context, flags Args, activePiglet *piglet.Piglet, re
 	defer factory.Close()
 	manager, err := coding.SessionManagerFor(initial.Services, inputs.Start)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pig --rpc: session: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim --rpc: session: %v\n", err)
 		return 1
 	}
 	// upstream: main.ts:707-714 names a new Session on its manager before createAgentSessionRuntime records the start model and thinking level (sdk.ts:453-458). The name is initial metadata: no session_info_changed reaches the client.
 	if flags.Name != "" {
 		if _, err := manager.AppendSessionInfo(flags.Name); err != nil {
-			fmt.Fprintf(os.Stderr, "pig --rpc: set session name: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ompig-slim --rpc: set session name: %v\n", err)
 			return 1
 		}
 	}
@@ -332,7 +332,7 @@ func runRPCMode(ctx context.Context, flags Args, activePiglet *piglet.Piglet, re
 		CWD: initial.CWD, AgentDir: initial.Services.AgentDir(), SessionManager: manager,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pig --rpc: session: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim --rpc: session: %v\n", err)
 		return 1
 	}
 	host.rt = rt
@@ -378,7 +378,7 @@ func withRPCModeOptions(ctx context.Context, options rpcModeOptions) context.Con
 func runRpcMode(ctx context.Context, rt *coding.Runtime) {
 	options, ok := ctx.Value(rpcModeOptionsKey{}).(rpcModeOptions)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "pig --rpc: no RPC mode state on the context")
+		fmt.Fprintln(os.Stderr, "ompig-slim --rpc: no RPC mode state on the context")
 		return
 	}
 	*options.exitCode = serveRPCMode(ctx, rt, options)
@@ -578,7 +578,7 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
 	})
 	first := rt.Session()
 	if err := host.bind(ctx, first, first.StartEvent(), false); err != nil {
-		fmt.Fprintf(os.Stderr, "pig --rpc: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim --rpc: %v\n", err)
 		return 1
 	}
 

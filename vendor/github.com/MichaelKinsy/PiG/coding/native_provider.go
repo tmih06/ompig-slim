@@ -65,7 +65,8 @@ func BuildNativeModel(registry *icodingagent.ModelRegistry, providerID, modelID 
 }
 
 func prepareNativeRequest(ctx context.Context, model *ai.Model, options ai.StreamOptions, p *extension.NativeProvider, registry *icodingagent.ModelRegistry) (*ai.Model, ai.Provider, ai.StreamOptions, error) {
-	overrides := ai.AuthResolutionOverrides{Env: options.Env}
+	// The attempt's account selection, when the pool routed this request, resolves that account.
+	overrides := ai.ApplyAccountRequest(ctx, ai.AuthResolutionOverrides{Env: options.Env})
 	if options.APIKey != "" {
 		overrides.APIKey = &options.APIKey
 	}

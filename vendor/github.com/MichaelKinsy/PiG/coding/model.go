@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -144,6 +143,10 @@ func modelFromEntry(entry icodingagent.ModelEntry, provider ai.Provider) *ai.Mod
 	model.SamplingParams = maps.Clone(entry.SamplingParams)
 	model.SamplingParamsByThinkingLevel = cloneSamplingParamsByThinkingLevel(entry.SamplingParamsByThinkingLevel)
 	model.PromptCache = maps.Clone(entry.PromptCache)
+	model.Int = entry.Int
+	model.TPS = entry.TPS
+	model.Description = entry.Description
+	model.Catalog = entry.Catalog
 	model.ProviderMeta = ai.ProviderMetadata{
 		ProviderID: entry.ProviderID,
 		API:        ai.API(entry.API),
@@ -207,14 +210,10 @@ func buildLeafProviderForEntry(providerID, modelID string, apiKind ai.API, entry
 	}
 
 	if providerID == "github-copilot" && !resolvedAuth {
-		// Re-open auth from disk so this provider has its own handle
-		// (the Services-owned handle is shared and may be in-use).
-		auth, err := ai.NewAuthStorage(filepath.Join(svcs.AgentDir(), "auth.json"))
-		if err != nil {
-			return nil, fmt.Errorf("coding: BuildModel: github-copilot auth: %w", err)
-		}
+		// The shared credential store is safe for concurrent use: SQLite serializes its own writes
+		// across processes, so the provider reads and refreshes through the Services' handle.
 		return ai.NewCopilotProvider(ai.CopilotProviderConfig{
-			Auth:      auth,
+			Auth:      svcs.Credentials(),
 			Model:     modelID,
 			API:       apiKind,
 			Reasoning: entry.Reasoning,
@@ -337,6 +336,17 @@ func buildLeafProviderForEntry(providerID, modelID string, apiKind ai.API, entry
 			ExtraHeaders:     extraHeaders,
 			ThinkingLevelMap: cloneThinkingLevelMap(entry.ThinkingLevelMap),
 		}), nil
+	case ai.APIGoogleGeminiCLI:
+		// Cloud Code Assist: the credential is the provisioned OAuth blob, so the per-request callback keeps a
+		// refreshed token in the request.
+		return ai.NewGoogleCloudCodeAssistProvider(ai.GoogleCloudCodeAssistConfig{
+			ModelMetadata: modelFromEntry(entry, nil),
+			BaseURL:       baseURL,
+			APIKey:        apiKey,
+			Model:         modelID,
+			ProviderID:    providerID,
+			ExtraHeaders:  extraHeaders,
+		}), nil
 	case ai.APIGoogleVertex:
 		// pig additive (D92): the google-vertex, bedrock-converse-stream and mistral-conversations constructors report a stripped API (strip.apis).
 		return ai.NewGoogleVertexAPIProvider(ai.GoogleVertexConfig{
@@ -416,7 +426,7 @@ func acceptsRequestAPIKey(apiKind ai.API) bool {
 // the configured or environment key. Mirrors upstream resolveProviderAuth
 // over RuntimeCredentials.
 func requestAPIKey(svcs *AgentSessionServices, providerID, fallback string) func(context.Context) (string, error) {
-	stored := storedAPIKey(filepath.Join(svcs.AgentDir(), "auth.json"), providerID, fallback)
+	stored := storedAPIKey(svcs.AgentDir(), providerID, fallback)
 	registry := svcs.Registry().ModelRegistry
 	return func(ctx context.Context) (string, error) {
 		if key, ok := registry.RuntimeAPIKey(providerID); ok {
@@ -431,12 +441,13 @@ func requestAPIKey(svcs *AgentSessionServices, providerID, fallback string) func
 // stored api_key credential owns the provider, ahead of the configured or
 // environment key fallback. An unopenable auth store yields the fallback; a
 // failed read or refresh is returned to the request.
-func storedAPIKey(authPath, providerID, fallback string) func(context.Context) (string, error) {
+func storedAPIKey(agentDir, providerID, fallback string) func(context.Context) (string, error) {
 	return func(ctx context.Context) (string, error) {
-		auth, err := ai.NewAuthStorage(authPath)
+		auth, err := ai.OpenCredentialStore(agentDir)
 		if err != nil {
 			return fallback, nil
 		}
+		defer func() { _ = auth.Close() }()
 		key, ok, err := ai.ResolveStoredAPIKeyFromStorageContext(ctx, auth, providerID)
 		if err != nil || ok {
 			return key, err

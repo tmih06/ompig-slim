@@ -135,6 +135,13 @@ type InteractiveMode struct {
 	newRunner     *inproc.Runner
 	// detachModelRegistry detaches the model operations wired to the current build's bridge.
 	detachModelRegistry func()
+	// fallbackRegistry is the model registry the mode builds over its agent directory when no
+	// registry is supplied, and fallbackStore the credential store it opened for it. Stop releases
+	// both, so picker passes share one handle instead of opening one each.
+	fallbackMu       sync.Mutex
+	fallbackRegistry *ModelRegistry
+	fallbackStore    ai.CredentialStore
+	fallbackClosed   bool
 	// runEnded is set once Stop finished and the owner loop no longer runs.
 	runEnded atomic.Bool
 	// isInitialized is upstream's isInitialized: Init completed and Stop has not run since.
@@ -409,6 +416,14 @@ type InteractiveMode struct {
 	// extension-registered set. Constructed in Run().
 	slashRegistry *SlashRegistry
 
+	// usageDashboard is the mounted /usage overlay; usageActivity is its local
+	// session-history scanner, kept across opens so its per-file cache survives.
+	usageDashboard *usageDashboardState
+	usageActivity  *tui.UsageActivity
+	// usageService fetches provider quotas for the board. nil leaves the board
+	// without a quota source (no credentials wired), which it reports as empty.
+	usageService UsageQuotaService
+
 	// App-level keybinding registry loaded from <agentDir>/keybindings.json.
 	// Mirrors upstream core/keybindings.ts for interactive-mode bindings.
 	keybindings *KeybindingsManager
@@ -491,6 +506,9 @@ type InteractiveMode struct {
 	eventCh            <-chan agent.AgentEvent
 	evCurrentBlock     *tui.AssistantMessageComponent
 	bugReportHintShown bool
+	// agentStartAt is the wall-clock start of the current run, set by agent_start and cleared by agent_end, which reports the
+	// run's throughput from it (interactive-mode.ts:529 agentStartMs). Owner loop only, like the other event state.
+	agentStartAt time.Time
 	// installChanges holds what this process recorded at startup; nil records nothing.
 	installChanges            *installchange.Tracker
 	installChangeWarningShown bool
@@ -1105,6 +1123,17 @@ type InteractiveModeOptions struct {
 	// provider configuration used for model requests.
 	RequestAuthRuntime *RequestAuthRuntime
 
+	// UsageService is the quota service the /usage board reads. The host builds
+	// it from the session's credential store and auth runtime; nil leaves the
+	// board without a quota source.
+	UsageService UsageQuotaService
+	// UsageAccountKey reports the account this session is routed to for a
+	// provider. present is false when the runtime holds no routing decision,
+	// which asks the quota service for the store's active account; a present
+	// result passes its key through, nil included, because a nil key names an
+	// identity-less account rather than the default.
+	UsageAccountKey func(provider string) (accountKey *string, present bool)
+
 	// ModelRegistry is the model registry for auth-aware operations
 	// (Refresh, GetAvailable, HasConfiguredAuth). Wired by main.go.
 	// nil is safe; post-login refresh is skipped.
@@ -1524,6 +1553,13 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	}
 	m.runEnded.Store(false)
 	m.runCtx = ctx
+	// The fallback registry over the agent directory belongs to this mode; Stop closes its handle
+	// after the registry stops its model work. Registering here also covers a re-initialized mode,
+	// whose earlier Stop released the previous handle and dropped its teardowns.
+	m.fallbackMu.Lock()
+	m.fallbackClosed = false
+	m.fallbackMu.Unlock()
+	m.onStop(func() error { m.closeFallbackRegistry(); return nil })
 	// SIGINT is taken before anything draws, as Pi's init() registers its signal handlers first (interactive-mode.ts:974-977): a screen on the
 	// terminal means the handler is in place. Installed after the first render, a SIGINT sent to a session that had already drawn got Go's
 	// default action: the process died by the signal with no exit.log line.
@@ -1553,6 +1589,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.backgroundCtx, m.backgroundCancel = context.WithCancel(ctx)
 	m.onStop(func() error {
 		m.backgroundCancel()
+		m.disposeUsageDashboard()
 		m.disposeArminComponents()
 		m.disposeLogoAnimation()
 		m.disposeMarkdownBlocks()

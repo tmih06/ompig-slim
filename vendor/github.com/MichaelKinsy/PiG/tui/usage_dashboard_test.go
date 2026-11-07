@@ -53,10 +53,10 @@ func plainLines(lines []string) string {
 func TestUsagePlanGroupingSeparatesSubscriptions(t *testing.T) {
 	now := time.Now().UnixMilli()
 	account := func(email, plan string, used float64) ai.UsageReport {
-		return usageTestReport("openai-codex", email, []ai.UsageLimit{
-			usageTestLimit("openai-codex", email, "5h", "5 Hour",
-				ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK),
-		}, map[string]any{"email": email, "planType": plan})
+		limit := usageTestLimit("openai-codex", email, "5h", "5 Hour",
+			ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)
+		limit.ID = "five-hour"
+		return usageTestReport("openai-codex", email, []ai.UsageLimit{limit}, map[string]any{"email": email, "planType": plan})
 	}
 	cards := BuildProviderCards([]ai.UsageReport{
 		account("plus-one@test", "chatgpt-plus", 0.2),

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -24,8 +25,8 @@ func runDiagnose(w io.Writer, binaryPath string) {
 	hr := strings.Repeat("─", 60)
 
 	// ─── Build info ──────────────────────────────────────
-	_, _ = fmt.Fprintf(w, "pig diagnostics\n%s\n", hr)
-	_, _ = fmt.Fprintf(w, "pig-version:       %s\n", PigVersion)
+	_, _ = fmt.Fprintf(w, "ompig-slim diagnostics\n%s\n", hr)
+	_, _ = fmt.Fprintf(w, "app-version:       %s\nPiG library:       %s\n", Version, PigVersion)
 	_, _ = fmt.Fprintf(w, "upstream-pin:      %s\n", UpstreamVersion)
 	_, _ = fmt.Fprintf(w, "build:             %s\n", buildIdentity())
 	_, _ = fmt.Fprintf(w, "go runtime:        %s\n", runtime.Version())
@@ -62,7 +63,7 @@ func runDiagnose(w io.Writer, binaryPath string) {
 		_, _ = fmt.Fprintln(w, "                   read-only: no docs bundle, staged extension SDKs or Piglet Binary verification cache are written; a signed Piglet Binary checks itself in full at every start")
 	}
 	_, _ = fmt.Fprintf(w, "agent dir:         %s\n", agentDirForModel())
-	_, _ = fmt.Fprintf(w, "auth.json:         %s\n", agentDirForModel()+"/auth.json")
+	_, _ = fmt.Fprintf(w, "agent.db:          %s\n", ai.SQLiteAuthPath(agentDirForModel()))
 	if cwd, err := os.Getwd(); err == nil {
 		_, _ = fmt.Fprintf(w, "cwd:               %s\n", cwd)
 	}
@@ -92,23 +93,24 @@ func runDiagnose(w io.Writer, binaryPath string) {
 
 	// ─── Auth ─────────────────────────────────────────────
 	_, _ = fmt.Fprintf(w, "\nauth (logged-in providers)\n%s\n", hr)
-	authPath := agentDirForModel() + "/auth.json"
-	if _, err := os.Stat(authPath); err != nil {
-		_, _ = fmt.Fprintf(w, "  (no auth.json: run `pig login`)\n")
-	} else if storage, err := ai.NewAuthStorage(authPath); err != nil {
-		_, _ = fmt.Fprintf(w, "  error opening auth: %v\n", err)
-	} else if creds, err := storage.Load(); err != nil {
-		_, _ = fmt.Fprintf(w, "  error loading auth: %v\n", err)
-	} else if len(creds) == 0 {
-		_, _ = fmt.Fprintf(w, "  (none)\n")
-	} else {
-		providers := make([]string, 0, len(creds))
-		for p := range creds {
-			providers = append(providers, p)
+	agentDir := agentDirForModel()
+	// The store is the multi-account agent.db, or a read-only view of auth.json before it migrated.
+	storage, err := ai.OpenReadOnlyCredentialStore(agentDir)
+	if storage != nil {
+		if closer, ok := storage.(interface{ Close() error }); ok {
+			defer func() { _ = closer.Close() }()
 		}
-		slices.Sort(providers)
-		for _, p := range providers {
-			_, _ = fmt.Fprintf(w, "  %s: %s\n", p, credentialKindLabel(creds[p]))
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "  error opening credentials: %v\n", err)
+	} else if creds, err := storage.List(context.Background()); err != nil {
+		_, _ = fmt.Fprintf(w, "  error loading credentials: %v\n", err)
+	} else if len(creds) == 0 {
+		_, _ = fmt.Fprintf(w, "  (none: run `%s login`)\n", codingagent.AppName)
+	} else {
+		slices.SortFunc(creds, func(a, b ai.CredentialInfo) int { return strings.Compare(a.ProviderID, b.ProviderID) })
+		for _, info := range creds {
+			_, _ = fmt.Fprintf(w, "  %s: %s\n", info.ProviderID, info.Type)
 		}
 	}
 
@@ -163,12 +165,6 @@ func runDiagnose(w io.Writer, binaryPath string) {
 		}
 		_, _ = fmt.Fprintf(w, "  %-22s %s\n", k+":", maskEnv(k, v))
 	}
-}
-
-// credentialKindLabel returns a one-word descriptor of how a
-// credential authenticates.
-func credentialKindLabel(c ai.Credential) string {
-	return string(c.Type)
 }
 
 // maskEnv truncates secret-shaped env vars to first 6 + "…" so

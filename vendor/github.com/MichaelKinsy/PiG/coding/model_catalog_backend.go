@@ -37,9 +37,17 @@ func (*catalogModelBackend) Close() error        { return nil }
 func (provider *catalogModelBackend) Stream(ctx context.Context, transcript ai.TranscriptContext, options ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
 	bound := new(*provider.model)
 	bound.Provider = provider
-	_, backend, prepared, err := provider.runtime.prepare(ctx, bound, options)
-	if err != nil {
-		return nil, err
-	}
-	return backend.Stream(ctx, transcript, prepared)
+	// A direct provider call — compaction's completeSimple among them — shares the request's
+	// account routing, so a rejected account rotates here too.
+	router := provider.runtime.accountRouter()
+	return router.StreamRoutes(ctx, bound, ai.AccountRouteRequest{SessionID: options.SessionID, APIKeySet: options.APIKey != "" || options.APIKeySet}, func(attemptCtx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (*ai.AssistantMessageEventStream, error) {
+		attemptCtx = ai.WithAccountSelection(attemptCtx, selection, forceOAuthRefresh)
+		attemptOptions := options
+		attemptOptions.OnResponse = ai.ObserveOnResponse(attemptOptions.OnResponse, observe)
+		_, backend, prepared, err := provider.runtime.prepare(attemptCtx, bound, attemptOptions)
+		if err != nil {
+			return nil, err
+		}
+		return backend.Stream(attemptCtx, transcript, prepared)
+	}), nil
 }

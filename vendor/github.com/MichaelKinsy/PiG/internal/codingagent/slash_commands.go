@@ -168,6 +168,8 @@ type SlashContext struct {
 	CostSummary   func() string
 	ShowHotkeys   func()
 	ShowChangelog func()
+	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
+	ShowUsage func()
 
 	// All registered commands: set by Dispatch before calling Handler
 	// so /help can enumerate the live set.
@@ -669,6 +671,9 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "copy", Description: "Copy last agent message to clipboard", Handler: copyHandler},
 		{Name: "name", Description: "Set session display name", TakesArguments: true, Handler: nameHandler},
 		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},
+		// /usage opens the quota board; its optional "show" argument is the only
+		// accepted one, matching upstream's submit-handler branch.
+		{Name: "usage", Description: "Show provider quotas and usage activity", TakesArguments: true, Handler: usageHandler},
 		{Name: "changelog", Description: "Show changelog entries", Handler: changelogHandler},
 		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
 		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},

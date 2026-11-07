@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -111,17 +110,24 @@ func (m *InteractiveMode) oauthProviderList(mode string, includeStatus ...bool) 
 	if len(includeStatus) > 0 && !includeStatus[0] {
 		return all
 	}
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return all
 	}
-	creds, err := auth.Load()
+	defer func() { _ = auth.Close() }()
+	// One listing serves both the stored-provider status and the fallback check.
+	//portlint:allow ctxbackground the selector's status pass has no caller context (interactive-mode.ts:5836)
+	credentialInfos, err := auth.List(context.Background())
 	if err != nil {
 		return all
+	}
+	creds := make(map[string]ai.CredentialType, len(credentialInfos))
+	for _, info := range credentialInfos {
+		creds[info.ProviderID] = info.Type
 	}
 	for i := range all {
 		if c, ok := creds[all[i].ID]; ok {
-			all[i].Status = &ai.AuthCheck{Type: c.Type, Source: string(ai.AuthSourceStored)}
+			all[i].Status = &ai.AuthCheck{Type: c, Source: string(ai.AuthSourceStored)}
 		}
 		if all[i].Status == nil {
 			if store, ok := oauthCredentialStore(all[i].ID); ok {
@@ -131,7 +137,7 @@ func (m *InteractiveMode) oauthProviderList(mode string, includeStatus ...bool) 
 			}
 		}
 		if all[i].Status == nil {
-			status := auth.GetAuthStatus(all[i].ID)
+			status := ai.CredentialStoreAuthStatus(context.Background(), auth, all[i].ID)
 			status.Configured = status.Source != ""
 			if m.opts.ModelRegistry != nil {
 				status = m.opts.ModelRegistry.GetProviderAuthStatus(all[i].ID)
@@ -289,10 +295,11 @@ func runOAuthProviderLogin(ctx context.Context, provider ai.OAuthProviderInterfa
 // runLoginRegisteredOAuth runs provider's login in the login dialog. providerName is the selected login option's provider name, which Pi's showLoginDialog shows and reports (interactive-mode.ts:5877, :6338).
 func (m *InteractiveMode) runLoginRegisteredOAuth(loginCtx context.Context, provider ai.OAuthProviderInterface, providerName, selectedMethod string) error {
 	previousModel := m.opts.Model
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return fmt.Errorf("auth storage: %w", err)
 	}
+	defer func() { _ = auth.Close() }()
 
 	loginCtx, loginCancel := context.WithCancel(loginCtx)
 	dlg := m.newLoginDialog(providerName, loginCancel)
@@ -423,7 +430,8 @@ func (m *InteractiveMode) runLoginRegisteredOAuth(loginCtx context.Context, prov
 		},
 	}
 
-	authPath := auth.Path()
+	// Core credentials are persisted in the shared database; extensions can report their own path.
+	authPath := ai.SQLiteAuthPath(m.opts.AgentDir)
 	var failed atomic.Bool
 	go func() {
 		defer loginCancel()
@@ -539,10 +547,11 @@ func (m *InteractiveMode) runLoginOpenAICodex(loginCtx context.Context) error {
 		loginMethod = ai.OpenAICodexDeviceCodeLoginMethod
 	}
 
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return fmt.Errorf("auth storage: %w", err)
 	}
+	defer func() { _ = auth.Close() }()
 
 	loginCtx, loginCancel := context.WithCancel(loginCtx)
 	dlg := m.newLoginDialog(buildAuthProviderName("openai-codex"), loginCancel)
@@ -630,7 +639,7 @@ func (m *InteractiveMode) runLoginOpenAICodex(loginCtx context.Context) error {
 		if m.synchronizeLoginCredential(m.loginContext(), "openai-codex", buildAuthProviderName("openai-codex"), ai.CredentialOAuth, dlg.Redact) {
 			return nil
 		}
-		m.completeProviderAuthentication("openai-codex", buildAuthProviderName("openai-codex"), ai.CredentialOAuth, previousModel, auth.Path(), dlg.Redact)
+		m.completeProviderAuthentication("openai-codex", buildAuthProviderName("openai-codex"), ai.CredentialOAuth, previousModel, ai.SQLiteAuthPath(m.opts.AgentDir), dlg.Redact)
 		return nil
 	}
 	return loginDialogOutcome(dlg, &failed, buildAuthProviderName("openai-codex"))
@@ -639,10 +648,11 @@ func (m *InteractiveMode) runLoginOpenAICodex(loginCtx context.Context) error {
 // runLoginGitHubCopilotDialog runs the GitHub Copilot login flow in the editor slot.
 func (m *InteractiveMode) runLoginGitHubCopilotDialog(loginCtx context.Context) error {
 	previousModel := m.opts.Model
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return fmt.Errorf("auth storage: %w", err)
 	}
+	defer func() { _ = auth.Close() }()
 
 	loginCtx, loginCancel := context.WithCancel(loginCtx)
 	dlg := m.newLoginDialog(buildAuthProviderName("github-copilot"), loginCancel)
@@ -712,7 +722,7 @@ func (m *InteractiveMode) runLoginGitHubCopilotDialog(loginCtx context.Context) 
 		if m.synchronizeLoginCredential(m.loginContext(), "github-copilot", buildAuthProviderName("github-copilot"), ai.CredentialOAuth, dlg.Redact) {
 			return nil
 		}
-		m.completeProviderAuthentication("github-copilot", buildAuthProviderName("github-copilot"), ai.CredentialOAuth, previousModel, auth.Path(), dlg.Redact)
+		m.completeProviderAuthentication("github-copilot", buildAuthProviderName("github-copilot"), ai.CredentialOAuth, previousModel, ai.SQLiteAuthPath(m.opts.AgentDir), dlg.Redact)
 		return nil
 	}
 	return loginDialogOutcome(dlg, &failed, buildAuthProviderName("github-copilot"))
@@ -721,13 +731,14 @@ func (m *InteractiveMode) runLoginGitHubCopilotDialog(loginCtx context.Context) 
 // runOAuthLogout removes stored OAuth credentials for a provider.
 // Mirrors upstream showOAuthSelector logout branch (interactive-mode.ts:4296-4308).
 func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) error {
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return fmt.Errorf("auth storage: %w", err)
 	}
+	defer func() { _ = auth.Close() }()
 
 	deleted := false
-	if _, ok, _ := auth.Get(provider); ok {
+	if credential, readErr := auth.Read(ctx, provider); readErr == nil && credential != nil {
 		if err := auth.Delete(ctx, provider); err != nil {
 			return fmt.Errorf("logout: %w", err)
 		}
@@ -816,12 +827,13 @@ func (m *InteractiveMode) footerUsingSubscription(model *ai.Model) bool {
 	if !ai.IsOAuthSubscriptionProvider(providerID) {
 		return false
 	}
-	auth, err := ai.NewAuthStorage(filepath.Join(m.opts.AgentDir, "auth.json"))
+	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return false
 	}
-	cred, ok, err := auth.Get(providerID)
-	return ok && err == nil && cred.Type == ai.CredentialOAuth
+	defer func() { _ = auth.Close() }()
+	cred, err := auth.Read(context.Background(), providerID)
+	return err == nil && cred != nil && cred.Type == ai.CredentialOAuth
 }
 
 // newFooter builds the footer bound to the session's stored usage totals and
@@ -949,7 +961,7 @@ var openBrowser = func(target string) error {
 // frozen placeholder with the real result via SetResult.
 
 // saveLoginCredential stores the credential a login produced as Pi's Models.login does, through credentials.modify (pi-ai models.ts:593-610): the cancellable auth lock waits up to 30 seconds for another process's lock and ignores a failed release.
-func saveLoginCredential(ctx context.Context, auth *ai.AuthStorage, providerID string, credential ai.Credential) error {
+func saveLoginCredential(ctx context.Context, auth ai.CredentialStore, providerID string, credential ai.Credential) error {
 	_, err := auth.Modify(ctx, providerID, func(*ai.Credential) (*ai.Credential, error) { return &credential, nil })
 	return err
 }
