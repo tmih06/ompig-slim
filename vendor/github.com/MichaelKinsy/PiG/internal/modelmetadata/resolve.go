@@ -113,8 +113,11 @@ func (s *Service) ResolvePatch(modelID, modelName string, explicit FieldSet, opt
 	}
 	source := s.source
 	s.mu.Unlock()
-	reference, hasReference := s.reference(modelID, modelName)
 	if len(candidates) == 0 {
+		if options.Mode == ModeMetrics {
+			return Patch{}, false
+		}
+		reference, hasReference := s.reference(modelID, modelName)
 		return s.bundledPatch(reference, hasReference, explicit, options)
 	}
 	row := candidates[0]
@@ -152,6 +155,9 @@ func (s *Service) ResolvePatch(modelID, modelName string, explicit FieldSet, opt
 		}
 		return patch, true
 	}
+	// Bundled references can supply cache policy and reasoning capabilities,
+	// never selector metrics. Resolve them only for full custom-model patches.
+	reference, hasReference := s.reference(modelID, modelName)
 	if row.Cost != nil {
 		cost := PatchCost{}
 		any := false
