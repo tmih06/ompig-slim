@@ -77,6 +77,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 		if previous != nil {
 			r.reportRotation(model.ProviderID(), model.ModelID(), *previous, account, request)
 		}
+		defer r.trackAccountAttempt(model, account, request)()
 		for refresh := range 2 {
 			attemptCtx, selection := r.attemptContext(ctx, account)
 			observed := newObservedResponse()
@@ -163,6 +164,11 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 			block := r.Fail(ctx, model, account, errorMessageOf(failure), observed.get())
 			if block != nil {
 				return accountStreamOutcome{rotated: true, failure: &accountFailure{account: account, scope: block.Scope}, event: &failure}
+			}
+		}
+		if !emitted {
+			if _, failure := event.(ErrorEvent); !failure {
+				r.confirmAccountAttempt(model, account, request)
 			}
 		}
 		if start != nil {
@@ -347,6 +353,7 @@ func routeAccountResult[T any](
 		if previous != nil {
 			router.reportRotation(model.ProviderID(), model.ModelID(), *previous, account, request)
 		}
+		defer router.trackAccountAttempt(model, account, request)()
 		for refresh := range 2 {
 			attemptCtx, selection := router.attemptContext(ctx, account)
 			observed := newObservedResponse()

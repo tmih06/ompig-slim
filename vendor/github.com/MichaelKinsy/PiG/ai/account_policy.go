@@ -38,6 +38,7 @@ var codexPaidModels = map[string]bool{
 	"gpt-5.6-sol-pro":  true,
 	"gpt-5.6-luna":     true,
 	"gpt-5.6-luna-pro": true,
+	"gpt-6.1-sol":      true,
 }
 
 // AccountPolicyModelID is the canonical bare model identity used by OMP's model-policy

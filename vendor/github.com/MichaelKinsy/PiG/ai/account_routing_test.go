@@ -156,6 +156,14 @@ func TestAccountMeetsModelPlan(t *testing.T) {
 	if meets := ai.AccountMeetsModelPlan("openai-codex", "gpt-5.6-sol", free); meets == nil || *meets {
 		t.Fatalf("free plan must be ineligible for gpt-5.6-sol, got %v", meets)
 	}
+	for _, model := range []string{"gpt-6.1-sol", "openai-codex/GPT-6.1-SOL"} {
+		for _, plan := range []string{"free", "go", "plus", "pro"} {
+			want := plan == "plus" || plan == "pro"
+			if meets := ai.AccountMeetsModelPlan("openai-codex", model, codex(plan)); meets == nil || *meets != want {
+				t.Fatalf("%s eligibility for %s = %v, want %v", plan, model, meets, want)
+			}
+		}
+	}
 	// A pro plan can.
 	if meets := ai.AccountMeetsModelPlan("openai-codex", "gpt-5.6-sol", codex("pro")); meets == nil || !*meets {
 		t.Fatalf("pro plan must be eligible for gpt-5.6-sol, got %v", meets)
@@ -730,5 +738,121 @@ func TestStreamRoutesLiveProviderWithoutResultReportsError(t *testing.T) {
 	}
 	if message.ErrorMessage == "" {
 		t.Fatal("the stream failure must say what happened")
+	}
+}
+
+func TestRouterPrefersFreeCodexAccountsForEligibleModels(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider, model string
+		want                  []string
+	}{
+		{"luna", "openai-codex", "gpt-6-luna", []string{"free", "plus", "pro"}},
+		{"unrestricted", "openai-codex", "gpt-5", []string{"free", "plus", "pro"}},
+		{"paid model", "openai-codex", "gpt-5.6-sol", []string{"plus", "pro"}},
+		{"sol 6.1", "openai-codex", "gpt-6.1-sol", []string{"plus", "pro"}},
+		{"terra", "openai-codex", "gpt-6.1-terra", []string{"plus", "pro"}},
+		{"spark", "openai-codex", "gpt-5.6-spark", []string{"pro"}},
+		{"other provider", "other", "gpt-6-luna", []string{"plus", "pro", "free"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeAccountStore(accountInfo(tc.provider, keyOf("plus"), true), accountInfo(tc.provider, keyOf("pro"), false), accountInfo(tc.provider, keyOf("free"), false))
+			for _, plan := range []string{"plus", "pro", "free"} {
+				store.put(tc.provider, keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken(plan)})
+			}
+			accounts, err := ai.NewAccountRouter(store).Candidates(t.Context(), okModel(tc.provider, tc.model), ai.AccountRouteRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(accounts) != len(tc.want) {
+				t.Fatalf("got %d candidates, want %v", len(accounts), tc.want)
+			}
+			for i, want := range tc.want {
+				if accounts[i].AccountKey == nil || *accounts[i].AccountKey != want {
+					t.Fatalf("candidate %d = %v, want %s", i, accounts[i].AccountKey, want)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveAccountSwitchesLunaAndSolBeforeAnyRequest(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("free"), true), accountInfo("openai-codex", keyOf("plus"), false))
+	for _, plan := range []string{"free", "plus"} {
+		store.put("openai-codex", keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken(plan)})
+	}
+	router := ai.NewAccountRouter(store)
+	request := ai.AccountRouteRequest{SessionID: "switch-without-sending"}
+	for _, tc := range []struct{ model, want string }{
+		{"gpt-6-luna", "free"},
+		{"gpt-6.1-sol", "plus"},
+		{"gpt-6-luna", "free"},
+		{"gpt-6.1-sol", "plus"},
+	} {
+		key, present, err := router.ResolveAccount(t.Context(), okModel("openai-codex", tc.model), request)
+		if err != nil || !present || key == nil || *key != tc.want {
+			t.Fatalf("preview for %s = %v, %v, %v; want %s", tc.model, key, present, err, tc.want)
+		}
+		if _, confirmed := router.PeekRoutedAccountKey("openai-codex", request.SessionID, tc.model); confirmed {
+			t.Fatal("preview must not require or establish a confirmed request route")
+		}
+	}
+}
+
+func TestStreamRoutesPrefersRecoveredFreeCodexAccountOverPaidAffinity(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("plus"), true), accountInfo("openai-codex", keyOf("free"), false))
+	for _, plan := range []string{"plus", "free"} {
+		store.put("openai-codex", keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken(plan)})
+	}
+	now := time.Now()
+	store.block("openai-codex", keyOf("free"), "chat", now.Add(time.Minute).UnixMilli())
+	router := ai.NewAccountRouter(store)
+	router.SetClock(func() time.Time { return now })
+	model := okModel("openai-codex", "gpt-6-luna")
+	request := ai.AccountRouteRequest{SessionID: "free-first-session"}
+	var tried []string
+	attempt := func(ctx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, force bool) (*ai.AssistantMessageEventStream, error) {
+		tried = append(tried, *selection.AccountKey)
+		return okStream(), nil
+	}
+	text, _ := collectStream(t, router.StreamRoutes(t.Context(), model, request, attempt))
+	if text != "hello" || len(tried) != 1 || tried[0] != "plus" {
+		t.Fatalf("blocked free account should use Plus: %q %v", text, tried)
+	}
+	key, present := router.PeekAccountKey("openai-codex", request.SessionID, model.ID)
+	if !present || key == nil || *key != "plus" {
+		t.Fatal("successful fallback did not establish Plus affinity")
+	}
+	now = now.Add(2 * time.Minute)
+	tried = nil
+	text, _ = collectStream(t, router.StreamRoutes(t.Context(), model, request, attempt))
+	if text != "hello" || len(tried) != 1 || tried[0] != "free" {
+		t.Fatalf("recovered free account must outrank Plus affinity: %q %v", text, tried)
+	}
+}
+
+func TestStreamRoutesFallsBackFromFreeCodexQuotaToPlus(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("plus"), true), accountInfo("openai-codex", keyOf("free"), false))
+	for _, plan := range []string{"plus", "free"} {
+		store.put("openai-codex", keyOf(plan), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken(plan)})
+	}
+	router := ai.NewAccountRouter(store)
+	model := okModel("openai-codex", "gpt-6-luna")
+	var tried []string
+	attempt := func(ctx context.Context, selection ai.AccountSelection, observe ai.AccountObserve, force bool) (*ai.AssistantMessageEventStream, error) {
+		tried = append(tried, *selection.AccountKey)
+		if *selection.AccountKey == "free" {
+			observe(ai.ProviderResponse{Status: 429})
+			return emptyErrorStream("usage_limit_reached"), nil
+		}
+		return okStream(), nil
+	}
+	text, _ := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, attempt))
+	if text != "hello" || len(tried) != 2 || tried[0] != "free" || tried[1] != "plus" {
+		t.Fatalf("expected free then Plus on quota exhaustion: %q %v", text, tried)
+	}
+	tried = nil
+	text, _ = collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, attempt))
+	if text != "hello" || len(tried) != 1 || tried[0] != "plus" {
+		t.Fatalf("blocked free account was retried: %q %v", text, tried)
 	}
 }
