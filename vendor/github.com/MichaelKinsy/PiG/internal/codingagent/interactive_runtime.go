@@ -157,6 +157,7 @@ func (m *InteractiveMode) rebindFromRuntime(ctx context.Context, session Interac
 func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r InteractiveReplacement) {
 	m.detachSubprocess()
 	m.opts.SessionHandle = session
+	m.bindSubagentUI()
 	m.opts.CWD = r.CWD
 	m.opts.SessionDir = r.SessionDir
 	m.opts.Settings = r.Settings

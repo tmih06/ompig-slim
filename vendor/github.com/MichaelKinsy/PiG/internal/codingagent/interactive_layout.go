@@ -169,7 +169,10 @@ func (m *InteractiveMode) tickSpinner(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				if m.isIdle && m.activeStatusIndicator == nil {
+				if m.subagentsActive() {
+					m.requestRender()
+				}
+				if m.isIdle && m.activeStatusIndicator == nil && !m.subagentsActive() {
 					select {
 					case m.spinnerParkCh <- spinnerPark{gen: gen, afterBusy: m.idleCollectArmed.Load()}:
 					default:

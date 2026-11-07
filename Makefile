@@ -18,6 +18,7 @@ check test race vet:
 
 smoke: build
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
+	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
 
 release:
 	bash scripts/build-binaries.sh $(ARGS)

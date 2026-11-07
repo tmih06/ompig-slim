@@ -32,6 +32,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/imageprocessing"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 )
 
 // Session is an active agent runtime: one JSONL on disk, one
@@ -45,8 +46,11 @@ import (
 //
 // Construct a Session via NewSession or through Runtime.
 type Session struct {
-	processImage      imageprocessing.ProcessImageFunc
-	sessionStartEvent extension.SessionStartEvent
+	subagents              *subagents.Manager
+	subagentToolsAllowed   bool
+	subagentRPCUnsubscribe func()
+	processImage           imageprocessing.ProcessImageFunc
+	sessionStartEvent      extension.SessionStartEvent
 	// ownedServices are the Services CreateAgentSession built for this Session; Close releases them. Nil for a Session over caller-owned Services.
 	ownedServices *AgentSessionServices
 	// detachExtensionHost unbinds the Session from the Extension Host of its resource loader (bindLoaderExtensionHost); nil when the Session did not bind one.
@@ -243,6 +247,8 @@ type callerHooks struct {
 
 // SessionOptions configures NewSession.
 type SessionOptions struct {
+	subagentChild            bool
+	subagentBuiltinSelection *bool
 	// SessionManager supplies the actual backing log instead of creating or loading another one.
 	SessionManager *SessionManager
 
@@ -804,6 +810,10 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 	sess.refreshContext()
 	sess.installCacheWarmer(inner, opts.CacheWarmer)
 	go sess.forwardAgentEvents()
+	if err := sess.initSubagents(opts); err != nil {
+		_ = sess.Close()
+		return nil, err
+	}
 	return sess, nil
 }
 
@@ -1445,13 +1455,21 @@ func (s *Session) Inner() *icodingagent.Session { return s.inner }
 // ReplaceInner aborts work owned by the old Session, then installs the new
 // Session state, including whether its manager persists to a file.
 func (s *Session) ReplaceInner(sess *icodingagent.Session) {
+	hadSubagents := s.subagents != nil
+	subagentSelection := s.subagentToolsAllowed
+	if hadSubagents {
+		s.subagents.Close()
+		if s.subagentRPCUnsubscribe != nil {
+			s.subagentRPCUnsubscribe()
+			s.subagentRPCUnsubscribe = nil
+		}
+	}
 	// pig divergence (D61): Services, Resources, and built-in tools remain bound
 	// to the startup project.
 	s.AbortCompaction()
 	s.AbortBranchSummary()
 	s.installCacheWarmer(sess, nil)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.inner = sess
 	// upstream: runner.ts:889-891. Extensions see the log the Session now owns, and nothing keeps the replaced one alive.
 	if runner := s.currentRunner(); runner != nil {
@@ -1467,6 +1485,12 @@ func (s *Session) ReplaceInner(sess *icodingagent.Session) {
 	}
 	s.agent.SetThinkingLevel(thinking)
 	s.notifyReplicatedState()
+	s.mu.Unlock()
+	if hadSubagents {
+		if err := s.initSubagents(SessionOptions{subagentBuiltinSelection: &subagentSelection}); err != nil {
+			s.reportRuntimeError("subagents", err)
+		}
+	}
 }
 
 // EmitSessionStart dispatches a session_start event to extension handlers.
@@ -1537,6 +1561,9 @@ func (s *Session) EmitSessionShutdownTransition(reason, targetSessionFile string
 // a partial dispose. The Agent runs on its own goroutine here, so the Session
 // disconnects and invalidates before it aborts the Agent.
 func (s *Session) Dispose() {
+	if s.subagents != nil {
+		s.subagents.Close()
+	}
 	if s.detachAgentEvents != nil {
 		s.detachAgentEvents()
 	}
@@ -1577,6 +1604,12 @@ func (s *Session) closeSuperseded(successor *Session) error {
 
 // Close invalidates the extension runner this Session owns and releases the Session's resources without deleting its persisted JSONL. A runner borrowed from its Runtime or Clone source stays active; Runtime.Close invalidates the Runtime runner. Further Send calls fail; repeated Close calls are safe.
 func (s *Session) Close() error {
+	if s.subagentRPCUnsubscribe != nil {
+		s.subagentRPCUnsubscribe()
+	}
+	if s.subagents != nil {
+		s.subagents.Close()
+	}
 	s.AbortRetry()
 	s.AbortBash()
 	s.AbortCompaction()

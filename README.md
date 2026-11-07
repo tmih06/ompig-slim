@@ -103,6 +103,52 @@ Additional sign-in/setup paths cover Z.ai, Kilo, Xiaomi, Alibaba Coding Plan, Al
 
 Codemode is available with extensions disabled. Use `--tools read,codemode`, `--exclude-tools codemode`, `--no-tools`, or `--no-builtin-tools` to select the tools exposed to a run. It is not an operating-system security sandbox: the agent's tools run with your user permissions.
 
+### Built-in subagents
+
+`/subagents` toggles native subagents and saves the choice in `.pi/subagents.json`.
+Use `/subagents on`, `/subagents off`, or `/subagents status` explicitly.
+The feature starts disabled; it works with `--no-extensions`. Tool allowlists,
+`--exclude-tools`, `--no-tools`, and `--no-builtin-tools` still apply.
+Turning it off cancels and drains its agents and workflows.
+
+`/agents` opens agent types, running/completed conversations, workflows,
+scheduled jobs, and settings. Enabled sessions expose the `Agent`,
+`get_subagent_result`, `steer_subagent`, and `SubagentWorkflow` tools.
+Agents run in the background by default, with ten background slots and a
+separate foreground pool. Completion notifications reach the parent at a
+turn boundary; callers can also retrieve the full result or resume an agent.
+
+The above-editor widget shows live activity, turns, tool uses, tokens,
+context usage, and compactions. At an empty prompt, press **Down** or **Left**
+to enter the fleet list, **Up/Down** to select, and **Enter** to inspect.
+In a conversation, **Enter** opens a steering composer, **x** twice stops the
+agent, **b** backgrounds a foreground agent, **m** cycles Markdown, and
+**Ctrl+O** expands tool output. **Esc** returns. **Ctrl+B** backgrounds all
+currently running foreground calls. `@handle message` addresses an agent;
+`@main message` addresses the parent.
+
+Define custom agents in `.pi/agents/*.md`, `.agents/agents/*.md`, or
+`~/.pi/agent/agents/*.md` with YAML frontmatter. Project definitions override
+global and installed-package agents. Embedded types are `general-purpose`,
+`Explore`, and `Plan`. Frontmatter can select tools, exclude tools/extensions,
+pin a model and thinking level, set turn limits, enable persistent memory,
+choose worktree isolation, and explicitly allow nested subagents. Nested
+delegation is off unless `allowed_subagents` is present and is depth capped.
+Global settings in `~/.pi/agent/subagents.json` are overridden by the project's
+`.pi/subagents.json`; `/agents → Settings` edits the project layer.
+
+`SubagentWorkflow` accepts inline JavaScript, a `scriptPath`, or a saved name
+from `.pi/workflows`, `.agents/workflows`, or the global agent directory.
+Scripts begin with `export const meta = {name, description}` and can use
+`agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, and one level
+of nested `workflow` calls. The native QuickJS runtime requires no Node.
+Structured-output schemas, command gates, labeled child resumes, and replay
+of successful leading calls are supported. Worktree changes are preserved on
+a branch; failures retain the checkout instead of deleting uncommitted work.
+
+The source reference is [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents)
+at `50460b5df6934c4237983a504808a04ee0f8a0a0`.
+
 Release notices follow the actual source fork, **`tmih06/omp-slim`**; renaming this local application does not create a new remote repository. That unsigned GitHub feed cannot replace the executable. An explicitly configured upstream signed-update manifest retains its signature verification; do not point it at a stock release if you want to preserve personal patches.
 
 `/usage` displays completed account reports as they arrive. Independent accounts fetch concurrently, so a slow provider does not delay healthy providers. Opening the dashboard uses the five-minute quota cache; press `r` to force a refresh. Closing the board cancels its requests, and reopening starts a fresh request if the previous one was canceled.

@@ -817,6 +817,9 @@ func (m *InteractiveMode) handleKey(ctx context.Context, data string) error {
 
 // handleCustomEditorKey gives one key to the default editor, Pi's CustomEditor.handleInput, and reports the error an app action returned.
 func (m *InteractiveMode) handleCustomEditorKey(ctx context.Context, data string) error {
+	if m.handleAgentKey(data) {
+		return nil
+	}
 	editor := m.defaultCustomEditor()
 	previousCtx, previousErr := m.inputCtx, m.inputErr
 	m.inputCtx, m.inputErr = ctx, nil

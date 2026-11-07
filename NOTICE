@@ -19,3 +19,7 @@ This project is not an official release of PiG, Pi, or oh-my-pi. Their
 maintainers do not endorse this personal distribution. Other dependency
 license notices remain alongside their sources in vendor/. Release archives
 include those notices as well as PiG's embedded third-party notices.
+
+The built-in subagent feature translates tintinweb/pi-subagents, Copyright
+(c) 2026 tintinweb, MIT, at commit 50460b5df6934c4237983a504808a04ee0f8a0a0.
+Its license is retained at vendor/github.com/MichaelKinsy/PiG/internal/subagents/LICENSE.

@@ -30,6 +30,12 @@ func isUserBashCommand(text string) bool {
 }
 
 func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
+	if m.handleAgentMention(prompt) {
+		return
+	}
+	if strings.HasPrefix(prompt, "@main ") {
+		prompt = strings.TrimPrefix(prompt, "@main ")
+	}
 	// Defensive drain for messages restored after a failed compaction-queue
 	// delivery. Normal compaction completion flushes immediately, including the
 	// WillRetry path that steers into the imminent retry turn.
