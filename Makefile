@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build run install check smoke release
+.PHONY: build run install check test race vet smoke release
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -13,9 +13,8 @@ run:
 install:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o "$(BINDIR)/ompig-slim" .
 
-check:
-	$(GO) test -mod=vendor ./... ./vendor/github.com/MichaelKinsy/PiG/...
-	$(GO) vet -mod=vendor ./... ./vendor/github.com/MichaelKinsy/PiG/...
+check test race vet:
+	GO="$(GO)" bash scripts/check-go.sh $@
 
 smoke: build
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim

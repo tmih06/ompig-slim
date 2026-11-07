@@ -2,36 +2,130 @@ name: CI
 
 on:
   push:
-    branches: [main, ompig-slim]
+    branches: [main]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main, ompig-slim]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  GO_VERSION: '1.27.3'
+  GOTOOLCHAIN: local
 
 jobs:
   check:
+    name: Tests, vet, race and smoke (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.27.3'
-          cache: true
-      # Go's build, vet and test caches are keyed by package inputs and transitive
-      # dependencies: unchanged packages reuse successful results; unknown shared
-      # changes cannot silently select an empty test set.
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Restore Go build, test and vet caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: go-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'scripts/**', '.github/workflows/**') }}
+          restore-keys: |
+            go-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
+      # A cache hit never skips commands. Go checks source, dependencies, build
+      # flags and observed test inputs before reusing a successful result.
       - run: make check
-      - run: make build
+      - run: make race
+      - run: make smoke
+      - name: Verify startup accepts and paints early input
+        run: |
+          profile="$(mktemp -d)"
+          trap 'rm -rf "$profile"' EXIT
+          PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 python3 scripts/measure-startup.py ./bin/ompig-slim --agent-dir "$profile" --runs 1
       - run: ./bin/ompig-slim --version
       - run: ./bin/ompig-slim --help
-      - run: python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
+
+  hygiene:
+    name: Workflow, scripts and full-history secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ACTIONLINT_VERSION: v1.7.12
+      GITLEAKS_VERSION: v8.30.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Restore pinned CI tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ompig-ci-tools
+          key: tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ env.ACTIONLINT_VERSION }}-${{ env.GITLEAKS_VERSION }}
+      - name: Install missing tools
+        run: |
+          mkdir -p "$HOME/.cache/ompig-ci-tools"
+          export GOBIN="$HOME/.cache/ompig-ci-tools"
+          if [[ ! -x "$GOBIN/actionlint" ]]; then
+            go install "github.com/rhysd/actionlint/cmd/actionlint@$ACTIONLINT_VERSION"
+          fi
+          if [[ ! -x "$GOBIN/gitleaks" ]]; then
+            go install "github.com/zricethezav/gitleaks/v8@$GITLEAKS_VERSION"
+          fi
+          echo "$GOBIN" >> "$GITHUB_PATH"
+      - run: actionlint -shellcheck= .github/workflows/ci.yml
+      - name: Validate scripts and whitespace
+        run: |
+          git diff-tree --check HEAD
+          for script in scripts/*.sh; do bash -n "$script"; done
+          python3 - <<'PY'
+          import ast, pathlib
+          for path in pathlib.Path('scripts').glob('*.py'):
+              ast.parse(path.read_text(), filename=str(path))
+          PY
+      - name: Scan every commit, including nested archives
+        run: gitleaks git --log-opts=--all --max-archive-depth=10 --redact --no-banner .
+
+  release:
+    name: Build and verify four native archives
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: release-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'scripts/build-binaries.sh') }}
+          restore-keys: |
+            release-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
+      - run: make release
+      - run: python3 scripts/verify-releases.py bin/releases
+      - name: Retain verified archives
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-archives
+          path: bin/releases/*
+          if-no-files-found: error
+          retention-days: 14
