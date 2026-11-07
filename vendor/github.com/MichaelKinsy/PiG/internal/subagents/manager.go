@@ -531,8 +531,9 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		return Record{}, errors.New("subagents are disabled; enable with /subagents on")
 	}
 	if m.settings.StrictAgentFiles && len(m.warnings) > 0 {
+		err := fmt.Errorf("invalid agent files: %s", strings.Join(m.warnings, "; "))
 		m.mu.Unlock()
-		return Record{}, fmt.Errorf("invalid agent files: %s", strings.Join(m.Warnings(), "; "))
+		return Record{}, err
 	}
 	var parent *run
 	depth := 1
@@ -1131,7 +1132,11 @@ func (m *Manager) finish(r *run, status, text string, err error) {
 			m.mu.Unlock()
 		}
 	}
-	m.emit("subagents:"+map[bool]string{true: "completed", false: "failed"}[status == "completed" || status == "steered"], snapshot)
+	eventName := "subagents:failed"
+	if status == "completed" || status == "steered" {
+		eventName = "subagents:completed"
+	}
+	m.emit(eventName, snapshot)
 	m.changed()
 }
 func xmlEscape(s string) string {

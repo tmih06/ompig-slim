@@ -244,17 +244,7 @@ func runAuthUse(args []string, env authRunEnv) int {
 		env.printError("No stored account \"" + widthx.ReplaceControlCharacters(accountKey) + "\" for " + providerID + ".")
 		if accountsOK {
 			if listed, listErr := accounts.ListAccounts(ctx); listErr == nil {
-				available := make([]string, 0, len(listed))
-				for _, account := range listed {
-					if account.ProviderID != providerID {
-						continue
-					}
-					key := "<no identity>"
-					if account.AccountKey != nil {
-						key = *account.AccountKey
-					}
-					available = append(available, key)
-				}
+				available := storedAccountKeys(listed, providerID)
 				if len(available) > 0 {
 					env.printError("Stored accounts: " + strings.Join(available, ", "))
 				}
@@ -379,17 +369,7 @@ func removeOneAccount(ctx context.Context, env authRunEnv, store ai.CredentialSt
 	}
 	if !removed {
 		env.printError("No stored account \"" + widthx.ReplaceControlCharacters(accountKey) + "\" for " + providerName + ".")
-		available := make([]string, 0, len(listed))
-		for _, account := range listed {
-			if account.ProviderID != providerID {
-				continue
-			}
-			key := "<no identity>"
-			if account.AccountKey != nil {
-				key = *account.AccountKey
-			}
-			available = append(available, key)
-		}
+		available := storedAccountKeys(listed, providerID)
 		if len(available) > 0 {
 			env.printError("Stored accounts: " + strings.Join(available, ", "))
 		}
@@ -407,6 +387,23 @@ func removeOneAccount(ctx context.Context, env authRunEnv, store ai.CredentialSt
 		fmt.Fprintf(env.stdout, "Removed account \"%s\" for %s. No accounts remain for it.\n", widthx.ReplaceControlCharacters(accountKey), providerName)
 	}
 	return 0
+}
+
+// storedAccountKeys lists one provider's account keys in store order for the
+// use/logout diagnostics. A nil key keeps its distinct identity-less label.
+func storedAccountKeys(accounts []ai.CredentialAccountInfo, providerID string) []string {
+	keys := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		if account.ProviderID != providerID {
+			continue
+		}
+		key := "<no identity>"
+		if account.AccountKey != nil {
+			key = *account.AccountKey
+		}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func sortedProviderIDs(infos []ai.CredentialInfo) []string {

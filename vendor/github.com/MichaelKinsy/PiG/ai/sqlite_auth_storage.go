@@ -349,34 +349,18 @@ func (s *SQLiteAuthStorage) Close() error {
 	return s.db.Close()
 }
 
+// scanCredentialRow decodes rowColumns and, when supplied, the first selection
+// column. A failed scan returns no partial credential row.
 func scanCredentialRow(scanner interface{ Scan(dest ...any) error }, selection ...*sql.NullString) (credentialRow, error) {
-	var (
-		row    credentialRow
-		ident  sql.NullString
-		cause  sql.NullString
-		kindID string
-		data   string
-		prov   string
-		id     int64
-		create int64
-	)
-	var err error
-	if len(selection) == 0 {
-		err = scanner.Scan(&id, &prov, &kindID, &data, &ident, &cause, &create)
-	} else {
-		err = scanner.Scan(&id, &prov, &kindID, &data, &ident, &cause, &create, selection[0])
+	var row credentialRow
+	dest := [8]any{&row.ID, &row.Provider, &row.CredentialType, &row.Data, &row.IdentityKey, &row.DisabledCause, &row.CreatedAt}
+	n := 7
+	if len(selection) > 0 {
+		dest[n] = selection[0]
+		n++
 	}
-	if err != nil {
+	if err := scanner.Scan(dest[:n]...); err != nil {
 		return credentialRow{}, err
-	}
-	row = credentialRow{
-		ID:             id,
-		Provider:       prov,
-		CredentialType: kindID,
-		Data:           data,
-		IdentityKey:    ident,
-		DisabledCause:  cause,
-		CreatedAt:      create,
 	}
 	return row, nil
 }
