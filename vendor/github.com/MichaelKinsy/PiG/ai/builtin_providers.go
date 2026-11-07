@@ -103,6 +103,11 @@ func withBuiltinStreamWrapper(id string, streams *ProviderStreams) *ProviderStre
 	if wrap := builtinStreamWrappers[id]; wrap != nil {
 		return wrap(streams)
 	}
+	// ompig-slim addition: providers registered by the OAuth ports wrap their own streams
+	// (omp_oauth_*.go), for example Snowflake's account-host substitution.
+	if wrap := ompStreamWrapper(id); wrap != nil {
+		return wrap(streams)
+	}
 	return streams
 }
 
@@ -120,7 +125,7 @@ func builtinProvider(id string) *ModelsProvider {
 	if err != nil {
 		panic(err)
 	}
-	options := CreateProviderOptions{ID: id, Name: new(ProviderDisplayName(id)), BaseURL: builtinProviderBaseURLs()[id], Auth: auth, Models: GetAllBuiltinModels(id), FilterAllModels: builtinFilterAllModels[id], Classifiers: builtinClassifiers(id)}
+	options := CreateProviderOptions{ID: id, Name: new(ProviderDisplayName(id)), BaseURL: ProviderBaseURL(id), Auth: auth, Models: GetAllBuiltinModels(id), FilterAllModels: builtinFilterAllModels[id], Classifiers: builtinClassifiers(id)}
 	if id == "github-copilot" {
 		// upstream: packages/ai/src/providers/github-copilot.ts:githubCopilotProvider filterModels.
 		options.FilterModels = filterGitHubCopilotModels
@@ -193,6 +198,16 @@ func BuiltinProviders() []*ModelsProvider {
 	providers := make([]*ModelsProvider, len(ids))
 	for i, id := range ids {
 		if construct, ok := builtinProviderConstructors[id]; ok {
+			providers[i] = construct()
+			continue
+		}
+		// ompig-slim addition: providers registered by the OAuth ports (omp_oauth_*.go).
+		if construct, ok := ompProviderConstructor(id); ok {
+			providers[i] = construct()
+			continue
+		}
+		// ompig-slim addition: the providers of providers_added.go construct through their own entry.
+		if construct, ok := addedProviderConstructor(id); ok {
 			providers[i] = construct()
 			continue
 		}

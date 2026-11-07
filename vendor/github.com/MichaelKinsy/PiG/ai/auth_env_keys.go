@@ -91,6 +91,11 @@ func getAPIKeyEnvVars(provider string) []string {
 	if envVar, ok := addedProviderAPIKeyEnv(provider); ok {
 		return []string{envVar}
 	}
+	// ompig-slim addition: the OAuth ports' providers (omp_oauth_registry.go). Snowflake
+	// accepts SNOWFLAKE_PAT, whose account comes from SNOWFLAKE_ACCOUNT.
+	if vars, ok := ompProviderAPIKeyEnvs(provider); ok {
+		return vars
+	}
 	return nil
 }
 

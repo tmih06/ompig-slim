@@ -20,6 +20,16 @@ var builtInOAuthProviders = map[string]OAuthProviderInterface{
 	"openrouter":     OpenRouterOAuthProvider{},
 	"xai":            newXaiOAuthProvider(),
 	"radius":         CreateRadiusOAuth(RadiusOAuthOptions{ID: "radius", Name: "Radius", Gateway: DefaultRadiusGateway}),
+	// ompig-slim addition: the API-key sign-in flows of omp_oauth_apikey*.go. They are registered here
+	// rather than as custom providers so ResetOAuthProviders, which a parity harness calls, keeps them:
+	// upstream derives them from its auth rules as built-ins.
+	"kilo":                  newKiloOAuthProvider(),
+	"xiaomi":                newXiaomiOAuthProvider(),
+	"alibaba-coding-plan":   newAlibabaCodingPlanOAuthProvider(),
+	"alibaba-token-plan":    newAlibabaTokenPlanOAuthProvider(),
+	"cloudflare-workers-ai": newCloudflareWorkersAIOAuthProvider(),
+	"cloudflare-ai-gateway": newCloudflareAIGatewayOAuthProvider(),
+	"mistral":               newMistralVibeOAuthProvider(),
 }
 
 // copilotOAuthRegistryProvider adapts the GitHub Copilot device-flow helper to
@@ -193,19 +203,18 @@ func oauthAPIKey(ctx context.Context, provider OAuthProviderInterface, creds OAu
 	return provider.GetAPIKey(creds), nil
 }
 
-// ResolveOAuthAPIKeyFromStorage loads a provider credential from auth.json,
-// refreshes it if needed, persists any refresh, and returns the provider's
-// runtime API key string.
-func ResolveOAuthAPIKeyFromStorage(storage *AuthStorage, providerID string) (string, error) {
+// ResolveOAuthAPIKeyFromStorage loads a provider credential from the credential store, refreshes it
+// if needed, persists any refresh, and returns the provider's runtime API key string.
+func ResolveOAuthAPIKeyFromStorage(storage CredentialStore, providerID string) (string, error) {
 	return ResolveOAuthAPIKeyFromStorageContext(context.Background(), storage, providerID)
 }
 
 // ResolveOAuthAPIKeyFromStorageContext loads, refreshes, and persists a provider credential with the owning operation's cancellation.
-func ResolveOAuthAPIKeyFromStorageContext(ctx context.Context, storage *AuthStorage, providerID string) (string, error) {
+func ResolveOAuthAPIKeyFromStorageContext(ctx context.Context, storage CredentialStore, providerID string) (string, error) {
 	if storage == nil {
 		return "", errors.New("nil auth storage")
 	}
-	credential, ok, err := storage.GetRaw(providerID)
+	credential, ok, err := ReadRawCredential(ctx, storage, providerID)
 	if err != nil || !ok || credential.Type != CredentialOAuth {
 		return "", err
 	}
@@ -213,12 +222,12 @@ func ResolveOAuthAPIKeyFromStorageContext(ctx context.Context, storage *AuthStor
 }
 
 // resolveStoredOAuthAPIKey is upstream resolveStoredOAuth for a registry OAuth provider (resolve.ts:127-178), through the same refresh step as resolveProviderAuth: a credential within the five-minute window is refreshed under the store's cancellable lock, only when it still expires once the lock is held, because another process may have refreshed it and rotated its refresh token meanwhile, with the refresh signal Pi composes. The provider is read once, as Models.getAuth reads it (models.ts:564-566), so the refresh and the key come from the same registration. The key comes from the provider's own getApiKey with the request's context.
-func resolveStoredOAuthAPIKey(ctx context.Context, storage *AuthStorage, providerID string, credential Credential) (string, error) {
+func resolveStoredOAuthAPIKey(ctx context.Context, storage CredentialStore, providerID string, credential Credential) (string, error) {
 	provider, ok := GetOAuthProvider(providerID)
 	if !ok {
 		return "", fmt.Errorf("unknown OAuth provider: %s", providerID)
 	}
-	current, err := refreshStoredOAuth(ctx, storage, providerID, oauthProviderAuth(providerID, provider), credential, nil)
+	current, err := refreshStoredOAuth(ctx, storage, providerID, oauthProviderAuth(providerID, provider), credential, AuthResolutionOverrides{})
 	if err != nil || current == nil {
 		return "", err
 	}
@@ -229,21 +238,21 @@ func resolveStoredOAuthAPIKey(ctx context.Context, storage *AuthStorage, provide
 	return key, nil
 }
 
-// ResolveStoredAPIKeyFromStorage returns the request key a stored auth.json
-// credential supplies for providerID. Prefer ResolveStoredAPIKeyFromStorageContext
-// when an operation context is available.
-func ResolveStoredAPIKeyFromStorage(storage *AuthStorage, providerID string) (key string, ok bool, err error) {
+// ResolveStoredAPIKeyFromStorage returns the request key a stored credential
+// supplies for providerID. Prefer ResolveStoredAPIKeyFromStorageContext when an
+// operation context is available.
+func ResolveStoredAPIKeyFromStorage(storage CredentialStore, providerID string) (key string, ok bool, err error) {
 	return ResolveStoredAPIKeyFromStorageContext(context.Background(), storage, providerID)
 }
 
 // ResolveStoredAPIKeyFromStorageContext returns a refreshed OAuth key or a
 // resolved api_key credential. A stored credential is checked before caller
 // fallbacks, and OAuth refresh follows ctx.
-func ResolveStoredAPIKeyFromStorageContext(ctx context.Context, storage *AuthStorage, providerID string) (key string, ok bool, err error) {
+func ResolveStoredAPIKeyFromStorageContext(ctx context.Context, storage CredentialStore, providerID string) (key string, ok bool, err error) {
 	if storage == nil {
 		return "", false, errors.New("nil auth storage")
 	}
-	credential, found, err := storage.GetRaw(providerID)
+	credential, found, err := ReadRawCredential(ctx, storage, providerID)
 	if err != nil || !found {
 		return "", false, err
 	}

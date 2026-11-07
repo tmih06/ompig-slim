@@ -77,6 +77,22 @@ type OAuthSelectPrompt struct {
 	Options []OAuthSelectOption
 }
 
+// OAuthBrowserSessionRequest describes a host-managed browser window a flow opens to
+// complete a sign-in that has no CLI callback, such as a cookie-authenticated web
+// session (pi-ai's onBrowserSession).
+type OAuthBrowserSessionRequest struct {
+	// URL is the page to open.
+	URL string
+	// CookieNames are the cookies whose value ends the sign-in once the page sets
+	// one of them.
+	CookieNames []string
+}
+
+// OAuthBrowserSession is the cookie a host-managed browser window holds after the
+// user completes a sign-in in it. It is the value of the first of the request's
+// cookie names the window has.
+type OAuthBrowserSession func(ctx context.Context, request OAuthBrowserSessionRequest) (string, error)
+
 // OAuthLoginCallbacks groups the callbacks used during an OAuth login flow.
 type OAuthLoginCallbacks struct {
 	OnAuth                   func(info OAuthAuthInfo)
@@ -95,6 +111,10 @@ type OAuthLoginCallbacks struct {
 	GetDeviceID func() string
 	// AgentName comes from LoginOptions.AgentName; nil means the flow's own default name.
 	AgentName *string
+	// OnBrowserSession opens a host-managed browser window and returns the session
+	// cookie it holds once the user has signed in. Nil means the host has no such
+	// window, and a flow that needs one falls back to asking for the cookie value.
+	OnBrowserSession OAuthBrowserSession
 }
 
 // OAuthCredentialStatus describes a stored credential owned by a registered
