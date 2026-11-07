@@ -232,26 +232,14 @@ func Definition(options tools.ExtendedBuiltinOptions) extension.ToolDefinition {
 				return extension.AgentToolResult{}, err
 			}
 
-			chain, err := webtools.ResolveChain(config.chain)
-			if err != nil {
-				// An unsupported name is a configuration error: fail the call
-				// loudly instead of silently searching with a different engine.
-				return extension.AgentToolResult{}, err
-			}
-
-			limit := webtools.DefaultSearchResults
-			if config.results > 0 {
-				limit = config.results
-			}
+			// RunSearch owns chain validation, defaults, and final bounds.
+			limit := config.results
 			if args.limit > 0 {
-				limit = webtools.ClampLimit(args.limit)
+				limit = args.limit
 			}
-			timeout := webtools.DefaultSearchTimeout
-			if config.timeoutSeconds > 0 {
-				timeout = webtools.ClampTimeout(time.Duration(config.timeoutSeconds * float64(time.Second)))
-			}
+			timeout := time.Duration(config.timeoutSeconds * float64(time.Second))
 			if args.timeoutSeconds > 0 {
-				timeout = webtools.ClampTimeout(time.Duration(args.timeoutSeconds) * time.Second)
+				timeout = time.Duration(args.timeoutSeconds) * time.Second
 			}
 
 			result, err := webtools.RunSearch(ctx, webtools.SearchOptions{
@@ -260,7 +248,7 @@ func Definition(options tools.ExtendedBuiltinOptions) extension.ToolDefinition {
 				Recency:    args.recency,
 				NumResults: args.numResults,
 				Timeout:    timeout,
-				Chain:      chain,
+				Chain:      config.chain,
 				Endpoints:  config.endpoints,
 			})
 			if err != nil {

@@ -1,6 +1,7 @@
 package webtools
 
 import (
+	"bytes"
 	"net/url"
 	"strings"
 
@@ -25,17 +26,17 @@ func parseHTML(body []byte) *html.Node {
 
 // HTMLTitle returns the document's title, preferring <title> over the first <h1>.
 func HTMLTitle(document *html.Node) string {
-	if title := textOfFirst(document, html.ElementNode, "title"); title != "" {
+	if title := textOfFirst(document, "title"); title != "" {
 		return collapseSpace(title)
 	}
-	if heading := textOfFirst(document, html.ElementNode, "h1"); heading != "" {
+	if heading := textOfFirst(document, "h1"); heading != "" {
 		return collapseSpace(heading)
 	}
 	return ""
 }
 
 // textOfFirst returns the text under the first element with the given tag.
-func textOfFirst(node *html.Node, kind html.NodeType, tag string) string {
+func textOfFirst(node *html.Node, tag string) string {
 	if found := findElement(node, tag); found != nil {
 		return collectText(found)
 	}
@@ -197,17 +198,13 @@ func renderHTMLDocument(document *html.Node, baseURL string) string {
 // (navigation, banners, scripts, forms, hidden elements).
 type markdownWriter struct {
 	baseURL string
-	builder strings.Builder
+	builder bytes.Buffer
 	// pending is the run of whitespace the next inline write normalizes.
 	pending    bool
 	lineStart  bool
 	inPre      int
 	listDepth  int
 	quoteDepth int
-	// skip counts the dropped container depth; anything inside it is ignored.
-	skip int
-	// preDepth counts the open <pre> elements; whitespace is literal inside.
-	tableDepth int
 	cellCount  int
 }
 
@@ -236,9 +233,6 @@ func isHidden(node *html.Node) bool {
 }
 
 func (w *markdownWriter) walk(node *html.Node) {
-	if w.skip > 0 {
-		return
-	}
 	switch node.Type {
 	case html.TextNode:
 		w.text(node.Data)
@@ -333,7 +327,6 @@ func (w *markdownWriter) enter(node *html.Node) bool {
 		return true
 	case "table":
 		w.block()
-		w.tableDepth++
 		w.cellCount = 0
 	case "tr":
 		w.block()
@@ -361,7 +354,7 @@ func (w *markdownWriter) leave(node *html.Node) {
 		w.lineStart = true
 	case "pre":
 		w.inPre--
-		if !strings.HasSuffix(w.builder.String(), "\n") {
+		if !bytes.HasSuffix(w.builder.Bytes(), []byte("\n")) {
 			w.builder.WriteByte('\n')
 		}
 		w.builder.WriteString("```\n\n")
@@ -398,7 +391,6 @@ func (w *markdownWriter) leave(node *html.Node) {
 		}
 		w.cellCount = 0
 	case "table":
-		w.tableDepth--
 		w.block()
 	}
 }
@@ -406,24 +398,10 @@ func (w *markdownWriter) leave(node *html.Node) {
 // block starts a new block: it trims trailing spaces and keeps exactly one blank
 // line between blocks.
 func (w *markdownWriter) block() {
-	text := w.builder.String()
-	trimmed := strings.TrimRight(text, " \t\n")
-	if trimmed == "" {
-		w.builder.Reset()
-		w.lineStart = true
-		w.pending = false
-		return
-	}
-	if len(trimmed) != len(text) {
-		w.builder.Reset()
-		w.builder.WriteString(trimmed)
-	}
-	if !strings.HasSuffix(w.builder.String(), "\n\n") {
-		if strings.HasSuffix(w.builder.String(), "\n") {
-			w.builder.WriteByte('\n')
-		} else {
-			w.builder.WriteString("\n\n")
-		}
+	trimmed := bytes.TrimRight(w.builder.Bytes(), " \t\n")
+	w.builder.Truncate(len(trimmed))
+	if len(trimmed) > 0 {
+		w.builder.WriteString("\n\n")
 	}
 	w.lineStart = true
 	w.pending = false

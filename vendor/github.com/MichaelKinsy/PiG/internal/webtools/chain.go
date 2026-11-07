@@ -266,7 +266,9 @@ func runChain(ctx context.Context, providers []SearchProvider, chain []string, p
 			notes = append([]string{fallback}, notes...)
 		}
 		details.Response = final
-		details.Failures = nonEmptyFailures(failures)
+		if len(failures) > 0 {
+			details.Failures = failures
+		}
 		details.Notes = notes
 		return SearchResult{Text: FormatSearchText(final, notes), Details: details}, nil
 	}
@@ -321,15 +323,6 @@ func failureOf(provider SearchProvider, err error) SearchFailureDetail {
 		detail.Status = searchErr.Status
 	}
 	return detail
-}
-
-func nonEmptyFailures(failures []SearchFailureDetail) []SearchFailureDetail {
-	if len(failures) == 0 {
-		return nil
-	}
-	out := make([]SearchFailureDetail, len(failures))
-	copy(out, failures)
-	return out
 }
 
 func failedProvider(failures []SearchFailureDetail) string {

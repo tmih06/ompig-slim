@@ -8,7 +8,6 @@ package webtools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -230,9 +229,4 @@ func truncateRunes(value string, n int) string {
 		count++
 	}
 	return value
-}
-
-// asSearchError is errors.As for *SearchError without importing errors here.
-func asSearchError(err error, target **SearchError) bool {
-	return errors.As(err, target)
 }

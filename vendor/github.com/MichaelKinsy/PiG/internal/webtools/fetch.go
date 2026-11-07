@@ -1,12 +1,15 @@
 package webtools
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -700,25 +703,25 @@ func isFeedMedia(media string) bool {
 // extension for formats without one (Office and EPUB are all ZIP archives).
 func sniffMedia(body []byte, target string) string {
 	switch {
-	case startsWith(body, []byte("\x89PNG\r\n\x1a\n")):
+	case bytes.HasPrefix(body, []byte("\x89PNG\r\n\x1a\n")):
 		return "image/png"
-	case startsWith(body, []byte{0xff, 0xd8, 0xff}):
+	case bytes.HasPrefix(body, []byte{0xff, 0xd8, 0xff}):
 		return "image/jpeg"
-	case startsWith(body, []byte("GIF87a")), startsWith(body, []byte("GIF89a")):
+	case bytes.HasPrefix(body, []byte("GIF87a")), bytes.HasPrefix(body, []byte("GIF89a")):
 		return "image/gif"
 	case len(body) >= 12 && string(body[:4]) == "RIFF" && string(body[8:12]) == "WEBP":
 		return "image/webp"
-	case startsWith(body, []byte("BM")):
+	case bytes.HasPrefix(body, []byte("BM")):
 		return "image/bmp"
-	case startsWith(body, []byte("%PDF-")):
+	case bytes.HasPrefix(body, []byte("%PDF-")):
 		return "application/pdf"
-	case startsWith(body, []byte("SQLite format 3\x00")):
+	case bytes.HasPrefix(body, []byte("SQLite format 3\x00")):
 		return sqliteMediaType
-	case startsWith(body, []byte{0x1f, 0x8b}):
+	case bytes.HasPrefix(body, []byte{0x1f, 0x8b}):
 		return "application/gzip"
 	case len(body) > 262 && string(body[257:262]) == "ustar":
 		return "application/x-tar"
-	case startsWith(body, []byte("PK\x03\x04")):
+	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
 		return zipKind(target)
 	}
 	extension := lowerExtension(target)
@@ -753,7 +756,7 @@ func sniffMedia(body []byte, target string) string {
 	text := strings.TrimSpace(string(body))
 	switch {
 	case strings.HasPrefix(text, "{"), strings.HasPrefix(text, "["):
-		if jsonValid(body) {
+		if json.Valid(body) {
 			return "application/json"
 		}
 	case strings.HasPrefix(strings.ToLower(text), "<rss"), strings.HasPrefix(strings.ToLower(text), "<feed"),
@@ -937,31 +940,13 @@ func head(body []byte, n int) []byte {
 	return body
 }
 
-func startsWith(body, prefix []byte) bool {
-	return len(body) >= len(prefix) && string(body[:len(prefix)]) == string(prefix)
-}
-
 // lowerExtension is the URL path's extension, lowercased.
 func lowerExtension(target string) string {
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return ""
 	}
-	extension := strings.ToLower(pathExtension(parsed.Path))
-	return extension
-}
-
-// pathExtension is path.Ext without importing path for one call site.
-func pathExtension(name string) string {
-	for i := len(name) - 1; i >= 0 && name[i] != '/'; i-- {
-		if name[i] == '.' {
-			if i == 0 {
-				return ""
-			}
-			return name[i:]
-		}
-	}
-	return ""
+	return strings.ToLower(path.Ext(parsed.Path))
 }
 
 // looksLikeHTML reports a document that starts like HTML markup.

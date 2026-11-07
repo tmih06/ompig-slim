@@ -18,6 +18,7 @@ package webtools
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -312,33 +313,10 @@ var directiveFields = map[string]directiveField{
 	"lang": fieldLang, "language": fieldLang,
 }
 
-type allMode int
-
-const (
-	allNone allMode = iota
-	allInTitle
-	allInURL
-	allInText
-)
-
-var allModes = map[string]allMode{
-	"allintitle": allInTitle,
-	"allinurl":   allInURL,
-	"allintext":  allInText,
-}
-
-func directiveFieldOf(name string) directiveField {
-	if f, ok := directiveFields[strings.ToLower(name)]; ok {
-		return f
-	}
-	return fieldNone
-}
-
-func allModeOf(name string) allMode {
-	if m, ok := allModes[strings.ToLower(name)]; ok {
-		return m
-	}
-	return allNone
+var allModes = map[string]directiveField{
+	"allintitle": fieldInTitle,
+	"allinurl":   fieldInURL,
+	"allintext":  fieldInText,
 }
 
 // splitDirective matches `[-+]?name:value`.
@@ -384,7 +362,8 @@ func isReservedToken(text string) bool {
 	if !ok {
 		return false
 	}
-	return directiveFieldOf(name) != fieldNone || allModeOf(name) != allNone
+	name = strings.ToLower(name)
+	return directiveFields[name] != fieldNone || allModes[name] != fieldNone
 }
 
 // ParseSearchQuery decomposes a raw query. It is lenient by construction:
@@ -412,7 +391,7 @@ func ParseSearchQuery(raw string) *StructuredQuery {
 	orPending := false
 	lastWasTerm := false
 	groupSeq := 0
-	mode := allNone
+	mode := fieldNone
 
 	pushConstraint := func(field directiveField, value string, negated bool) {
 		q.HasDirectives = true
@@ -461,22 +440,11 @@ func ParseSearchQuery(raw string) *StructuredQuery {
 		}
 	}
 
-	modeField := func(m allMode) directiveField {
-		switch m {
-		case allInTitle:
-			return fieldInTitle
-		case allInURL:
-			return fieldInURL
-		default:
-			return fieldInText
-		}
-	}
-
 	pushTerm := func(text string, phrase bool) {
 		negated := negateNext
 		negateNext = false
-		if mode != allNone {
-			pushConstraint(modeField(mode), text, negated)
+		if mode != fieldNone {
+			pushConstraint(mode, text, negated)
 			return
 		}
 		term := QueryTerm{Text: text, Phrase: phrase, Negated: negated}
@@ -525,17 +493,18 @@ func ParseSearchQuery(raw string) *StructuredQuery {
 
 		negated, name, value, isDirective := splitDirective(tok.text)
 		if isDirective {
-			if m := allModeOf(name); m != allNone {
+			name = strings.ToLower(name)
+			if m := allModes[name]; m != fieldNone {
 				mode = m
 				q.HasDirectives = true
 				if inline := strings.TrimSpace(value); inline != "" {
-					pushConstraint(modeField(m), inline, negated)
+					pushConstraint(m, inline, negated)
 				}
 				orPending = false
 				lastWasTerm = false
 				continue
 			}
-			if field := directiveFieldOf(name); field != fieldNone {
+			if field := directiveFields[name]; field != fieldNone {
 				value = strings.TrimSpace(value)
 				// `site: example.com` — adopt the next plain token as the value.
 				if value == "" && idx+1 < len(tokens) {
@@ -588,7 +557,7 @@ func ParseSearchQuery(raw string) *StructuredQuery {
 			}
 			// `-site:x` written pre-split re-checks as a directive.
 			if _, name, value, ok := splitDirective(text); ok {
-				if field := directiveFieldOf(name); field != fieldNone &&
+				if field := directiveFields[strings.ToLower(name)]; field != fieldNone &&
 					field != fieldBefore && field != fieldAfter && field != fieldLang {
 					negateNext = false
 					pushConstraint(field, value, true)
@@ -870,142 +839,53 @@ type constraintDimension struct {
 
 func constraintDimensions(q *StructuredQuery) []constraintDimension {
 	dims := make([]constraintDimension, 0, 10)
-	lower := strings.ToLower
+	add := func(values []string, prefix, separator string, pred func(SearchSource) bool) {
+		if len(values) == 0 {
+			return
+		}
+		labels := make([]string, len(values))
+		for i, value := range values {
+			labels[i] = prefix + value
+		}
+		dims = append(dims, constraintDimension{label: strings.Join(labels, separator), pred: pred})
+	}
 
-	if len(q.Sites) > 0 {
-		sites := append([]string(nil), q.Sites...)
-		labels := make([]string, len(sites))
-		for i, s := range sites {
-			labels[i] = "site:" + s
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " OR "),
-			pred:  func(src SearchSource) bool { return anySite(src.URL, sites) },
-		})
-	}
-	if len(q.ExcludedSites) > 0 {
-		sites := append([]string(nil), q.ExcludedSites...)
-		labels := make([]string, len(sites))
-		for i, s := range sites {
-			labels[i] = "-site:" + s
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred:  func(src SearchSource) bool { return !anySite(src.URL, sites) },
-		})
-	}
-	if len(q.InURL) > 0 {
-		values := append([]string(nil), q.InURL...)
-		labels := make([]string, len(values))
-		for i, v := range values {
-			labels[i] = "inurl:" + v
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred: func(src SearchSource) bool {
-				u := lower(src.URL)
-				for _, v := range values {
-					if !strings.Contains(u, lower(v)) {
-						return false
-					}
+	add(q.Sites, "site:", " OR ", func(src SearchSource) bool {
+		return anySite(src.URL, q.Sites)
+	})
+	add(q.ExcludedSites, "-site:", " ", func(src SearchSource) bool {
+		return !anySite(src.URL, q.ExcludedSites)
+	})
+
+	addText := func(name string, included, excluded []string, text func(SearchSource) string) {
+		add(included, name+":", " ", func(src SearchSource) bool {
+			value := strings.ToLower(text(src))
+			for _, term := range included {
+				if !strings.Contains(value, strings.ToLower(term)) {
+					return false
 				}
-				return true
-			},
+			}
+			return true
 		})
-	}
-	if len(q.ExcludedInURL) > 0 {
-		values := append([]string(nil), q.ExcludedInURL...)
-		labels := make([]string, len(values))
-		for i, v := range values {
-			labels[i] = "-inurl:" + v
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred: func(src SearchSource) bool {
-				u := lower(src.URL)
-				for _, v := range values {
-					if strings.Contains(u, lower(v)) {
-						return false
-					}
+		add(excluded, "-"+name+":", " ", func(src SearchSource) bool {
+			value := strings.ToLower(text(src))
+			for _, term := range excluded {
+				if strings.Contains(value, strings.ToLower(term)) {
+					return false
 				}
-				return true
-			},
+			}
+			return true
 		})
 	}
-	if len(q.InTitle) > 0 {
-		values := append([]string(nil), q.InTitle...)
-		labels := make([]string, len(values))
-		for i, v := range values {
-			labels[i] = "intitle:" + v
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred: func(src SearchSource) bool {
-				title := lower(src.Title)
-				for _, v := range values {
-					if !strings.Contains(title, lower(v)) {
-						return false
-					}
-				}
-				return true
-			},
-		})
-	}
-	if len(q.ExcludedInTitle) > 0 {
-		values := append([]string(nil), q.ExcludedInTitle...)
-		labels := make([]string, len(values))
-		for i, v := range values {
-			labels[i] = "-intitle:" + v
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred: func(src SearchSource) bool {
-				title := lower(src.Title)
-				for _, v := range values {
-					if strings.Contains(title, lower(v)) {
-						return false
-					}
-				}
-				return true
-			},
-		})
-	}
-	if len(q.Filetypes) > 0 {
-		exts := append([]string(nil), q.Filetypes...)
-		labels := make([]string, len(exts))
-		for i, f := range exts {
-			labels[i] = "filetype:" + f
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " OR "),
-			pred: func(src SearchSource) bool {
-				for _, ext := range exts {
-					if matchesFiletype(src.URL, ext) {
-						return true
-					}
-				}
-				return false
-			},
-		})
-	}
-	if len(q.ExcludedFiletypes) > 0 {
-		exts := append([]string(nil), q.ExcludedFiletypes...)
-		labels := make([]string, len(exts))
-		for i, f := range exts {
-			labels[i] = "-filetype:" + f
-		}
-		dims = append(dims, constraintDimension{
-			label: strings.Join(labels, " "),
-			pred: func(src SearchSource) bool {
-				for _, ext := range exts {
-					if matchesFiletype(src.URL, ext) {
-						return false
-					}
-				}
-				return true
-			},
-		})
-	}
+	addText("inurl", q.InURL, q.ExcludedInURL, func(src SearchSource) string { return src.URL })
+	addText("intitle", q.InTitle, q.ExcludedInTitle, func(src SearchSource) string { return src.Title })
+
+	add(q.Filetypes, "filetype:", " OR ", func(src SearchSource) bool {
+		return slices.ContainsFunc(q.Filetypes, func(ext string) bool { return matchesFiletype(src.URL, ext) })
+	})
+	add(q.ExcludedFiletypes, "-filetype:", " ", func(src SearchSource) bool {
+		return !slices.ContainsFunc(q.ExcludedFiletypes, func(ext string) bool { return matchesFiletype(src.URL, ext) })
+	})
 	if q.After != "" || q.Before != "" {
 		labelParts := make([]string, 0, 2)
 		if q.After != "" {

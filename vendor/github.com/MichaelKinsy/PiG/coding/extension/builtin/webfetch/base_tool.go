@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -154,7 +153,7 @@ func Execute(ctx context.Context, rawParams json.RawMessage, options Options) (e
 	if strings.TrimSpace(input.URL) == "" {
 		return errorResult(fmt.Sprintf("Error: %s requires a url", ToolName), &Details{}), nil
 	}
-	resolved := fetchSettings{reader: "auto", maxBytes: webtools.DefaultMaxBytes, timeout: webtools.DefaultFetchTimeout, enabled: true}
+	resolved := readSettings(nil)
 	if options.GetSettings != nil {
 		resolved = readSettings(options.GetSettings())
 	}
@@ -180,11 +179,6 @@ func Execute(ctx context.Context, rawParams json.RawMessage, options Options) (e
 		seconds := math.Min(*input.TimeoutSeconds, float64(webtools.MaxFetchTimeout/time.Second))
 		fetchOptions.Timeout = time.Duration(seconds * float64(time.Second))
 	}
-
-	// The client is request-scoped: these tools keep no session resources.
-	client := webtools.NewHTTPClient()
-	defer client.CloseIdleConnections()
-	fetchOptions.Client = client
 
 	result, err := webtools.Fetch(ctx, input.URL, fetchOptions)
 	if err != nil {
@@ -351,6 +345,3 @@ func init() {
 		return tools.ExtendedBuiltinTool{Definition: Definition(Options{GetSettings: options.Settings})}
 	})
 }
-
-// ensure the HTTP client type is the one the shared loader expects.
-var _ *http.Client = webtools.NewHTTPClient()

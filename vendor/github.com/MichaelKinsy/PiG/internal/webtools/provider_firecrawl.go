@@ -102,7 +102,7 @@ func (p *firecrawlProvider) Search(ctx context.Context, params SearchParams) (Se
 		return SearchResponse{}, &SearchError{Provider: p.ID(), Message: "Firecrawl returned invalid JSON"}
 	}
 	if payload.Success != nil && !*payload.Success {
-		message := normalizeSearchText(derefString(payload.Error))
+		message := normalizeSearchText(payload.Error)
 		if message == "" {
 			message = "Firecrawl request failed"
 		}
@@ -112,20 +112,20 @@ func (p *firecrawlProvider) Search(ctx context.Context, params SearchParams) (Se
 	results := payload.webResults()
 	sources := make([]SearchSource, 0, len(results))
 	for _, result := range results {
-		target := normalizeHTTPURL(derefString(result.URL))
+		target := normalizeHTTPURL(result.URL)
 		if target == "" {
 			continue
 		}
-		title := normalizeSearchText(derefString(result.Title))
+		title := normalizeSearchText(result.Title)
 		if title == "" {
 			title = target
 		}
-		snippet := derefString(result.Description)
+		snippet := result.Description
 		if strings.TrimSpace(snippet) == "" {
-			snippet = derefString(result.Snippet)
+			snippet = result.Snippet
 		}
 		if strings.TrimSpace(snippet) == "" {
-			snippet = derefString(result.Markdown)
+			snippet = result.Markdown
 		}
 		sources = append(sources, SearchSource{Title: title, URL: target, Snippet: snippet})
 		if len(sources) >= want {
@@ -135,7 +135,7 @@ func (p *firecrawlProvider) Search(ctx context.Context, params SearchParams) (Se
 	return SearchResponse{
 		Provider:  p.ID(),
 		Sources:   sources,
-		RequestID: derefString(payload.ID),
+		RequestID: payload.ID,
 		AuthMode:  "keyless",
 	}, nil
 }
@@ -168,40 +168,34 @@ func googleDate(iso string) string {
 // an object keyed by source type; both shapes are accepted.
 type firecrawlResponse struct {
 	Success *bool           `json:"success"`
-	Error   *string         `json:"error"`
-	ID      *string         `json:"id"`
+	Error   string          `json:"error"`
+	ID      string          `json:"id"`
 	Data    json.RawMessage `json:"data"`
 	Results []firecrawlItem `json:"results"`
 }
 
 // firecrawlItem is one result row.
 type firecrawlItem struct {
-	Title       *string `json:"title"`
-	URL         *string `json:"url"`
-	Description *string `json:"description"`
-	Snippet     *string `json:"snippet"`
-	Markdown    *string `json:"markdown"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Snippet     string `json:"snippet"`
+	Markdown    string `json:"markdown"`
 }
 
 // webResults returns the web rows of the envelope, whatever shape `data` took.
 func (r firecrawlResponse) webResults() []firecrawlItem {
 	flat := make([]firecrawlItem, 0, 8)
-	for _, raw := range []json.RawMessage{r.Data} {
-		trimmed := strings.TrimSpace(string(raw))
-		if trimmed == "" || trimmed == "null" {
-			continue
+	if strings.HasPrefix(strings.TrimSpace(string(r.Data)), "[") {
+		var items []firecrawlItem
+		if json.Unmarshal(r.Data, &items) == nil {
+			flat = append(flat, items...)
 		}
-		if strings.HasPrefix(trimmed, "[") {
-			var items []firecrawlItem
-			if json.Unmarshal(raw, &items) == nil {
-				flat = append(flat, items...)
-			}
-			continue
-		}
+	} else {
 		var grouped struct {
 			Web []firecrawlItem `json:"web"`
 		}
-		if json.Unmarshal(raw, &grouped) == nil {
+		if json.Unmarshal(r.Data, &grouped) == nil {
 			flat = append(flat, grouped.Web...)
 		}
 	}
@@ -209,13 +203,6 @@ func (r firecrawlResponse) webResults() []firecrawlItem {
 		flat = append(flat, r.Results...)
 	}
 	return flat
-}
-
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 // FiltersRecency reports that the engine applies the recency window natively.

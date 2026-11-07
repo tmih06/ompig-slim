@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"path"
@@ -26,13 +27,13 @@ import (
 
 // writeTemp writes body to a private temporary file and returns its path; SQLite
 // cannot read a database from memory.
-func writeTemp(body *bytes.Reader) (string, error) {
+func writeTemp(body []byte) (string, error) {
 	file, err := os.CreateTemp("", "pi-fetch-*.sqlite")
 	if err != nil {
 		return "", err
 	}
 	name := file.Name()
-	if _, err := io.Copy(file, body); err != nil {
+	if _, err := file.Write(body); err != nil {
 		file.Close()
 		os.Remove(name)
 		return "", err
@@ -43,9 +44,6 @@ func writeTemp(body *bytes.Reader) (string, error) {
 	}
 	return name, nil
 }
-
-// removeTemp drops a temporary file, ignoring the cleanup failure.
-func removeTemp(name string) { os.Remove(name) }
 
 // convertJSON pretty-prints a JSON body, keeping the original text when it is
 // large or already formatted.
@@ -63,9 +61,6 @@ func convertJSON(body []byte) string {
 	}
 	return pretty.String()
 }
-
-// jsonValid reports whether body is valid JSON.
-func jsonValid(body []byte) bool { return json.Valid(body) }
 
 // ─── feeds ───────────────────────────────────────────────────────────────────
 
@@ -213,16 +208,7 @@ func stripMarkup(fragment string) string {
 			}
 		}
 	}
-	return htmlUnescape(builder.String())
-}
-
-// htmlUnescape decodes the entities that appear in feeds.
-func htmlUnescape(value string) string {
-	replacer := strings.NewReplacer(
-		"&lt;", "<", "&gt;", ">", "&quot;", "\"", "&#39;", "'", "&apos;", "'",
-		"&nbsp;", " ", "&amp;", "&",
-	)
-	return replacer.Replace(value)
+	return html.UnescapeString(builder.String())
 }
 
 // ─── notebooks ───────────────────────────────────────────────────────────────
@@ -451,11 +437,28 @@ func convertEPUB(body []byte) (string, error) {
 		return "", fmt.Errorf("EPUB package document is missing")
 	}
 	base := path.Dir(opfPath)
-	manifest := epubManifest(string(opf))
+	var pkg struct {
+		Manifest []struct {
+			ID   string `xml:"id,attr"`
+			Href string `xml:"href,attr"`
+		} `xml:"manifest>item"`
+		Spine []struct {
+			IDRef string `xml:"idref,attr"`
+		} `xml:"spine>itemref"`
+	}
+	decoder := xml.NewDecoder(bytes.NewReader(opf))
+	decoder.Strict = false
+	if err := decoder.Decode(&pkg); err != nil {
+		return "", fmt.Errorf("EPUB has no readable chapters")
+	}
+	manifest := make(map[string]string, len(pkg.Manifest))
+	for _, item := range pkg.Manifest {
+		manifest[item.ID] = item.Href
+	}
 	var builder strings.Builder
 	written := 0
-	for _, item := range epubSpine(string(opf)) {
-		href, ok := manifest[item]
+	for _, item := range pkg.Spine {
+		href, ok := manifest[item.IDRef]
 		if !ok {
 			continue
 		}
@@ -501,45 +504,6 @@ func firstMatch(text, prefix string) string {
 		return value[:end]
 	}
 	return ""
-}
-
-// epubManifest maps manifest item IDs to hrefs.
-func epubManifest(opf string) map[string]string {
-	manifest := map[string]string{}
-	var document struct {
-		Items []struct {
-			ID   string `xml:"id,attr"`
-			Href string `xml:"href,attr"`
-		} `xml:"manifest>item"`
-	}
-	decoder := xml.NewDecoder(strings.NewReader(opf))
-	decoder.Strict = false
-	if err := decoder.Decode(&document); err != nil {
-		return manifest
-	}
-	for _, item := range document.Items {
-		manifest[item.ID] = item.Href
-	}
-	return manifest
-}
-
-// epubSpine returns the spine's itemref IDs in reading order.
-func epubSpine(opf string) []string {
-	var document struct {
-		Items []struct {
-			IDRef string `xml:"idref,attr"`
-		} `xml:"spine>itemref"`
-	}
-	decoder := xml.NewDecoder(strings.NewReader(opf))
-	decoder.Strict = false
-	if err := decoder.Decode(&document); err != nil {
-		return nil
-	}
-	ids := make([]string, 0, len(document.Items))
-	for _, item := range document.Items {
-		ids = append(ids, item.IDRef)
-	}
-	return ids
 }
 
 // ─── Office ──────────────────────────────────────────────────────────────────
@@ -1154,11 +1118,11 @@ func plausibleText(text string) bool {
 // convertSQLite lists a SQLite database's tables and their columns. SQLite is not
 // queried for row data: the model gets the schema it can then query through code.
 func (s *fetchState) convertSQLite() (conversion, error) {
-	file, err := writeTemp(bytes.NewReader(s.body))
+	file, err := writeTemp(s.body)
 	if err != nil {
 		return conversion{}, fmt.Errorf("SQLite body could not be written for reading")
 	}
-	defer removeTemp(file)
+	defer os.Remove(file)
 	db, err := sql.Open("sqlite", "file:"+file+"?mode=ro&_pragma=query_only(1)")
 	if err != nil {
 		return conversion{}, fmt.Errorf("SQLite body could not be opened")

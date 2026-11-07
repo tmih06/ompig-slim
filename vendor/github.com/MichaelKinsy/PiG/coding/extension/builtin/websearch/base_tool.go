@@ -15,12 +15,8 @@ import (
 // ToolName is the name the model calls.
 const ToolName = "web_search"
 
-// registerBaseTool registers the built-in `web_search` definition. A build that
-// strips web search registers nothing.
-func registerBaseTool() {
+func init() {
 	tools.RegisterExtendedBuiltinTool(ToolName, func(options tools.ExtendedBuiltinOptions) tools.ExtendedBuiltinTool {
 		return tools.ExtendedBuiltinTool{Definition: Definition(options)}
 	})
 }
-
-func init() { registerBaseTool() }

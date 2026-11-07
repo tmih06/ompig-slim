@@ -3,6 +3,7 @@ package webtools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,7 +127,7 @@ func TestDuckDuckGoBotWallIsDetected(t *testing.T) {
 		t.Fatal("a bot wall must fail the provider, not return zero sources")
 	}
 	var searchErr *SearchError
-	if !asSearchError(err, &searchErr) {
+	if !errors.As(err, &searchErr) {
 		t.Fatalf("error type = %T", err)
 	}
 	if searchErr.Status != http.StatusTooManyRequests {
@@ -275,7 +276,7 @@ func TestStartpageChallengeIsDetected(t *testing.T) {
 	}
 	_, err = provider.Search(context.Background(), SearchParams{Query: "golang", Limit: 5, Timeout: 2 * time.Second})
 	var searchErr *SearchError
-	if !asSearchError(err, &searchErr) {
+	if !errors.As(err, &searchErr) {
 		t.Fatalf("error = %v", err)
 	}
 	if searchErr.Status != http.StatusTooManyRequests || !strings.Contains(searchErr.Message, "CAPTCHA") {
@@ -423,7 +424,7 @@ func TestFirecrawlErrorEnvelope(t *testing.T) {
 	}
 	_, err = provider.Search(context.Background(), SearchParams{Query: "x", Limit: 1, Timeout: 2 * time.Second})
 	var searchErr *SearchError
-	if !asSearchError(err, &searchErr) || searchErr.Message != "Rate limit exceeded" {
+	if !errors.As(err, &searchErr) || searchErr.Message != "Rate limit exceeded" {
 		t.Fatalf("error = %v", err)
 	}
 }

@@ -11,6 +11,7 @@ package webtools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -149,7 +150,7 @@ func parseParallelPayload(payload json.RawMessage) ([]SearchSource, string, erro
 // keeping a rate-limit hint actionable.
 func explainMCPFailure(err error, provider string) error {
 	var searchErr *SearchError
-	if !asSearchError(err, &searchErr) {
+	if !errors.As(err, &searchErr) {
 		return err
 	}
 	if searchErr.Status == http.StatusTooManyRequests {
