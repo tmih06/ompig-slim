@@ -240,18 +240,15 @@ func parseCursorUnifiedPool(plan map[string]any) *UsageAmount {
 		used := math.Max(0, percent)
 		return &UsageAmount{Used: &used, UsedFraction: &fraction, Unit: UsageUnitPercent}
 	}
-	fraction := math.Max(func() float64 {
-		if hasPercent {
-			return percent / 100
-		}
-		return 0
-	}(), func() float64 {
-		if hasUsed {
-			return usedCents / limitCents
-		}
-		return 0
-	}())
-	fraction = math.Max(fraction, 0)
+	// Prefer the larger reported usage signal; neither missing signal can
+	// contribute, and negative provider values cannot produce negative usage.
+	fraction := 0.0
+	if hasPercent {
+		fraction = math.Max(fraction, percent/100)
+	}
+	if hasUsed {
+		fraction = math.Max(fraction, usedCents/limitCents)
+	}
 	limit := limitCents / 100
 	used := math.Min(limit, limit*fraction)
 	remaining := limit - used

@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -239,9 +238,6 @@ func usageFractionAmount(usedFraction float64) UsageAmount {
 	return usagePercentAmount(usedFraction * 100)
 }
 
-// usagePercentValue returns the used percentage of a 0..1 fraction.
-func usagePercentValue(fraction float64) float64 { return fraction * 100 }
-
 // usageWindowDurationLabel renders a window length as its label, mirroring the
 // Codex "5 hours"/"7 days" formatting.
 func usageWindowDurationLabel(value int64, unit string) string {
@@ -431,23 +427,15 @@ func usageRecordJSON(text string) (map[string]any, bool) {
 // percentEncode is encodeURIComponent.
 func percentEncode(value string) string { return url.QueryEscape(value) }
 
-// urlValues renders an application/x-www-form-urlencoded body.
+// urlValues renders a form body in stable key order; url.Values.Encode owns
+// sorting and escaping, so map insertion order does not affect the wire bytes.
 func urlValues(fields map[string]string) string {
-	globalKeys := make([]string, 0, len(fields))
-	// Map iteration order must be stable for a reproducible request body.
-	for key := range fields {
-		globalKeys = append(globalKeys, key)
-	}
-	sortStrings(globalKeys)
 	values := url.Values{}
-	for _, key := range globalKeys {
-		values.Set(key, fields[key])
+	for key, value := range fields {
+		values.Set(key, value)
 	}
 	return values.Encode()
 }
-
-// sortStrings sorts a string slice in place.
-func sortStrings(values []string) { sort.Strings(values) }
 
 // regexpMustCompile compiles a pattern that is a compile-time literal.
 func regexpMustCompile(pattern string) *regexp.Regexp { return regexp.MustCompile(pattern) }
