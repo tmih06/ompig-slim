@@ -163,7 +163,15 @@ const (
 // at a time with byte loads and shifts (no unsafe, so TinyGo builds it the same
 // way): lane k of the word is byte k, and a borrow can mark a lane above a
 // marked one falsely, never one below, so the lowest mark is exact.
-func PlainEnd(s string, i int) int {
+func PlainEnd(s string, i int) int { return plainEnd(s, i) }
+
+// PlainEndBytes is PlainEnd for a read-only byte slice. It does not retain or
+// copy s; canonical JSON scanning uses it without allocating a string per token.
+func PlainEndBytes(s []byte, i int) int { return plainEnd(s, i) }
+
+// plainEnd shares the exact stop-byte rules for string and byte-slice callers.
+// The caller supplies 0 <= i <= len(s); neither form retains or mutates s.
+func plainEnd[S ~string | ~[]byte](s S, i int) int {
 	// Four independent words per branch: a long plain run, such as source text, keeps the ALUs busy and pays one branch
 	// per 32 bytes. The lowest marked lane of the first word with one is the stop, as in the word loop below.
 	for ; i+32 <= len(s); i += 32 {

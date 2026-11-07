@@ -164,3 +164,51 @@ Largest embedded payloads are the codemode/QuickJS runtime, syntax-highlighting 
 
 `benchmarks/evidence/footprint.json` records these numbers with the command that produced them.
 The footprint figures come from a single short session whose purpose is only to emit the distribution columns; the 120-turn timing numbers above come from separate full runs.
+## Measured optimization
+
+Local evidence is retained under `benchmarks/evidence/`.
+The host was Linux arm64 with four reported CPUs, Go 1.27.3, Node 24.18.0, and Bun 1.4.4.
+These measurements are not results from the GitHub x64 runner.
+
+A CPU profile of `BenchmarkCanonicalSession` attributed approximately 85% of sampled CPU to the canonical JSON scanner's string-token scan.
+That scanner checked source-text bytes one at a time even though the serializer already had a word-at-a-time `PlainEnd` scan.
+The optimization shares that scan through string and byte-slice forms, without unsafe memory access, per-token copies, new pools, retained buffers, or changes to JSON semantics.
+UTF-8 validity, escape spelling, surrogate-pair handling, member ordering, and the full-rewrite fallback remain unchanged.
+An initially tested string conversion allocated; it was rejected in favor of a shared generic scan with a byte-slice entry point.
+
+Medians of five `-benchmem` samples:
+
+| Canonical payload | Before ns/op | After ns/op | Speedup | Allocations before/after |
+|---|---:|---:|---:|---:|
+| Short frame | 412.6 | 255.8 | 1.61x | 0 / 0 |
+| Source file | 15,608 | 4,881 | 3.20x | 0 / 0 |
+| Large history | 2,712,432 | 674,740 | 4.02x | 0 / 0 |
+
+Both versions also report zero allocated bytes per operation with a reused destination.
+`canonical-before.txt` and `canonical-after.txt` retain all benchmark samples.
+The tests compare both scan forms with an independent scalar oracle and compare fast JSON canonicalization against the full rewrite, including Unicode, controls, escapes, surrogate pairs, and boundary offsets.
+A bounded fuzz run exercised over 323,000 inputs without a mismatch.
+
+Five-run, 120-turn full-session medians after the change:
+
+| CLI | Ready ms | Turn ms | Peak RSS MiB | User + system CPU seconds |
+|---|---:|---:|---:|---:|
+| ompig-slim | 121.3 | 21.0 | 179.3 | 1.46 |
+| OMP | 2175.5 | 43.6 | 499.4 | 10.05 |
+| Pi | 1128.7 | 35.9 | 446.3 | 6.15 |
+
+Before the change, ompig-slim's matching medians were 134.1 ms ready, 20.6 ms per turn, 183.7 MiB peak RSS, and 1.47 CPU seconds.
+These full-session differences are too small and noisy to claim an end-to-end speed or memory improvement from this patch.
+The demonstrated improvement is lower CPU work in canonical JSON scanning; it does not reduce feature coverage, allocations, or stripped executable bytes on this host.
+`local-metrics.json` retains per-run metrics and executable hashes for these observations; it omits the large sample timelines, which CI retains in its artifacts.
+The evidence predates the addition of idle-CPU sampling and dependency/runtime provenance fields to the report, so those fields are absent from that historical snapshot; the current executable hash is retained in the benchmark artifact on every CI run.
+
+To reproduce the scanner profiles without rebuilding the application:
+
+```sh
+go test -mod=vendor ./vendor/github.com/MichaelKinsy/PiG/internal/jsonstringify \
+  -run '^$' -bench BenchmarkCanonicalSession -benchmem -count=5 \
+  -cpuprofile=/tmp/canonical.cpu -memprofile=/tmp/canonical.mem -o /tmp/canonical.test
+go tool pprof -top /tmp/canonical.cpu
+go tool pprof -alloc_space -top /tmp/canonical.mem
+```

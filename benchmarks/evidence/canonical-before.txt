@@ -1,0 +1,20 @@
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/jsonstringify
+BenchmarkCanonicalSession/frame-4         	 2890654	       414.6 ns/op	 443.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/frame-4         	 2892074	       414.2 ns/op	 444.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/frame-4         	 2908378	       412.6 ns/op	 445.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/frame-4         	 2908219	       412.4 ns/op	 446.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/frame-4         	 2909238	       412.4 ns/op	 446.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/file-4          	   77028	     15608 ns/op	 571.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/file-4          	   77114	     15567 ns/op	 572.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/file-4          	   77358	     15483 ns/op	 576.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/file-4          	   77487	     21753 ns/op	 410.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/file-4          	   41277	     24357 ns/op	 366.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/history-4       	     453	   3075956 ns/op	 369.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/history-4       	     384	   2712432 ns/op	 418.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/history-4       	     481	   2461942 ns/op	 461.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/history-4       	     366	   2783873 ns/op	 408.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkCanonicalSession/history-4       	     486	   2400024 ns/op	 473.33 MB/s	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/MichaelKinsy/PiG/internal/jsonstringify	18.470s
