@@ -83,13 +83,9 @@ func (m *InteractiveMode) showUsageDashboard() {
 		LoadActivity: func(ctx context.Context, push func([]tui.DailyActivityPoint)) error {
 			return activity.Load(ctx, push)
 		},
-		Refresh: func(ctx context.Context) (tui.UsageDashboardSnapshot, error) {
+		RefreshProgress: func(ctx context.Context, force bool, push func(tui.UsageDashboardSnapshot)) (tui.UsageDashboardSnapshot, error) {
 			if service == nil {
 				return tui.UsageDashboardSnapshot{}, nil
-			}
-			snapshot, err := service.FetchSnapshot(ctx, true)
-			if err != nil {
-				return tui.UsageDashboardSnapshot{}, err
 			}
 			if provider != "" {
 				account, ok := m.resolveUsageActiveAccount(ctx, service, provider)
@@ -102,7 +98,16 @@ func (m *InteractiveMode) showUsageDashboard() {
 				}
 				activeAccountMu.Unlock()
 			}
-			return tui.NewUsageDashboardSnapshot(snapshot), nil
+			var snapshot ai.UsageSnapshot
+			var err error
+			if progressive, ok := service.(interface {
+				FetchSnapshotProgress(context.Context, bool, func(ai.UsageSnapshot)) (ai.UsageSnapshot, error)
+			}); ok {
+				snapshot, err = progressive.FetchSnapshotProgress(ctx, force, func(snapshot ai.UsageSnapshot) { push(tui.NewUsageDashboardSnapshot(snapshot)) })
+			} else {
+				snapshot, err = service.FetchSnapshot(ctx, force)
+			}
+			return tui.NewUsageDashboardSnapshot(snapshot), err
 		},
 		ResolveActiveAccount: func(providerID string) *ai.UsageActiveAccount {
 			if providerID != provider {
