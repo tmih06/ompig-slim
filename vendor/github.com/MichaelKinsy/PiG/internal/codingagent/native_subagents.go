@@ -1001,7 +1001,7 @@ func (m *InteractiveMode) handleAgentMention(prompt string) bool {
 // agent tree and Hub own progress, results, and session navigation.
 func WithSubagentRenderers(def extension.ToolDefinition) extension.ToolDefinition {
 	if def.Name == "Agent" {
-		def.RenderShell = extension.ToolRenderShellSelf
+		def.RenderShell = extension.ToolRenderShellDefault
 		def.RenderCall = subagentRenderCall
 		def.RenderResult = subagentRenderResult
 	}
