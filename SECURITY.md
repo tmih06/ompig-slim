@@ -19,6 +19,12 @@ ompig-slim also relies on the user installing trustworthy extensions and skills 
 trusted repositories. Files such as `AGENTS.md`, repository instructions, tool output, and comments
 can steer the model. That prompt-injection surface cannot be defended against by the agent.
 
+## Public OAuth client metadata
+
+Google Cloud Code Assist sign-in uses the public installed-application OAuth client ID and client secret published by [Google’s Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/fe6350238c1862dade66a9dea9080c6508475bec/packages/core/src/code_assist/oauth2.ts). The constants in `ai/google_cloud_code_auth.go` match that source byte for byte. Google explicitly documents that this installed-application client secret is public source metadata. It is separate from a user’s access tokens, refresh tokens, and account credentials.
+
+GitHub push protection detected these two published constants during the initial import. The two exact detections were classified as false positives after comparison with Google’s source. Repository secret scanning and push protection remain enabled.
+
 ## Reporting a vulnerability
 
 Report privately through [this repository's GitHub security page](https://github.com/tmih06/ompig-slim/security) (**Security** →
