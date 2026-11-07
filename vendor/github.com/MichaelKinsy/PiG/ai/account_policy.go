@@ -52,10 +52,10 @@ func AccountPolicyModelID(modelID string) string {
 // for modelID. A nil result means the plan cannot be read (an unparseable token or an unknown
 // tier): the account stays probeable, ranked after every known-eligible account.
 //
-// Only openai-codex OAuth credentials carry a plan; every other provider and every API key is
-// eligible.
+// Codex OAuth credentials (browser logins and JSON imports) carry a plan;
+// every other provider and every API key is eligible.
 func AccountMeetsModelPlan(provider, modelID string, credential Credential) *bool {
-	if provider != "openai-codex" || credential.Type != CredentialOAuth {
+	if !isCodexAccountProvider(provider) || credential.Type != CredentialOAuth {
 		return new(true)
 	}
 	id := AccountPolicyModelID(modelID)
@@ -146,7 +146,7 @@ func decodeJWTPayload(segment string) ([]byte, error) {
 // AccountQuotaScope is OMP's quota scope for one model, keeping Codex chat and Spark meters
 // separate. Providers without a per-model meter use the unscoped ("") block.
 func AccountQuotaScope(provider, modelID string) string {
-	if provider != "openai-codex" {
+	if !isCodexAccountProvider(provider) {
 		return ""
 	}
 	if strings.Contains(AccountPolicyModelID(modelID), "-spark") {
@@ -159,10 +159,10 @@ func AccountQuotaScope(provider, modelID string) string {
 func AccountRequestBlockScopes(provider, modelID string) []string {
 	id := AccountPolicyModelID(modelID)
 	scopes := []string{"auth", "account-policy", AccountQuotaScope(provider, modelID)}
-	if provider == "openai-codex" {
+	if isCodexAccountProvider(provider) {
 		scopes = append(scopes, "shared")
 	}
-	if provider == "openai-codex" || provider == "cursor" {
+	if isCodexAccountProvider(provider) || provider == "cursor" {
 		scopes = append(scopes, "model-policy:"+id)
 	}
 	return scopes
@@ -249,7 +249,7 @@ func AccountFailureBlock(provider, modelID, message string, status int, retryAft
 	now := nowMillis()
 	id := AccountPolicyModelID(modelID)
 	if match := accountPolicyDeniedModel.FindStringSubmatch(message); match != nil {
-		if provider != "openai-codex" || AccountPolicyModelID(match[1]) != id {
+		if !isCodexAccountProvider(provider) || AccountPolicyModelID(match[1]) != id {
 			return nil
 		}
 		return &AccountFailureScope{Scope: "model-policy:" + id, Until: now + MinAccountBlockMs}

@@ -13,6 +13,19 @@ func oauthNativeLogin(provider OAuthProviderInterface) func(context.Context, Aut
 		if ctx.Err() != nil {
 			return Credential{}, context.Cause(ctx)
 		}
+		// ompig-slim addition: preserve provider-owned secret prompts for JSON imports.
+		if native, ok := provider.(interface {
+			LoginInteraction(context.Context, AuthInteraction, LoginOptions) (OAuthCredentials, error)
+		}); ok {
+			credential, err := native.LoginInteraction(ctx, interaction, options)
+			if err != nil {
+				return Credential{}, err
+			}
+			if ctx.Err() != nil {
+				return Credential{}, context.Cause(ctx)
+			}
+			return credentialFromOAuth(credential)
+		}
 		notify := func(event AuthEvent) {
 			if interaction.Notify != nil {
 				interaction.Notify(event)
