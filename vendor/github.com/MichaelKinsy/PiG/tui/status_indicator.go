@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/MichaelKinsy/PiG/tui/widthx"
@@ -11,7 +13,8 @@ import (
 // Its owner advances animation and disposes operation timers on replacement.
 type StatusIndicator struct {
 	*Loader
-	Kind string
+	Kind      string
+	StartedAt time.Time
 }
 
 func (s *StatusIndicator) RenderInBorder(width int) string {
@@ -20,7 +23,26 @@ func (s *StatusIndicator) RenderInBorder(width int) string {
 		return ""
 	}
 	line := strings.TrimPrefix(lines[1], " ")
-	return widthx.TruncateToWidth(strings.TrimRightFunc(line, func(r rune) bool { return r == '\ufeff' || (r != '\u0085' && unicode.IsSpace(r)) }), width, "", false)
+	line = strings.TrimRightFunc(line, func(r rune) bool { return r == '\ufeff' || (r != '\u0085' && unicode.IsSpace(r)) })
+	if s.Kind == "working" && !s.StartedAt.IsZero() {
+		line += " " + formatElapsed(time.Since(s.StartedAt))
+	}
+	return widthx.TruncateToWidth(line, width, "", false)
+}
+
+// formatElapsed uses MM:SS below an hour and H:MM:SS after that, flooring partial seconds.
+func formatElapsed(elapsed time.Duration) string {
+	seconds := int(elapsed / time.Second)
+	if seconds < 0 {
+		seconds = 0
+	}
+	hours := seconds / 3600
+	minutes := seconds / 60 % 60
+	seconds %= 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
 func (s *StatusIndicator) RenderSpinnerInBorder(width int) string {

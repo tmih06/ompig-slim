@@ -32,9 +32,8 @@ const omPrefixCells = 3 + 1 + 5
 // easter egg's cleared area cover it, since the mark is the header's logo now.
 const logoMarkCells = omPrefixCells + 1 + piLogoCells
 
-// logoTag is the product qualifier shown after the mark in logoLightPurple. The white OM prefix and Pi's
-// mark followed by the tag read "OM Pi g-slim", the ompig-slim product name, without new glyph art.
-const logoTag = "g-slim"
+// logoTag is the plain-text suffix following the block-letter GO mark.
+const logoTag = "-slim"
 
 // logoGlyphs are the fork's prefix letters, four pixel rows tall each. Line one draws pixel rows 0-1 and
 // line two draws rows 2-3. M is five columns wide: at this height a three-column M is indistinguishable
@@ -42,6 +41,7 @@ const logoTag = "g-slim"
 var logoGlyphs = map[byte][4]string{
 	'O': {"███", "█ █", "█ █", "███"},
 	'M': {"█   █", "██ ██", "█ █ █", "█   █"},
+	'G': {"███", "█  ", "█ █", "███"},
 }
 
 func logoBrandColor(r, g, b float64) tui.Color {
@@ -109,4 +109,31 @@ func piWordmark(mode tui.TerminalColorMode) string {
 // text like the logo, so it deliberately avoids the theme's dim tokens.
 func productTag(mode tui.TerminalColorMode) string {
 	return tui.ForegroundAnsi(logoLightPurple, mode) + logoTag + logoReset
+}
+
+// renderGoLine draws GO as four-row block glyphs, collapsing pairs of pixel rows into terminal blocks.
+func renderGoLine(topRow int, mode tui.TerminalColorMode) string {
+	var b strings.Builder
+	b.WriteString(tui.ForegroundAnsi(logoBrandColor(0, 173, 216), mode))
+	for index, character := range []byte{'G', 'O'} {
+		if index > 0 {
+			b.WriteByte(' ')
+		}
+		glyph := logoGlyphs[character]
+		top, bottom := []rune(glyph[topRow]), []rune(glyph[topRow+1])
+		for column := range top {
+			switch {
+			case top[column] == '█' && bottom[column] == '█':
+				b.WriteRune('█')
+			case top[column] == '█':
+				b.WriteRune('▀')
+			case bottom[column] == '█':
+				b.WriteRune('▄')
+			default:
+				b.WriteByte(' ')
+			}
+		}
+	}
+	b.WriteString(logoReset)
+	return b.String()
 }

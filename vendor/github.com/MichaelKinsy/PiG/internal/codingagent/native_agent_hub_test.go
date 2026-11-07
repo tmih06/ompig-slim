@@ -78,6 +78,30 @@ func TestHubResponsiveRosterFilteringAndFocus(t *testing.T) {
 	}
 }
 
+// TestHubRankPrecedence covers every frozen sort key independently of live
+// lifecycle state, including the descending activity timestamp and ID tie-break.
+func TestHubRankPrecedence(t *testing.T) {
+	manager := subagents.New(subagents.Host{CWD: t.TempDir(), AgentDir: t.TempDir(), Restore: func() []subagents.Record {
+		return []subagents.Record{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}}
+	}})
+	defer manager.Close()
+	h := &agentHub{manager: manager, ranks: map[string]hubRank{
+		"a": {batch: 0, status: 0, activity: 10},
+		"b": {batch: -1, status: 3, activity: 1},
+		"c": {batch: 0, status: 1, activity: 100},
+		"d": {batch: 0, status: 0, activity: 20},
+		"e": {batch: 0, status: 0, activity: 10},
+	}}
+	h.refresh()
+	var ids []string
+	for _, row := range h.rows {
+		ids = append(ids, row.ID)
+	}
+	if got := strings.Join(ids, ","); got != "b,d,a,e,c" {
+		t.Fatalf("rank precedence changed: %s", got)
+	}
+}
+
 func TestHubOrderingDoesNotJumpOnStatusChange(t *testing.T) {
 	m, manager := observerFixture(t)
 	m.toggleAgentHub()
@@ -316,6 +340,18 @@ func TestHubUsesOMPSelectionAndHoverStyling(t *testing.T) {
 	}
 }
 
+// TestHubHoverLinePreservesFill verifies exact ANSI output, including resets
+// embedded by nested styles, rather than stripping the background under test.
+func TestHubHoverLinePreservesFill(t *testing.T) {
+	theme := tui.ActiveTheme()
+	open := theme.GetBgAnsi("selectedBg")
+	line := "a\x1b[0mb\x1b[mc\x1b[49md"
+	want := theme.Bg("selectedBg", "a\x1b[0m"+open+"b\x1b[m"+open+"c"+open+"d  ")
+	if got := hubHoverLine(line, 6); got != want {
+		t.Fatalf("hover fill changed: got %q, want %q", got, want)
+	}
+}
+
 func TestHubOMPChipsAndModelBadge(t *testing.T) {
 	theme := tui.ActiveTheme()
 	if hubChip("Flat", true) != theme.Bg("selectedBg", tui.ChalkBold(theme.Fg("accent", " Flat "))) {
@@ -324,11 +360,17 @@ func TestHubOMPChipsAndModelBadge(t *testing.T) {
 	if hubChip("By parent", false) != theme.Fg("muted", " By parent ") {
 		t.Fatal("inactive chip differs from OMP styling")
 	}
-	if strings.Contains(widthx.StripTerminalSequences(hubModel("fixture", "off")), "off") {
-		t.Fatal("off thinking level should be hidden")
+	for _, level := range []string{"", "off", "unknown"} {
+		if got := hubModel("fixture", level); got != theme.Fg("muted", "fixture") {
+			t.Fatalf("disabled or unknown thinking badge should be hidden: %q", got)
+		}
 	}
-	if !strings.Contains(hubModel("fixture", "high"), theme.Fg("thinkingHigh", "high")) {
-		t.Fatal("thinking badge lost its level color")
+	for _, level := range []string{"minimal", "low", "medium", "high", "xhigh", "max"} {
+		token := "thinking" + strings.ToUpper(level[:1]) + level[1:]
+		want := theme.Fg("muted", "fixture") + " " + theme.Fg(token, level)
+		if got := hubModel("fixture", level); got != want {
+			t.Fatalf("%s thinking badge changed: got %q, want %q", level, got, want)
+		}
 	}
 	if hubStatus("parked", "parked") != theme.Fg("muted", "parked") {
 		t.Fatal("parked status must use OMP's muted tone")

@@ -8,6 +8,13 @@ All notable public changes to PiG will be recorded in this file.
 
 ## [Unreleased]
 
+### ompig-slim native-port maintenance
+
+- Share routed and unpooled stream preparation and response observation while preserving provider ownership, continuation boundaries, callback options, and simple-stream token limits.
+- Simplify credential-row decoding, account diagnostics, quota form encoding and Cursor pool parsing; retain account identities, refresh leases, logout tombstones, and replay-safe routing.
+- Remove redundant metadata-cache allocation and file-read/YAML forwarding helpers. Preserve explicit model fields, metadata freshness, and YAML symbol handling.
+- Simplify Agent Hub ordering, padding, and thinking colors without changing frozen ranks or hover backgrounds. Avoid redundant warning snapshots and boolean-map dispatch in subagent completion.
+
 ## [0.7.0] - 2026-11-05
 
 ### Upgrading

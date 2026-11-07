@@ -5,9 +5,9 @@ package codingagent
 // f2b795ba747b23d42052184d822b41e3d01357cc (MIT). Native sessions supply the
 // roster and activity; no transcript or filesystem scan runs on the input loop.
 import (
+	"cmp"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -191,24 +191,16 @@ func (h *agentHub) refresh() {
 	if added {
 		h.batch = newBatch
 	}
+	// Rank snapshots keep lifecycle updates from moving existing rows. Newer
+	// batches lead; within a batch, status then newest activity decide order.
 	slices.SortStableFunc(agents, func(a, b subagents.HubAgent) int {
 		x, y := h.ranks[a.ID], h.ranks[b.ID]
-		if x.batch != y.batch {
-			if x.batch < y.batch {
-				return -1
-			}
-			return 1
-		}
-		if x.status != y.status {
-			return x.status - y.status
-		}
-		if x.activity != y.activity {
-			if x.activity > y.activity {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(a.ID, b.ID)
+		return cmp.Or(
+			cmp.Compare(x.batch, y.batch),
+			cmp.Compare(x.status, y.status),
+			cmp.Compare(y.activity, x.activity),
+			strings.Compare(a.ID, b.ID),
+		)
 	})
 	h.agents = agents
 	rows := agents
@@ -303,12 +295,8 @@ func projectHubTree(rows []subagents.HubAgent, ranks map[string]hubRank) ([]suba
 	}
 
 	for parent := range children {
-		sort.SliceStable(children[parent], func(i, j int) bool {
-			a, b := children[parent][i], children[parent][j]
-			if priority[a] != priority[b] {
-				return priority[a] < priority[b]
-			}
-			return order[a] < order[b]
+		slices.SortStableFunc(children[parent], func(a, b string) int {
+			return cmp.Or(cmp.Compare(priority[a], priority[b]), cmp.Compare(order[a], order[b]))
 		})
 	}
 	var out []subagents.HubAgent
@@ -488,7 +476,7 @@ func (h *agentHub) roster(width, height int) []string {
 			}
 			h.hitRows[2+len(lines)] = i
 			if r.ID == h.hovered {
-				line = hubSurface(line, width, "selectedBg")
+				line = hubHoverLine(line, width)
 			}
 			lines = append(lines, line)
 		}
@@ -624,7 +612,11 @@ func (h *agentHub) activityLines(width, height int) []string {
 		if e.Status == "error" || e.Status == "aborted" {
 			icon = tui.ActiveTheme().Fg("error", "✕")
 		}
-		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, tui.ActiveTheme().Fg("dim", time.UnixMilli(e.Timestamp).Format("15:04:05")), icon, tui.ChalkBold(hubSingleLine(h.labelFor(e.AgentID))), tui.ActiveTheme().Fg(map[bool]string{true: "success", false: "muted"}[e.Kind == "response"], hubSingleLine(e.Title)), hubSingleLine(e.Summary))
+		titleToken := "muted"
+		if e.Kind == "response" {
+			titleToken = "success"
+		}
+		line := fmt.Sprintf("%s %s %s %s %s · %s", cursor, tui.ActiveTheme().Fg("dim", time.UnixMilli(e.Timestamp).Format("15:04:05")), icon, tui.ChalkBold(hubSingleLine(h.labelFor(e.AgentID))), tui.ActiveTheme().Fg(titleToken, hubSingleLine(e.Title)), hubSingleLine(e.Summary))
 		h.hitRows[2+len(lines)] = i
 		lines = append(lines, line)
 	}
@@ -645,8 +637,8 @@ func (h *agentHub) Render(width int) []string {
 	tabs := []string{hubChip("1 Agents", h.section == 0), hubChip("2 Activity", h.section == 1)}
 	border := func(text string) string { return theme.Fg("border", text) }
 	lines := []string{
-		hubSurface(border("╭─ ")+hubHeading("Agent Hub")+border(" "+strings.Repeat("─", max(0, width-14))+"╮"), width, ""),
-		hubSurface(border("│ ")+hubPad(strings.Join(tabs, theme.Fg("dim", " · ")), inner)+border(" │"), width, ""),
+		hubPad(border("╭─ ")+hubHeading("Agent Hub")+border(" "+strings.Repeat("─", max(0, width-14))+"╮"), width),
+		hubPad(border("│ ")+hubPad(strings.Join(tabs, theme.Fg("dim", " · ")), inner)+border(" │"), width),
 	}
 	split := width >= hubSplitWidth && h.section == 0
 	h.leftWidth = inner
@@ -673,9 +665,9 @@ func (h *agentHub) Render(width int) []string {
 			if i < len(right) {
 				r = right[i]
 			}
-			lines = append(lines, hubSurface(border("│ ")+hubPad(l, h.leftWidth)+border(" │ ")+hubSurface(r, width-7-h.leftWidth, "")+border(" │"), width, ""))
+			lines = append(lines, hubPad(border("│ ")+hubPad(l, h.leftWidth)+border(" │ ")+hubPad(r, width-7-h.leftWidth)+border(" │"), width))
 		} else {
-			lines = append(lines, hubSurface(border("│ ")+hubPad(l, inner)+border(" │"), width, ""))
+			lines = append(lines, hubPad(border("│ ")+hubPad(l, inner)+border(" │"), width))
 		}
 	}
 	footer := "j/k:select  enter:open  tab:by parent  /:filter  r:revive  x:kill  esc:close"
@@ -694,7 +686,7 @@ func (h *agentHub) Render(width int) []string {
 	if h.notice != "" {
 		footer = h.notice + " · " + footer
 	}
-	lines = append(lines, hubSurface(border("├"+strings.Repeat("─", width-2)+"┤"), width, ""), hubSurface(border("│ ")+hubPad(theme.Fg("dim", footer), inner)+border(" │"), width, ""), hubSurface(border("╰"+strings.Repeat("─", width-2)+"╯"), width, ""))
+	lines = append(lines, hubPad(border("├"+strings.Repeat("─", width-2)+"┤"), width), hubPad(border("│ ")+hubPad(theme.Fg("dim", footer), inner)+border(" │"), width), hubPad(border("╰"+strings.Repeat("─", width-2)+"╯"), width))
 	for i := range lines {
 		lines[i] = clampAgentLine(lines[i], width)
 	}
