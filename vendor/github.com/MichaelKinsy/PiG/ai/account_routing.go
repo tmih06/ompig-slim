@@ -458,6 +458,22 @@ func (r *AccountRouter) Fail(ctx context.Context, model AnyModel, account *Crede
 	return block
 }
 
+// ClearResetBlocks drops exactly the local scopes healed by a confirmed saved
+// reset. It does not establish access or change affinity: the next real request
+// must still succeed before the account is confirmed. Call after the matching
+// persisted blocks have been cleared. Empty scopes is a no-op.
+func (r *AccountRouter) ClearResetBlocks(providerID string, accountKey *string, scopes []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	blocks := r.localBlocks[providerID][accountKeyOf(accountKey)]
+	for _, scope := range scopes {
+		delete(blocks, scope)
+	}
+}
+
 // retryAfterDelay parses a Retry-After header as delay-seconds or as an HTTP date.
 func retryAfterDelay(headers map[string]string, now time.Time) *int64 {
 	value, ok := headers["retry-after"]

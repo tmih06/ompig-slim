@@ -96,6 +96,19 @@ type AccountCredentialStore interface {
 	AccountCount() (int, error)
 }
 
+// AccountBlockClearer is the optional capability of dropping an account's recorded blocks. A
+// spent saved reset makes the windows it covers whole again, so the block recorded for the old
+// window must go or the account stays retired until that window ends.
+//
+// It is deliberately not part of AccountCredentialStore: a store that cannot clear a block keeps
+// its blocks, which is the safe direction (the account is simply probed less eagerly).
+type AccountBlockClearer interface {
+	// ClearAccountBlocks drops every scope's block for one account, or exactly the named scopes
+	// when scopes is non-empty. An empty scope string is the unscoped row, which applies to every
+	// request.
+	ClearAccountBlocks(ctx context.Context, providerID string, accountKey *string, scopes []string) error
+}
+
 // ErrCredentialStoreReadOnly reports a write to a store opened for inspection.
 var ErrCredentialStoreReadOnly = errors.New("Credential store is readonly (opened for inspection)")
 
@@ -1391,6 +1404,40 @@ func (s *SQLiteAuthStorage) BlockAccount(ctx context.Context, providerID string,
 			updated_at = excluded.updated_at`,
 		row.ID, providerKey(row), scope, untilMs)
 	return err
+}
+
+// ClearAccountBlocks drops one account's blocks: every scope when scopes is empty, else exactly
+// those scopes. An empty scope string is the unscoped ("") row, which applies to every request.
+//
+// A reset that covered only some windows must pass those windows' scopes, not the empty list:
+// clearing every scope would also lift an unrelated auth or model-policy block.
+func (s *SQLiteAuthStorage) ClearAccountBlocks(ctx context.Context, providerID string, accountKey *string, scopes []string) error {
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	if err := s.assertWritable(); err != nil {
+		return err
+	}
+	present, err := s.hasTable(ctx, "auth_credential_blocks")
+	if err != nil || !present {
+		return err
+	}
+	row, err := s.exactRow(ctx, providerID, accountKey)
+	if err != nil || row == nil {
+		return err
+	}
+	if len(scopes) == 0 {
+		_, err = s.db.ExecContext(ctx, `DELETE FROM auth_credential_blocks
+			WHERE credential_id = ? AND provider_key = ?`, row.ID, providerKey(row))
+		return err
+	}
+	for _, scope := range scopes {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM auth_credential_blocks
+			WHERE credential_id = ? AND provider_key = ? AND block_scope = ?`, row.ID, providerKey(row), scope); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func providerKey(row *credentialRow) string {

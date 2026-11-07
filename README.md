@@ -69,6 +69,24 @@ Timeouts, rate limits, server errors, and unclassified failures do not delete
 credentials. Cleanup occurs when credentials are used, not on a background timer;
 ordinary Codex browser-login accounts are unaffected.
 
+## Saved rate-limit resets
+
+Use `/usage reset` to spend a banked Codex or Claude rate-limit reset. The
+picker shows only accounts with usable, unexpired resets and requires a second
+confirmation. Empty, ineligible, expired, and failed accounts are hidden.
+Use `/usage reset codex/active`, `/usage reset claude/active`, or
+`/usage reset <provider>/<account-key>` to choose an account directly.
+
+Codex selects the soonest-expiring available credit; Claude rechecks and spends
+the grant its endpoint selects. Successful redemption invalidates the account's
+quota cache and clears matching quota blocks, preserving unrelated auth and
+policy blocks. A Claude 5h-only reset leaves weekly blocks intact.
+
+Redemption consumes a provider credit irreversibly. If the outcome is uncertain,
+check `/usage` before trying again; mutation requests are not automatically
+retried. SDK `Session.DispatchSlash("/usage reset")` returns an inventory listing
+without a picker; print-mode prompts do not dispatch built-in slash commands.
+
 ## Development
 
 ```sh

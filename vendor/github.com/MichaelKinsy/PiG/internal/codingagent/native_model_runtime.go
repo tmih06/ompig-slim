@@ -73,6 +73,9 @@ func (store registryCredentials) GetAccountBlockedUntil(ctx context.Context, id 
 func (store registryCredentials) BlockAccount(ctx context.Context, id string, key *string, scope string, until int64) error {
 	return store.current().BlockAccount(ctx, id, key, scope, until)
 }
+func (store registryCredentials) ClearAccountBlocks(ctx context.Context, id string, key *string, scopes []string) error {
+	return store.current().ClearAccountBlocks(ctx, id, key, scopes)
+}
 func (store registryCredentials) AccountCount() (int, error) {
 	return store.current().AccountCount()
 }
@@ -167,6 +170,18 @@ func (store registryCredentialAccounts) BlockAccount(ctx context.Context, provid
 		return nil
 	}
 	return accounts.BlockAccount(ctx, providerID, accountKey, scope, untilMs)
+}
+
+func (store registryCredentialAccounts) ClearAccountBlocks(ctx context.Context, providerID string, accountKey *string, scopes []string) error {
+	accounts := store.store()
+	if accounts == nil {
+		return nil
+	}
+	clearer, ok := accounts.(ai.AccountBlockClearer)
+	if !ok {
+		return ai.ErrAccountBlockClearUnsupported
+	}
+	return clearer.ClearAccountBlocks(ctx, providerID, accountKey, scopes)
 }
 
 func (store registryCredentialAccounts) AccountCount() (int, error) {

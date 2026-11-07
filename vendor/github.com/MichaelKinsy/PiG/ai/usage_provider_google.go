@@ -626,11 +626,12 @@ func antigravityFetchEndpoint(ctx context.Context, fctx UsageFetchContext, endpo
 	if len(endpoints) > 0 {
 		attempted = endpoints[0]
 	}
+	// Let net/http negotiate gzip so it also decompresses the response before
+	// JSON parsing. Setting Accept-Encoding explicitly disables that decoding.
 	headers := map[string]string{
-		"Authorization":   "Bearer " + accessToken,
-		"Content-Type":    "application/json",
-		"User-Agent":      antigravityUserAgent(),
-		"Accept-Encoding": "gzip",
+		"Authorization": "Bearer " + accessToken,
+		"Content-Type":  "application/json",
+		"User-Agent":    antigravityUserAgent(),
 	}
 	body := []byte(usageJSONObject(map[string]any{"project": projectID}))
 	var last *usageResponse

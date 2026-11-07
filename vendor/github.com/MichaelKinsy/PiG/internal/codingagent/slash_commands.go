@@ -171,6 +171,18 @@ type SlashContext struct {
 	ShowChangelog func()
 	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
 	ShowUsage func()
+	// ListResetCredits reads every stored account's saved rate-limit resets.
+	// Nil means the build wired no quota source.
+	ListResetCredits func(ctx context.Context) ([]UsageResetCreditAccount, error)
+	// ShowResetUsageSelector opens the picker that spends one saved reset. Nil
+	// falls back to the transcript listing plus a typed target.
+	ShowResetUsageSelector func()
+	// RedeemResetCredit spends the reset `resetTarget` names, where the argument
+	// is the typed `<provider>/<account>` form of /usage reset.
+	RedeemResetCredit func(ctx context.Context, resetTarget string) (UsageResetOutcome, error)
+	// ResetDispatchContext is the context a reset listing or spend runs under,
+	// cancelled when the mode ends.
+	ResetDispatchContext func() context.Context
 
 	// All registered commands: set by Dispatch before calling Handler
 	// so /help can enumerate the live set.
@@ -694,9 +706,9 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "copy", Description: "Copy last agent message to clipboard", Handler: copyHandler},
 		{Name: "name", Description: "Set session display name", TakesArguments: true, Handler: nameHandler},
 		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},
-		// /usage opens the quota board; its optional "show" argument is the only
-		// accepted one, matching upstream's submit-handler branch.
-		{Name: "usage", Description: "Show provider quotas and usage activity", TakesArguments: true, Handler: usageHandler},
+		// /usage opens the quota board; `show` is the explicit form and `reset`
+		// spends a saved rate-limit reset, matching upstream's submit handler.
+		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]]", TakesArguments: true, Handler: usageHandler},
 		{Name: "changelog", Description: "Show changelog entries", Handler: changelogHandler},
 		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
 		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},
