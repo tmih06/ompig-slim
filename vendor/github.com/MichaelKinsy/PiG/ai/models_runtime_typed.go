@@ -57,11 +57,29 @@ func (m *Models) GenerateImages(ctx context.Context, model *ImageModel, request 
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	result, err := m.generateImages(ctx, model, request, opts)
+	result, err := m.accounts.ImagesRoutes(ctx, model, AccountRouteRequest{APIKeySet: opts.APIKey != "" || opts.APIKeySet}, func(attemptCtx context.Context, selection AccountSelection, observe AccountObserve, forceOAuthRefresh bool) (AssistantImages, error) {
+		attempt := opts
+		attempt.OnResponse = ObserveImageOnResponse(attempt.OnResponse, observe)
+		return m.generateImages(WithAccountSelection(attemptCtx, selection, forceOAuthRefresh), model, request, attempt)
+	})
 	if err != nil {
 		return imageErrorResult(model, err, ctx.Err() != nil)
 	}
 	return result
+}
+
+// ObserveImageOnResponse composes a routing observer under an existing response hook.
+func ObserveImageOnResponse(existing func(ProviderResponse, ImageModel) error, observe AccountObserve) func(ProviderResponse, ImageModel) error {
+	if observe == nil {
+		return existing
+	}
+	return func(response ProviderResponse, responseModel ImageModel) error {
+		observe(response)
+		if existing != nil {
+			return existing(response, responseModel)
+		}
+		return nil
+	}
 }
 
 func (m *Models) generateImages(ctx context.Context, model *ImageModel, request ImagesContext, options ModelsImagesOptions) (AssistantImages, error) {

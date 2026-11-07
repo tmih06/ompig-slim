@@ -59,7 +59,7 @@ func (m *Models) resolveRequestAuth(ctx context.Context, model AnyModel, apiKey 
 	if _, err := m.requireProvider(model); err != nil {
 		return requestAuth{}, err
 	}
-	overrides := AuthResolutionOverrides{Env: env}
+	overrides := ApplyAccountRequest(ctx, AuthResolutionOverrides{Env: env})
 	if apiKey != "" || apiKeySet {
 		overrides.APIKey = new(apiKey)
 	}
@@ -95,8 +95,9 @@ func (m *Models) resolveRequestAuth(ctx context.Context, model AnyModel, apiKey 
 	return out, nil
 }
 
-func (m *Models) applyAuth(ctx context.Context, model *Model, options StreamOptions) (*Model, StreamOptions, error) {
-	auth, err := m.resolveRequestAuth(ctx, model, options.APIKey, false, options.Headers, options.Env, options.SessionID, options.Identity, options.TransformHeaders)
+func (m *Models) applyAuth(ctx context.Context, model *Model, options StreamOptions, selection AccountSelection, forceOAuthRefresh bool) (*Model, StreamOptions, error) {
+	ctx = WithAccountSelection(ctx, selection, forceOAuthRefresh)
+	auth, err := m.resolveRequestAuth(ctx, model, options.APIKey, options.APIKeySet, options.Headers, options.Env, options.SessionID, options.Identity, options.TransformHeaders)
 	if err != nil {
 		return nil, StreamOptions{}, err
 	}
@@ -145,27 +146,39 @@ func (m *Models) stream(ctx context.Context, model *Model, request Context, simp
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	observer := observeModelRequest(model, &opts, false, m.operations.Go)
+	// The routed stream owns one attempt per candidate account, so a rejection retried on a
+	// sibling never replays output the consumer already saw (model-runtime.ts stream).
 	return m.lazyStream(ctx, model, func() (*AssistantMessageEventStream, error) {
-		if transcript.err != nil {
-			return nil, transcript.err
-		}
-		provider, err := m.requireChatProvider(model)
-		if err != nil {
-			return nil, err
-		}
-		prepared, params, err := m.applyAuth(ctx, model, opts)
-		if err != nil {
-			return nil, err
-		}
-		stream := provider.Stream
-		if simple {
-			stream = provider.StreamSimple
-		}
-		if stream == nil {
-			return nil, NewModelsError(ModelsErrorStream, "Provider "+provider.ID+" has no stream implementation", nil)
-		}
-		return stream(ctx, prepared, transcript, params)
-	}, observeModelRequest(model, &opts, false, m.operations.Go))
+		return m.accounts.StreamRoutes(ctx, model, AccountRouteRequest{SessionID: opts.SessionID, APIKeySet: opts.APIKey != "" || opts.APIKeySet}, func(attemptCtx context.Context, selection AccountSelection, observe AccountObserve, forceOAuthRefresh bool) (*AssistantMessageEventStream, error) {
+			return m.openStreamAttempt(attemptCtx, model, transcript, simple, opts, selection, observe, forceOAuthRefresh)
+		}), nil
+	}, observer)
+}
+
+// openStreamAttempt resolves one attempt's auth and opens the provider stream.
+func (m *Models) openStreamAttempt(ctx context.Context, model *Model, transcript TranscriptContext, simple bool, opts StreamOptions, selection AccountSelection, observe AccountObserve, forceOAuthRefresh bool) (*AssistantMessageEventStream, error) {
+	if transcript.err != nil {
+		return nil, transcript.err
+	}
+	provider, err := m.requireChatProvider(model)
+	if err != nil {
+		return nil, err
+	}
+	attempt := opts
+	attempt.OnResponse = ObserveOnResponse(attempt.OnResponse, observe)
+	prepared, params, err := m.applyAuth(ctx, model, attempt, selection, forceOAuthRefresh)
+	if err != nil {
+		return nil, err
+	}
+	stream := provider.Stream
+	if simple {
+		stream = provider.StreamSimple
+	}
+	if stream == nil {
+		return nil, NewModelsError(ModelsErrorStream, "Provider "+provider.ID+" has no stream implementation", nil)
+	}
+	return stream(ctx, prepared, transcript, params)
 }
 
 func (m *Models) Complete(ctx context.Context, model *Model, request Context, options ...StreamOptions) *AssistantMessage {
@@ -190,7 +203,7 @@ func (m *Models) StreamDeferred(ctx context.Context, model *Model, handle Deferr
 		if provider.FetchDeferred == nil {
 			return nil, NewModelsError(ModelsErrorProvider, "Provider "+provider.ID+" does not support deferred responses", nil)
 		}
-		prepared, params, err := m.applyAuth(ctx, model, opts.StreamOptions)
+		prepared, params, err := m.applyAuth(ctx, model, opts.StreamOptions, AccountSelection{}, false)
 		if err != nil {
 			return nil, err
 		}
@@ -215,7 +228,7 @@ func (m *Models) CancelDeferred(ctx context.Context, model *Model, handle Deferr
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	prepared, params, err := m.applyAuth(ctx, model, opts)
+	prepared, params, err := m.applyAuth(ctx, model, opts, AccountSelection{}, false)
 	if err != nil {
 		return err
 	}

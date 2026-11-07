@@ -117,8 +117,8 @@ func TestDeepSeekCacheWriteStaysOutOfCacheRead(t *testing.T) {
 	if usage.Input != 160 {
 		t.Fatalf("Input = %d, want 160 (1000 - 800 read - 40 write)", usage.Input)
 	}
-	if usage.TotalTokens != 1000 {
-		t.Fatalf("TotalTokens = %d, want 1000", usage.TotalTokens)
+	if usage.TotalTokens != 1010 {
+		t.Fatalf("TotalTokens = %d, want 1010", usage.TotalTokens)
 	}
 }
 

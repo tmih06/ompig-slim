@@ -682,7 +682,7 @@ func enableGitHubCopilotModels(ctx context.Context, token string, modelIDs []str
 type CopilotProviderConfig struct {
 	// Auth is the credential store; the provider will read and refresh
 	// the github-copilot entry as needed.
-	Auth *AuthStorage
+	Auth CredentialStore
 	// Model is the Copilot model id (e.g. "gpt-4o", "claude-sonnet-4").
 	Model string
 	// API selects the wire protocol. When set to APIOpenAIResponses (or
@@ -811,7 +811,7 @@ func NewCopilotProvider(cfg CopilotProviderConfig) (Provider, error) {
 
 // copilotTokenManager handles read/refresh of the github-copilot credential.
 type copilotTokenManager struct {
-	auth         *AuthStorage
+	auth         CredentialStore
 	envToken     string
 	runtimeToken func() (string, bool)
 	baseURL      string
@@ -828,13 +828,14 @@ func (m *copilotTokenManager) runtimeKey() (string, bool) {
 }
 
 func (m *copilotTokenManager) loadCred() (Credential, error) {
-	cred, ok, err := m.auth.Get("github-copilot")
+	credential, err := m.auth.Read(context.Background(), "github-copilot")
 	if err != nil {
 		return Credential{}, err
 	}
-	if !ok {
+	if credential == nil {
 		return Credential{}, errors.New("github-copilot: not logged in (run `pig login github-copilot`)")
 	}
+	cred := *credential
 	if cred.Refresh == "" {
 		return Credential{}, errors.New("github-copilot: missing refresh token; re-login required")
 	}
@@ -878,7 +879,7 @@ func (m *copilotTokenManager) getAccessToken(ctx context.Context) (string, error
 	oauth := &OAuthAuth{Name: "GitHub Copilot", Refresh: func(ctx context.Context, current Credential) (Credential, error) {
 		return refreshCopilotCredential(ctx, current.Refresh, current.EnterpriseDomain)
 	}}
-	post, err := refreshStoredOAuthCredential(ctx, m.auth, "github-copilot", oauth, expiresSoon)
+	post, err := refreshStoredOAuthCredential(ctx, m.auth, "github-copilot", oauth, expiresSoon, AuthResolutionOverrides{})
 	if err != nil {
 		// If the context was canceled (user abort), propagate the
 		// cancellation directly so callers can distinguish user abort
@@ -959,7 +960,7 @@ func getCopilotBaseURL(accessToken, enterpriseDomain string) string {
 // assert the env-fallback path (upstream auth-storage.getApiKey step 4) without
 // a live network; production resolution runs through the identical manager
 // inside the provider's stream path.
-func ResolveCopilotEnvFallback(auth *AuthStorage, envToken string) (bearer, baseURL string, err error) {
+func ResolveCopilotEnvFallback(auth CredentialStore, envToken string) (bearer, baseURL string, err error) {
 	mgr := &copilotTokenManager{auth: auth, envToken: envToken}
 	ctx := context.Background()
 	if bearer, err = mgr.getAccessToken(ctx); err != nil {

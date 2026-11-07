@@ -199,7 +199,7 @@ func (m *Models) resolveRefreshCredential(ctx context.Context, provider *ModelsP
 		}
 		// A refresh that has started survives cancellation or a superseding model refresh, so a rotated refresh token is always persisted. A newer refresh then sees the fresh credential.
 		// upstream: packages/ai/src/models.ts:resolveRefreshCredential
-		return refreshStoredOAuthCredential(ctx, m.credentials, provider.ID, oauth, func(current Credential) bool { return float64(nowMillis()) >= current.ExpiresMillis() })
+		return refreshStoredOAuthCredential(ctx, m.credentials, provider.ID, oauth, func(current Credential) bool { return float64(nowMillis()) >= current.ExpiresMillis() }, AuthResolutionOverrides{})
 	}
 	apiKey := provider.Auth.APIKey
 	if apiKey == nil {
