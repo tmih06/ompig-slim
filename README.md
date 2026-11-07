@@ -1,5 +1,9 @@
 # ompig-slim
 
+<p align="center">
+  <img src="assets/ompig-banner.svg" alt="OMPi in GO-slim startup logo" width="800">
+</p>
+
 [![CI](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg)](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml)
 
 A native Go coding assistant built on [PiG](https://github.com/MichaelKinsy/PiG), with personal `omp-slim` features integrated into the library runtime. It provides PiG's interactive terminal and CLI with shared Pi/OMP configuration and added account routing, provider support, built-in web tools, codemode, and subagents.
