@@ -235,14 +235,6 @@ func (s *FileStore) Read(ctx context.Context) (*ai.ModelCatalogMetadataSnapshot,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot, err := s.readFile(ctx)
-	if err != nil || snapshot == nil {
-		return nil, err
-	}
-	return snapshot, nil
-}
-
-func (s *FileStore) readFile(ctx context.Context) (*ai.ModelCatalogMetadataSnapshot, error) {
 	revision, found, err := fileRevisionOf(s.path)
 	if err != nil {
 		return nil, err

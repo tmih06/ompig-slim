@@ -563,29 +563,7 @@ func (runtime *ModelRuntime) start(ctx context.Context, model *ai.Model, transcr
 		runtime.fail(failureCtx, outer, preparedModel, ai.AbortReason(ctx))
 		return
 	}
-	leaf := provider
-	attributed, registryBuilt := leaf.(*requestOptionsProvider)
-	if registryBuilt {
-		leaf = attributed.Provider
-	}
-	_, registeredCallback := leaf.(*registeredStreamProvider)
-	if native, ok := leaf.(*nativeModelProvider); ok {
-		native.simple = simple
-	} else if simple && registryBuilt && !registeredCallback && preparedModel.ProviderMeta.API != ai.APIPiMessages {
-		// Every API module's streamSimple but pi-messages.ts (:432-444) builds its options with buildBaseOptions; pi-messages sends the caller's.
-		ai.ApplyOmittedReasoning(preparedModel, &preparedOptions)
-		maxTokens := preparedOptions.MaxTokens
-		if maxTokens == 0 {
-			maxTokens = preparedModel.Capabilities.MaxOutputTokens
-		}
-		preparedOptions.MaxTokens = ai.ClampMaxTokensToContext(preparedModel, transcript, maxTokens)
-	}
-	if registryBuilt {
-		if !registeredCallback {
-			provider = &apiStreamProvider{Provider: provider, model: preparedModel}
-		}
-		provider = &composedStreamProvider{Provider: provider, model: preparedModel}
-	}
+	provider, preparedOptions = prepareStreamProvider(preparedModel, provider, transcript, preparedOptions, simple)
 	// Pi lazy.ts:48-60 `setup().then((inner) => forwardStream(outer, inner))`: the provider stream is created and the forwarder registered in one continuation, with one reaction between them. A provider that has its response buffered queues its whole run behind that continuation; creating the stream outside it lets the response finish before the forwarder reads its first event.
 	if err := ai.RunStreamContinuation(ctx, func(observation *ai.StreamObservation) error {
 		ctx := observation.Context(ctx)
@@ -630,37 +608,13 @@ func (runtime *ModelRuntime) startRouted(ctx context.Context, outer *ai.Assistan
 // own stream; the caller owns draining it.
 func (runtime *ModelRuntime) openAttempt(ctx context.Context, model *ai.Model, transcript ai.TranscriptContext, options ai.StreamOptions, simple bool, selection ai.AccountSelection, observe ai.AccountObserve, forceOAuthRefresh bool) (*ai.AssistantMessageEventStream, error) {
 	ctx = ai.WithAccountSelection(ctx, selection, forceOAuthRefresh)
-	if observe != nil {
-		options.OnResponse = observeStreamResponse(options.OnResponse, observe)
-	}
+	options.OnResponse = ai.ObserveOnResponse(options.OnResponse, observe)
 	preparedModel, provider, preparedOptions, err := runtime.prepare(ctx, model, options)
 	if err != nil {
 		return nil, err
 	}
 	apiRequest := extension.ModelStreamRequestFromContext(ctx).API
-	leaf := provider
-	attributed, registryBuilt := leaf.(*requestOptionsProvider)
-	if registryBuilt {
-		leaf = attributed.Provider
-	}
-	_, registeredCallback := leaf.(*registeredStreamProvider)
-	if native, ok := leaf.(*nativeModelProvider); ok {
-		native.simple = simple
-	} else if simple && registryBuilt && !registeredCallback && preparedModel.ProviderMeta.API != ai.APIPiMessages {
-		// Every API module's streamSimple but pi-messages.ts (:432-444) builds its options with buildBaseOptions; pi-messages sends the caller's.
-		ai.ApplyOmittedReasoning(preparedModel, &preparedOptions)
-		maxTokens := preparedOptions.MaxTokens
-		if maxTokens == 0 {
-			maxTokens = preparedModel.Capabilities.MaxOutputTokens
-		}
-		preparedOptions.MaxTokens = ai.ClampMaxTokensToContext(preparedModel, transcript, maxTokens)
-	}
-	if registryBuilt {
-		if !registeredCallback {
-			provider = &apiStreamProvider{Provider: provider, model: preparedModel}
-		}
-		provider = &composedStreamProvider{Provider: provider, model: preparedModel}
-	}
+	provider, preparedOptions = prepareStreamProvider(preparedModel, provider, transcript, preparedOptions, simple)
 	inner, err := provider.Stream(ctx, transcript, preparedOptions)
 	if err != nil {
 		return nil, err
@@ -678,15 +632,32 @@ func (runtime *ModelRuntime) openAttempt(ctx context.Context, model *ai.Model, t
 	return inner, nil
 }
 
-// observeStreamResponse records the routing observation before the caller's own hook runs.
-func observeStreamResponse(existing func(context.Context, ai.ProviderResponse, *ai.Model) error, observe ai.AccountObserve) func(context.Context, ai.ProviderResponse, *ai.Model) error {
-	return func(ctx context.Context, response ai.ProviderResponse, responseModel *ai.Model) error {
-		observe(response)
-		if existing != nil {
-			return existing(ctx, response, responseModel)
-		}
-		return nil
+// prepareStreamProvider applies simple-mode options and the registry's stream
+// wrappers identically for routed and unpooled attempts. It does not start a
+// stream: each caller retains its continuation boundary and provider lifetime.
+// Native providers receive the mode directly; registered callbacks keep their
+// source options, while stock API leaves lower reasoning and token limits.
+func prepareStreamProvider(model *ai.Model, provider ai.Provider, transcript ai.TranscriptContext, options ai.StreamOptions, simple bool) (ai.Provider, ai.StreamOptions) {
+	leaf := provider
+	attributed, registryBuilt := leaf.(*requestOptionsProvider)
+	if registryBuilt {
+		leaf = attributed.Provider
 	}
+	_, registeredCallback := leaf.(*registeredStreamProvider)
+	if native, ok := leaf.(*nativeModelProvider); ok {
+		native.simple = simple
+	} else if simple && registryBuilt && model.ProviderMeta.API != ai.APIPiMessages {
+		// pi-messages.ts (:432-444) sends the caller's options; other stock
+		// APIs use the same lowering as direct registry-built simple streams.
+		options = attributed.SimpleStreamOptions(model, transcript, options)
+	}
+	if registryBuilt {
+		if !registeredCallback {
+			provider = &apiStreamProvider{Provider: provider, model: model}
+		}
+		provider = &composedStreamProvider{Provider: provider, model: model}
+	}
+	return provider, options
 }
 
 // knowsProvider reports whether Pi's Models would resolve auth for the model's provider. A caller-owned provider the runtime does not know is Pi's

@@ -41,11 +41,14 @@ type UsageReportOptions struct {
 	ResolveActiveAccount func(provider string) *ai.UsageActiveAccount
 }
 
-// usageAccountColumn is one account's limit within a bucket.
+// usageAccountColumn is one account cell in a bucket. Missing limits remain as
+// empty cells so an account keeps the same horizontal position across windows.
 type usageAccountColumn struct {
-	limit  ai.UsageLimit
-	report ai.UsageReport
-	rank   float64
+	limit    ai.UsageLimit
+	report   ai.UsageReport
+	rank     float64 // Worst-use order shared by every quota window.
+	position int     // Original index in the provider's report list.
+	present  bool    // False for a reserved cell when this account lacks the bucket.
 }
 
 // padUsageColumn pads (never truncates) to an exact visible width.
@@ -170,10 +173,15 @@ func formatUsageAccountHeaderRow(
 		suffix   string
 		active   bool
 		daybreak bool
+		present  bool
 	}
 	parts := make([]part, 0, len(accounts))
 	maxSuffixWidth := 0
 	for index, account := range accounts {
+		if !account.present {
+			parts = append(parts, part{})
+			continue
+		}
 		isActive := ReportMatchesActiveAccount(account.report, active)
 		label := formatUsageReportAccountLabel(account.limit, account.report, peers, startIndex+index)
 		if isActive {
@@ -188,6 +196,7 @@ func formatUsageAccountHeaderRow(
 			suffix:   suffix,
 			active:   isActive,
 			daybreak: metadataBool(account.report, "daybreak"),
+			present:  true,
 		})
 	}
 	gap := 0
@@ -201,6 +210,10 @@ func formatUsageAccountHeaderRow(
 	// truncating the whole label.
 	if prefixBudget < 2 {
 		for _, item := range parts {
+			if !item.present {
+				out = append(out, strings.Repeat(" ", columnWidth))
+				continue
+			}
 			full := item.label
 			if item.daybreak {
 				full += " daybreak"
@@ -218,6 +231,10 @@ func formatUsageAccountHeaderRow(
 	}
 
 	for _, item := range parts {
+		if !item.present {
+			out = append(out, strings.Repeat(" ", columnWidth))
+			continue
+		}
 		// Keep the full badge visible by taking its columns from the label.
 		badge := ""
 		if item.daybreak && prefixBudget >= 10 {
@@ -549,7 +566,15 @@ func RenderUsageReports(options UsageReportOptions) string {
 		}
 		limitGroups := make([]*limitGroup, 0, 8)
 		groupByKey := map[string]*limitGroup{}
-		// Rank each account once so every quota window keeps the same column order.
+		accountRanks := make([]float64, len(providerReports))
+		accountOrder := make([]int, 0, len(providerReports))
+		for position, report := range providerReports {
+			if len(report.Limits) > 0 {
+				accountOrder = append(accountOrder, position)
+			}
+		}
+		// Rank limited accounts once and preserve empty cells for missing windows,
+		// so every bucket maps each account to the same column.
 		for position, report := range providerReports {
 			worst := -1.0
 			for _, limit := range report.Limits {
@@ -558,6 +583,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 				}
 			}
 			rank := -worst*1000 + float64(position)
+			accountRanks[position] = rank
 			for _, limit := range report.Limits {
 				windowID := limit.Scope.WindowID
 				if limit.Window != nil && limit.Window.ID != "" {
@@ -584,9 +610,19 @@ func RenderUsageReports(options UsageReportOptions) string {
 					limitGroups = append(limitGroups, limitGroupEntry)
 				}
 				limitGroupEntry.accounts = append(limitGroupEntry.accounts, usageAccountColumn{
-					limit: limit, report: report, rank: rank,
+					limit: limit, report: report, rank: rank, position: position, present: true,
 				})
 			}
+		}
+		for index := 1; index < len(accountOrder); index++ {
+			for current := index; current > 0 &&
+				accountRanks[accountOrder[current-1]] > accountRanks[accountOrder[current]]; current-- {
+				accountOrder[current-1], accountOrder[current] = accountOrder[current], accountOrder[current-1]
+			}
+		}
+		columnByPosition := make([]int, len(providerReports))
+		for column, position := range accountOrder {
+			columnByPosition[position] = column
 		}
 
 		lines = append(lines, theme.Bold(theme.Fg(string(ThemeColorAccent), group.Name)))
@@ -680,17 +716,18 @@ func RenderUsageReports(options UsageReportOptions) string {
 
 		for _, limitGroupEntry := range limitGroups {
 			accounts := limitGroupEntry.accounts
-			// Worst-used accounts lead so the same account keeps its column.
+			// The aggregate uses only accounts with this bucket; the displayed
+			// slots also reserve missing accounts to keep columns stable.
 			for i := 1; i < len(accounts); i++ {
 				for j := i; j > 0 && accounts[j-1].rank > accounts[j].rank; j-- {
 					accounts[j-1], accounts[j] = accounts[j], accounts[j-1]
 				}
 			}
 			sortedLimits := make([]ai.UsageLimit, 0, len(accounts))
-			sortedReports := make([]ai.UsageReport, 0, len(accounts))
+			accountColumns := make([]usageAccountColumn, len(providerReports))
 			for _, account := range accounts {
 				sortedLimits = append(sortedLimits, account.limit)
-				sortedReports = append(sortedReports, account.report)
+				accountColumns[columnByPosition[account.position]] = account
 			}
 			amountText := formatUsageAggregateAmount(sortedLimits)
 			status := resolveUsageAggregateStatus(sortedLimits)
@@ -700,10 +737,20 @@ func RenderUsageReports(options UsageReportOptions) string {
 				header += " " + windowSuffix
 			}
 			lines = append(lines, strings.TrimRight(header, " "))
-			blocks := layoutUsageAccountBlocks(len(sortedLimits), availableWidth, widthx.VisibleWidth(amountText))
+			blocks := layoutUsageAccountBlocks(len(accountColumns), availableWidth, widthx.VisibleWidth(amountText))
 			wrapped := len(blocks) > 1 || (len(blocks) == 1 && blocks[0].stacked)
 			for blockIndex, block := range blocks {
-				blockAccounts := accounts[min(block.start, len(accounts)):min(block.end, len(accounts))]
+				blockAccounts := accountColumns[min(block.start, len(accountColumns)):min(block.end, len(accountColumns))]
+				blockHasAccount := false
+				for _, account := range blockAccounts {
+					if account.present {
+						blockHasAccount = true
+						break
+					}
+				}
+				if !blockHasAccount {
+					continue
+				}
 				if blockIndex > 0 && !block.stacked {
 					// Wrapped blocks name their range so a reader can tell one
 					// page of accounts from the next.
@@ -715,7 +762,10 @@ func RenderUsageReports(options UsageReportOptions) string {
 					// One column cannot fit beside its neighbours: each account
 					// prints its own label, bar, and remaining value.
 					for index, account := range blockAccounts {
-						label := formatUsageReportAccountLabel(account.limit, account.report, sortedReports, block.start+index)
+						if !account.present {
+							continue
+						}
+						label := formatUsageReportAccountLabel(account.limit, account.report, providerReports, block.start+index)
 						lines = append(lines, strings.TrimRight("  "+label, " "))
 						suffix := ""
 						if fraction, ok := ai.UsageUsedFraction(account.limit); ok {
@@ -728,10 +778,14 @@ func RenderUsageReports(options UsageReportOptions) string {
 					continue
 				}
 				headers := formatUsageAccountHeaderRow(
-					theme, blockAccounts, sortedReports, block.start, nowMs, block.columnWidth, activeAccount)
+					theme, blockAccounts, providerReports, block.start, nowMs, block.columnWidth, activeAccount)
 				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, " "), " "))
 				bars := make([]string, 0, len(blockAccounts))
 				for _, account := range blockAccounts {
+					if !account.present {
+						bars = append(bars, strings.Repeat(" ", block.columnWidth))
+						continue
+					}
 					bars = append(bars, padUsageColumn(RenderUsageBar(theme, account.limit, block.barWidth), block.columnWidth))
 				}
 				barLine := "  " + strings.Join(bars, " ")
@@ -744,6 +798,10 @@ func RenderUsageReports(options UsageReportOptions) string {
 					// block repeats its own per-account values underneath.
 					values := make([]string, 0, len(blockAccounts))
 					for _, account := range blockAccounts {
+						if !account.present {
+							values = append(values, strings.Repeat(" ", block.columnWidth))
+							continue
+						}
 						text := "--"
 						if fraction, ok := ai.UsageUsedFraction(account.limit); ok {
 							text = formatUsagePercentFree((1 - math.Min(math.Max(fraction, 0), 1)) * 100)
