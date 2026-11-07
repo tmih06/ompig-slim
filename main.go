@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	_ "github.com/MichaelKinsy/PiG/ai/all" // Register every stock provider, including Amazon Bedrock.
+	_ "github.com/MichaelKinsy/PiG/ai/all" // Register bundled providers, including Amazon Bedrock.
 	"github.com/MichaelKinsy/PiG/coding/cli"
 	_ "github.com/MichaelKinsy/PiG/coding/extension/host/lispcell" // Register the stock Lisp extension builder.
 
@@ -12,6 +12,6 @@ import (
 
 func main() {
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
-	// No MainOptions overrides: retain the complete stock application.
+	// The vendored personal runtime supplies the defaults; keep the complete CLI.
 	cli.Main(os.Args[1:], nil)
 }
