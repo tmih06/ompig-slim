@@ -53,7 +53,7 @@ func (e *Editor) renderStatusBorder(width, hiddenLineCount int, fallback string)
 	// and the compaction_start colorFn, Pi 1.2.0); branch summary and retry keep their own colors.
 	if indicator.Kind == "working" || indicator.Kind == "compaction" {
 		loader := &Loader{Message: indicator.Message, Frame: indicator.Frame, Frames: indicator.Frames, IndicatorVerbatim: indicator.IndicatorVerbatim, spinnerColorFn: e.colorEditorBorder, messageColorFn: e.colorEditorBorder}
-		indicator = &StatusIndicator{Loader: loader, Kind: indicator.Kind}
+		indicator = &StatusIndicator{Loader: loader, Kind: indicator.Kind, StartedAt: indicator.StartedAt}
 	}
 	status := indicator.RenderInBorder(max(1, width-5))
 	statusWidth := widthx.VisibleWidth(status)

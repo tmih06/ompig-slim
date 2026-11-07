@@ -88,7 +88,7 @@ func (m *InteractiveMode) startWorkingLoader() {
 	if m.workingMessage != nil {
 		message = *m.workingMessage
 	}
-	indicator := &tui.StatusIndicator{Kind: "working", Loader: tui.NewLoader(m.tuiInst, tui.ThemeFg("accent"), tui.ThemeFg("muted"), message, nil)}
+	indicator := &tui.StatusIndicator{Kind: "working", StartedAt: time.Now(), Loader: tui.NewLoader(m.tuiInst, tui.ThemeFg("accent"), tui.ThemeFg("muted"), message, nil)}
 	m.applyWorkingIndicatorOptions(indicator)
 	m.showStatusIndicator(indicator)
 	m.tuiInst.RequestRender()
