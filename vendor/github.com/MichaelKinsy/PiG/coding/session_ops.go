@@ -3,9 +3,12 @@ package coding
 // Ports packages/coding-agent/src/core/agent-session-runtime.ts (fork() at position "before").
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
@@ -293,6 +296,12 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 		LastAssistant: func() string { return s.lastAssistantText() },
 		CopyClipboard: func(_ string) error { return fmt.Errorf("clipboard not available in headless mode") },
 		CostSummary:   func() string { return "" },
+		// Saved rate-limit resets: the headless path lists them and spends a
+		// typed target. It never opens a picker, so `/usage reset` without an
+		// argument prints the choices instead.
+		ListResetCredits:     s.ListResetCredits,
+		RedeemResetCredit:    s.RedeemResetCredit,
+		ResetDispatchContext: func() context.Context { return context.Background() },
 
 		// Session-management callbacks (text-path versions; no overlays).
 		CurrentSession: func() *icodingagent.Session { return s.inner },
@@ -389,34 +398,42 @@ type SlashContextHandle struct {
 	PickUserMessage  func() (string, bool)
 	PickTreeEntry    func(initialSelectedID string) (string, bool)
 	LoadSessionPath  func(string) error
+	// ListResetCredits and RedeemResetCredit back the headless `/usage reset`:
+	// the typed target form with no picker.
+	ListResetCredits     func(ctx context.Context) ([]icodingagent.UsageResetCreditAccount, error)
+	RedeemResetCredit    func(ctx context.Context, resetTarget string) (icodingagent.UsageResetOutcome, error)
+	ResetDispatchContext func() context.Context
 }
 
 func (h *SlashContextHandle) toInternal() *icodingagent.SlashContext {
 	return &icodingagent.SlashContext{
-		Args:             h.Args,
-		Append:           h.Append,
-		AppendText:       h.AppendText,
-		Clear:            h.Clear,
-		Quit:             h.Quit,
-		Reset:            h.Reset,
-		ModelName:        h.ModelName,
-		ToolNames:        h.ToolNames,
-		SkillNames:       h.SkillNames,
-		SessionInfo:      h.SessionInfo,
-		LastAssistant:    h.LastAssistant,
-		CopyClipboard:    h.CopyClipboard,
-		CostSummary:      h.CostSummary,
-		CurrentSession:   h.CurrentSession,
-		SetSessionName:   h.SetSessionName,
-		ForkAtEntry:      h.ForkAtEntry,
-		ForkToNewSession: h.ForkToNewSession,
-		CloneCurrent:     h.CloneCurrent,
-		ListSessions:     h.ListSessions,
-		RenderTree:       h.RenderTree,
-		PickSession:      h.PickSession,
-		PickUserMessage:  h.PickUserMessage,
-		PickTreeEntry:    h.PickTreeEntry,
-		LoadSessionPath:  h.LoadSessionPath,
+		Args:                 h.Args,
+		Append:               h.Append,
+		AppendText:           h.AppendText,
+		Clear:                h.Clear,
+		Quit:                 h.Quit,
+		Reset:                h.Reset,
+		ModelName:            h.ModelName,
+		ToolNames:            h.ToolNames,
+		SkillNames:           h.SkillNames,
+		SessionInfo:          h.SessionInfo,
+		LastAssistant:        h.LastAssistant,
+		CopyClipboard:        h.CopyClipboard,
+		CostSummary:          h.CostSummary,
+		CurrentSession:       h.CurrentSession,
+		SetSessionName:       h.SetSessionName,
+		ForkAtEntry:          h.ForkAtEntry,
+		ForkToNewSession:     h.ForkToNewSession,
+		CloneCurrent:         h.CloneCurrent,
+		ListSessions:         h.ListSessions,
+		RenderTree:           h.RenderTree,
+		PickSession:          h.PickSession,
+		PickUserMessage:      h.PickUserMessage,
+		PickTreeEntry:        h.PickTreeEntry,
+		LoadSessionPath:      h.LoadSessionPath,
+		ListResetCredits:     h.ListResetCredits,
+		RedeemResetCredit:    h.RedeemResetCredit,
+		ResetDispatchContext: h.ResetDispatchContext,
 	}
 }
 
@@ -426,4 +443,96 @@ func (s *Session) lastAssistantText() string {
 		return *text
 	}
 	return ""
+}
+
+// ─── Saved rate-limit resets ─────────────────────────────────────────────────
+
+// ResetCreditAccount is one stored account's saved-reset inventory.
+type ResetCreditAccount = icodingagent.UsageResetCreditAccount
+
+// ResetCreditOutcome is the result of one saved-reset spend.
+type ResetCreditOutcome = icodingagent.UsageResetOutcome
+
+// ListResetCredits reads the saved-reset inventory of every stored Codex and
+// Claude account. An account that cannot be read keeps its error and is still
+// listed, so a caller can report which account is unreachable.
+//
+// The quota service belongs to the Session's build, so a replacement Session
+// reports its own accounts.
+func (s *Session) ListResetCredits(ctx context.Context) ([]ResetCreditAccount, error) {
+	service := s.resetQuotaService()
+	if service == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return service.ListResetCredits(ctx)
+}
+
+// RedeemResetCredit spends the saved reset a typed `<provider>/<account>`
+// reference names, after re-reading that account's live inventory. `active`
+// names the provider's selected account; `codex` and `claude` are accepted
+// aliases for the provider ids.
+//
+// A refusal comes back in the outcome's Code, not as an error: only a store or
+// transport failure is an error, so a caller can tell "nothing was spent" from
+// "the spend is unknown".
+func (s *Session) RedeemResetCredit(ctx context.Context, resetTarget string) (ResetCreditOutcome, error) {
+	service := s.resetQuotaService()
+	if service == nil {
+		return ResetCreditOutcome{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	entries, err := service.ListResetCredits(ctx)
+	if err != nil {
+		return ResetCreditOutcome{}, err
+	}
+	accounts := make([]tui.ResetUsageAccount, 0, len(entries))
+	for _, entry := range entries {
+		accounts = append(accounts, icodingagent.ResetUsageAccountFromInventory(entry))
+	}
+	target, account, problem := icodingagent.ResolveResetTarget(accounts, resetTarget)
+	if problem != "" {
+		return ResetCreditOutcome{ProviderID: account.ProviderID, Label: account.Label, Code: "no_credit", Reason: problem}, nil
+	}
+	return service.RedeemResetCredit(ctx, target)
+}
+
+// resetQuotaService returns the Session build's reset-capable quota service,
+// built once per Session so its per-account redemption slots and usage cache
+// survive across commands. A Session owns one Services for its lifetime, so the
+// service never keeps a replaced store's credentials.
+func (s *Session) resetQuotaService() icodingagent.UsageResetQuotaService {
+	if s == nil || s.services == nil {
+		return nil
+	}
+	s.resetQuotaOnce.Do(func() {
+		s.resetQuota = icodingagent.NewUsageService(icodingagent.UsageServiceOptions{
+			Credentials:   s.services.Credentials(),
+			Accounts:      s.services.Registry().RegistryCredentialAccounts(),
+			AccountRouter: s.services.Registry().AccountRouter(),
+			GetAuth: func(ctx context.Context, providerID string, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error) {
+				return s.ModelRuntime().GetAuth(ctx, providerID, overrides)
+			},
+			BaseURLFor: s.providerBaseURL,
+		})
+	})
+	return s.resetQuota
+}
+
+// providerBaseURL reports the configured base URL of a provider, so a reset
+// probe honors a configured proxy the same way a model request does.
+func (s *Session) providerBaseURL(providerID string) string {
+	registry := s.services.Registry()
+	if registry == nil {
+		return ""
+	}
+	provider := registry.GetProvider(providerID)
+	if provider == nil {
+		return ""
+	}
+	return provider.BaseURL
 }

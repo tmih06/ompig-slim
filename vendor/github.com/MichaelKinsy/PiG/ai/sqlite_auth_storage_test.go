@@ -485,3 +485,42 @@ func jsonRaw(value string) json.RawMessage {
 	}
 	return encoded
 }
+
+func TestSQLiteStoreClearsAccountBlocksByScope(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	credential := oauthCredential("acct-a", "a@example.com", time.Now().Add(time.Hour))
+	key := deriveAccountKey(credential)
+	if _, err := store.SaveAccount(ctx, "openai-codex", key, credential); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	now := time.Now().UnixMilli()
+	for _, scope := range []string{"chat", "shared", "auth"} {
+		if err := store.BlockAccount(ctx, "openai-codex", key, scope, now+60_000); err != nil {
+			t.Fatalf("block %s: %v", scope, err)
+		}
+	}
+	// A reset covers the quota meters, not an auth rejection: the named scopes go
+	// and the unrelated block stays.
+	if err := store.ClearAccountBlocks(ctx, "openai-codex", key, []string{"chat", "shared"}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if until, err := store.GetAccountBlockedUntil(ctx, "openai-codex", key, []string{"chat"}); err != nil || until != nil {
+		t.Fatalf("chat block survived: %v, %v", until, err)
+	}
+	if until, err := store.GetAccountBlockedUntil(ctx, "openai-codex", key, []string{"auth"}); err != nil || until == nil {
+		t.Fatalf("auth block did not survive: %v, %v", until, err)
+	}
+	// An empty scope list clears everything the account has left.
+	if err := store.ClearAccountBlocks(ctx, "openai-codex", key, nil); err != nil {
+		t.Fatalf("clear all: %v", err)
+	}
+	if until, err := store.GetAccountBlockedUntil(ctx, "openai-codex", key, []string{"auth"}); err != nil || until != nil {
+		t.Fatalf("auth block survived a full clear: %v, %v", until, err)
+	}
+	// An account with no rows is not an error: a reset can name a credential the
+	// store never blocked.
+	if err := store.ClearAccountBlocks(ctx, "openai-codex", new("absent"), []string{"chat"}); err != nil {
+		t.Fatalf("clear absent: %v", err)
+	}
+}

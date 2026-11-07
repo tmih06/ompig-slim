@@ -92,7 +92,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | Google | Gemini CLI and Antigravity sign-in, project/model discovery, and native Cloud Code Assist streaming, thinking, tools, usage, and error handling |
 | Codemode | Default built-in code execution with persistent per-run state and nested tools; survives `--no-extensions` and respects tool-selection flags |
 | Web tools | Default-active, credential-free `web_search` with sequential provider fallback and local `web_fetch` rendering; both survive `--no-extensions` |
-| Usage | `/usage` plan-grouped quota dashboard, detail view, refresh/caching, reset/daybreak/credit displays, and local 371-day activity heatmap with fork de-duplication |
+| Usage | `/usage` plan-grouped quota dashboard, detail view, refresh/caching, reset/daybreak/credit displays, saved-reset spending, and local 371-day activity heatmap with fork de-duplication |
 | Model metadata | Persisted catalog, two-hour freshness, ETag/304 handling, failed-fetch backoff, safe model-family matching, explicit-field protection, and generation-aware enrichment caches |
 | Model selectors | Intelligence/TPS/context/cost columns and selected-model facts in both `/model` and `/scoped-models` |
 | Output and themes | Per-run throughput including tool/wait time, shared OMP theme tokens, native Agent Hub styling, and a fitting-line ANSI truncation fast path |
@@ -231,6 +231,14 @@ The prompt’s top-right border follows the router’s accepted live account or 
 
 `/usage` displays completed account reports as they arrive. Independent accounts fetch concurrently, so a slow provider does not delay healthy providers. Opening the dashboard uses the five-minute quota cache; press `r` to force a refresh. Closing the board cancels its requests, and reopening starts a fresh request if the previous one was canceled.
 
+### Saved rate-limit resets
+
+A paid Codex or Claude account can bank rate-limit resets and spend one on demand. `/usage reset` reads the live inventory and shows only accounts with usable, unexpired resets in the editor slot, then spends the highlighted account's reset after a second confirmation; `/usage reset <provider>/<credential>` and `/usage reset <provider>/active` skip the picker, and SDK `Session.DispatchSlash("/usage reset")` returns the listing without a picker. Print-mode prompts do not dispatch built-in slash commands. `codex` and `claude` are accepted as provider aliases.
+
+The inventory separates what the account has banked from what the provider permits it to spend now, so a grant the provider refuses (a covered window that is not constrained, an ineligible account, or a cooldown) reads as "3 saved · 1 usable now" instead of implying all three are spendable. Spending re-reads the inventory first, because a credit is scarce and irreversible: a changed offer, an already-spent credit, or a transport failure is reported as a refusal rather than a second attempt. Codex spends the soonest-expiring available credit; Claude spends exactly the grant its own endpoint pins, and never falls back to whichever grant looks current.
+
+A successful spend drops that account's cached quota report and clears matching persisted and runtime quota blocks. Independent auth and policy blocks remain intact. A Claude reset that covers only the 5h window leaves the weekly wall in place. A Codex spend clears the chat meter's block and leaves an auth or model-policy block alone.
+
 ## Checks and native packages
 
 ```sh
@@ -243,7 +251,7 @@ make release ARGS='--platform linux-arm64 --out bin/releases'
 
 CI runs tests, vet, race checks, compiled codemode smoke tests, and editable PTY startup checks on Linux and macOS. Separate jobs validate workflows/scripts, scan the complete Git history including nested archives for secrets, and build all four release targets with checksum, executable-header, and license-content verification. Go build/test/vet caches and pinned CI tools are cached with input-based invalidation; cache hits still run the check commands. The compiled codemode scenario uses a local HTTP provider fixture. The fixture requires no account credentials or paid provider calls. Unit/protocol fixtures and local executable scenarios do not establish that every remote provider's current login service has been live-tested.
 
-The native executable was also exercised with isolated profiles: streamed file/shell/nested-code tools, session continuation, JSON/RPC, HTML export, SQLite migration and account logout, quota rotation, all 802 added catalog entries, and local requests through all 16 added provider IDs. A real HTTP fixture additionally verified forced OAuth refresh after a 401 and persisted credential rotation through the library's request path. Real terminal sessions covered masked API-key entry/cancellation, startup, throughput, `/usage` navigation, and both model selectors. Race checks passed for AI/account routing, the coding runtime, metadata, TUI, and CLI packages. Other platform archives are cross-built; only the Linux arm64 executable was run on this host.
+The native executable was also exercised with isolated profiles: streamed file/shell/nested-code tools, session continuation, JSON/RPC, HTML export, SQLite migration and account logout, quota rotation, all 802 added catalog entries, and local requests through all 16 added provider IDs. A real HTTP fixture additionally verified forced OAuth refresh after a 401 and persisted credential rotation through the library's request path. Local fixture transports pin both providers' saved-reset routes, so the wire contracts, the refusal codes, and the block clearing are covered without spending a real credit. Real terminal sessions covered masked API-key entry/cancellation, startup, throughput, `/usage` navigation, and both model selectors. Race checks passed for AI/account routing, the coding runtime, metadata, TUI, and CLI packages. Other platform archives are cross-built; only the Linux arm64 executable was run on this host.
 
 Release archives are named `ompig-slim-{linux,darwin}-{x64,arm64}.tar.gz` and contain the executable, documentation, license notices, and dependency licenses. Windows, Android, p2, and Nix distributions are not personal release targets.
 

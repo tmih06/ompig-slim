@@ -239,6 +239,23 @@ func (c *RuntimeCredentials) BlockAccount(ctx context.Context, providerID string
 	return store.BlockAccount(ctx, providerID, accountKey, scope, untilMs)
 }
 
+// ClearAccountBlocks forwards to the base store when it can clear blocks; a store without that
+// capability keeps its blocks, so this reports ErrAccountBlockClearUnsupported.
+func (c *RuntimeCredentials) ClearAccountBlocks(ctx context.Context, providerID string, accountKey *string, scopes []string) error {
+	store, err := c.accountStore()
+	if err != nil {
+		return err
+	}
+	clearer, ok := store.(AccountBlockClearer)
+	if !ok {
+		return ErrAccountBlockClearUnsupported
+	}
+	return clearer.ClearAccountBlocks(ctx, providerID, accountKey, scopes)
+}
+
+// ErrAccountBlockClearUnsupported reports a store that cannot drop a recorded block.
+var ErrAccountBlockClearUnsupported = errors.New("credential store cannot clear account blocks")
+
 // AccountCount forwards to the base store.
 func (c *RuntimeCredentials) AccountCount() (int, error) {
 	store, err := c.accountStore()
