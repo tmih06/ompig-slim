@@ -767,3 +767,67 @@ func TestParseArrayPayloadUsesRowProvider(t *testing.T) {
 		t.Errorf("providers = %q, %q", rows[0].Provider, rows[1].Provider)
 	}
 }
+
+func TestSnapshotScalarsPreserveNullZeroAndUnicode(t *testing.T) {
+	snapshot, ok := ai.ParseModelCatalogMetadataSnapshot([]byte(`{
+	  "version":1,"fetchedAt":1,"checkedAt":2,"rows":[
+	    {"provider":"deepseek","id":"deepseek-flash","int":0,"tps":1e2,
+	     "name":"DeepSeek \uD83D\uDE80","description":"broken \uD800",
+	     "reasoning":false,"supportsOffEffort":true,"contextWindow":1000.9},
+	    {"provider":"deepseek","id":"nulls","int":null,"reasoning":null},
+	    {"provider":"deepseek","id":"wrong-number","int":"5"},
+	    {"provider":"deepseek","id":"wrong-bool","reasoning":1},
+	    {"provider":"deepseek","id":"wrong-string","name":false}
+	  ]}`))
+	if !ok || len(snapshot.Rows) != 2 {
+		t.Fatalf("snapshot = %+v, valid = %v", snapshot, ok)
+	}
+	row := snapshot.Rows[0]
+	if row.Int == nil || *row.Int != 0 || row.TPS == nil || *row.TPS != 100 {
+		t.Fatalf("zero/exponent metrics = %+v", row)
+	}
+	if row.Name != "DeepSeek 🚀" || row.Description != "broken \uFFFD" {
+		t.Fatalf("Unicode = %q, %q", row.Name, row.Description)
+	}
+	if row.Reasoning == nil || *row.Reasoning || !row.SupportsOffEffort || row.ContextWindow == nil || *row.ContextWindow != 1000 {
+		t.Fatalf("flags/limits = %+v", row)
+	}
+	if snapshot.Rows[1].Int != nil || snapshot.Rows[1].Reasoning != nil {
+		t.Fatalf("nulls became explicit values: %+v", snapshot.Rows[1])
+	}
+}
+
+func TestIndexedMatchingKeepsReleaseDatesAndExactIDAuthority(t *testing.T) {
+	service := New(Options{})
+	service.setRowsLocked([]ai.ModelCatalogMetadataRow{
+		{Provider: "deepseek", ID: "deepseek-flash", Name: "DeepSeek V4.1 Flash 1017", Int: float64Pointer(42)},
+		{Provider: "reseller", ID: "deepseek-v4.1-flash-1018", Int: float64Pointer(99)},
+		{Provider: "reseller", ID: "deepseek-v4.1-pro-1017", Int: float64Pointer(98)},
+	})
+	for _, identity := range []struct{ id, name string }{
+		{"deepseek-ai/deepseek-v4.1-flash-1017", ""},
+		{"deepseek-flash", "DeepSeek Flash"},
+	} {
+		patch, ok := service.ResolvePatch(identity.id, identity.name, nil, ResolveOptions{Mode: ModeMetrics})
+		if !ok || patch.Int == nil || *patch.Int != 42 || patch.ModelID != "deepseek-flash" {
+			t.Fatalf("metadata for %q = %+v, valid = %v", identity.id, patch, ok)
+		}
+	}
+}
+
+func TestSnapshotDecoderKeepsOpenObjectsAndRejectsTrailingData(t *testing.T) {
+	payload := `{"version":1,"fetchedAt":null,"checkedAt":2,"rows":[
+	  {"provider":"p","id":"valid","unknown":{"huge":1e999},"int":1,"INT":99},
+	  {"provider":"p","id":"overflow","int":1e999},
+	  {"Provider":"p","id":"wrong-case","int":2}
+	]}`
+	snapshot, ok := ai.ParseModelCatalogMetadataSnapshot([]byte(payload))
+	if !ok || snapshot.FetchedAt != 0 || len(snapshot.Rows) != 1 || snapshot.Rows[0].Int == nil || *snapshot.Rows[0].Int != 1 {
+		t.Fatalf("snapshot = %+v, valid = %v", snapshot, ok)
+	}
+	for _, suffix := range []string{` {}`, ` true`, ` garbage`} {
+		if _, ok := ai.ParseModelCatalogMetadataSnapshot([]byte(payload + suffix)); ok {
+			t.Fatalf("accepted trailing data %q", suffix)
+		}
+	}
+}

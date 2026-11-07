@@ -7,6 +7,8 @@ package codingagent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,11 +352,50 @@ func TestRegistryMetadataRefreshKeepsRowsOnFailure(t *testing.T) {
 	}
 }
 
-func TestRegistryDefinitionDisplayName(t *testing.T) {
-	if got := (modelDefinition{ID: "m", Name: "Name"}).DisplayName(); got != "Name" {
-		t.Errorf("DisplayName = %q", got)
+func TestRegistryMetadataRefreshUpdatesMetricsAndProvenance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("If-None-Match") == `"updated"` {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
+		writer.Header().Set("ETag", `"updated"`)
+		_, _ = writer.Write([]byte(`[{"provider":"deepseek","id":"deepseek-flash","name":"DeepSeek V4.1 Flash 1017","int":55}]`))
+	}))
+	defer server.Close()
+	registry := NewModelRegistryWithModelsPath(writeModelsJSON(t, `{"providers":{"deploy":{
+	  "api":"openai-completions","baseUrl":"https://example.invalid","apiKey":"local-fixture",
+	  "models":[{"id":"deepseek-ai/deepseek-v4.1-flash-1017"}]}}}`))
+	snapshot, ok := ai.ParseModelCatalogMetadataSnapshot([]byte(`{"version":1,"fetchedAt":1,"checkedAt":1,"rows":` + catalogRows + `}`))
+	if !ok {
+		t.Fatal("invalid snapshot fixture")
 	}
-	if got := (modelDefinition{ID: "m"}).DisplayName(); got != "m" {
-		t.Errorf("DisplayName without a name = %q", got)
+	store := modelmetadata.NewInMemoryStore()
+	if err := store.Write(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
 	}
+	service := modelmetadata.New(modelmetadata.Options{Store: store, URL: server.URL, Client: server.Client()})
+	if err := service.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	registry.SetModelMetadata(service)
+	assertMetric := func(want float64, source string) {
+		t.Helper()
+		models := registry.GetProviderModelData("deploy")
+		if len(models) != 1 || models[0].Int == nil || *models[0].Int != want || models[0].Catalog == nil || models[0].Catalog.Source != source {
+			t.Fatalf("expected intelligence %v from %s, got %+v", want, source, models)
+		}
+	}
+	assertMetric(32.6, "cached")
+	if _, err := registry.RefreshModelMetadata(context.Background(), false, false); err != nil {
+		t.Fatal(err)
+	}
+	assertMetric(32.6, "cached")
+	if _, err := registry.RefreshModelMetadata(context.Background(), true, true); err != nil {
+		t.Fatal(err)
+	}
+	assertMetric(55, "network")
+	if _, err := registry.RefreshModelMetadata(context.Background(), true, true); err != nil {
+		t.Fatal(err)
+	}
+	assertMetric(55, "cached")
 }

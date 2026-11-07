@@ -479,8 +479,15 @@ func RankCatalogMetadataCandidates(matches []ai.ModelCatalogMetadataRow, family,
 
 // Index holds precomputed candidate lists, so enrichment never scans the whole catalog per model.
 type Index struct {
-	byKey     map[string][]ai.ModelCatalogMetadataRow
-	byExactID map[string][]ai.ModelCatalogMetadataRow
+	byKey     map[string][]indexedCatalogRow
+	byExactID map[string][]indexedCatalogRow
+}
+
+// Rows are immutable for an index's lifetime. Keep references instead of copying
+// each row into both buckets, and retain its parsed identity for every lookup.
+type indexedCatalogRow struct {
+	row *ai.ModelCatalogMetadataRow
+	key *VariantKey
 }
 
 // variantKeyID is the identity key shared by a target and the rows it may match.
@@ -502,16 +509,25 @@ func variantKeyID(key *VariantKey) string {
 
 // buildIndex builds the lookup index for one snapshot.
 func buildIndex(rows []ai.ModelCatalogMetadataRow) Index {
-	index := Index{byKey: map[string][]ai.ModelCatalogMetadataRow{}, byExactID: map[string][]ai.ModelCatalogMetadataRow{}}
-	for _, row := range rows {
-		key, ok := rowKey(row)
+	index := Index{byKey: map[string][]indexedCatalogRow{}, byExactID: map[string][]indexedCatalogRow{}}
+	type modelIdentity struct{ id, name string }
+	keys := make(map[modelIdentity]*VariantKey)
+	for i := range rows {
+		row := &rows[i]
+		identity := modelIdentity{row.ID, row.Name}
+		key, ok := keys[identity]
 		if !ok {
+			key, _ = rowKey(*row)
+			keys[identity] = key
+		}
+		if key == nil {
 			continue
 		}
 		id := variantKeyID(key)
-		index.byKey[id] = append(index.byKey[id], row)
+		indexed := indexedCatalogRow{row: row, key: key}
+		index.byKey[id] = append(index.byKey[id], indexed)
 		exact := strings.ToLower(row.ID)
-		index.byExactID[exact] = append(index.byExactID[exact], row)
+		index.byExactID[exact] = append(index.byExactID[exact], indexed)
 	}
 	return index
 }
@@ -525,14 +541,18 @@ func indexedCandidates(index Index, modelID, modelName string) []ai.ModelCatalog
 	}
 	// A row can sit in both buckets, so the union is deduplicated.
 	seen := map[string]bool{}
+	targetID := strings.ToLower(modelID)
 	var bucket []ai.ModelCatalogMetadataRow
-	add := func(row ai.ModelCatalogMetadataRow) {
+	add := func(indexed indexedCatalogRow) {
+		row := indexed.row
 		identity := row.Provider + "\x00" + row.ID
 		if seen[identity] {
 			return
 		}
 		seen[identity] = true
-		bucket = append(bucket, row)
+		if strings.ToLower(row.ID) == targetID || VariantKeysMatch(target, indexed.key) {
+			bucket = append(bucket, *row)
+		}
 	}
 	for _, row := range index.byKey[variantKeyID(target)] {
 		add(row)
@@ -540,7 +560,7 @@ func indexedCandidates(index Index, modelID, modelName string) []ai.ModelCatalog
 	for _, row := range index.byExactID[strings.ToLower(modelID)] {
 		add(row)
 	}
-	return candidateRows(target, modelID, bucket)
+	return bucket
 }
 
 // MatchCatalogMetadataRows lists every catalog row reproducing modelID's identity, best-first.
