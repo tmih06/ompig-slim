@@ -136,10 +136,14 @@ func TestAgentCardStaysMinimal(t *testing.T) {
 	args := json.RawMessage(`{"subagent_type":"Explore","description":"Run sleep loop one"}`)
 	card := tui.NewToolExecutionComponent("Agent", "minimal", args, tui.ToolExecutionOptions{}, nil, nil, "")
 	m.bindToolCard(card, "minimal", "Agent", args)
-	assertMinimal := func() {
+	assertMinimal := func(background string) {
 		t.Helper()
 		var content []string
-		for _, line := range card.Render(80) {
+		lines := card.Render(80)
+		if !strings.Contains(strings.Join(lines, "\n"), tui.ActiveTheme().GetBgAnsi(background)) {
+			t.Fatalf("missing standard tool background %s", background)
+		}
+		for _, line := range lines {
 			if clean := strings.TrimSpace(widthx.StripTerminalSequences(line)); clean != "" {
 				content = append(content, clean)
 			}
@@ -148,12 +152,16 @@ func TestAgentCardStaysMinimal(t *testing.T) {
 			t.Fatalf("expected one descriptive line, got %q", content)
 		}
 	}
-	assertMinimal()
+	assertMinimal("toolPendingBg")
 	for _, failed := range []bool{false, true} {
 		card.SetResult("tool uses: 99\nprivate result\nctrl+o to expand", failed, time.Hour)
 		for _, expanded := range []bool{false, true} {
 			card.SetExpanded(expanded)
-			assertMinimal()
+			background := "toolSuccessBg"
+			if failed {
+				background = "toolErrorBg"
+			}
+			assertMinimal(background)
 		}
 	}
 	call := subagentRenderCall(json.RawMessage(`{"description":"long\nlabel\u001b[31m"}`), nil, extension.ToolRenderContext{})
