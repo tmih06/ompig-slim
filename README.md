@@ -23,7 +23,7 @@ make install                    # ~/.local/bin/ompig-slim
 make install PREFIX=/some/path  # /some/path/bin/ompig-slim
 ```
 
-Go 1.26 or newer is required. `go.mod` selects Go 1.27.3; install that toolchain or permit Go's automatic toolchain download. Dependencies are pinned in `go.mod`/`go.sum` and included in `vendor/`. Normal builds use `-mod=vendor` and need neither Bun nor Node for the default application or codemode. Optional integrations can require their own executables.
+Go 1.27 or newer is required. `go.mod` selects Go 1.27.3; install that toolchain or permit Go's automatic toolchain download. Dependencies are pinned in `go.mod`/`go.sum` and included in `vendor/`. Normal builds use `-mod=vendor` and need neither Bun nor Node for the default application or codemode. Optional integrations can require their own executables.
 
 Build from the checkout with the vendored dependencies. `go install …@latest` does not use this repository's patched vendor tree and is not a supported installation method.
 
@@ -105,22 +105,27 @@ Codemode is available with extensions disabled. Use `--tools read,codemode`, `--
 
 Release notices follow the actual source fork, **`tmih06/omp-slim`**; renaming this local application does not create a new remote repository. That unsigned GitHub feed cannot replace the executable. An explicitly configured upstream signed-update manifest retains its signature verification; do not point it at a stock release if you want to preserve personal patches.
 
+`/usage` displays completed account reports as they arrive. Independent accounts fetch concurrently, so a slow provider does not delay healthy providers. Opening the dashboard uses the five-minute quota cache; press `r` to force a refresh. Closing the board cancels its requests, and reopening starts a fresh request if the previous one was canceled.
+
 ## Checks and native packages
 
 ```sh
-make check                      # root + vendored PiG tests and vet
+make check                      # root + vendored PiG tests and vet (native Go caches)
+make race                       # the same packages under the race detector
 make smoke                      # compiled-binary codemode/state/nested-tool scenario
 make release                    # all four supported native targets
 make release ARGS='--platform linux-arm64 --out bin/releases'
 ```
 
-CI validates Linux and macOS and runs the actual compiled codemode scenario against a local HTTP provider fixture. The fixture requires no account credentials or paid provider calls. Unit/protocol fixtures and local executable scenarios do not establish that every remote provider's current login service has been live-tested.
+CI runs tests, vet, race checks, compiled codemode smoke tests, and editable PTY startup checks on Linux and macOS. Separate jobs validate workflows/scripts, scan the complete Git history including nested archives for secrets, and build all four release targets with checksum, executable-header, and license-content verification. Go build/test/vet caches and pinned CI tools are cached with input-based invalidation; cache hits still run the check commands. The compiled codemode scenario uses a local HTTP provider fixture. The fixture requires no account credentials or paid provider calls. Unit/protocol fixtures and local executable scenarios do not establish that every remote provider's current login service has been live-tested.
 
 The native executable was also exercised with isolated profiles: streamed file/shell/nested-code tools, session continuation, JSON/RPC, HTML export, SQLite migration and account logout, quota rotation, all 802 added catalog entries, and local requests through all 16 added provider IDs. A real HTTP fixture additionally verified forced OAuth refresh after a 401 and persisted credential rotation through the library's request path. Real terminal sessions covered masked API-key entry/cancellation, startup, throughput, `/usage` navigation, and both model selectors. Race checks passed for AI/account routing, the coding runtime, metadata, TUI, and CLI packages. Other platform archives are cross-built; only the Linux arm64 executable was run on this host.
 
 Release archives are named `ompig-slim-{linux,darwin}-{x64,arm64}.tar.gz` and contain the executable, documentation, license notices, and dependency licenses. Windows, Android, p2, and Nix distributions are not personal release targets.
 
-For startup diagnostics, run `PIG_STARTUP_TRACE=1 ompig-slim`; `PI_TIMING=1` adds phase durations. Cached metadata is restored before the first model listing, without a network request. Snapshot decoding traverses the JSON once, the matching index reuses parsed identities, and unchanged/offline refreshes retain enrichment instead of rebuilding it. A downloaded catalog still invalidates enrichment, and an ETag/304 revalidation updates provenance without losing model metrics.
+Measure editable startup against your normal profile with `python3 scripts/measure-startup.py ./bin/ompig-slim --runs 5 --max-ms 500`. The probe starts a real PTY, types as soon as raw mode starts, and measures when that edit is painted. It includes process launch time. The editor accepts input while terminal color discovery and the rest of initialization finish.
+
+For startup diagnostics, run `PIG_STARTUP_TRACE=1 ompig-slim`; `PI_TIMING=1` adds phase durations. Cached metadata is restored before the first model listing, without a network request. Canonical metadata snapshots use typed decoding, stored catalog shapes are built lazily when saved, the matching index reuses parsed identities and ranked candidates, and unchanged/offline refreshes retain enrichment instead of rebuilding it. A downloaded catalog still invalidates enrichment, and an ETag/304 revalidation updates provenance without losing model metrics.
 
 Selector-only metric lookups do not scan bundled reasoning/cache-policy references: those references cannot contribute selector metrics. Full custom-model enrichment still resolves them for cache policy and effort inheritance. `BenchmarkMetadataSelectorMetrics` exercises the selector path against the actual bundled reference catalog.
 
