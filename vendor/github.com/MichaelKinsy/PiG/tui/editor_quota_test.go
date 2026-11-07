@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -35,6 +36,18 @@ func TestPromptQuotaBorderPreservesStatusAndWidth(t *testing.T) {
 		if width == 120 && !strings.HasSuffix(plain, label+" ─") {
 			t.Fatalf("quota not right aligned: %q", plain)
 		}
+	}
+}
+
+func TestWorkingStatusBorderShowsElapsedTime(t *testing.T) {
+	indicator := &StatusIndicator{
+		Kind:      "working",
+		StartedAt: time.Now().Add(-65 * time.Second),
+		Loader:    NewLoader(nil, nil, nil, "Working", nil),
+	}
+	border := widthx.StripAnsi(indicator.RenderInBorder(80))
+	if !strings.Contains(border, "Working 01:05") {
+		t.Fatalf("working status lacks elapsed time: %q", border)
 	}
 }
 
