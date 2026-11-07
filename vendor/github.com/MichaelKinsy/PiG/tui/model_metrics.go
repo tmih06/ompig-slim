@@ -506,6 +506,13 @@ func (m *ModelDetailFactsComponent) Render(width int) []string {
 		}
 		return []string{widthx.TruncateToWidth(fg(ActiveTheme().Muted, "  "+message), renderWidth, "", false)}
 	}
-	// Each fact stays intact so values such as "1M ctx" are never split mid-value.
-	return packFacts(GetModelDetailFacts(m.model).Facts, renderWidth, 2)
+	// Keep the effort summary on its own line so it remains visually distinct from the other
+	// catalog facts, while packFacts still wraps long values without truncating them.
+	facts := GetModelDetailFacts(m.model)
+	if facts.Efforts == "" {
+		return packFacts(facts.Facts, renderWidth, 2)
+	}
+	mainFacts := facts.Facts[:len(facts.Facts)-1]
+	lines := packFacts(mainFacts, renderWidth, 2)
+	return append(lines, packFacts([]string{"Efforts: " + facts.Efforts}, renderWidth, 2)...)
 }

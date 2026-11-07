@@ -229,6 +229,9 @@ func TestModelDetailFactsKeepDroppedColumns(t *testing.T) {
 	if !strings.Contains(rendered, "1M ctx") || !strings.Contains(rendered, "int 62") {
 		t.Errorf("detail block %q lost a fact", rendered)
 	}
+	if !strings.Contains(rendered, "\n  Efforts: low · high") {
+		t.Errorf("efforts are not on their own line: %q", rendered)
+	}
 }
 
 func TestModelDetailFactsWrapInsteadOfTruncating(t *testing.T) {
