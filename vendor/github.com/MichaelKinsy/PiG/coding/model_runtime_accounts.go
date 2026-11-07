@@ -33,8 +33,8 @@ func (runtime *ModelRuntime) credentialAccounts() ai.AccountCredentialStore {
 }
 
 // SelectCredentialAccount makes one stored account the provider's active account and drops this
-// runtime's request affinity, so the choice takes effect on the next request. False when the
-// store cannot or did not select it.
+// runtime's request affinity. The next request prefers that account within the router's plan
+// priority. False when the store cannot or did not select it.
 func (runtime *ModelRuntime) SelectCredentialAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
 	store := runtime.credentialAccounts()
 	if store == nil {
@@ -180,19 +180,20 @@ func (runtime *ModelRuntime) AccountCredentialStore() ai.AccountCredentialStore 
 	return runtime.credentialAccounts()
 }
 
-// UsageAccountKey reports the account this session's requests for provider are routed to, for the
-// usage board's in-use marker. It reads the runtime's affinity only; present is false when the
-// session has not routed a request for this provider and model, which asks the quota service for
-// the store's default account.
+// UsageAccountKey reports the accepted live account for the selected model, or its last confirmed account. Unverified models and attempts have no usage identity.
 func (s *Session) UsageAccountKey(providerID string) (*string, bool) {
 	if s == nil {
 		return nil, false
 	}
-	modelID := ""
-	if model := s.Model(); model != nil && model.ProviderMeta.ProviderID == providerID {
-		modelID = model.ID
+	model := s.Model()
+	if model == nil || model.ProviderID() != providerID {
+		return nil, false
 	}
-	return s.ModelRuntime().PeekAccountKey(providerID, s.ID(), modelID)
+	router := s.ModelRuntime().accountRouter()
+	if router == nil {
+		return nil, false
+	}
+	return router.PeekRoutedAccountKey(providerID, s.ID(), model.ID)
 }
 
 // emitAccountRotation publishes one account handoff as the Session event upstream's

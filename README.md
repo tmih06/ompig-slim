@@ -86,7 +86,7 @@ The SQLite schema is interoperable with OMP. The personal preferred-account cach
 | --- | --- |
 | Identity and startup | `ompig-slim` name, version 0.1.0, personal half-block startup mark, shared Pi paths, and cache-miss notices enabled by default |
 | Account storage | Multiple accounts per provider, account-specific logout, migration, preferred account, refresh leases, cross-process blocks, and preserved OMP SQLite identities |
-| Account routing | Per-session/provider/model affinity, plan/model eligibility, quota/auth/policy failure scopes, same-account refresh before rotation, and no replay after streamed output |
+| Account routing | Eligible Codex free accounts before paid accounts, per-session/provider/model affinity, plan/model eligibility, quota/auth/policy failure scopes, same-account refresh before rotation, and no replay after streamed output |
 | Providers | Added OpenAI-compatible catalogs, provider-specific environments/headers/options, and DeepSeek cache-read accounting that uses the first strictly positive cache counter |
 | Sign-in | Subscription/API-key setup flows plus native browser/device OAuth and credential refresh |
 | Google | Gemini CLI and Antigravity sign-in, project/model discovery, and native Cloud Code Assist streaming, thinking, tools, usage, and error handling |
@@ -152,6 +152,8 @@ The source reference is [tintinweb/pi-subagents](https://github.com/tintinweb/pi
 at `50460b5df6934c4237983a504808a04ee0f8a0a0`.
 
 Release notices follow the actual source fork, **`tmih06/omp-slim`**; renaming this local application does not create a new remote repository. That unsigned GitHub feed cannot replace the executable. An explicitly configured upstream signed-update manifest retains its signature verification; do not point it at a stock release if you want to preserve personal patches.
+
+The prompt’s top-right border follows the router’s accepted live account or last confirmed route for the selected model. It totals accounts within that account’s subscription tier, choosing the quota window with the least remaining capacity and showing its next account reset countdown. An unfamiliar model stays hidden until the provider accepts an account for it; the bar does not infer access from model names or tier rules. Provider rejections drive the router’s fallback and the bar follows the resulting account. Window durations and reset times come from the provider: free-tier 30-day quotas stay separate from Plus 7-day quotas when totaling accounts. Quotas refresh every minute in the background; unavailable accounts mark the total as partial. The label shows only the window, the usage board’s detailed bar, remaining percentage, and next reset. The bar fits 12–24 cells and hides when the border has insufficient space or quota data cannot be fetched. Initial loading also leaves the border empty.
 
 `/usage` displays completed account reports as they arrive. Independent accounts fetch concurrently, so a slow provider does not delay healthy providers. Opening the dashboard uses the five-minute quota cache; press `r` to force a refresh. Closing the board cancels its requests, and reopening starts a fresh request if the previous one was canceled.
 

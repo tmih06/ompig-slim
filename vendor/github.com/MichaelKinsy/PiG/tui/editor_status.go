@@ -14,21 +14,22 @@ func (e *Editor) SetWorkingStatusIndicator(indicator *StatusIndicator) {
 }
 
 // IsDirty reports whether the editor's rendered lines changed since the last
-// consume. The embedded status indicator is animated and relabelled by its
+// consume. The right border label can change with its data source. The embedded status indicator is animated and relabelled by its
 // owner (spinner ticks, working message, retry countdown) without touching the
 // editor, so its own dirty flag counts too; otherwise the per-child render
 // cache would keep the old border row until a keystroke dirtied the editor.
 func (e *Editor) IsDirty() bool {
-	if e.invalidatable.IsDirty() {
+	if e.invalidatable.IsDirty() || e.topRightStatusChanged() {
 		return true
 	}
 	indicator := e.workingStatusIndicator
 	return e.EmbedWorkingStatus && indicator != nil && indicator.IsDirty()
 }
 
-// NeedsRedraw consumes the editor's and the embedded indicator's dirty flags.
+// NeedsRedraw consumes the editor's and embedded indicator's dirty flags and checks the right border label.
 func (e *Editor) NeedsRedraw() bool {
-	dirty := e.invalidatable.NeedsRedraw()
+	dirty := e.topRightStatusChanged()
+	dirty = e.invalidatable.NeedsRedraw() || dirty
 	if indicator := e.workingStatusIndicator; e.EmbedWorkingStatus && indicator != nil {
 		dirty = indicator.NeedsRedraw() || dirty
 	}
@@ -36,9 +37,9 @@ func (e *Editor) NeedsRedraw() bool {
 }
 
 // pig additive (D91): SurfaceLive reports that the embedded indicator, which changes without
-// invalidating the editor, draws in the editor.
+// invalidating the editor, or a dynamic right border label draws in the editor.
 func (e *Editor) SurfaceLive() bool {
-	return e.EmbedWorkingStatus && e.workingStatusIndicator != nil
+	return e.TopRightStatus != nil || e.EmbedWorkingStatus && e.workingStatusIndicator != nil
 }
 
 // renderStatusBorder mirrors CustomEditor.renderTopBorder, retaining a centered
@@ -84,4 +85,39 @@ func (e *Editor) renderStatusBorder(width, hiddenLineCount int, fallback string)
 	statusWidth = widthx.VisibleWidth(status)
 	prefixWidth := min(3, max(0, width-statusWidth))
 	return color(strings.Repeat("─", prefixWidth)) + status + color(strings.Repeat("─", max(0, width-prefixWidth-statusWidth)))
+}
+
+func (e *Editor) topRightStatusChanged() bool {
+	return e.topRightStatusLabel() != e.topRightRendered
+}
+
+func (e *Editor) topRightStatusLabel() string {
+	if e.TopRightStatus == nil || e.topRightBudget <= 0 {
+		return ""
+	}
+	label := e.TopRightStatus(e.topRightBudget)
+	if widthx.VisibleWidth(label) > e.topRightBudget {
+		return ""
+	}
+	return label
+}
+
+// Only replace trailing border cells, preserving the working label and centered scroll indicator.
+func (e *Editor) renderTopRightStatus(width int, border string) string {
+	e.topRightRendered = ""
+	if e.TopRightStatus == nil {
+		e.topRightBudget = 0
+		return border
+	}
+	plain := widthx.StripAnsi(border)
+	trailing := len([]rune(plain)) - len([]rune(strings.TrimRight(plain, "─")))
+	e.topRightBudget = max(0, min(width-4, trailing-4))
+	label := e.topRightStatusLabel()
+	labelWidth := widthx.VisibleWidth(label)
+	if labelWidth == 0 {
+		return border
+	}
+	e.topRightRendered = label
+	left := width - labelWidth - 3
+	return widthx.SliceByColumn(border, 0, left, false) + e.colorEditorBorder(" ") + label + e.colorEditorBorder(" ─")
 }

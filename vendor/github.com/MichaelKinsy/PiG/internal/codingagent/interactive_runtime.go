@@ -200,6 +200,10 @@ func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r I
 	m.opts.ModelGenerateImages = r.ModelGenerateImages
 	m.opts.RequestAuthRuntime = r.RequestAuthRuntime
 	m.opts.UsageService = r.UsageService
+	m.promptQuota = nil
+	if m.backgroundCtx != nil {
+		m.refreshPromptQuota(m.backgroundCtx)
+	}
 	m.opts.UsageAccountKey = r.UsageAccountKey
 	if m.extCtx != nil {
 		m.extCtx.CWD = r.CWD
