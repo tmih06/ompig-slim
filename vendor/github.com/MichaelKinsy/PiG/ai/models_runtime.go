@@ -72,14 +72,17 @@ type ModelsRefreshResult struct {
 
 // Models owns provider selection, request auth and refresh publication. Callers own operation contexts; callbacks must settle before their owners are discarded.
 type Models struct {
-	mu                 sync.RWMutex
-	providers          map[string]*ModelsProvider
-	order              []string
-	credentials        CredentialStore
-	modelsStore        ModelsStore
-	authContext        AuthContext
-	identity           *ClientIdentity
-	modelAuth          func(context.Context, *Model, AuthResolutionOverrides) (*AuthResult, error)
+	mu          sync.RWMutex
+	providers   map[string]*ModelsProvider
+	order       []string
+	credentials CredentialStore
+	modelsStore ModelsStore
+	authContext AuthContext
+	identity    *ClientIdentity
+	modelAuth   func(context.Context, *Model, AuthResolutionOverrides) (*AuthResult, error)
+	// accounts routes requests across the stored accounts of a provider when the credential store
+	// holds several; nil for a single-account store.
+	accounts           *AccountRouter
 	refreshGenerations map[string]uint64
 	refreshControllers map[string]*modelsRefreshSignal
 	publicationChains  map[string]chan struct{}
@@ -112,7 +115,11 @@ func createModels(modelAuth func(context.Context, *Model, AuthResolutionOverride
 	if opts.AuthContext != nil {
 		authContext = *opts.AuthContext
 	}
-	return &Models{providers: map[string]*ModelsProvider{}, credentials: opts.Credentials, modelsStore: opts.ModelsStore, authContext: authContext, identity: opts.Identity, modelAuth: modelAuth, refreshGenerations: map[string]uint64{}, refreshControllers: map[string]*modelsRefreshSignal{}, publicationChains: map[string]chan struct{}{}}
+	accounts := opts.AccountRouter
+	if accounts == nil {
+		accounts = NewAccountRouter(opts.Credentials)
+	}
+	return &Models{providers: map[string]*ModelsProvider{}, credentials: opts.Credentials, accounts: accounts, modelsStore: opts.ModelsStore, authContext: authContext, identity: opts.Identity, modelAuth: modelAuth, refreshGenerations: map[string]uint64{}, refreshControllers: map[string]*modelsRefreshSignal{}, publicationChains: map[string]chan struct{}{}}
 }
 
 type modelsOperationResult[T any] struct {

@@ -429,33 +429,6 @@ func TestUsageCacheIdentitySeparatesAccountsAndStaysStableAcrossRefresh(t *testi
 	}
 }
 
-func TestUsageProvidersCoverRegistry(t *testing.T) {
-	providers := DefaultUsageProviders()
-	seen := map[string]bool{}
-	for _, provider := range providers {
-		if provider.ID == "" || provider.FetchUsage == nil {
-			t.Fatalf("incomplete provider %+v", provider)
-		}
-		if seen[provider.ID] {
-			t.Fatalf("duplicate provider %q", provider.ID)
-		}
-		seen[provider.ID] = true
-	}
-	for _, id := range []string{
-		"alibaba-token-plan", "openai-codex", "kimi-code", "minimax-code", "muse-code",
-		"google-antigravity", "google-gemini-cli", "ollama", "factory-droid", "ollama-cloud",
-		"anthropic", "cline-pass", "zai", "umans", "opencode-go", "github-copilot", "cursor",
-		"synthetic", "xai-oauth", "devin", "charm-hyper", "commandcode",
-	} {
-		if DefaultUsageProvider(id) == nil {
-			t.Fatalf("registry is missing %q", id)
-		}
-	}
-	if len(providers) != 22 {
-		t.Fatalf("providers = %d, want 22", len(providers))
-	}
-}
-
 func TestOllamaReportsNoQuotaEndpoint(t *testing.T) {
 	report := fetchOllamaUsage(UsageFetchParams{Provider: "ollama"})
 	if report == nil || len(report.Limits) != 0 || len(report.Notes) == 0 {

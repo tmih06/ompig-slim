@@ -139,6 +139,9 @@ type OAuthAuth struct {
 	Login          func(context.Context, AuthInteraction, LoginOptions) (Credential, error)
 	Refresh        func(ctx context.Context, credential Credential) (Credential, error)
 	ToAuth         func(credential Credential) (ModelAuth, error)
+	// Env reports provider env values the credential carries (Cloudflare account and gateway ids
+	// among them); nil when the flow carries none.
+	Env func(Credential) map[string]string
 	// store is the D40 extension-owned credential store of the OAuth provider whose flow Login runs; a login through it saves there instead of the core credential store.
 	store OAuthCredentialStore
 }
@@ -155,10 +158,27 @@ type ProviderAuth struct {
 // AuthResolutionOverrides mirrors upstream AuthResolutionOverrides.
 type AuthResolutionOverrides struct {
 	APIKey *string
-	Env    map[string]string
+	// AccountKey resolves one stored account instead of the provider's selected one. An explicit
+	// empty AccountKey names the identity-less account (OMP's `identity_key IS NULL`), which is
+	// not the same request as an omitted one, so presence travels separately in AccountKeySet.
+	AccountKey *string
+	// AccountKeySet reports that the caller named an account, including the identity-less one.
+	AccountKeySet bool
+	// ForceOAuthRefresh refreshes a stored OAuth credential even when it still looks valid, for a
+	// request the provider rejected with that token.
+	ForceOAuthRefresh bool
+	Env               map[string]string
 	// MinOAuthValidityMs requires this much remaining OAuth-token validity;
 	// nil keeps the default five-minute refresh window without enforcing it.
 	MinOAuthValidityMs *float64
+}
+
+// WithAccountKey returns overrides that resolve exactly accountKey, which may be nil for the
+// identity-less account.
+func WithAccountKey(overrides AuthResolutionOverrides, accountKey *string) AuthResolutionOverrides {
+	overrides.AccountKey = accountKey
+	overrides.AccountKeySet = true
+	return overrides
 }
 
 // ModelsErrorCode mirrors upstream ModelsErrorCode.
@@ -214,6 +234,7 @@ func ResolveProviderAuth(ctx context.Context, providerID string, auth ProviderAu
 		// resolve.ts:53 signal.throwIfAborted() throws the signal's reason: "This operation was aborted" for a plain abort().
 		return nil, AbortReason(ctx)
 	}
+	overrides = ApplyAccountRequest(ctx, overrides)
 	requestContext := authContext
 	if overrides.Env != nil {
 		requestContext = overlayEnvAuthContext(authContext, overrides.Env)
@@ -221,13 +242,13 @@ func ResolveProviderAuth(ctx context.Context, providerID string, auth ProviderAu
 	if overrides.APIKey != nil && auth.APIKey != nil {
 		return resolveAPIKey(ctx, requestContext, auth.APIKey, providerID, &Credential{Type: CredentialAPIKey, Key: *overrides.APIKey, Env: overrides.Env})
 	}
-	stored, err := readProviderCredential(ctx, credentials, providerID)
+	stored, err := readProviderCredentialForOverrides(ctx, credentials, providerID, overrides)
 	if err != nil {
 		return nil, err
 	}
 	if stored != nil {
 		if stored.Type == CredentialOAuth && auth.OAuth != nil {
-			return resolveStoredOAuth(ctx, credentials, providerID, auth.OAuth, *stored, overrides.MinOAuthValidityMs)
+			return resolveStoredOAuth(ctx, credentials, providerID, auth.OAuth, *stored, overrides)
 		}
 		if stored.Type == CredentialAPIKey && auth.APIKey != nil {
 			credential := stored
@@ -299,11 +320,12 @@ func overlayEnvAuthContext(base AuthContext, env map[string]string) AuthContext 
 	}
 }
 
-// resolveStoredOAuth refreshes with double-checked locking: a token with less
-// than the minimum validity remaining locks, re-checks expiry under the lock,
-// refreshes once, and persists the rotated credential before release.
-func resolveStoredOAuth(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, stored Credential, minOAuthValidityMs *float64) (*AuthResult, error) {
-	credential, err := refreshStoredOAuth(ctx, credentials, providerID, oauth, stored, minOAuthValidityMs)
+// resolveStoredOAuth refreshes with double-checked locking: a token with less than
+// the minimum validity remaining locks, re-checks expiry under the lock,
+// refreshes once, and persists the rotated credential before release. A forced
+// refresh replaces a token the provider just rejected even while it looks valid.
+func resolveStoredOAuth(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, stored Credential, overrides AuthResolutionOverrides) (*AuthResult, error) {
+	credential, err := refreshStoredOAuth(ctx, credentials, providerID, oauth, stored, overrides)
 	if err != nil || credential == nil {
 		return nil, err
 	}
@@ -311,11 +333,18 @@ func resolveStoredOAuth(ctx context.Context, credentials CredentialStore, provid
 	if err != nil {
 		return nil, NewModelsError(ModelsErrorOAuth, fmt.Sprintf("OAuth auth derivation failed for %s", providerID), err)
 	}
-	return &AuthResult{Auth: auth, Source: "OAuth"}, nil
+	result := &AuthResult{Auth: auth, Source: "OAuth"}
+	if oauth.Env != nil {
+		// An OAuth credential cannot carry `env` of its own (a tokenOnly credential drops it), so
+		// routing values such as Cloudflare's account and gateway ids travel through this hook.
+		result.Env = oauth.Env(*credential)
+	}
+	return result, nil
 }
 
 // refreshStoredOAuth is resolveStoredOAuth's refresh step: it returns the credential to derive auth from, refreshed under the store's lock when it expires within the minimum validity, or nil when the credential was removed or replaced by a non-OAuth one meanwhile.
-func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, stored Credential, minOAuthValidityMs *float64) (*Credential, error) {
+func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, stored Credential, overrides AuthResolutionOverrides) (*Credential, error) {
+	minOAuthValidityMs := overrides.MinOAuthValidityMs
 	minimumValidityMs := defaultOAuthMinimumValidityMs
 	if minOAuthValidityMs != nil {
 		minimumValidityMs = math.Max(minimumValidityMs, *minOAuthValidityMs)
@@ -323,10 +352,21 @@ func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, provid
 	expiresSoon := func(credential Credential) bool {
 		return float64(nowMillis())+minimumValidityMs >= credential.ExpiresMillis()
 	}
+	// A forced refresh replaces the token this request just failed with, even while it looks
+	// valid locally. Re-checked under the lock: when another caller already rotated it, that newer
+	// token has not failed here yet, and refreshing again would spend the single-use refresh token
+	// for nothing (resolve.ts:resolveStoredOAuth).
+	needsRefresh := expiresSoon
+	force := overrides.ForceOAuthRefresh
+	if force {
+		needsRefresh = func(candidate Credential) bool {
+			return expiresSoon(candidate) || (candidate.Access == stored.Access && candidate.Refresh == stored.Refresh && candidate.ExpiresMillis() == stored.ExpiresMillis())
+		}
+	}
 	credential := stored
-	if expiresSoon(credential) {
+	if force || expiresSoon(credential) {
 		// Optimistic check said expired; the authoritative check runs under the lock.
-		post, err := refreshStoredOAuthCredential(ctx, credentials, providerID, oauth, expiresSoon)
+		post, err := refreshStoredOAuthCredential(ctx, credentials, providerID, oauth, needsRefresh, overrides)
 		if err != nil {
 			return nil, err
 		}
@@ -349,8 +389,9 @@ var oauthRefreshWork sync.WaitGroup
 
 // refreshStoredOAuthCredential refreshes a stored OAuth credential under the credential store's lock and persists the result before the lock is released. needsRefresh is re-checked under the lock, so concurrent callers and processes refresh once.
 // ctx cancels only the wait for the lock. Once a refresh starts, the provider may already have rotated the refresh token, so the refresh and its persistence ignore ctx and are bounded only by the fifteen-second timeout; otherwise a cancelled caller could discard the only valid refresh token. Upstream's callers race the promise with their signal; this call does that itself, so a cancelled caller returns the signal reason ([AbortReason]) while the refresh finishes and persists in the background. It returns nil when the credential was removed or replaced by a non-OAuth one meanwhile.
+// overrides.AccountKey refreshes that specific stored account; otherwise the provider's active account is refreshed.
 // upstream: packages/ai/src/auth/resolve.ts:refreshStoredOAuthCredential
-func refreshStoredOAuthCredential(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, needsRefresh func(Credential) bool) (*Credential, error) {
+func refreshStoredOAuthCredential(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, needsRefresh func(Credential) bool, overrides AuthResolutionOverrides) (*Credential, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, AbortReason(ctx)
 	}
@@ -360,7 +401,7 @@ func refreshStoredOAuthCredential(ctx context.Context, credentials CredentialSto
 	}
 	done := make(chan outcome, 1)
 	oauthRefreshWork.Go(func() {
-		credential, err := refreshStoredOAuthLocked(ctx, credentials, providerID, oauth, needsRefresh)
+		credential, err := refreshStoredOAuthLocked(ctx, credentials, providerID, oauth, needsRefresh, overrides)
 		done <- outcome{credential, err}
 	})
 	select {
@@ -371,12 +412,12 @@ func refreshStoredOAuthCredential(ctx context.Context, credentials CredentialSto
 	}
 }
 
-func refreshStoredOAuthLocked(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, needsRefresh func(Credential) bool) (*Credential, error) {
+func refreshStoredOAuthLocked(ctx context.Context, credentials CredentialStore, providerID string, oauth *OAuthAuth, needsRefresh func(Credential) bool, overrides AuthResolutionOverrides) (*Credential, error) {
 	lockWait, cancelLockWait := context.WithCancelCause(context.WithoutCancel(ctx))
 	defer cancelLockWait(nil)
 	stopLockWait := context.AfterFunc(ctx, func() { cancelLockWait(context.Cause(ctx)) })
 	defer stopLockWait()
-	post, err := credentials.Modify(lockWait, providerID, func(current *Credential) (*Credential, error) {
+	refresh := func(current *Credential) (*Credential, error) {
 		stopLockWait()
 		if err := ctx.Err(); err != nil {
 			return nil, AbortReason(ctx)
@@ -389,7 +430,19 @@ func refreshStoredOAuthLocked(ctx context.Context, credentials CredentialStore, 
 			return nil, NewModelsError(ModelsErrorOAuth, fmt.Sprintf("OAuth refresh failed for %s", providerID), err)
 		}
 		return &refreshed, nil
-	})
+	}
+	var post *Credential
+	var err error
+	if overrides.AccountKeySet {
+		accountKey := overrides.AccountKey
+		store, ok := credentials.(AccountCredentialStore)
+		if !ok {
+			return nil, NewModelsError(ModelsErrorAuth, fmt.Sprintf("Credential store does not support accounts for %s", providerID), nil)
+		}
+		post, err = store.ModifyAccount(lockWait, providerID, accountKey, refresh)
+	} else {
+		post, err = credentials.Modify(lockWait, providerID, refresh)
+	}
 	if err != nil {
 		if _, ok := errors.AsType[*ModelsError](err); ok {
 			return nil, err
@@ -437,6 +490,24 @@ func resolveAPIKey(ctx context.Context, authContext AuthContext, apiKey *APIKeyA
 
 func readProviderCredential(ctx context.Context, credentials CredentialStore, providerID string) (*Credential, error) {
 	credential, err := credentials.Read(ctx, providerID)
+	if err != nil {
+		return nil, NewModelsError(ModelsErrorAuth, fmt.Sprintf("Credential store read failed for %s", providerID), err)
+	}
+	return credential, nil
+}
+
+// readProviderCredentialForOverrides reads the credential the overrides name: one specific
+// stored account when the caller named it (AccountKeySet, where a nil key is the identity-less
+// account, not the provider's selection), else the provider's selected account.
+func readProviderCredentialForOverrides(ctx context.Context, credentials CredentialStore, providerID string, overrides AuthResolutionOverrides) (*Credential, error) {
+	if !overrides.AccountKeySet {
+		return readProviderCredential(ctx, credentials, providerID)
+	}
+	store, ok := credentials.(AccountCredentialStore)
+	if !ok {
+		return nil, NewModelsError(ModelsErrorAuth, fmt.Sprintf("Credential store does not support accounts for %s", providerID), nil)
+	}
+	credential, err := store.ReadAccount(ctx, providerID, overrides.AccountKey)
 	if err != nil {
 		return nil, NewModelsError(ModelsErrorAuth, fmt.Sprintf("Credential store read failed for %s", providerID), err)
 	}

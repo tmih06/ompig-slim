@@ -213,11 +213,29 @@ func (m *Models) Classify(ctx context.Context, model *ClassifierModel, request C
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	result, err := m.classify(ctx, model, request, opts)
+	result, err := m.accounts.ClassifyRoutes(ctx, model, AccountRouteRequest{APIKeySet: opts.APIKey != "" || opts.APIKeySet}, func(attemptCtx context.Context, selection AccountSelection, observe AccountObserve, forceOAuthRefresh bool) (ClassifierResult, error) {
+		attempt := opts
+		attempt.OnResponse = ObserveClassifierOnResponse(attempt.OnResponse, observe)
+		return m.classify(WithAccountSelection(attemptCtx, selection, forceOAuthRefresh), model, request, attempt)
+	})
 	if err != nil {
 		return classifierErrorResult(model, err, ctx.Err() != nil)
 	}
 	return result
+}
+
+// ObserveClassifierOnResponse composes a routing observer under an existing response hook.
+func ObserveClassifierOnResponse(existing func(ProviderResponse, ClassifierModel) error, observe AccountObserve) func(ProviderResponse, ClassifierModel) error {
+	if observe == nil {
+		return existing
+	}
+	return func(response ProviderResponse, responseModel ClassifierModel) error {
+		observe(response)
+		if existing != nil {
+			return existing(response, responseModel)
+		}
+		return nil
+	}
 }
 
 func (m *Models) classify(ctx context.Context, model *ClassifierModel, request ClassifierContext, options ModelsClassifierOptions) (ClassifierResult, error) {

@@ -101,6 +101,7 @@ func (transport *nodeFetchTransport) RoundTrip(request *http.Request) (*http.Res
 		responseMu.Unlock()
 		return response, &nodeTransportError{message: "fetch failed", cause: err, headersTimeout: headersTimeout}
 	}
+	observeRejectedAccountResponse(request.Context(), response)
 	if response.Body != nil {
 		response.Body = &nodeFetchBody{ReadCloser: response.Body, ctx: request.Context()}
 		responseMu.Lock()

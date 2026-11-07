@@ -240,6 +240,15 @@ func (s *AssistantMessageEventStream) End(result ...*AssistantMessage) {
 	s.waiters = nil
 }
 
+// ResultResolved returns the first resolved result without waiting. ok is false when no terminal
+// event or End result has resolved the stream yet, including a stream that ended without one
+// (Pi's EventStream.end() with no argument leaves result() pending forever).
+func (s *AssistantMessageEventStream) ResultResolved() (*AssistantMessage, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.result, s.resolved
+}
+
 // Result waits for a terminal event or End result and returns the first resolved message pointer.
 func (s *AssistantMessageEventStream) Result() *AssistantMessage {
 	result, _ := s.ResultContext(context.Background())
