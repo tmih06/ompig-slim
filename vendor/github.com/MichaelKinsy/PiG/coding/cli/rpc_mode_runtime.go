@@ -45,10 +45,11 @@ func (b *cliRuntimeBuilder) rpcInputs(owner context.Context, build *cliBuild, st
 	}
 	start := coding.SessionStartOptions{
 		// The Session builds its default system prompt from this loader, as AgentSession._rebuildSystemPrompt does.
-		ResourceLoader: resources,
-		ScopedModels:   extensionScopedModels(build.Services, scopePatterns),
-		Model:          build.Model,
-		ThinkingLevel:  ai.ModelThinkingLevel(flags.Thinking),
+		BuiltinEventBuses: build.builtinEventBuses(),
+		ResourceLoader:    resources,
+		ScopedModels:      extensionScopedModels(build.Services, scopePatterns),
+		Model:             build.Model,
+		ThinkingLevel:     ai.ModelThinkingLevel(flags.Thinking),
 		// The tool selection is the build's, the one print, JSON and interactive modes start their Sessions with (main.ts:822-830 passes the same tools, excludeTools and noTools to every mode).
 		AllowedTools:           build.Allowed,
 		ToolScope:              build.ToolScope,

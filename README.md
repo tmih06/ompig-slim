@@ -143,7 +143,9 @@ Scripts begin with `export const meta = {name, description}` and can use
 `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, and one level
 of nested `workflow` calls. The native QuickJS runtime requires no Node.
 Structured-output schemas, command gates, labeled child resumes, and replay
-of successful leading calls are supported. Worktree changes are preserved on
+of successful leading calls are supported. The workflow inspector supports
+pause/resume, skip, and retry while a child is running. Package agent types
+are read-only, with project Eject and Disable actions. Worktree changes are preserved on
 a branch; failures retain the checkout instead of deleting uncommitted work.
 
 The source reference is [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents)

@@ -68,6 +68,7 @@ func interactiveStart(build *cliBuild) coding.SessionStartOptions {
 		SystemPrompt:           build.SystemPrompt,
 		SystemPromptSections:   build.SystemPromptSections,
 		SystemPromptResources:  sessionPromptResources(build.ResolvedPrompts, build.ContextFiles, build.skills()),
+		BuiltinEventBuses:      build.builtinEventBuses(),
 		ResourceLoader:         coding.NoResources, // the CLI expands skills and prompts itself
 		AllowedTools:           build.Allowed,
 		ToolScope:              build.ToolScope,

@@ -57,6 +57,7 @@ type RuntimeOptions struct {
 
 // SessionStartOptions configures a single Session within a Runtime.
 type SessionStartOptions struct {
+	BuiltinEventBuses []extension.EventBus
 	// SessionManager selects the actual log to wrap, ahead of file loading or creation.
 	SessionManager *SessionManager
 
@@ -314,6 +315,7 @@ func (rt *Runtime) startSessionWithFactory(opts SessionStartOptions, create func
 		SystemPromptSections:   opts.SystemPromptSections,
 		SystemPromptResources:  opts.SystemPromptResources,
 		ResourceLoader:         opts.ResourceLoader,
+		BuiltinEventBuses:      opts.BuiltinEventBuses,
 		Tools:                  opts.ExtraTools,
 		NoTools:                opts.NoTools,
 		skipExtensionTools:     opts.SkipExtensionTools,

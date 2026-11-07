@@ -557,6 +557,12 @@ func (m *InteractiveMode) appendCustomMessage(message CustomMessageEntry) {
 			}
 		}
 	}
+	if renderer == nil && message.CustomType == "subagents:notification" {
+		renderer = func(msg *tui.CustomMessage, options tui.MessageRenderOptions) tui.Component {
+			text, _ := msg.Content.(string)
+			return &subagentNotificationCard{text: text, expanded: options.Expanded, manager: m.subagentManager()}
+		}
+	}
 	component := tui.NewCustomMessageComponent(&tui.CustomMessage{CustomType: message.CustomType, Content: message.Content}, renderer, m.markdownThemeWithSettings(), m.outputPad)
 	component.SetExpanded(m.toolsExpanded)
 	m.customMessageOrder = append(m.customMessageOrder, component)

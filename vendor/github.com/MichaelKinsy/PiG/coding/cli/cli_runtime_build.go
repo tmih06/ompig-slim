@@ -102,6 +102,7 @@ type cliBuildInput struct {
 
 // cliBuild is everything one Session runtime owns besides the Session itself.
 type cliBuild struct {
+	EventBus extension.EventBus
 	// ExtensionFlagValues are the validated values extensions read with getFlag.
 	ExtensionFlagValues map[string]any
 	CWD                 string
@@ -272,6 +273,7 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	var preTrustInline []extension.Extension
 	var inlineErrs []extensionSetError
 	inlineBus := extension.CreateEventBus()
+	build.EventBus = inlineBus
 	if resolveTrust {
 		// resource-loader.ts:549 resolves settings before loading pre-trust extension factories.
 		if err := validateConfiguredResourceEntries(cwd, b.agentDir, services.SettingsManager(), false); err != nil {
@@ -808,4 +810,16 @@ func resolveToolSelection(flags Args, defaultTools, registryToolNames []string) 
 		initialActive = slices.DeleteFunc(initialActive, isExcluded)
 	}
 	return toolSelection{agentToolNames: agentToolNames, allowed: allowed, activeBuiltin: activeBuiltin, initialActive: initialActive, excluded: excludedTools, skipBuiltin: skipBuiltinTools, modifiers: toolModifiers, noTools: noTools}
+}
+
+// builtinEventBuses supplies both extension realizations to native features.
+func (b *cliBuild) builtinEventBuses() []extension.EventBus {
+	buses := []extension.EventBus{}
+	if b.EventBus != nil {
+		buses = append(buses, b.EventBus)
+	}
+	if b.Host != nil {
+		buses = append(buses, b.Host)
+	}
+	return buses
 }
