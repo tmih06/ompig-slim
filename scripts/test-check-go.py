@@ -14,7 +14,12 @@ class CheckGoTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ompig shell tests ")
         self.addCleanup(self.temporary.cleanup)
-        self.root = pathlib.Path(self.temporary.name)
+        physical_root = pathlib.Path(self.temporary.name) / "project"
+        physical_root.mkdir()
+        # macOS's /var temporary path aliases /private/var. Exercise a path
+        # alias on every platform so comparisons must use directory identity.
+        self.root = pathlib.Path(self.temporary.name) / "project-alias"
+        self.root.symlink_to(physical_root, target_is_directory=True)
         (self.root / "scripts").mkdir()
         (self.root / "vendor" / "example.org").mkdir(parents=True)
         shutil.copyfile(pathlib.Path(__file__).with_name("check-go.sh"), self.root / "scripts" / "check-go.sh")
@@ -55,7 +60,7 @@ class CheckGoTests(unittest.TestCase):
             ["vet", "-mod=vendor", "./...", "./vendor/github.com/MichaelKinsy/PiG/..."],
         ])
         self.assertEqual(calls[2]["module"], "off")
-        self.assertEqual(calls[2]["cwd"], str(self.root / "cache" / "gopath" / "src"))
+        self.assertTrue(os.path.samefile(calls[2]["cwd"], self.root / "cache" / "gopath" / "src"))
 
     def test_race_applies_to_both_test_commands(self):
         result = self.run_mode("race")
