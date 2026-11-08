@@ -298,9 +298,14 @@ func (c *ToolExecutionComponent) renderSelfShell(width int) []string {
 		innerWidth = richContentWidth(width)
 	}
 	content := c.selfRenderContainer.Render(innerWidth)
-	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(content)
+	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(trimBlankEdges(content))
 	if c.Rich && width >= richMinWidth {
 		content = c.renderRichFrame(width, trimBlankEdges(content), -1)
+		// One status bar above the body inside the frame, plus the leading
+		// spacer row the plain shell adds.
+		c.mouseTop = 2
+	} else {
+		c.mouseTop = 1
 	}
 	if len(content) == 0 && len(images) == 0 {
 		return []string{}

@@ -228,3 +228,67 @@ func TestRichFrameGeometry(t *testing.T) {
 		}
 	}
 }
+
+// TestRichMouseToggle checks a left click anywhere on a rich card expands and
+// collapses it, whether the card is framed or inline, and that a click outside
+// the borders does nothing. This is the regression the frame's row offsets can
+// silently break.
+func TestRichMouseToggle(t *testing.T) {
+	for _, name := range []string{"bash", "read", "grep", "write", "edit"} {
+		t.Run(name, func(t *testing.T) {
+			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{"command":"ls","path":"a.go"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
+			// A collapsed body draws one row and an expanded one draws three, so
+			// the rendered height proves which state the card is in.
+			c.BodyRenderer = func(width int, expanded bool) []string {
+				if expanded {
+					return []string{"body one", "body two", "body three"}
+				}
+				return []string{"body one"}
+			}
+			if richOutputSection(name) {
+				c.Output = ""
+			}
+			c.SetResult("body", false, time.Second)
+			collapsedRows := len(c.Render(60))
+
+			click := func(x, y int) bool {
+				return c.HandleMouse(TuiMouseEvent{Type: MouseClick, Button: MouseButtonLeft, X: x, Y: y, Width: 60}) != nil
+			}
+			if !click(2, 0) || c.Collapsed {
+				t.Fatalf("%s: clicking the status row did not expand", name)
+			}
+			expandedRows := len(c.Render(60))
+			if expandedRows <= collapsedRows {
+				t.Fatalf("%s: expanding drew no extra rows (%d -> %d)", name, collapsedRows, expandedRows)
+			}
+			// A body row toggles back.
+			if !click(3, min(1, expandedRows-1)) || !c.Collapsed {
+				t.Fatalf("%s: clicking the body did not collapse", name)
+			}
+			// Outside the card is not a click on it.
+			if click(0, 0) && c.Collapsed {
+				if c.Rich && !richInline(name) {
+					t.Fatalf("%s: a click on the border toggled the card", name)
+				}
+			}
+		})
+	}
+}
+
+// TestRichMouseToggleSurvivesResize checks the recorded geometry is refreshed
+// for a new width before the click is mapped.
+func TestRichMouseToggleSurvivesResize(t *testing.T) {
+	c := NewToolExecutionComponent("grep", "call", json.RawMessage(`{"pattern":"x"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
+	c.BodyRenderer = func(width int, expanded bool) []string { return []string{"body"} }
+	c.SetResult("body", false, time.Second)
+	for _, width := range []int{40, 120, 60} {
+		c.Render(width)
+		if c.HandleMouse(TuiMouseEvent{Type: MouseClick, Button: MouseButtonLeft, X: 2, Y: 0, Width: width}) == nil {
+			t.Fatalf("width %d: click did not expand", width)
+		}
+		if c.Collapsed {
+			t.Fatalf("width %d: card stayed collapsed", width)
+		}
+		c.SetExpanded(false)
+	}
+}

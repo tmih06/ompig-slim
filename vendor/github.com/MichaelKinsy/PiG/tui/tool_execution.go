@@ -169,13 +169,17 @@ type ToolExecutionComponent struct {
 	mouseChild                Component
 	mouseWidth                int
 	mouseHeight               int
-	mouseDirty                atomic.Bool
-	contentBox                *Box
-	selfRenderContainer       *Container
-	legacyCard                *toolCardBox
-	outputPad                 int // horizontal padding of the card (tool-execution.ts outputPad)
-	ui                        TUI // asked for a render after an asynchronous change (tool-execution.ts ui)
-	richOutputStart           int // first framed row after the Output divider; -1 when the card has no output
+	// mouseTop is the first rendered row of mouseChild inside the rich frame,
+	// so a click can be mapped back into the renderer's own coordinates. The
+	// frame draws a top bar before the body, which the plain card does not.
+	mouseTop            int
+	mouseDirty          atomic.Bool
+	contentBox          *Box
+	selfRenderContainer *Container
+	legacyCard          *toolCardBox
+	outputPad           int // horizontal padding of the card (tool-execution.ts outputPad)
+	ui                  TUI // asked for a render after an asynchronous change (tool-execution.ts ui)
+	richOutputStart     int // first framed row after the Output divider; -1 when the card has no output
 
 	// compactHeader is the collapsed read card's upstream compact label
 	// (FormatCompactReadHeader), or "" for the full header.
@@ -760,38 +764,57 @@ func (c *ToolExecutionComponent) runningElapsedRows(width int) []string {
 	return NewPaddedText("\n"+line, 0, 0, nil).Render(max(width, 1))
 }
 
-// HandleMouse delegates to nested renderer components before toggling a completed or partial result. Images and the outer spacer never toggle the card.
+// HandleMouse delegates to nested renderer components before toggling a
+// completed or partial result. Images and the outer spacer never toggle the
+// card.
+//
+// Render records, per frame, the component that owns the body rows
+// (mouseChild), the width it rendered at, and the row it starts on (mouseTop).
+// A rich card adds frame rows the child knows nothing about: one status-line
+// bar above the body. The event is translated into the child's coordinates
+// before dispatch so a nested control keeps its hit target, and a click the
+// child does not handle falls through to the card's own expand/collapse.
 func (c *ToolExecutionComponent) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
-	if c.Rich && event.Width >= 5 {
-		// Frame rows are decorative. Translate into the original renderer's
-		// coordinates so nested extension controls retain their hit targets.
-		if c.mouseWidth != event.Width-2 || c.mouseDirty.Load() {
-			c.Render(event.Width)
-		}
-		if event.X == 0 || event.X >= event.Width-1 || event.Y <= 1 || event.Y > c.mouseHeight+1 {
-			return nil
-		}
-		event.X--
-		event.Y--
-		event.Width -= 2
-	}
-	if c.definition == nil && (event.Type != MouseClick || event.Button != MouseButtonLeft || !c.definitionHasResult()) {
-		return nil
-	}
 	if c.mouseWidth != event.Width || c.mouseDirty.Load() {
 		c.Render(event.Width)
 	}
-	if event.Y < 1 || event.Y > c.mouseHeight {
-		return nil
+	top := c.mouseTop
+	if c.Rich {
+		// Inside the frame the body is inset by the border and its padding.
+		if event.X < 1 || event.X >= max(1, event.Width-1) {
+			return nil
+		}
+		event.X--
 	}
+	// Rows above the body (a frame's status bar) are the card's own.
+	if event.Y < top || event.Y > top+c.mouseHeight {
+		return c.toggleIfClick(event)
+	}
+	body := event
+	body.Y -= top
+	body.Height = c.mouseHeight
 	if c.mouseChild != nil {
-		event.Y--
-		event.Height = c.mouseHeight
-		return DispatchMouseEvent(c.mouseChild, event)
+		if result := DispatchMouseEvent(c.mouseChild, body); result != nil {
+			return result
+		}
 	}
-	if HasBuiltInToolRenderers(c.Name) && (event.X < 1 || event.X-1 >= max(1, event.Width-2) || event.Y < 2 || event.Y >= c.mouseHeight) {
-		return nil
+	if c.mouseChild == nil && c.definition != nil {
+		// A card whose renderer drew no body has nothing to dispatch to.
+		return c.toggleIfClick(event)
 	}
+	if c.mouseChild == nil && HasBuiltInToolRenderers(c.Name) {
+		// Legacy built-in cards drawn by the call/result body renderers toggle
+		// only on the result rows, not on the call header.
+		if body.Y < 1 {
+			return nil
+		}
+	}
+	return c.toggleIfClick(event)
+}
+
+// toggleIfClick expands or collapses the card for a left click that reached no
+// nested control.
+func (c *ToolExecutionComponent) toggleIfClick(event TuiMouseEvent) *TuiMouseDispatchResult {
 	if result := c.handleResultMouse(event); result != nil {
 		return &TuiMouseDispatchResult{TuiMouseEventResult: *result}
 	}
@@ -860,6 +883,9 @@ func (c *ToolExecutionComponent) renderRichCard(width int) []string {
 	}
 	inputRows := trimBlankEdges(input.Render(inner))
 	c.mouseChild, c.mouseWidth, c.mouseHeight = input, inner, len(inputRows)
+	// The frame draws one top bar above the body, so a click maps into the
+	// renderer's coordinates by skipping it.
+	c.mouseTop = 1
 
 	outputStart := -1
 	if c.definition != nil && !c.definition.Self {
@@ -908,6 +934,9 @@ func (c *ToolExecutionComponent) renderRichInline(width int) []string {
 		rows = trimBlankEdges(body.Render(inner))
 	}
 	c.mouseChild, c.mouseWidth, c.mouseHeight = body, inner, len(rows)
+	// An inline card's first rendered row is its status line, so the body
+	// starts one row below it.
+	c.mouseTop = 1
 	status := widthx.TruncateToWidth(c.richStatusLine(inner, time.Now()), inner, "…", false)
 	pad := strings.Repeat(" ", c.outputPad)
 	// A body row is the disclosed content at the card's padding, padded out so
@@ -964,6 +993,7 @@ func (c *ToolExecutionComponent) renderLegacyOutput(width int) []string {
 
 // renderCardContent renders tool-owned content and records its unframed mouse bounds.
 func (c *ToolExecutionComponent) renderCardContent(width int) []string {
+	c.mouseTop = 0
 	if c.definition != nil {
 		content := c.contentBox.Render(width)
 		c.mouseChild, c.mouseWidth, c.mouseHeight = c.contentBox, width, len(content)
