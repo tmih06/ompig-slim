@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove model declaration, free search fallback, and fetch in the real binary."""
+"""Prove model declaration, free search fallback, and URL reads in the real binary."""
 import http.server
 import json
 import os
@@ -54,8 +54,12 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             return
         body = json.loads(raw)
         offered = {tool["function"]["name"] for tool in body.get("tools", [])}
-        expected = {"web_search", "web_fetch"}
+        # `read` covers URL fetching, so the web-surface proof is the search tool
+        # plus the read tool declared as the document reader.
+        expected = {"web_search"}
         if cls.stage == 0:
+            # The URL reader is the read tool, which is never excluded, so an
+            # excluded scenario checks only the search surface.
             if cls.excluded and offered & expected:
                 cls.failure = "excluded web tools remained declared: " + repr(offered)
             elif not cls.excluded and not expected <= offered:
@@ -65,12 +69,12 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         if cls.stage == 1 and "SEARCH_FALLBACK_PROOF" not in result:
             cls.failure = "search fallback result missing: " + result
         if cls.stage == 2 and ("FETCH_NATIVE_PROOF" not in result or "UNSAFE_SCRIPT_PROOF" in result):
-            cls.failure = "native article conversion failed: " + result
+            cls.failure = "read of a URL did not render the article: " + result
         if cls.failure or cls.excluded or cls.stage >= 2:
             delta = {"role": "assistant", "content": "WEB_TOOLS_FAILED" if cls.failure else "WEB_TOOLS_RUNTIME_OK"}
             reason = "stop"
         else:
-            name, args = ("web_search", {"query": "free web tools", "limit": 3}) if cls.stage == 0 else ("web_fetch", {"url": f"http://127.0.0.1:{self.server.server_port}/article"})
+            name, args = ("web_search", {"query": "free web tools", "limit": 3}) if cls.stage == 0 else ("read", {"path": f"http://127.0.0.1:{self.server.server_port}/article"})
             delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": f"web_{cls.stage}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
             reason = "tool_calls"
         cls.stage += 1
@@ -102,8 +106,10 @@ def main():
                     del env[key]
             scenarios = [
                 ("default builtins without extensions", ["--no-extensions"], False),
-                ("explicit web tool allowlist", ["--no-extensions", "--tools", "web_search,web_fetch"], False),
-                ("excluded web tools", ["--no-extensions", "--exclude-tools", "web_search,web_fetch"], True),
+                # `read` is always available, so excluding the web surface means
+                # excluding the search tool; read stays declared as the reader.
+                ("explicit web tool allowlist", ["--no-extensions", "--tools", "web_search,read"], False),
+                ("excluded web search", ["--no-extensions", "--exclude-tools", "web_search"], True),
                 ("disabled builtins", ["--no-extensions", "--no-builtin-tools"], True),
             ]
             for name, flags, excluded in scenarios:
@@ -113,8 +119,8 @@ def main():
                 if result.returncode or Fixture.failure or "WEB_TOOLS_RUNTIME_OK" not in result.stdout:
                     raise RuntimeError(f"{name}: exit {result.returncode}\n{Fixture.failure}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
                 if not excluded and (not any(p.startswith("/ddg") for p in Fixture.requests_seen) or "/firecrawl" not in Fixture.requests_seen or "/article" not in Fixture.requests_seen):
-                    raise RuntimeError("fallback and fetch transports were not exercised: " + repr(Fixture.requests_seen))
-                print(name + ": " + ("not declared to model" if excluded else "model declaration, bot-wall fallback, cited search, native fetch"))
+                    raise RuntimeError("fallback and URL-read transports were not exercised: " + repr(Fixture.requests_seen))
+                print(name + ": " + ("not declared to model" if excluded else "model declaration, bot-wall fallback, cited search, URL read"))
         finally:
             server.shutdown()
             server.server_close()
