@@ -113,7 +113,7 @@ extensions:
     origins:
       - package:base
       - npm:@example/web-access@^1
-    tools: [web_search, web_fetch]
+    tools: [web_search, read]
 
 skills:
   - name: commit

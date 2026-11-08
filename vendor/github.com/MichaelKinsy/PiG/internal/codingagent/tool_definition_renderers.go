@@ -175,7 +175,7 @@ const toolCardSweepMin = 256
 // shared by both renderers, each renderer's last component, and a context
 // invalidate that runs both renderers again.
 func (m *InteractiveMode) toolDefinitionRenderers(definition extension.ToolRenderers, card func() *tui.ToolExecutionComponent, toolCallID string) *tui.ToolDefinitionRenderers {
-	state := map[string]any{}
+	state := map[string]any{builtInRenderStateKey: &builtInRenderState{headerOwnsTiming: true}}
 	cardID := "card-" + strconv.FormatUint(toolCardSeq.Add(1), 10)
 	cwd := m.opts.CWD
 	invalidate := func() {

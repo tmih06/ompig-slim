@@ -442,6 +442,9 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		// Attach a per-tool body renderer so Ctrl+O reveals a diff /
 		// line-numbered view instead of raw text. Body renderers read no structured content, and the card keeps them as long as it is shown.
 		took = recordedTook(e.ToolName, e.DurationMs, took)
+		if comp.Rich {
+			took = nil // Timing belongs to the card header, not the result body.
+		}
 		bodyResult := result
 		bodyResult.StructuredContent = nil
 		comp.BodyRenderer = toolBodyRenderer(e.ToolName, bodyResult, took)
@@ -453,6 +456,9 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		final := ToolExecutionResultOf(result, elapsed)
 		final.Result = retainToolResult(e.ToolName, result)
 		final.DurationMs = e.DurationMs
+		if comp.Rich && (e.ToolName == "bash" || e.ToolName == "powershell") {
+			comp.SetExitCode(shellExitCode(result))
+		}
 		comp.UpdateResult(final, false)
 		m.tuiInst.Render()
 
@@ -586,11 +592,11 @@ func abortedMessageForRetries(attempt int) string {
 func (m *InteractiveMode) toolExecutionOptions() tui.ToolExecutionOptions {
 	pad := m.outputPad
 	if m.opts.SettingsManager == nil {
-		return tui.ToolExecutionOptions{OutputPad: &pad}
+		return tui.ToolExecutionOptions{Rich: true, OutputPad: &pad}
 	}
 	s := m.opts.SettingsManager.Get()
 	show, width := s.GetShowImages(), s.GetImageWidthCells()
-	return tui.ToolExecutionOptions{ShowImages: &show, ImageWidthCells: &width, OutputPad: &pad}
+	return tui.ToolExecutionOptions{Rich: true, ShowImages: &show, ImageWidthCells: &width, OutputPad: &pad}
 }
 
 // toolResultUpdate is a tool result as tool-execution.ts updateResult takes it: its content blocks, error state and structured result.

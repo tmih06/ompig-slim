@@ -14,6 +14,7 @@ import (
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
 	"github.com/MichaelKinsy/PiG/internal/text"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // ToolExecutionState is the lifecycle stage of a tool call display.
@@ -54,6 +55,20 @@ type ToolExecutionComponent struct {
 	Container
 
 	Name string
+	// Rich enables the native framed lifecycle display around tool-owned content.
+	Rich bool
+	// ExitCode is a completed shell command's status code. Nil means the result
+	// carries none (a running call, or a non-shell tool), so the header omits it.
+	ExitCode *int
+	// Detail is a short tool-specific input summary (a read path, a search query)
+	// shown after the tool label. Empty keeps the generic lifecycle label.
+	Detail string
+	// resultMeta are facts the result adds to the status line, such as a
+	// search's `21 matches · 20 files`. Empty leaves the line as it was.
+	resultMeta []string
+	// searchOutput is a grep or find result recorded by SetSearchOutput. Empty
+	// falls back to Output, so the tree works without the caller recording it.
+	searchOutput string
 	// ToolCallID identifies the tool call the card shows (tool-execution.ts toolCallId); renderers receive it in their context.
 	ToolCallID string
 	// Label is ignored: the fallback call header names the tool by Name, as upstream createCallFallback does.
@@ -160,12 +175,17 @@ type ToolExecutionComponent struct {
 	mouseChild                Component
 	mouseWidth                int
 	mouseHeight               int
-	mouseDirty                atomic.Bool
-	contentBox                *Box
-	selfRenderContainer       *Container
-	legacyCard                *toolCardBox
-	outputPad                 int // horizontal padding of the card (tool-execution.ts outputPad)
-	ui                        TUI // asked for a render after an asynchronous change (tool-execution.ts ui)
+	// mouseTop is the first rendered row of mouseChild inside the rich frame,
+	// so a click can be mapped back into the renderer's own coordinates. The
+	// frame draws a top bar before the body, which the plain card does not.
+	mouseTop            int
+	mouseDirty          atomic.Bool
+	contentBox          *Box
+	selfRenderContainer *Container
+	legacyCard          *toolCardBox
+	outputPad           int // horizontal padding of the card (tool-execution.ts outputPad)
+	ui                  TUI // asked for a render after an asynchronous change (tool-execution.ts ui)
+	richOutputStart     int // first framed row after the Output divider; -1 when the card has no output
 
 	// compactHeader is the collapsed read card's upstream compact label
 	// (FormatCompactReadHeader), or "" for the full header.
@@ -211,6 +231,8 @@ type toolImageSource struct {
 // ToolExecutionOptions are the optional constructor settings of a tool card (tool-execution.ts:25). A nil field is
 // upstream's undefined: images show (`showImages ?? true`) and render 60 cells wide (`imageWidthCells ?? 60`).
 type ToolExecutionOptions struct {
+	// Rich opts into tool-specific frames and live lifecycle metadata.
+	Rich            bool
 	ShowImages      *bool
 	ImageWidthCells *int
 	// OutputPad is options.outputPad, the horizontal padding of the card; nil keeps Pi's default of 1.
@@ -233,6 +255,7 @@ func (r *ToolDefinitionRenderers) ToolRenderers() *ToolDefinitionRenderers { ret
 func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage, options ToolExecutionOptions, definition ToolDefinitionSource, ui TUI, cwd string) *ToolExecutionComponent {
 	c := &ToolExecutionComponent{
 		Name:            toolName,
+		Rich:            options.Rich,
 		ToolCallID:      toolCallID,
 		Cwd:             cwd,
 		ui:              ui,
@@ -253,6 +276,7 @@ func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage
 		c.outputPad = *options.OutputPad
 	}
 	c.ArgsPreview = HeaderForTool(toolName, args, cwd)
+	c.Detail = ToolDetail(toolName, args, cwd)
 	if len(args) > 0 {
 		c.SetHeaderArgs(args)
 	}
@@ -267,9 +291,13 @@ func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage
 
 // addChildren adds Pi's constructor children (tool-execution.ts:93-104): a spacer, the content box, then the image spacers and images. The card and the images are private children that render from the component's current state, so a parent Container never serves a stale frame.
 func (c *ToolExecutionComponent) addChildren() {
-	c.contentBox = NewPaddedBox(c.outputPad, 1, func(text string) string { return c.definitionBg()(text) })
+	paddingY := 1
+	if c.Rich {
+		paddingY = 0 // The frame already separates the card from the transcript.
+	}
+	c.contentBox = NewPaddedBox(c.outputPad, paddingY, func(text string) string { return c.definitionBg()(text) })
 	c.selfRenderContainer = NewContainer()
-	c.legacyCard = &toolCardBox{children: []Component{toolSection(c.renderLegacyHeader), toolSection(c.renderLegacyBody)}, open: c.bgOpenSGR, pad: &c.outputPad}
+	c.legacyCard = &toolCardBox{children: []Component{toolSection(c.renderLegacyHeader), toolSection(c.renderLegacyBody)}, open: c.bgOpenSGR, pad: &c.outputPad, paddingY: paddingY}
 	c.Add(NewSpacer(1))
 	c.Add(toolSection(c.renderCard))
 	c.Add(toolSection(c.renderToolImages))
@@ -286,6 +314,7 @@ type toolCardBox struct {
 	children []Component
 	open     func() string
 	pad      *int // horizontal padding, the component's outputPad
+	paddingY int  // zero inside rich frames, one for the upstream plain card
 }
 
 func (b *toolCardBox) Invalidate() {}
@@ -293,13 +322,19 @@ func (b *toolCardBox) Invalidate() {}
 func (b *toolCardBox) Render(width int) []string {
 	open := b.open()
 	pad := *b.pad
-	out := []string{paintBgWith(open, "", width)}
+	var out []string
+	if b.paddingY > 0 {
+		out = append(out, paintBgWith(open, "", width))
+	}
 	for _, child := range b.children {
 		for _, line := range child.Render(max(width-2*pad, 1)) {
 			out = append(out, paintBgWith(open, strings.Repeat(" ", pad)+line, width))
 		}
 	}
-	return append(out, paintBgWith(open, "", width))
+	if b.paddingY > 0 {
+		out = append(out, paintBgWith(open, "", width))
+	}
+	return out
 }
 
 // IsDirty reports whether the component needs re-rendering. While a shell
@@ -310,6 +345,9 @@ func (b *toolCardBox) Render(width int) []string {
 func (c *ToolExecutionComponent) IsDirty() bool {
 	if c.invalidatable.IsDirty() {
 		return true
+	}
+	if c.Rich && c.State == ToolStateRunning {
+		return true // The owner-loop spinner tick drives the frame; no per-card timer.
 	}
 	if c.definition != nil {
 		return c.definitionDirty.Load() || c.definitionComponentsDirty()
@@ -327,6 +365,28 @@ func (c *ToolExecutionComponent) Invalidate() {
 		image.Invalidate()
 	}
 	c.invalidatable.Invalidate()
+}
+
+// SetExitCode records a completed shell command's status for the framed
+// header. Nil clears it, which a re-render of an unfinished call expects.
+func (c *ToolExecutionComponent) SetExitCode(code *int) {
+	c.ExitCode = code
+	c.Invalidate()
+}
+
+// SetDetail sets the short, tool-specific summary the framed top bar shows
+// after the tool name. Renderers call it as their arguments change; the plain
+// card ignores it.
+func (c *ToolExecutionComponent) SetDetail(detail string) {
+	c.Detail = detail
+	c.Invalidate()
+}
+
+// SetResultMeta sets the facts a result contributes to the status line, such as
+// a search's match and file counts. Nil clears them.
+func (c *ToolExecutionComponent) SetResultMeta(meta []string) {
+	c.resultMeta = meta
+	c.Invalidate()
 }
 
 // SetRunning marks the component as in-flight with the given pre-formatted
@@ -363,6 +423,7 @@ func (c *ToolExecutionComponent) UpdateArgs(args json.RawMessage) {
 			c.definitionArgs = append(c.definitionArgs[:0], raw...)
 		}
 		c.ArgsPreview = HeaderForTool(c.Name, raw, c.Cwd)
+		c.Detail = ToolDetail(c.Name, raw, c.Cwd)
 		c.SetHeaderArgs(raw)
 	}
 	c.Invalidate()
@@ -410,7 +471,17 @@ func (c *ToolExecutionComponent) streamedArgsJSON() json.RawMessage {
 // arguments, as UpdateArgs shows complete ones. It runs once per update, for a reader of those: a card a definition's
 // renderers draw reads none of them.
 func (c *ToolExecutionComponent) applyStreamedArgs() {
-	if c.streamed == nil || c.streamedHeader {
+	if c.streamed == nil {
+		return
+	}
+	// The status line names the call's subject and must follow the arguments as
+	// they stream — a search shows its query before the call is complete — so
+	// this runs on every delta rather than once per update. ToolDetailFields
+	// reads a handful of string members, so it is cheap.
+	if fields := c.streamedFields; fields != nil {
+		c.Detail = ToolDetailFields(c.Name, fields)
+	}
+	if c.streamedHeader {
 		return
 	}
 	c.streamedHeader = true
@@ -706,25 +777,57 @@ func (c *ToolExecutionComponent) runningElapsedRows(width int) []string {
 	return NewPaddedText("\n"+line, 0, 0, nil).Render(max(width, 1))
 }
 
-// HandleMouse delegates to nested renderer components before toggling a completed or partial result. Images and the outer spacer never toggle the card.
+// HandleMouse delegates to nested renderer components before toggling a
+// completed or partial result. Images and the outer spacer never toggle the
+// card.
+//
+// Render records, per frame, the component that owns the body rows
+// (mouseChild), the width it rendered at, and the row it starts on (mouseTop).
+// A rich card adds frame rows the child knows nothing about: one status-line
+// bar above the body. The event is translated into the child's coordinates
+// before dispatch so a nested control keeps its hit target, and a click the
+// child does not handle falls through to the card's own expand/collapse.
 func (c *ToolExecutionComponent) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
-	if c.definition == nil && (event.Type != MouseClick || event.Button != MouseButtonLeft || !c.definitionHasResult()) {
-		return nil
-	}
 	if c.mouseWidth != event.Width || c.mouseDirty.Load() {
 		c.Render(event.Width)
 	}
-	if event.Y < 1 || event.Y > c.mouseHeight {
-		return nil
+	top := c.mouseTop
+	if c.Rich {
+		// Inside the frame the body is inset by the border and its padding.
+		if event.X < 1 || event.X >= max(1, event.Width-1) {
+			return nil
+		}
+		event.X--
 	}
+	// Rows above the body (a frame's status bar) are the card's own.
+	if event.Y < top || event.Y > top+c.mouseHeight {
+		return c.toggleIfClick(event)
+	}
+	body := event
+	body.Y -= top
+	body.Height = c.mouseHeight
 	if c.mouseChild != nil {
-		event.Y--
-		event.Height = c.mouseHeight
-		return DispatchMouseEvent(c.mouseChild, event)
+		if result := DispatchMouseEvent(c.mouseChild, body); result != nil {
+			return result
+		}
 	}
-	if HasBuiltInToolRenderers(c.Name) && (event.X < 1 || event.X-1 >= max(1, event.Width-2) || event.Y < 2 || event.Y >= c.mouseHeight) {
-		return nil
+	if c.mouseChild == nil && c.definition != nil {
+		// A card whose renderer drew no body has nothing to dispatch to.
+		return c.toggleIfClick(event)
 	}
+	if c.mouseChild == nil && HasBuiltInToolRenderers(c.Name) {
+		// Legacy built-in cards drawn by the call/result body renderers toggle
+		// only on the result rows, not on the call header.
+		if body.Y < 1 {
+			return nil
+		}
+	}
+	return c.toggleIfClick(event)
+}
+
+// toggleIfClick expands or collapses the card for a left click that reached no
+// nested control.
+func (c *ToolExecutionComponent) toggleIfClick(event TuiMouseEvent) *TuiMouseDispatchResult {
 	if result := c.handleResultMouse(event); result != nil {
 		return &TuiMouseDispatchResult{TuiMouseEventResult: *result}
 	}
@@ -741,6 +844,19 @@ func (c *ToolExecutionComponent) handleResultMouse(event TuiMouseEvent) *TuiMous
 
 // Render mirrors upstream render (tool-execution.ts:262-292): a registered definition with renderShell "self" draws its components after one blank row, or nothing when they draw nothing; every other card is the Container of spacer, content box and images.
 func (c *ToolExecutionComponent) Render(width int) []string {
+	rows := c.renderTool(width)
+	if c.Rich && width < richMinWidth {
+		// The frame needs room for two borders and a three-glyph bar.
+		// Legacy padded boxes require more cells than tiny panes provide.
+		for i, row := range rows {
+			rows[i] = widthx.TruncateToWidth(row, max(width, 0), "", false)
+		}
+	}
+	return rows
+}
+
+// renderTool preserves tool-owned layout and mouse bookkeeping inside the frame.
+func (c *ToolExecutionComponent) renderTool(width int) []string {
 	c.mouseDirty.Store(false)
 	if c.definition != nil {
 		if c.definitionDirty.Load() || c.definitionCall == nil {
@@ -758,6 +874,168 @@ func (c *ToolExecutionComponent) Render(width int) []string {
 
 // renderCard draws the content box: the definition's Box, or the legacy card for a tool without one. It records the card's height and width for mouse dispatch.
 func (c *ToolExecutionComponent) renderCard(width int) []string {
+	if c.Rich && width >= richMinWidth {
+		return c.renderRichCard(width)
+	}
+	return c.renderCardContent(width)
+}
+
+// renderRichCard renders the tool-owned call rows as the frame's input section
+// and its result rows after the frame's Output divider.
+func (c *ToolExecutionComponent) renderRichCard(width int) []string {
+	if c.Rich && richInline(c.Name) {
+		return c.renderRichInline(width)
+	}
+	// outputBlockContentWidth: both borders plus the block's one-cell padding.
+	inner := richContentWidth(width)
+	var input Component
+	if c.definition != nil {
+		input = c.contentBox
+	} else {
+		input = toolSection(c.renderLegacyInput)
+	}
+	inputRows := trimBlankEdges(input.Render(inner))
+	c.mouseChild, c.mouseWidth, c.mouseHeight = input, inner, len(inputRows)
+	// The frame draws one top bar above the body, so a click maps into the
+	// renderer's coordinates by skipping it.
+	c.mouseTop = 1
+
+	outputStart := -1
+	// A search result is drawn by the card itself as a grouped tree, so the
+	// shape does not depend on which renderer path resolved for the tool.
+	if c.Rich && searchTreeTool(c.Name) {
+		rows := c.richSearchRows(inner)
+		if len(rows) > 0 {
+			if richOutputSection(c.Name) {
+				outputStart = len(inputRows)
+			}
+			inputRows = append(inputRows, rows...)
+		}
+		c.richOutputStart = outputStart
+		return c.renderRichFrame(width, inputRows, outputStart)
+	}
+	if c.definition != nil && !c.definition.Self {
+		if result := c.definitionResultComponent; result != nil {
+			rows := trimBlankEdges(result.Render(inner))
+			if len(rows) > 0 {
+				if richOutputSection(c.Name) {
+					outputStart = len(inputRows)
+				}
+				inputRows = append(inputRows, rows...)
+			}
+		} else if c.Output != "" || len(c.ImageBlocks) > 0 {
+			if richOutputSection(c.Name) {
+				outputStart = len(inputRows)
+			}
+			inputRows = append(inputRows, c.richResultPlaceholder(inner)...)
+		}
+	} else if c.definition == nil {
+		body := trimBlankEdges(c.renderLegacyOutput(inner))
+		if len(body) > 0 {
+			if richOutputSection(c.Name) {
+				outputStart = len(inputRows)
+			}
+			inputRows = append(inputRows, body...)
+		}
+	}
+	// Bound the card's height, not just its width: a long body would push the
+	// conversation off a fixed-height terminal. The disclosed rows stay behind
+	// Ctrl+O, which is what the frame's footer advertises.
+	if len(inputRows) > RichBodyMaxRows && !c.isSearchTree() {
+		inputRows = capBodyRows(inputRows, !c.Collapsed)
+		if outputStart > len(inputRows) {
+			outputStart = -1
+		}
+	}
+	c.richOutputStart = outputStart
+	return c.renderRichFrame(width, inputRows, outputStart)
+}
+
+// renderRichInline draws an inline card: a single status-line row with the
+// result disclosed under it, and no frame at all. OMP's read, write, edit,
+// grep, find and glob renderers are `inline: true`, so their collapsed row is
+// the status line alone — `✔ Read skills/optimize/SKILL.md:70-95`.
+func (c *ToolExecutionComponent) renderRichInline(width int) []string {
+	inner := max(1, width-c.outputPad*2)
+	var rows []string
+	var body Component
+	switch {
+	// A search result is drawn by the card itself as oh-my-pi's grouped tree,
+	// so the shape does not depend on which renderer path resolved.
+	case searchTreeTool(c.Name):
+		rows = c.richSearchRows(inner)
+	case c.definition != nil && !c.definition.Self:
+		body = c.definitionResultComponent
+	case c.definition == nil:
+		body = toolSection(c.renderLegacyOutput)
+	}
+	if body != nil {
+		rows = trimBlankEdges(body.Render(inner))
+	}
+	if !searchTreeTool(c.Name) {
+		rows = capBodyRows(rows, !c.Collapsed)
+	}
+	c.mouseChild, c.mouseWidth, c.mouseHeight = body, inner, len(rows)
+	// An inline card's first rendered row is its status line, so the body
+	// starts one row below it.
+	c.mouseTop = 1
+	status := widthx.TruncateToWidth(c.richStatusLine(inner, time.Now()), inner, "…", false)
+	pad := strings.Repeat(" ", c.outputPad)
+	// A body row is the disclosed content at the card's padding, padded out so
+	// a caller's frame or tint sees the full width, as OMP's Text does.
+	fill := func(line string) string {
+		line = widthx.TruncateToWidth(line, inner, "…", true)
+		return pad + line + strings.Repeat(" ", max(0, inner-widthx.VisibleWidth(line))) + pad
+	}
+	out := make([]string, 0, len(rows)+1)
+	out = append(out, fill(status))
+	for _, row := range rows {
+		out = append(out, fill(row))
+	}
+	return out
+}
+
+// renderLegacyInput draws the generic card's body: a shell command pane, then
+// its output. Every other tool's identity lives on the frame's status line, so
+// its body holds only the result, as OMP's inline renderers draw it.
+func (c *ToolExecutionComponent) renderLegacyInput(width int) []string {
+	if c.Rich && !richOutputSection(c.Name) {
+		return nil
+	}
+	if richOutputSection(c.Name) {
+		return wrapText(c.renderHeaderInner(width), width)
+	}
+	return nil
+}
+
+// renderLegacyOutput is the generic card's body, or nil when it has none.
+func (c *ToolExecutionComponent) renderLegacyOutput(width int) []string {
+	if c.isUnregisteredTool() {
+		if preview := c.resultFallback(); preview != nil {
+			return preview.Render(width)
+		}
+		return nil
+	}
+	if c.Output == "" && c.BodyRenderer == nil {
+		return nil
+	}
+	if c.Collapsed && c.BodyRenderer == nil {
+		body := c.renderCollapsedPreview(width)
+		if len(body) > 0 {
+			return body
+		}
+		return c.richResultPlaceholder(width)
+	}
+	body := c.renderResultBody(width)
+	if len(body) == 0 && !c.Collapsed {
+		return c.richResultPlaceholder(width)
+	}
+	return body
+}
+
+// renderCardContent renders tool-owned content and records its unframed mouse bounds.
+func (c *ToolExecutionComponent) renderCardContent(width int) []string {
+	c.mouseTop = 0
 	if c.definition != nil {
 		content := c.contentBox.Render(width)
 		c.mouseChild, c.mouseWidth, c.mouseHeight = c.contentBox, width, len(content)
@@ -771,7 +1049,8 @@ func (c *ToolExecutionComponent) renderCard(width int) []string {
 
 func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c.renderImages(width) }
 
-// renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
+// renderLegacyHeader draws the call header, wrapped across rows like upstream's Text. A rich
+// card draws its identity on the frame's status line, so it has no header row.
 func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
 	if c.isUnregisteredTool() {
 		return wrapText(c.formatToolExecution(), width)
@@ -797,7 +1076,7 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
 			}
 		}
 	}
-	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" {
+	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" && !c.Rich {
 		out += "\n" + output
 	}
 	return out

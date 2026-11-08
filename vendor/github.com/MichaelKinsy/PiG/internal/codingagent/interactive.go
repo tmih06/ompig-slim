@@ -1044,7 +1044,7 @@ type InteractiveModeOptions struct {
 	// tools are active (caller/extension tools unaffected). nil = all
 	// built-in tools. Mirrors upstream defaultActiveToolNames (sdk.ts:244),
 	// except that omp-slim's default set is [read, bash, edit, write, grep,
-	// find, codemode, web_search, web_fetch]; `ls` and `powershell` are inactive unless requested
+	// find, codemode, web_search]; `ls` and `powershell` are inactive unless requested
 	// via --tools.
 	ActiveBuiltinTools map[string]struct{}
 	// InitialActiveToolNames is the --tools list in the caller's order (upstream initialActiveToolNames, sdk.ts:272-276):

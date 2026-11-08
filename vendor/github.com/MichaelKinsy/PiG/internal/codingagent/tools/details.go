@@ -25,10 +25,12 @@ type WriteDetails struct {
 
 // ReadDetails carries the optional upstream truncation object. The renderer derives display-only fields from the retained read call.
 type ReadDetails struct {
-	Path       string `json:"-"`
-	StartLine  int    `json:"-"`
-	TotalLines int    `json:"-"`
-	Truncated  bool   `json:"-"`
+	Path string `json:"-"`
+	// IsDirectory marks a listing of a directory rather than file content.
+	IsDirectory bool `json:"isDirectory,omitempty"`
+	StartLine   int  `json:"-"`
+	TotalLines  int  `json:"-"`
+	Truncated   bool `json:"-"`
 	// Truncation is the upstream-shaped truncation object for the extension SDK
 	// contract and the TUI warning. It is nil unless truncation occurred.
 	Truncation *TruncationResult `json:"truncation,omitempty"`
