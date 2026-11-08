@@ -1,0 +1,16 @@
+[
+  "╭─ Switch Model ───────────────────────────────────────────────────────────────╮",
+  "│  Quick role switch — applies its model and thinking for this session         │",
+  "│  🔍 > @                                                                      │",
+  "│                                                                              │",
+  "│ ❯ @default ●                                                128k ◫  $2.5/10  │",
+  "│   @review                                                    64k ◫     free  │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│   Alpha · 128k ctx · 16k out · $2.5/10 per M · vision                        │",
+  "│   ● current · ● default ◒ · ○ smol · ○ slow · ○ tiny · ○ memory · ○ widget … │",
+  "│ ↑/↓ roles · ⏎ apply role model · type to search · ⎋ close                    │",
+  "╰──────────────────────────────────────────────────────────────────────────────╯"
+]

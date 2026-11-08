@@ -46,6 +46,8 @@ type hubScope struct {
 	id, label, provider string
 	count               int
 	locked              bool
+	separator           bool
+	annotation          string
 }
 
 // hubChip is an inline role/scope/thinking action, including its exact write layer.
@@ -108,7 +110,7 @@ func ModelHubOverlayOptions() OverlayOptions {
 // NewModelHub hydrates synchronously and initially focuses the All-models scope,
 // exactly as OMP; cached Enter works before online discovery has settled.
 func NewModelHub(cfg ModelHubConfig) *ModelHub {
-	h := &ModelHub{cfg: cfg, scope: "global", side: 1, sidebarFocus: true, sidebarHover: -1, roleHover: -1, roleFollow: true, sidebarFollow: true, browser: NewModelBrowser(cfg.Current), refreshing: map[string]bool{}}
+	h := &ModelHub{cfg: cfg, scope: "global", side: 1, sidebarFocus: true, sidebarHover: -1, roleHover: -1, roleFollow: true, sidebarFollow: true, browser: NewModelBrowser(""), refreshing: map[string]bool{}}
 	if cfg.AllModels == nil {
 		h.cfg.AllModels = slices.Clone(cfg.Models)
 	}
@@ -137,7 +139,20 @@ func (h *ModelHub) reload() {
 	}
 	h.config, h.chains = h.cfg.Snapshot()
 	h.buildRows()
-	h.entries = []hubScope{{id: "roles", label: "Roles"}, {id: "all", label: "All models", count: len(h.cfg.Models)}, {id: "recent", label: "Recently used", count: len(h.config.ModelRecent)}}
+	assigned, total := 0, 0
+	for _, role := range h.config.Known(h.chains) {
+		if h.config.RoleInfo(role).Hidden {
+			continue
+		}
+		total++
+		if h.config.ModelRoles[role] != "" {
+			assigned++
+		}
+	}
+	h.entries = []hubScope{{id: "roles", label: "Roles", annotation: fmt.Sprintf("%d/%d", assigned, total)}, {id: "all", label: "All models", count: len(h.cfg.Models)}}
+	if len(h.config.ModelRecent) > 0 {
+		h.entries = append(h.entries, hubScope{id: "recent", label: "Recently used", count: len(h.config.ModelRecent)})
+	}
 	available := map[string]int{}
 	catalog := map[string]int{}
 	for _, item := range h.cfg.Models {
@@ -156,12 +171,17 @@ func (h *ModelHub) reload() {
 	// Available providers precede locked providers; search matches float within the
 	// available section while both groups preserve deterministic alphabetic order.
 	for _, locked := range []bool{false, true} {
+		sectionAdded := false
 		for _, provider := range providers {
 			isLocked := available[provider] == 0
 			if isLocked != locked || (h.cfg.Scoped && isLocked) {
 				continue
 			}
-			h.entries = append(h.entries, hubScope{id: "provider:" + provider, label: provider, provider: provider, count: catalog[provider], locked: isLocked})
+			if !sectionAdded {
+				h.entries = append(h.entries, hubScope{id: fmt.Sprintf("separator:%v", locked), separator: true})
+				sectionAdded = true
+			}
+			h.entries = append(h.entries, hubScope{id: "provider:" + provider, label: provider, provider: provider, count: available[provider], locked: isLocked})
 		}
 	}
 	for i, entry := range h.entries {
@@ -173,12 +193,16 @@ func (h *ModelHub) reload() {
 	h.side = min(h.side, len(h.entries)-1)
 	resolved := map[string]string{}
 	for _, role := range h.config.Known(h.chains) {
+		if h.config.ModelRoles[role] == "" && slices.Contains([]string{"plan", "task", "vision", "commit"}, role) {
+			continue
+		}
 		if selector, err := h.cfg.Resolve("@" + role); err == nil {
 			resolved[role] = selector
 		}
 	}
 	h.resolvedRoles = resolved
 	h.browser.SetRoles(resolved)
+	h.browser.roleConfig = h.config
 }
 
 // kindRole separates non-chat role tabs without coupling them to provider APIs.
@@ -230,7 +254,7 @@ func (h *ModelHub) buildRows() {
 			h.rows = append(h.rows, hubRoleRow{key: key, index: i, label: value, kind: "fallback"})
 		}
 	}
-	h.rows = append(h.rows, hubRoleRow{kind: "newFallback", label: "+ New fallback…"}, hubRoleRow{kind: "newRole", label: "+ New role…"})
+	h.rows = append(h.rows, hubRoleRow{kind: "newRole", label: "+ New role…"}, hubRoleRow{kind: "separator"}, hubRoleRow{kind: "newFallback", label: "+ New fallback…"})
 	h.cursor = min(h.cursor, len(h.rows)-1)
 	for i, row := range h.rows {
 		if row.key == oldKey && row.index == oldIndex && row.kind != "separator" {
@@ -358,6 +382,7 @@ func (h *ModelHub) applyScope() {
 		}
 		return strings.Compare(a.Provider+"/"+a.ID, b.Provider+"/"+b.ID)
 	})
+	h.browser.hideProvider = entry.provider != "" && h.target == nil
 	h.browser.SetItems(items)
 }
 
@@ -368,24 +393,29 @@ func (h *ModelHub) orderSearchScopes() {
 		return
 	}
 	active := h.entries[h.side].id
-	slices.SortStableFunc(h.entries[3:], func(a, b hubScope) int {
-		if a.locked != b.locked {
-			if a.locked {
-				return 1
-			}
-			return -1
+	for start := 0; start < len(h.entries); {
+		if h.entries[start].provider == "" {
+			start++
+			continue
 		}
-		if h.browser.Query() != "" {
-			am, bm := h.matchCount(a) > 0, h.matchCount(b) > 0
-			if am != bm {
-				if am {
-					return -1
+		end := start + 1
+		for end < len(h.entries) && h.entries[end].provider != "" {
+			end++
+		}
+		slices.SortStableFunc(h.entries[start:end], func(a, b hubScope) int {
+			if h.browser.Query() != "" {
+				am, bm := h.matchCount(a) > 0, h.matchCount(b) > 0
+				if am != bm {
+					if am {
+						return -1
+					}
+					return 1
 				}
-				return 1
 			}
-		}
-		return strings.Compare(a.label, b.label)
-	})
+			return strings.Compare(a.label, b.label)
+		})
+		start = end
+	}
 	for i, entry := range h.entries {
 		if entry.id == active {
 			h.side = i
@@ -396,6 +426,9 @@ func (h *ModelHub) orderSearchScopes() {
 
 // setSide changes scope without stealing arrow focus. A role scope cancels assignment.
 func (h *ModelHub) setSide(index int) {
+	if h.entries[index].separator {
+		return
+	}
 	h.side = index
 	h.sidebarFollow = true
 	h.roleFollow = true
@@ -465,6 +498,9 @@ func (h *ModelHub) moveSide(delta int) {
 	for step := 1; step <= len(h.entries); step++ {
 		i := (h.side + delta*step + len(h.entries)*step) % len(h.entries)
 		entry := h.entries[i]
+		if entry.separator {
+			continue
+		}
 		if h.browser.Query() != "" && (entry.id == "roles" || entry.locked || h.matchCount(entry) == 0) {
 			continue
 		}
@@ -1106,17 +1142,17 @@ func (h *ModelHub) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
 	roles := h.entries[h.side].id == "roles" && h.target == nil
 	if row == 1 && event.Type == MouseClick && h.target == nil {
 		values := hubKinds
+		active := h.kindTab
+		prefix := len(" Kind: ")
 		if roles {
-			values = []string{"All", "Chat", "Model kinds"}
+			values = []string{"all", "chat", "kinds"}
+			active = h.roleTab
+			prefix = len(" Roles: ")
 		}
-		column := event.X - h.sideWidth - 5
-		offset := 0
-		for i, value := range values {
-			size := len(value)
-			if i == 0 {
-				size += 2
-			}
-			if column >= offset && column < offset+size {
+		_, ranges := modelSegmentTrack(values, active)
+		column := event.X - h.sideWidth - 5 - prefix
+		for i, bounds := range ranges {
+			if column >= bounds[0] && column < bounds[1] {
 				if roles {
 					h.roleTab = i
 					h.cursor = 0
@@ -1128,7 +1164,6 @@ func (h *ModelHub) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
 				}
 				return handled()
 			}
-			offset += size + 2
 		}
 	}
 	if event.Type == MouseWheel {
@@ -1171,7 +1206,7 @@ func (h *ModelHub) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
 
 // footer renders horizontally scrolled chips with recorded mouse hit ranges.
 func (h *ModelHub) footer(width int) string {
-	th := ActiveTheme()
+	th := modelOverlayTheme()
 	if h.pending {
 		return fg(th.Muted, "Applying model assignment…")
 	}
@@ -1213,62 +1248,77 @@ func (h *ModelHub) footer(width int) string {
 		}
 		return out
 	}
+	if h.target != nil {
+		if h.sidebarFocus {
+			return fg(th.Dim, "⏎/→ models · ↑/↓ providers · type to search · Alt+←/Alt+→ kind · ⎋ cancel")
+		}
+		action := "assign"
+		switch h.target.kind {
+		case "newFallback":
+			action = "pick the protected model"
+		case "fallback", "append":
+			action = "pick fallback"
+		}
+		return fg(th.Dim, "⏎ "+action+" · ↑/↓ models · ← providers · type to search · Alt+←/Alt+→ kind · ⎋ cancel")
+	}
 	if h.entries[h.side].id == "roles" && h.target == nil {
-		return fg(th.Dim, "↵ assign · x clear · f fallback · t thinking · c cycle · [/] reorder · n role · k compact")
-	}
-	return fg(th.Dim, "Tab pane · ↑↓ navigate · ↵ roles · type to search · Alt+←/→ kind · F5 refresh · Esc close")
-}
-
-// tabs draws the same role/kind selector strip used by keyboard and mouse paths.
-func (h *ModelHub) tabs(roles bool) string {
-	values := hubKinds
-	active := h.kindTab
-	if roles {
-		values = []string{"All", "Chat", "Model kinds"}
-		active = h.roleTab
-	}
-	parts := []string{}
-	for i, value := range values {
-		if !roles {
-			switch value {
-			case "all":
-				value = "All"
-			case "chat":
-				value = "Chat"
-			case "tiny":
-				value = "Tiny"
-			case "image":
-				value = "Image"
-			case "tts":
-				value = "TTS"
-			case "stt":
-				value = "STT"
-			case "search":
-				value = "Search"
-			case "judge":
-				value = "Judge"
-			case "embedding":
-				value = "Embedding"
-			case "rerank":
-				value = "Rerank"
-			case "video":
-				value = "Video"
+		if h.sidebarFocus {
+			return fg(th.Dim, "↑/↓ providers · ⏎/→ roles · Alt+←/Alt+→ tabs · ⎋ close")
+		}
+		thinking, compaction := "", ""
+		if item, _, ok := h.selectedRowItem(); ok {
+			if len(ModelThinkingOptions(item, false)) > 0 {
+				thinking = " · t thinking"
+			}
+			if h.cfg.Compaction != nil {
+				compaction = " · k compaction limit"
 			}
 		}
-		if i == active {
-			parts = append(parts, fg(ActiveTheme().Accent, "["+value+"]"))
-		} else {
-			parts = append(parts, fg(ActiveTheme().Dim, value))
+		row := h.rows[h.cursor]
+		switch row.kind {
+		case "fallback":
+			return fg(th.Dim, "↑/↓ rows · ⏎ replace · f add another · x remove"+thinking+compaction+" · [/] reorder · ← providers")
+		case "chain":
+			return fg(th.Dim, "↑/↓ rows · ⏎/f add fallback · x clear chain · ← providers")
+		case "newFallback":
+			return fg(th.Dim, "↑/↓ rows · ⏎ new model/provider fallback chain · ← providers")
 		}
+		return fg(th.Dim, "↑/↓ rows · ⏎ pick · f fallback · x clear"+thinking+compaction+" · c cycle · [/] reorder · n new")
 	}
-	return strings.Join(parts, "  ")
+	entry := h.entries[h.side]
+	if entry.locked {
+		return fg(th.Dim, "⏎ log in · ↑/↓ providers · ⎋ close")
+	}
+	refresh := ""
+	if entry.provider != "" {
+		refresh = " · F5 refresh"
+	}
+	if h.sidebarFocus {
+		return fg(th.Dim, "⏎/→ models · ↑/↓ providers · type to search · Alt+←/Alt+→ kind"+refresh+" · ⎋ close")
+	}
+	return fg(th.Dim, "⏎ assign roles · ↑/↓ models · ← providers · type to search · Alt+←/Alt+→ kind"+refresh+" · ⎋ close")
+}
+
+// tabs renders OMP's colored track; preset controls are intentionally absent.
+// The same track geometry feeds mouse hit testing instead of guessed label sizes.
+func (h *ModelHub) tabs(roles bool) string {
+	labels := hubKinds
+	active := h.kindTab
+	caption := "Kind:"
+	if roles {
+		labels = []string{"all", "chat", "kinds"}
+		active = h.roleTab
+		caption = "Roles:"
+	}
+	track, _ := modelSegmentTrack(labels, active)
+	return " " + modelOverlayTheme().Fg("dim", caption) + " " + track + "  " + modelOverlayTheme().Fg("dim", "Alt+←/Alt+→")
 }
 
 // roleBody ports OMP's role tree: semantic role dots/tags, aligned indented
 // fallbacks, right-hand effort/cycle ordinals, overflow hints, and cycle preview.
 func (h *ModelHub) roleBody(width, height int) []string {
-	th := ActiveTheme()
-	status := "Role models · " + h.scope
+	th := modelOverlayTheme()
+	status := " Model roles — f adds a retry fallback, cleared roles fall back to auto-selection"
 	thinking := ""
 	if h.cfg.DefaultThinking != nil {
 		thinking = h.cfg.DefaultThinking()
@@ -1286,7 +1336,9 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		}
 		tagWidth = max(tagWidth, widthx.VisibleWidth(SanitizeModelText(tag)))
 	}
-	capacity := max(1, height-3)
+	// OMP reserves status, tabs, a spacer, and the cycle track before
+	// borrowing another row for an overflow indicator on short terminals.
+	capacity := max(1, height-4)
 	overflow := len(h.rows) > capacity
 	visible := capacity
 	if overflow {
@@ -1306,12 +1358,12 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		selected := i == h.cursor
 		cursor := " "
 		if selected && !h.sidebarFocus {
-			cursor = fg(th.Accent, "›")
+			cursor = fg(th.Accent, "❯")
 		}
 		line := ""
 		switch row.kind {
 		case "separator":
-			line = "   " + fg(th.Dim, strings.Repeat("─", max(1, width-6)))
+			line = "   " + fg(th.Border, strings.Repeat("─", max(1, width-6)))
 		case "newRole", "newFallback":
 			color := th.Dim
 			if selected {
@@ -1334,7 +1386,7 @@ func (h *ModelHub) roleBody(width, height int) []string {
 			}
 			tag = widthx.TruncateToWidth(SanitizeModelText(tag), tagWidth, "…", true)
 			value := h.config.ModelRoles[row.key]
-			dot := fg(th.Dim, "◌")
+			dot := fg(th.Dim, "○")
 			tagStyled := fg(th.Dim, tag)
 			effort := ""
 			if value != "" {
@@ -1346,7 +1398,7 @@ func (h *ModelHub) roleBody(width, height int) []string {
 				base, level := modelroles.Split(value)
 				provider, id, hasProvider := strings.Cut(base, "/")
 				if hasProvider {
-					modelColor := th.Muted
+					modelColor := th.Text
 					if selected {
 						modelColor = th.Accent
 					}
@@ -1358,7 +1410,7 @@ func (h *ModelHub) roleBody(width, height int) []string {
 					level = thinking
 				}
 				if level != "" && level != "inherit" {
-					effort = fg(th.Dim, SanitizeModelText(level))
+					effort = fg(th.Dim, browserEffortGlyph(level)+" "+SanitizeModelText(level))
 				}
 			} else {
 				resolved := h.resolvedRoles[row.key]
@@ -1375,7 +1427,7 @@ func (h *ModelHub) roleBody(width, height int) []string {
 				if right != "" {
 					right += "  "
 				}
-				right += fg(th.Accent, fmt.Sprintf("⟳ %d", index+1))
+				right += fg(th.Accent, fmt.Sprintf("↻ %d", index+1))
 			}
 			if right != "" && widthx.VisibleWidth(line)+widthx.VisibleWidth(right)+2 <= width {
 				line += strings.Repeat(" ", width-widthx.VisibleWidth(line)-widthx.VisibleWidth(right)-1) + right
@@ -1407,16 +1459,12 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		if h.cursor < len(h.rows) {
 			selectedRole = h.rows[h.cursor].key
 		}
-		palette := []string{th.Accent, th.Success, th.Warning, th.Error}
-		segments := []string{}
+		labels := make([]string, len(cycle))
 		for i, role := range cycle {
-			label := SanitizeModelText(role)
-			if role == selectedRole {
-				label = "◀ " + label + " ▶"
-			}
-			segments = append(segments, fg(palette[i%len(palette)], label))
+			labels[i] = SanitizeModelText(role)
 		}
-		lines = append(lines, fg(th.Dim, "  Ctrl+P cycle: ")+strings.Join(segments, fg(th.Dim, " │ ")))
+		track, _ := modelSegmentTrack(labels, slices.Index(cycle, selectedRole))
+		lines = append(lines, fg(th.Dim, "  Ctrl+P cycle: ")+track)
 	}
 	return lines
 }
@@ -1434,7 +1482,11 @@ func (h *ModelHub) Render(width int) []string {
 	h.renderWidth = width
 	side := 18
 	for _, entry := range h.entries {
-		side = max(side, min(26, len(entry.label)+6))
+		annotation := entry.annotation
+		if annotation == "" && !entry.locked && !entry.separator {
+			annotation = fmt.Sprint(entry.count)
+		}
+		side = max(side, min(26, widthx.VisibleWidth(entry.label)+len(annotation)+5))
 	}
 	side = min(side, max(8, width-18))
 	if width < 24 {
@@ -1442,7 +1494,7 @@ func (h *ModelHub) Render(width int) []string {
 	}
 	h.sideWidth = side
 	bodyWidth := max(1, width-side-7)
-	th := ActiveTheme()
+	th := modelOverlayTheme()
 	body := []string{}
 	entry := h.entries[h.side]
 	if entry.id == "roles" && h.target == nil {
@@ -1451,16 +1503,55 @@ func (h *ModelHub) Render(width int) []string {
 		body = []string{fg(th.Warning, SanitizeModelText(entry.provider)+" · locked"), "", "Sign in to use this provider's models.", "Enter to log in"}
 	} else {
 		status := entry.label
+		switch entry.id {
+		case "all":
+			status = "All available models"
+		case "recent":
+			status = "Recently used models"
+		default:
+			status = fmt.Sprintf("%s · %d models", entry.label, entry.count)
+		}
+		if h.cfg.Scoped {
+			status += " · --models scope"
+		}
+		statusColor := th.Muted
 		if h.target != nil {
-			status = "Assign " + h.target.key
-			if h.target.kind == "newFallback" {
-				status = "Select model to protect"
+			statusColor = th.Accent
+			info := h.config.RoleInfo(h.target.key)
+			label := info.Tag
+			if label == "" {
+				label = info.Name
 			}
+			status = "Assigning " + label + " — ⏎ assigns, ⎋ cancels"
+			switch h.target.kind {
+			case "newFallback":
+				status = "New fallback chain — ⏎ picks the model it protects, ⎋ cancels"
+			case "fallback", "append":
+				verb := "Adding fallback for"
+				if h.target.kind == "fallback" {
+					verb = "Replacing fallback of"
+				}
+				status = verb + " " + label + " — ⏎ picks the fallback model, ⎋ cancels"
+			}
+		}
+		if h.pending {
+			status = "Applying model…"
+			statusColor = th.Accent
 		}
 		if h.refreshing[entry.provider] || h.refreshing[""] {
 			status += " · refreshing…"
 		}
-		body = append(body, fg(th.Muted, SanitizeModelText(status)), h.tabs(false))
+		statusText := " " + SanitizeModelText(status)
+		if h.target != nil && h.target.kind != "newFallback" {
+			info := h.config.RoleInfo(h.target.key)
+			label := info.Tag
+			if label == "" {
+				label = info.Name
+			}
+			label = SanitizeModelText(label)
+			statusText = strings.Replace(statusText, label, th.Bold(label), 1)
+		}
+		body = append(body, fg(statusColor, statusText), h.tabs(false))
 		h.browser.focused = !h.sidebarFocus
 		body = append(body, h.browser.Render(bodyWidth, h.bodyRows-2)...)
 	}
@@ -1473,42 +1564,71 @@ func (h *ModelHub) Render(width int) []string {
 	if h.sidebarFollow && h.side >= h.sidebarScroll+h.bodyRows {
 		h.sidebarScroll = h.side - h.bodyRows + 1
 	}
-	lines := []string{fg(th.Dim, "╭─ Models "+strings.Repeat("─", max(0, side-8))+"┬"+strings.Repeat("─", max(0, width-side-3))+"╮")}
+	lines := []string{modelOverlayTop(width, "Models", side, false)}
 	for i := 0; i < h.bodyRows; i++ {
 		left := ""
 		index := h.sidebarScroll + i
 		if index < len(h.entries) {
 			e := h.entries[index]
-			icon := "●"
-			if e.locked {
-				icon = "○"
-			}
-			left = icon + " " + SanitizeModelText(e.label)
-			if e.id != "roles" {
-				count := e.count
-				if h.browser.Query() != "" {
-					count = h.matchCount(e)
+			if e.separator {
+				left = fg(th.Border, strings.Repeat("─", side))
+			} else {
+				icon := "●"
+				iconColor := th.Success
+				if e.locked {
+					icon = "○"
+					iconColor = th.Dim
+				} else {
+					switch e.id {
+					case "all":
+						icon = "⬢"
+						iconColor = th.Accent
+					case "recent":
+						icon = "⏱"
+						iconColor = th.Accent
+					case "roles":
+						icon = "✦"
+						iconColor = th.Accent
+					}
 				}
-				left += fmt.Sprintf(" %d", count)
-			}
-			if index == h.sidebarHover {
-				left = th.Bg("selectedBg", left)
-			}
-			if index == h.side {
-				left = fg(th.Accent, left)
-			} else if e.locked {
-				left = fg(th.Dim, left)
+				cursor := " "
+				if index == h.side && h.sidebarFocus {
+					cursor = fg(th.Accent, "❯")
+				}
+				label := SanitizeModelText(e.label)
+				if index == h.side {
+					label = th.Bold(fg(th.Accent, label))
+				} else if e.locked {
+					label = fg(th.Dim, label)
+				}
+				left = cursor + " " + fg(iconColor, icon) + " " + label
+				if !e.locked {
+					count := e.count
+					if h.browser.Query() != "" {
+						count = h.matchCount(e)
+					}
+					annotation := fmt.Sprint(count)
+					if e.annotation != "" {
+						annotation = e.annotation
+					}
+					if widthx.VisibleWidth(left)+len(annotation)+1 <= side {
+						left += strings.Repeat(" ", side-widthx.VisibleWidth(left)-len(annotation)) + fg(th.Dim, annotation)
+					}
+				}
+				if index == h.sidebarHover {
+					left = th.Bg("selectedBg", left)
+				}
 			}
 		}
-		lines = append(lines, fg(th.Dim, "│ ")+widthx.TruncateToWidth(left, side, "…", true)+fg(th.Dim, " │ ")+widthx.TruncateToWidth(body[i], bodyWidth, "…", true)+fg(th.Dim, " │"))
+		lines = append(lines, fg(th.Border, "│ ")+widthx.TruncateToWidth(left, side, "…", true)+fg(th.Border, " │ ")+widthx.TruncateToWidth(body[i], bodyWidth, "…", true)+fg(th.Border, " │"))
 	}
-	lines = append(lines, fg(th.Dim, "├"+strings.Repeat("─", max(0, width-2))+"┤"))
+	lines = append(lines, modelOverlayDivider(width, side))
 	h.stripRow = len(lines)
 	footer := h.footer(width - 4)
 	if h.status != "" {
 		footer = fg(th.Warning, SanitizeModelText(h.status)) + "  " + footer
 	}
-	lines = append(lines, "│ "+widthx.TruncateToWidth(footer, width-4, "…", true)+" │", fg(th.Dim, "╰"+strings.Repeat("─", max(0, width-2))+"╯"))
+	lines = append(lines, modelOverlayRow(footer, width, false), fg(th.Border, "╰"+strings.Repeat("─", max(0, width-2))+"╯"))
 	for i := range lines {
 		lines[i] = widthx.TruncateToWidth(lines[i], width, "…", false)
 	}

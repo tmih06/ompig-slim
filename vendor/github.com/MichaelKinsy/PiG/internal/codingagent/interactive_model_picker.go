@@ -31,12 +31,35 @@ func (m *InteractiveMode) pickModel(ctx context.Context) (string, bool, func()) 
 	}
 	items = m.scopeBrowserModels(items)
 	var roles []tui.ModelSelectorItem
+	roleConfig := modelroles.Config{}
+	resolvedRoles := map[string]string{}
+	taskSelector := modelSpec(m.opts.Model)
 	currentRole := ""
 	if h, ok := m.opts.SessionHandle.(interface{ ActiveModelRole() string }); ok {
 		currentRole = h.ActiveModelRole()
 	}
 	if sm := m.opts.SettingsManager; sm != nil {
 		config := sm.Get()
+		if config.ModelRoles["task"] != "" {
+			if value, err := sm.ResolveModelRole("@task"); err == nil {
+				taskSelector, _ = modelroles.Split(value)
+			}
+		}
+		roleConfig = config.Config
+		pool := []modelroles.Candidate{}
+		for _, item := range items {
+			pool = append(pool, modelroles.Candidate{Provider: item.Provider, ID: item.ID, Kind: tui.ModelItemKind(item)})
+		}
+		for _, role := range roleConfig.Known(nil) {
+			// Contextual execution inheritance is not an automatic role assignment.
+			// OMP leaves unconfigured plan/task/vision/commit chips out of the catalog.
+			if roleConfig.ModelRoles[role] == "" && (role == "plan" || role == "task" || role == "vision" || role == "commit") {
+				continue
+			}
+			if selector, err := sm.ResolveModelRole("@"+role, pool); err == nil {
+				resolvedRoles[role] = selector
+			}
+		}
 		for _, role := range config.Config.Order() {
 			pool := []modelroles.Candidate{}
 			for _, item := range items {
@@ -62,7 +85,7 @@ func (m *InteractiveMode) pickModel(ctx context.Context) (string, bool, func()) 
 			tokens = *used
 		}
 	}
-	picker := tui.NewModelPicker(tui.ModelPickerConfig{Models: items, QuickRoles: roles, Current: modelSpec(m.opts.Model), CurrentRole: currentRole, ContextTokens: tokens, Height: m.tuiInst.Height, TaskKeys: []string{"alt+p", "ctrl+l"}})
+	picker := tui.NewModelPicker(tui.ModelPickerConfig{Models: items, QuickRoles: roles, Current: modelSpec(m.opts.Model), CurrentRole: currentRole, TaskSelector: taskSelector, ContextTokens: tokens, RoleConfig: roleConfig, ResolvedRoles: resolvedRoles, Height: m.tuiInst.Height, TaskKeys: []string{"alt+p", "ctrl+l"}})
 	m.disposeActiveSelector()
 	overlay := m.tuiInst.ShowOverlay(picker, tui.ModelPickerOverlayOptions())
 	token := new(int)

@@ -79,7 +79,7 @@ def run(binary):
             send(b"\x1bp")
             read_until(lambda data: b"Switch Model" in data, "compact picker")
             send(b"@review")
-            read_until(lambda data: b"REVIEW" in data, "quick-role search")
+            read_until(lambda data: b"@review" in data, "quick-role search")
             send(b"\r")
             read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
                        "role selection")

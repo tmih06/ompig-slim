@@ -13,16 +13,19 @@ import (
 // rows, and selected-model facts. The host owns surrounding chrome and activation.
 // All methods execute on the TUI owner loop; scrolling never changes selection.
 type ModelBrowser struct {
-	items    []ModelSelectorItem
-	filtered []int
-	search   *TextInput
-	cursor   int
-	scroll   int
-	rows     int
-	focused  bool
-	current  string
-	roles    map[string]string
-	recent   []string
+	items         []ModelSelectorItem
+	filtered      []int
+	search        *TextInput
+	cursor        int
+	scroll        int
+	rows          int
+	focused       bool
+	current       string
+	roles         map[string]string
+	recent        []string
+	roleConfig    modelroles.Config
+	contextTokens int
+	hideProvider  bool
 }
 
 // NewModelBrowser builds an empty browser with no asynchronous work or terminal ownership.
@@ -103,6 +106,46 @@ func (b *ModelBrowser) SetItems(items []ModelSelectorItem) {
 		selected = item.FQ()
 	}
 	b.items = slices.Clone(items)
+	// OMP seats current/role models above the catalog, separated from the rest.
+	// Virtual @role rows instead retain cycle order and never get a separator.
+	if len(items) > 0 && items[0].Role == "" {
+		preferred := map[string]int{}
+		if b.current != "" {
+			preferred[b.current] = 0
+		}
+		for _, role := range b.roleConfig.Known(nil) {
+			if value := b.roles[role]; value != "" {
+				base, _ := modelroles.Split(value)
+				if _, exists := preferred[base]; !exists {
+					preferred[base] = len(preferred)
+				}
+			}
+		}
+		slices.SortStableFunc(b.items, func(a, c ModelSelectorItem) int {
+			ap, aok := preferred[a.FQ()]
+			cp, cok := preferred[c.FQ()]
+			if aok != cok {
+				if aok {
+					return -1
+				}
+				return 1
+			}
+			if aok {
+				return ap - cp
+			}
+			return 0
+		})
+		split := 0
+		for split < len(b.items) {
+			if _, ok := preferred[b.items[split].FQ()]; !ok {
+				break
+			}
+			split++
+		}
+		if split > 0 && split < len(b.items) {
+			b.items = slices.Insert(b.items, split, ModelSelectorItem{Kind: "separator"})
+		}
+	}
 	b.filter()
 	if selected != "" {
 		b.Select(selected)
@@ -120,9 +163,11 @@ func (b *ModelBrowser) SetQuery(query string) { b.search.SetText(query); b.filte
 
 // filter ranks a fixed haystack and resets selection only after a query/data change.
 func (b *ModelBrowser) filter() {
-	indices := make([]int, len(b.items))
-	for i := range indices {
-		indices[i] = i
+	indices := make([]int, 0, len(b.items))
+	for i, item := range b.items {
+		if item.Kind != "separator" || b.Query() == "" {
+			indices = append(indices, i)
+		}
 	}
 	b.filtered = FuzzyFilter(indices, b.Query(), func(i int) string { return BrowserSearchText(b.items[i]) })
 	b.cursor = 0
@@ -134,7 +179,11 @@ func (b *ModelBrowser) Selected() *ModelSelectorItem {
 	if b.cursor < 0 || b.cursor >= len(b.filtered) {
 		return nil
 	}
-	return &b.items[b.filtered[b.cursor]]
+	item := &b.items[b.filtered[b.cursor]]
+	if item.Kind == "separator" {
+		return nil
+	}
+	return item
 }
 
 // Select reanchors a provider-qualified model or virtual role without changing its query.
@@ -170,6 +219,13 @@ func (b *ModelBrowser) Move(delta int, wrap bool) {
 	} else {
 		b.cursor = max(0, min(count-1, b.cursor+delta))
 	}
+	for steps := 0; steps < count && b.Selected() == nil; steps++ {
+		step := 1
+		if delta < 0 {
+			step = -1
+		}
+		b.cursor = (b.cursor + step + count) % count
+	}
 	b.follow()
 }
 
@@ -203,69 +259,96 @@ func (b *ModelBrowser) HandleInput(data string) bool {
 	return true
 }
 
-// Render draws exactly height rows. Selected-model facts remain visible below the
-// window; row metrics drop columns using the same width policy as the quick picker.
+// Render draws OMP's five chrome rows around a fixed list window. Selected
+// facts/chips stay below a blank spacer; browser metrics never add effort columns.
 func (b *ModelBrowser) Render(width, height int) []string {
 	height = max(1, height)
 	width = max(1, width)
-	th := ActiveTheme()
-	b.rows = max(1, height-6)
+	th := modelOverlayTheme()
+	b.rows = max(1, height-5)
+	b.scroll = max(0, min(b.scroll, max(0, len(b.filtered)-b.rows)))
 	b.search.Focused = b.focused
 	lines := []string{}
-	input := b.search.Render(max(1, width-2))
+	input := b.search.Render(max(4, width-4))
+	search := ""
 	if len(input) > 0 {
-		lines = append(lines, "  "+input[0])
-	} else {
-		lines = append(lines, "  Search models…")
+		search = input[0]
 	}
-	lines = append(lines, fg(th.Dim, "  ↑↓ models · type to search"))
+	lines = append(lines, " "+fg(th.Accent, "🔍")+" "+search, "")
 	metrics := []ModelMetricRow{}
 	end := min(len(b.filtered), b.scroll+b.rows)
 	for i := b.scroll; i < end; i++ {
 		item := b.items[b.filtered[i]]
 		marker := "  "
-		if i == b.cursor {
-			marker = "› "
+		if i == b.cursor && b.focused {
+			marker = fg(th.Accent, "❯") + " "
 		}
-		label := SanitizeModelText(item.Provider + "/" + item.ID)
+		name := SanitizeModelText(item.ID)
+		if i == b.cursor {
+			name = fg(th.Accent, name)
+		}
+		label := name
+		if !b.hideProvider {
+			label = fg(th.Dim, SanitizeModelText(item.Provider)+"/") + name
+		}
 		if item.Role != "" {
-			label = "[" + strings.ToUpper(SanitizeModelText(item.Role)) + "] " + label
+			order := b.roleConfig.Order()
+			index := slices.Index(order, item.Role)
+			if index < 0 {
+				index = i
+			}
+			palette := modelSegmentPalette(max(len(order), index+1))
+			label = palette[index%len(palette)] + "@" + SanitizeModelText(item.Role) + SGRFgReset
 		}
 		if item.FQ() == b.current {
-			label += " ✓"
+			label += " " + fg(th.Success, "●")
 		}
-		if i == b.cursor && b.focused {
-			label = fg(th.Accent, label)
+		if item.Model != nil && item.Model.Capabilities.ContextWindow > 0 && b.contextTokens > item.Model.Capabilities.ContextWindow {
+			label = fg(th.Dim, widthx.StripTerminalSequences(label)+" ✕ context>"+browserNumber(item.Model.Capabilities.ContextWindow))
 		}
 		metrics = append(metrics, ModelMetricRow{Left: marker + label, Model: item.Model})
 	}
-	rendered := NewModelMetricRows(metrics).Render(width)
+	rendered := renderBrowserMetrics(metrics, width)
+	for i := range rendered {
+		if b.items[b.filtered[b.scroll+i]].Kind == "separator" {
+			rendered[i] = "  " + fg(th.Muted, strings.Repeat("─", max(0, width-5))) + "  "
+		}
+		rendered[i] += browserScrollbar(i, b.rows, len(b.filtered), b.scroll)
+	}
 	if len(metrics) == 0 {
-		rendered = []string{fg(th.Muted, "  No matching models")}
+		empty := "  No models available in this scope"
+		if strings.TrimSpace(b.Query()) != "" {
+			empty = "  No matching models"
+		}
+		rendered = []string{fg(th.Muted, empty)}
 	}
 	for len(rendered) < b.rows {
 		rendered = append(rendered, "")
 	}
 	lines = append(lines, rendered[:min(b.rows, len(rendered))]...)
+	lines = append(lines, "")
 	if selected := b.Selected(); selected != nil {
 		tags := []string{}
+		if selected.FQ() == b.current {
+			tags = append(tags, fg(th.Success, "● current"))
+		}
 		base := selected.Provider + "/" + selected.ID
-		for role, selector := range b.roles {
+		for _, role := range b.roleConfig.Known(nil) {
+			selector := b.roles[role]
+			if selector == "" || b.roleConfig.RoleInfo(role).Hidden {
+				continue
+			}
 			spec, level := modelroles.Split(selector)
 			if spec == base {
-				tag := strings.ToUpper(role)
-				if level != "" {
-					tag += ":" + level
-				}
-				tags = append(tags, tag)
+				tags = append(tags, browserRoleChip(role, level, b.roleConfig.ModelRoles[role] != "", b.roleConfig.RoleInfo(role).Color))
 			}
 		}
-		slices.Sort(tags)
-		lines = append(lines, fg(th.Accent, "  "+SanitizeModelText(selected.Name)+"  "+strings.Join(tags, " · ")))
-		facts := ModelDetailFactsText(selected.Model, "metadata unavailable")
-		for _, line := range strings.Split(facts, "\n") {
-			lines = append(lines, "  "+line)
+		facts := browserFacts(*selected)
+		detail := "  " + strings.Join(tags, fg(th.Dim, " · "))
+		if selected.Model != nil && selected.Model.Capabilities.ContextWindow > 0 && b.contextTokens > selected.Model.Capabilities.ContextWindow {
+			detail = fg(th.Warning, browserOverflowWarning(b.contextTokens, selected.Model.Capabilities.ContextWindow))
 		}
+		lines = append(lines, fg(th.Muted, "  "+facts), detail)
 	}
 	for len(lines) < height {
 		lines = append(lines, "")

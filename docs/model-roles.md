@@ -173,3 +173,13 @@ chain with primary restoration, and routed request/resume behavior.
 `make smoke` includes a real PTY menu flow in
 `scripts/smoke-test-model-menu.py`; it uses local fixtures rather than paid API
 calls. No live-provider parity result is implied by those offline tests.
+
+Visual regression tests use actual OMP 18.14.2 PTY captures at 120×40 and 80×24
+for the manager, provider scope, Roles, assignment browser, session picker,
+quick-role picker, and Task picker. `scripts/compare-model-tuis.py` boots both
+CLIs against isolated loopback-only fixtures and checks display cells plus
+nonblank-cell foreground/background/bold. It requires optional Python `pyte`;
+see `tui/testdata/README.md` in the vendored runtime for reproduction.
+
+Stock dark/system model overlays use OMP's Titanium palette; explicit custom
+and light themes remain authoritative, and transcript colors are unchanged.
