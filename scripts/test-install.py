@@ -330,6 +330,35 @@ class InstallTests(unittest.TestCase):
         self.assertIn("Usage: install.sh", result.stdout)
         self.assertNotIn("in Go", result.stdout)
 
+    def test_byte_count_formatting_matches_the_go_meter(self):
+        # The installer formats progress itself (it cannot call Go), so the two
+        # meters would otherwise drift. Pin the exact strings the Go side prints,
+        # including the half-to-even rounding of a trailing 5.
+        cases = {
+            "0": "0 B",
+            "1023": "1023 B",
+            "1024": "1.0 KB",
+            "1536": "1.5 KB",
+            "1016064": "992.2 KB",     # 992.25 KB rounds half-to-even
+            "1048576": "1.0 MB",
+            "34000000": "32.4 MB",
+            "52428800": "50.0 MB",
+            "1073741824": "1.0 GB",
+            "5368709120": "5.0 GB",
+        }
+        # Extract the function the installer actually defines, so the test
+        # cannot pass against a copy that has drifted.
+        script = pathlib.Path(INSTALLER).read_text()
+        start = script.index("human_bytes() {")
+        end = script.index("\n}\n", start) + len("\n}\n")
+        source = pathlib.Path(self.root / "human_bytes.sh")
+        source.write_text(script[start:end])
+        calls = "".join(f'human_bytes {n}; printf "%s\\n" "$REPLY"\n' for n in cases)
+        result = subprocess.run(["bash", "-c", f"set -euo pipefail; . '{source}'; {calls}"],
+                                text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), list(cases.values()))
+
     def test_usage_errors_exit_two(self):
         for arguments in (["--nope"], ["--dir"], ["--version"]):
             with self.subTest(arguments=arguments):

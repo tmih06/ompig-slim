@@ -128,39 +128,65 @@ print_banner() {
     printf '\n  %sin Go · slim harness%s\n\n' "$c_purple" "$c_reset"
 }
 
-# human_bytes prints a byte count the way internal/selfupdate/ui.go's
-# humanBytes does: whole bytes below a kilobyte, one decimal above.
+# human_bytes sets REPLY to a byte count formatted the way
+# internal/selfupdate/ui.go's humanBytes does: whole bytes below a kilobyte, one
+# decimal above.
+#
+# It assigns instead of printing because it runs twice per progress redraw; a
+# $(human_bytes ...) per call forked a subshell and an awk, which together were
+# most of the poll loop's cost.
+#
+# The tenth is rounded half-to-even, matching printf "%.1f", so the digits agree
+# with the Go meter exactly (992.25 KB prints as 992.2, not 992.3).
 human_bytes() {
-    awk -v n="$1" 'BEGIN {
-        if (n < 1024) printf "%d B", n
-        else if (n < 1048576) printf "%.1f KB", n/1024
-        else if (n < 1073741824) printf "%.1f MB", n/1048576
-        else printf "%.1f GB", n/1073741824
-    }'
+    local n="${1:-0}" divisor unit scaled tenths remainder
+    n="${n//[!0-9]/}"
+    n="${n:-0}"
+    if ((n < 1024)); then
+        REPLY="$n B"
+        return
+    elif ((n < 1048576)); then
+        divisor=1024 unit=KB
+    elif ((n < 1073741824)); then
+        divisor=1048576 unit=MB
+    else
+        divisor=1073741824 unit=GB
+    fi
+    scaled=$(( n * 10 ))
+    tenths=$(( scaled / divisor ))
+    remainder=$(( scaled % divisor ))
+    if (( remainder * 2 > divisor || (remainder * 2 == divisor && tenths % 2 == 1) )); then
+        tenths=$(( tenths + 1 ))
+    fi
+    REPLY="$((tenths / 10)).$((tenths % 10)) $unit"
 }
 
 # draw_progress <done> <total> <label> renders one meter line in place, and
 # skips the redraw when the whole percentage has not moved.
 # total <= 0 means the size is unknown; the meter then shows only the count.
 draw_progress() {
-    local done="$1" total="$2" label="$3" filled percent bar_fill bar_empty
+    local done="$1" total="$2" label="$3" filled percent bar_fill bar_empty done_text total_text
     if ((total > 0)); then
         percent=$((done * 100 / total))
         ((percent > 100)) && percent=100
         if [[ "$percent" == "$last_percent" ]]; then return 0; fi
         last_percent="$percent"
         filled=$((percent * bar_width / 100))
-        bar_fill="$(printf '%*s' "$filled" '')"
-        bar_empty="$(printf '%*s' "$((bar_width - filled))" '')"
+        # printf -v writes into a variable without forking, unlike $(printf ...).
+        printf -v bar_fill '%*s' "$filled" ''
+        printf -v bar_empty '%*s' "$((bar_width - filled))" ''
         bar_fill="${bar_fill// /━}"
         bar_empty="${bar_empty// /─}"
+        human_bytes "$done"; done_text="$REPLY"
+        human_bytes "$total"; total_text="$REPLY"
         printf '\r  %s%s%s %s%s%s %3d%% %s%s / %s%s  ' \
             "$c_bold" "$label" "$c_reset" \
             "$c_cyan" "$bar_fill$bar_empty" "$c_reset" \
             "$percent" \
-            "$c_dim" "$(human_bytes "$done")" "$(human_bytes "$total")" "$c_reset"
+            "$c_dim" "$done_text" "$total_text" "$c_reset"
     else
-        printf '\r  %s%s%s %s%s%s    ' "$c_bold" "$label" "$c_reset" "$c_dim" "$(human_bytes "$done")" "$c_reset"
+        human_bytes "$done"
+        printf '\r  %s%s%s %s%s%s    ' "$c_bold" "$label" "$c_reset" "$c_dim" "$REPLY" "$c_reset"
     fi
 }
 
