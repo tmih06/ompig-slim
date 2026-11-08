@@ -38,7 +38,8 @@ Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactiv
   URLs as well as files, matching oh-my-pi, which has no separate fetch tool.
 - Tool cards rendered like oh-my-pi's: stream tools draw a rounded output block,
   file and search tools a single inline status row (`✔ Read path:70-95`), each
-  naming the tool, its target, and exit code or elapsed time. Write and edit
+  naming the tool, its target, and exit code or elapsed time, with a filled
+  phase background on every card. Write and edit
   stream their content while the arguments arrive, with diffs, highlighting,
   and Ctrl+O expansion.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.

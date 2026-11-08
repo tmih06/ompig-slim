@@ -121,6 +121,50 @@ func TestRichFramedTools(t *testing.T) {
 	}
 }
 
+// TestRichStatusSubjects checks each tool's subject on the top bar, following
+// oh-my-pi's per-renderer heads: a search names its query, grep its pattern and
+// scope, read its path and range, find its quoted query.
+func TestRichStatusSubjects(t *testing.T) {
+	for _, test := range []struct {
+		name, args, want string
+	}{
+		{"web_search", `{"query":"BTC price"}`, "Web Search: BTC price"},
+		{"grep", `{"pattern":"frontmatter|^name:","path":"skills"}`, "Grep: frontmatter|^name: in skills"},
+		{"find", `{"query":"where is auth","path":"src"}`, `Find: "where is auth" in src`},
+		{"read", `{"path":"skills/optimize/SKILL.md","offset":70,"limit":26}`, "Read skills/optimize/SKILL.md:70-95"},
+		{"read", `{"path":"skills/optimize/SKILL.md"}`, "Read skills/optimize/SKILL.md"},
+		{"write", `{"path":"a.txt"}`, "Write a.txt"},
+		{"edit", `{"path":"main.go"}`, "Edit main.go"},
+	} {
+		t.Run(test.name+"/"+test.want, func(t *testing.T) {
+			c := NewToolExecutionComponent(test.name, "call", json.RawMessage(test.args), ToolExecutionOptions{Rich: true}, nil, nil, "")
+			out := widthx.StripAnsi(strings.Join(c.Render(80), "\n"))
+			if !strings.Contains(out, test.want) {
+				t.Fatalf("missing %q:\n%s", test.want, out)
+			}
+		})
+	}
+}
+
+// TestRichStreamedSubject checks that the top bar names the subject while the
+// arguments are still arriving, not only once they are complete.
+func TestRichStreamedSubject(t *testing.T) {
+	c := NewToolExecutionComponent("web_search", "call", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
+	c.SetStreamedArgs(streamedTestArgs{fields: map[string]any{"query": "BTC price"}})
+	if out := widthx.StripAnsi(strings.Join(c.Render(80), "\n")); !strings.Contains(out, "Web Search: BTC price") {
+		t.Fatalf("streamed subject missing:\n%s", out)
+	}
+}
+
+// streamedTestArgs is the streaming parser's view of partial arguments.
+type streamedTestArgs struct{ fields map[string]any }
+
+func (s streamedTestArgs) Object() map[string]any { return s.fields }
+func (s streamedTestArgs) JSON() json.RawMessage {
+	raw, _ := json.Marshal(s.fields)
+	return raw
+}
+
 // TestRichToolWidths exercises ANSI, wide text, self-renderers and narrow panes.
 func TestRichToolWidths(t *testing.T) {
 	for _, self := range []bool{false, true} {

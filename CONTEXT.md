@@ -73,14 +73,18 @@ make build
     and a `╰─ … ─╯` bar carrying facts and the Ctrl+O hint. Every row including
     the bars is padded to the full card width, and the phase background tint is
     applied over the whole row, borders included, re-applied after embedded SGR
-    resets. Shell cards opt out of the wash (`applyBg:false`) as OMP's do.
+    resets. Every tool is filled, the shell included; this project keeps one
+    filled card look instead of oh-my-pi's `applyBg: false` shell exception.
   - **Inline** (`read`, `grep`, `find`, `ls`): no frame at all. The collapsed
     card is the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95`
     — and Ctrl+O discloses the body rows under it. `write` and `edit` return
     framed boxes in oh-my-pi, so they keep the block.
 - The status line is `renderStatusLine`: `icon Title<sep>description · meta`.
   `read`/`write`/`edit` separate the target with a space and every other tool
-  with `: `. The icon is ⏳ before execution, a spinner frame while running,
+  with `: ` — so a search reads `Web Search: BTC price` and grep reads
+  `Grep: frontmatter|^name: in skills`. The subject is recomputed from the
+  streaming parser's decoded arguments on every delta, so it appears while the
+  call is still arriving rather than only once its arguments complete. The icon is ⏳ before execution, a spinner frame while running,
   then ✔, ✘ (error or abort). Meta carries `exit <code>` for a shell command and
   the duration; Duration prefers the recorded `DurationMs` over the card clock so
   a reload keeps it, and no result body repeats timing.

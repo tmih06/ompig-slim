@@ -454,7 +454,17 @@ func (c *ToolExecutionComponent) streamedArgsJSON() json.RawMessage {
 // arguments, as UpdateArgs shows complete ones. It runs once per update, for a reader of those: a card a definition's
 // renderers draw reads none of them.
 func (c *ToolExecutionComponent) applyStreamedArgs() {
-	if c.streamed == nil || c.streamedHeader {
+	if c.streamed == nil {
+		return
+	}
+	// The status line names the call's subject and must follow the arguments as
+	// they stream — a search shows its query before the call is complete — so
+	// this runs on every delta rather than once per update. ToolDetailFields
+	// reads a handful of string members, so it is cheap.
+	if fields := c.streamedFields; fields != nil {
+		c.Detail = ToolDetailFields(c.Name, fields)
+	}
+	if c.streamedHeader {
 		return
 	}
 	c.streamedHeader = true

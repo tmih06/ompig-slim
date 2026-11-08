@@ -72,7 +72,7 @@ func (c *ToolExecutionComponent) SetDefinition(definition *ToolDefinitionRendere
 	}
 	// A definition's own renderer may draw the subject (a codemode cell title),
 	// but the status line is the card's identity, so it is always refreshed.
-	if len(args) > 0 && c.Detail == "" {
+	if len(args) > 0 && json.Valid(args) {
 		c.Detail = ToolDetail(c.Name, args, c.Cwd)
 	}
 	c.Invalidate()

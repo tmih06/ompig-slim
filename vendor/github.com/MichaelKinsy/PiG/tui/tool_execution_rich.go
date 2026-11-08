@@ -328,9 +328,6 @@ func (c *ToolExecutionComponent) richTone() string {
 // are washed. The tint covers the borders and the padding, as renderOutputBlock
 // pads the whole line before applying it.
 func (c *ToolExecutionComponent) richBgOpen() string {
-	if IsShellTool(c.Name) {
-		return ""
-	}
 	theme := ActiveTheme()
 	switch {
 	case c.State == ToolStateRunning:
@@ -412,6 +409,16 @@ func ToolDetail(name string, args json.RawMessage, cwd string) string {
 	if len(args) == 0 || json.Unmarshal(args, &fields) != nil {
 		return ""
 	}
+	return ToolDetailFields(name, fields)
+}
+
+// ToolDetailFields is ToolDetail over arguments a streaming parser already
+// decoded, so a card whose arguments are still arriving still names its
+// subject in the status line.
+func ToolDetailFields(name string, fields map[string]any) string {
+	if fields == nil {
+		return ""
+	}
 	stringOf := func(keys ...string) string {
 		for _, key := range keys {
 			if value, ok := fields[key].(string); ok && value != "" {
@@ -468,10 +475,9 @@ func ToolDetail(name string, args json.RawMessage, cwd string) string {
 			detail = strings.TrimSpace(detail + " in " + path)
 		}
 	case "web_search":
-		// web-search.ts renderSearchCall: the query, truncated to 80 cells.
-		if query := stringOf("query"); query != "" {
-			detail = string([]rune(query)[:min(len([]rune(query)), 80)])
-		}
+		// web-search.ts renderSearchCall puts the query in the description, so
+		// it reads `Web Search: BTC price` on the top bar.
+		detail = stringOf("query")
 	case "ls":
 		detail = stringOf("path")
 	}
