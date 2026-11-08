@@ -41,15 +41,17 @@ func TestPromptQuotaTotalsAndEssentialWindow(t *testing.T) {
 	if strings.Contains(label, "luna-6") || strings.Contains(strings.ToLower(label), "codex") {
 		t.Fatalf("quota label included model/provider: %q", label)
 	}
-	wantBar := tui.RenderUsageBar(tui.ActiveTheme(), ai.UsageLimit{Amount: ai.UsageAmount{UsedFraction: new(.5)}, Status: ai.UsageStatusOK}, 24)
+	wantBar := renderPromptQuotaBar(.5, ai.UsageStatusOK, 12)
 	if !strings.Contains(label, wantBar) {
-		t.Fatalf("quota does not use the usage board bar: %q", label)
+		t.Fatalf("quota does not use the compact prompt bar: %q", label)
 	}
-	if strings.Count(label, "█") == 0 || !strings.Contains(label, "5h") || !strings.Contains(label, "50% left") || !strings.Contains(label, "reset 2h") || strings.Contains(label, "7d") {
+	if strings.Count(label, "■") != 6 || strings.Count(label, "□") != 6 ||
+		!strings.Contains(label, "5h") || !strings.Contains(label, "50% left") ||
+		!strings.Contains(label, "reset 2h") || strings.Contains(label, "7d") {
 		t.Fatalf("wrong essential quota: %q", label)
 	}
 
-	minimumWidth := widthx.VisibleWidth(label) - 24 + 12
+	minimumWidth := widthx.VisibleWidth(label)
 	if compact := m.promptQuotaLabel(minimumWidth); widthx.VisibleWidth(compact) != minimumWidth {
 		t.Fatalf("bar did not shrink to 12 cells: %q", compact)
 	}

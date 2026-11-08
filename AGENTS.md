@@ -31,6 +31,12 @@ Write comments for the next editor who will refactor, optimize, or port this cod
 - State the behavior a caller can rely on, including ordering, idempotency, and failure semantics.
 - Spend each comment on what the code cannot say: intent, constraints, and consequences.
 
+## Documentation
+
+- Keep the root `README.md` user-facing: project overview, feature summaries, setup, and common commands.
+- Put durable technical architecture, behavior contracts, provider/protocol details, failure semantics, and maintenance rulings in `CONTEXT.md` or its linked canonical technical docs.
+- When a feature needs both, keep the README to a short user-facing summary and record its technical details in `CONTEXT.md`; update the existing section instead of appending a feature dossier.
+
 ## Code
 
 Write the smallest design that meets today's requirements and stays easy to change.
