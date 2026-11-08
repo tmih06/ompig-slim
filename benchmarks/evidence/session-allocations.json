@@ -1,0 +1,56 @@
+{
+  "measured": "2026-11-07",
+  "turns": 200,
+  "method": "PIG_PROFILE=heap,allocs,metrics over one persisted RPC session per run; two runs per binary",
+  "host": "Linux arm64, 4 CPUs, Go 1.27.3",
+  "runs": {
+    "before": [
+      {
+        "alloc_bytes": 508600968,
+        "gc_cycles": 18,
+        "mapped_bytes": 78874904,
+        "heap_live_bytes": 10667536,
+        "max_rss_bytes": 120184832
+      },
+      {
+        "alloc_bytes": 508937056,
+        "gc_cycles": 18,
+        "mapped_bytes": 83003672,
+        "heap_live_bytes": 10666064,
+        "max_rss_bytes": 120250368
+      }
+    ],
+    "after": [
+      {
+        "alloc_bytes": 314709744,
+        "gc_cycles": 14,
+        "mapped_bytes": 70482184,
+        "heap_live_bytes": 9552736,
+        "max_rss_bytes": 108310528
+      },
+      {
+        "alloc_bytes": 314899960,
+        "gc_cycles": 14,
+        "mapped_bytes": 66287880,
+        "heap_live_bytes": 9687744,
+        "max_rss_bytes": 108388352
+      }
+    ]
+  },
+  "medians": {
+    "before": {
+      "alloc_bytes": 508769012.0,
+      "gc_cycles": 18.0,
+      "mapped_bytes": 80939288.0,
+      "heap_live_bytes": 10666800.0,
+      "max_rss_bytes": 120217600.0
+    },
+    "after": {
+      "alloc_bytes": 314804852.0,
+      "gc_cycles": 14.0,
+      "mapped_bytes": 68385032.0,
+      "heap_live_bytes": 9620240.0,
+      "max_rss_bytes": 108349440.0
+    }
+  }
+}

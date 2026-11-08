@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"slices"
 	"unicode/utf8"
+
+	"github.com/MichaelKinsy/PiG/durable/core/jv"
 )
 
 const (
@@ -189,8 +191,15 @@ func integerLike(name []byte) bool {
 // str scans one string token starting at its opening quote and returns the index after the closing quote, or -1. A byte below 0x20 cannot appear raw, and the only escapes accepted are those JSON.stringify writes: \", \\, \b, \f, \n, \r, \t, a lowercase \u00xx for any other control character, and a lowercase \ud800-\udfff escape for a lone surrogate (never a high one directly followed by a low one, which stringify writes as the character they form).
 func (state *scanner) str(i int) int {
 	text := state.text
+	// Share the serializer's word-at-a-time scan without copying the input.
+	// UTF-8 validity was checked once by IsCanonical; non-ASCII bytes still
+	// fall through unchanged, while escapes retain the surrogate-pair checks.
 	highEnd := -1 // index just past a high-surrogate escape
 	for i++; i < len(text); i++ {
+		i = jv.PlainEndBytes(text, i)
+		if i == len(text) {
+			return -1
+		}
 		switch c := text[i]; {
 		case c == '"':
 			return i + 1

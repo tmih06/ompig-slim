@@ -14,7 +14,9 @@ Technical orientation and maintenance rulings for coding agents working in this 
 
 - `main.go`: executable entry point and library registrations.
 - `vendor/github.com/MichaelKinsy/PiG/`: PiG runtime plus personal patches; inspect this tree for CLI, coding runtime, provider, and TUI behavior.
-- `scripts/`: Go checks, native builds, smoke tests, startup measurement, and release verification.
+- `scripts/`: Go checks, native builds, smoke tests, startup measurement, CLI benchmarking, and release verification.
+- `benchmarks/`: pinned OMP/Pi npm manifests and lockfiles plus retained local measurement evidence used by CI comparisons.
+- `docs/benchmarks.md`: benchmark build chain, mock workload, metric definitions, limitations, and measured optimization record.
 - `Makefile`: canonical developer targets.
 - `docs/cost-audit.md`: rationale and findings for subagent cost behavior.
 - `AGENTS.md`: repository-wide change, comment, and commit rules.
@@ -42,7 +44,7 @@ make smoke
 make build
 ```
 
-`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios. See the script and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
+`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
 
 ## Project-specific rulings
 

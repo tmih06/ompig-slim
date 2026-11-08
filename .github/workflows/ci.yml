@@ -20,6 +20,7 @@ env:
 
 jobs:
   check:
+    needs: release
     name: Tests, vet, race and smoke (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -48,9 +49,25 @@ jobs:
       # flags and observed test inputs before reusing a successful result.
       - name: Check script compatibility with the platform Bash
         run: python3 scripts/test-check-go.py
+      - name: Test benchmark fixtures, accounting and reporting
+        run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
       - run: make check
       - run: make race
-      - run: make smoke
+      - name: Download the already-built release archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-archives
+          path: bin/releases
+      - name: Extract this runner's native executable
+        run: |
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in x86_64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) exit 1 ;; esac
+          tar -xzf "bin/releases/ompig-slim-$os-$arch.tar.gz" -C bin
+          mv bin/ompig-slim/ompig-slim bin/ompig-slim-executable
+          rm -r bin/ompig-slim
+          mv bin/ompig-slim-executable bin/ompig-slim
+      - run: make smoke-built
       - name: Verify startup accepts and paints early input
         run: |
           profile="$(mktemp -d)"
@@ -58,6 +75,53 @@ jobs:
           PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 python3 scripts/measure-startup.py ./bin/ompig-slim --agent-dir "$profile" --cwd "$profile" --runs 1
       - run: ./bin/ompig-slim --version
       - run: ./bin/ompig-slim --help
+
+  benchmark:
+    name: Serial CLI comparison (median of five long sessions)
+    needs: [release, check, hygiene]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-archives
+          path: archives
+      - name: Extract the verified Linux build (no Go toolchain or rebuild)
+        run: |
+          cd archives
+          sha256sum --check ompig-slim-linux-x64.tar.gz.sha256
+          tar -xzf ompig-slim-linux-x64.tar.gz
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.18.0'
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: '1.4.4'
+      - name: Install pinned OMP and original Pi on the runner
+        run: |
+          npm ci --prefix benchmarks/omp --no-audit --no-fund
+          npm ci --prefix benchmarks/pi --no-audit --no-fund
+      - name: Benchmark the existing artifact against installed upstream CLIs
+        run: >-
+          python3 scripts/benchmark.py --slim archives/ompig-slim/ompig-slim
+          --runs 5 --warmups 1 --turns 120 --resume-turns 12
+      - name: Publish median comparison
+        if: always()
+        run: |
+          if [[ -f benchmark-results/summary.md ]]; then
+            cat benchmark-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain raw runs and sampled resource timelines
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+          if-no-files-found: error
+          retention-days: 30
 
   hygiene:
     name: Workflow, scripts and full-history secret scan

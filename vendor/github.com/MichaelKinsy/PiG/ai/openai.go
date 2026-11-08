@@ -724,6 +724,34 @@ type completionsConvertOptions struct {
 	systemTools func(systemIndex int, message SystemMessage) ([]oaiTool, error)
 }
 
+// joinTextParts is the assistant content a completions request carries: its one text part as that string, or every part concatenated with no
+// separator, or "" when no part carries text.
+//
+// Pi accumulates `text += part.text` per part (openai-completions.ts convertMessages), copying the text built so far on every part. Here a
+// single part, the ordinary case, is returned without being copied, and only multiple parts are joined, into a buffer sized once. The caller
+// compares the result with "", so the empty return keeps its existing meaning: a message with no text carries no content.
+func joinTextParts(parts []oaiContentPart) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return *parts[0].Text
+	}
+	size := 0
+	for _, part := range parts {
+		size += len(*part.Text)
+	}
+	if size == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.Grow(size)
+	for _, part := range parts {
+		out.WriteString(*part.Text)
+	}
+	return out.String()
+}
+
 // convertCompletionsMessages converts the conversation after the leading
 // system message. A later system message becomes a tool-bearing system
 // message for its anchored additions, then its update text in the
@@ -826,10 +854,6 @@ func convertCompletionsMessages(messages []Message, options completionsConvertOp
 			if converted.ReasoningDetails == nil && len(legacyReasoningDetails) > 0 {
 				converted.ReasoningDetails = legacyReasoningDetails
 			}
-			var assistantText strings.Builder
-			for _, part := range textParts {
-				assistantText.WriteString(*part.Text)
-			}
 			if thinkingAsText && len(thinkingText) > 0 {
 				sanitized := make([]string, len(thinkingText))
 				for i, text := range thinkingText {
@@ -837,8 +861,8 @@ func convertCompletionsMessages(messages []Message, options completionsConvertOp
 				}
 				converted.Content = append([]oaiContentPart{{Type: "text", Text: new(strings.Join(sanitized, "\n\n"))}}, textParts...)
 			} else {
-				if assistantText.Len() > 0 {
-					converted.Content = assistantText.String()
+				if content := joinTextParts(textParts); content != "" {
+					converted.Content = content
 				}
 				if len(converted.ReasoningDetails) == 0 && len(thinkingText) > 0 {
 					signature := nonEmptyThinking[0].ThinkingSignature

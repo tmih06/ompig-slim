@@ -98,4 +98,6 @@ make release  # build supported platform archives
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before changing the code or vendored runtime. In particular, the vendored PiG library contains project-specific patches; a routine `go mod vendor` would replace them.
 
+CI also compares the existing release executable with pinned OMP and original Pi installs using a local mock model, five-run medians, long coding sessions, and resource/footprint measurements. See [benchmark methodology and local results](docs/benchmarks.md).
+
 For technical architecture, project conventions, and maintenance guidance, see [CONTEXT.md](CONTEXT.md).
