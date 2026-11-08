@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -91,6 +92,38 @@ func TestOMPChatLookupAndListingShareCatalog(t *testing.T) {
 		if _, _, variant := OpenRouterRoutingVariant(model.Provider, model.ID); variant {
 			t.Fatal("synthetic routing variant listed", model.ID)
 		}
+	}
+}
+
+// TestOMPChatIndexesPreserveProviderPrecedence checks every seed row against
+// exact lookup and verifies that bare lookup retains the first provider's full
+// row, including duplicate IDs. The index must not change catalog ordering or
+// expose mutable row ownership when its internal representation changes.
+func TestOMPChatIndexesPreserveProviderPrecedence(t *testing.T) {
+	first := map[string]GeneratedModel{}
+	for _, provider := range OMPCatalogProviders() {
+		rows, _ := OMPChatCatalog(provider)
+		for _, row := range rows {
+			if got, ok := LookupOMPChatModel(provider, row.ID); !ok || !reflect.DeepEqual(got, row) {
+				t.Fatalf("exact lookup changed %s/%s", provider, row.ID)
+			}
+			if _, exists := first[row.ID]; !exists {
+				first[row.ID] = row
+			}
+		}
+	}
+	for id, want := range first {
+		got, ok := LookupOMPChatModelByID(id)
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Fatalf("bare lookup changed %s: got %s, want %s", id, got.Provider, want.Provider)
+		}
+		got.ID = "caller-owned-copy"
+		if again, _ := LookupOMPChatModelByID(id); again.ID != id {
+			t.Fatalf("caller mutated the index row for %s", id)
+		}
+	}
+	if _, ok := LookupOMPChatModelByID("not-a-bundled-id"); ok {
+		t.Fatal("missing bare ID resolved")
 	}
 }
 

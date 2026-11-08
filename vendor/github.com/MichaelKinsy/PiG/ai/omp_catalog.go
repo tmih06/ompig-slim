@@ -25,36 +25,39 @@ type ompCatalogMetric struct {
 	TPS      *float64 `json:"tps,omitempty"`
 }
 
+// decodeOMPCatalogFile reads a checked-in JSON member, decompressing .gz files.
+// All callers name trusted embedded files; missing/corrupt data is an invariant
+// violation and panics rather than silently switching to a different catalog.
+func decodeOMPCatalogFile(path string, target any) {
+	data, err := ompCatalogFiles.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	if strings.HasSuffix(path, ".gz") {
+		reader, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			panic(err)
+		}
+		data, err = io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			panic(err)
+		}
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		panic(err)
+	}
+}
+
 var ompCatalogLoads sync.Map
 var ompMetricAliases = sync.OnceValue(func() map[string][]ompCatalogMetric {
-	compressed, err := ompCatalogFiles.ReadFile("omp_catalog_data/metric-aliases.json.gz")
-	if err != nil {
-		panic(err)
-	}
-	reader, err := gzip.NewReader(bytes.NewReader(compressed))
-	if err != nil {
-		panic(err)
-	}
-	data, err := io.ReadAll(reader)
-	_ = reader.Close()
-	if err != nil {
-		panic(err)
-	}
 	var index map[string][]ompCatalogMetric
-	if err = json.Unmarshal(data, &index); err != nil {
-		panic(err)
-	}
+	decodeOMPCatalogFile("omp_catalog_data/metric-aliases.json.gz", &index)
 	return index
 })
 var ompCatalogEnvKeys = sync.OnceValue(func() map[string][]string {
-	raw, err := ompCatalogFiles.ReadFile("omp_catalog_data/provider-auth.json")
-	if err != nil {
-		panic(err)
-	}
 	var keys map[string][]string
-	if err = json.Unmarshal(raw, &keys); err != nil {
-		panic(err)
-	}
+	decodeOMPCatalogFile("omp_catalog_data/provider-auth.json", &keys)
 	return keys
 })
 
@@ -68,14 +71,8 @@ type OMPCatalogPolicy struct {
 }
 
 var ompCatalogPolicies = sync.OnceValue(func() map[string]OMPCatalogPolicy {
-	raw, err := ompCatalogFiles.ReadFile("omp_catalog_data/provider-policy.json")
-	if err != nil {
-		panic(err)
-	}
 	var policies map[string]OMPCatalogPolicy
-	if err = json.Unmarshal(raw, &policies); err != nil {
-		panic(err)
-	}
+	decodeOMPCatalogFile("omp_catalog_data/provider-policy.json", &policies)
 	return policies
 })
 
@@ -157,27 +154,12 @@ func loadOMPCatalog(provider string) *ompCatalog {
 		return nil
 	}
 	loader, _ := ompCatalogLoads.LoadOrStore(provider, sync.OnceValue(func() *ompCatalog {
-		compressed, err := ompCatalogFiles.ReadFile("omp_catalog_data/" + provider + ".json.gz")
-		if err != nil {
-			panic(err)
-		}
-		reader, err := gzip.NewReader(bytes.NewReader(compressed))
-		if err != nil {
-			panic(err)
-		}
-		data, err := io.ReadAll(reader)
-		reader.Close()
-		if err != nil {
-			panic(err)
-		}
 		var records []json.RawMessage
-		if err = json.Unmarshal(data, &records); err != nil {
-			panic(err)
-		}
+		decodeOMPCatalogFile("omp_catalog_data/"+provider+".json.gz", &records)
 		catalog := &ompCatalog{models: map[string]*Model{}, chatByID: map[string]GeneratedModel{}}
 		for _, record := range records {
 			var row ompCatalogRow
-			if err = json.Unmarshal(record, &row); err != nil {
+			if err := json.Unmarshal(record, &row); err != nil {
 				panic(err)
 			}
 			if row.Provider != provider || row.ID == "" {
@@ -241,12 +223,16 @@ func LookupOMPChatModel(provider, id string) (GeneratedModel, bool) {
 	return model, ok
 }
 
-var ompChatByID = sync.OnceValue(func() map[string][]GeneratedModel {
-	index := map[string][]GeneratedModel{}
+// Bare lookup only exposes the first provider match; retaining later matches
+// would duplicate catalog rows without affecting resolution.
+var ompChatByID = sync.OnceValue(func() map[string]GeneratedModel {
+	index := map[string]GeneratedModel{}
 	for _, provider := range OMPCatalogProviders() {
 		catalog := loadOMPCatalog(provider)
 		for _, model := range catalog.chat {
-			index[model.ID] = append(index[model.ID], model)
+			if _, exists := index[model.ID]; !exists {
+				index[model.ID] = model
+			}
 		}
 	}
 	return index
@@ -255,11 +241,8 @@ var ompChatByID = sync.OnceValue(func() map[string][]GeneratedModel {
 // LookupOMPChatModelByID resolves a bare ID in OMP provider order, matching
 // the generated registry's deterministic first-provider behavior.
 func LookupOMPChatModelByID(id string) (GeneratedModel, bool) {
-	rows := ompChatByID()[id]
-	if len(rows) == 0 {
-		return GeneratedModel{}, false
-	}
-	return rows[0], true
+	model, ok := ompChatByID()[id]
+	return model, ok
 }
 
 // OMPChatCatalog returns immutable generated chat rows and whether OMP owns the

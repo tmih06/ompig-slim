@@ -53,16 +53,13 @@ func (r *ModelRegistry) publicCatalogAdditions(provider string) []*ai.Model {
 		return models
 	}
 	seed, _ := ai.OMPChatCatalog(provider)
-	var template *ai.Model
-	if generated, ok := ai.LookupOMPChatModel(provider, policy.DefaultModel); ok {
-		template = generated.ToModel()
-	}
-	if template == nil && len(seed) > 0 {
-		template = seed[0].ToModel()
-	}
-	// Empty/dynamic-only providers need their native manager, not a guessed API.
-	if template == nil {
-		return nil
+	template, found := ai.LookupOMPChatModel(provider, policy.DefaultModel)
+	if !found {
+		// Empty/dynamic-only providers need their native manager, not a guessed API.
+		if len(seed) == 0 {
+			return nil
+		}
+		template = seed[0]
 	}
 	seen := map[string]bool{}
 	for _, row := range seed {
@@ -99,12 +96,13 @@ func publicChatRowEligible(row ai.ModelCatalogMetadataRow) bool {
 
 // publicChatModel projects only data onto a trusted provider transport. The
 // public feed cannot set API/baseURL, headers, auth, upstream routing or compat.
-// Per-model seed fields (priority, signed-thinking policy, effort mappings) are
+// Only API/baseURL are read from the seed row; no full model or metric projection
+// is needed. Per-model priority, signed-thinking policy and effort mappings are
 // deliberately not cloned onto a different ID. Unsupported provider protocols
 // still require code; new IDs on the existing protocol do not.
-func publicChatModel(provider string, template *ai.Model, row ai.ModelCatalogMetadataRow) *ai.Model {
+func publicChatModel(provider string, template ai.GeneratedModel, row ai.ModelCatalogMetadataRow) *ai.Model {
 	model := &ai.Model{Type: ai.ModelTypeChat, ID: row.ID, DisplayName: row.Name,
-		ProviderMeta: ai.ProviderMetadata{ProviderID: provider, API: template.ProviderMeta.API, BaseURL: template.ProviderMeta.BaseURL},
+		ProviderMeta: ai.ProviderMetadata{ProviderID: provider, API: template.API, BaseURL: template.BaseURL},
 		Input:        slices.Clone(row.Input), Capabilities: ai.ModelCapabilities{ContextWindow: *row.ContextWindow, MaxOutputTokens: *row.MaxTokens},
 		Description: row.Description, Catalog: &ai.ModelCatalogProvenance{Source: "cached", Provider: row.Provider, ModelID: row.ID}}
 	if model.DisplayName == "" {

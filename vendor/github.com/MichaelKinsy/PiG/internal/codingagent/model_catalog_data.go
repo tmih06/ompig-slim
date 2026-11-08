@@ -12,7 +12,7 @@ import (
 // GetProviderModelData composes metadata without resolving keys, headers, or backend clients. Like the catalog and the native collection it composes from, it omits the models of a stripped API, including models.json and extension definitions on one (ai.OfferedModels).
 func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	if plain, ok := r.plainGeneratedModels(id); ok {
-		return r.plainModelDataEnriched(plain)
+		return r.enrichModelData(plainModelData(plain))
 	}
 	if r.GetProvider(id) != nil {
 		return r.enrichModelData(r.GetNativeModels(id))
@@ -111,15 +111,8 @@ func plainModelData(generated []ai.GeneratedModel) []*ai.Model {
 	return ai.OfferedModels(models)
 }
 
-// plainModelDataEnriched is plainModelData with the public catalog metrics of each model, which is what
-// every list path publishes (model-metadata-provider.ts withModelMetadata). Bundled models only receive
-// int/tps/description: their curated prices and limits outrank a catalog scrape.
-func (r *ModelRegistry) plainModelDataEnriched(generated []ai.GeneratedModel) []*ai.Model {
-	return r.enrichModelData(plainModelData(generated))
-}
-
-// plainModelDataEntriesEnriched is plainModelDataEnriched for a catalog the caller already filtered by
-// entry pointer.
+// plainModelDataEntriesEnriched builds and enriches a catalog the caller already
+// filtered by entry pointer.
 func (r *ModelRegistry) plainModelDataEntriesEnriched(generated []*ai.GeneratedModel) []*ai.Model {
 	if len(generated) == 0 {
 		return nil
