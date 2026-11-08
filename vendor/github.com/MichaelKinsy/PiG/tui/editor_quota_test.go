@@ -12,7 +12,7 @@ func TestPromptQuotaBorderPreservesStatusAndWidth(t *testing.T) {
 	e := NewEditor()
 	e.EmbedWorkingStatus = true
 	e.SetWorkingStatusIndicator(&StatusIndicator{Kind: "working", Loader: NewLoader(nil, nil, nil, "Working", nil)})
-	label := "5h ███████░░░░░ 40% left · reset 2h"
+	label := "5h ■■■□□□ 40% left · reset 2h"
 	e.TopRightStatus = func(budget int) string {
 		if widthx.VisibleWidth(label) <= budget {
 			return label
