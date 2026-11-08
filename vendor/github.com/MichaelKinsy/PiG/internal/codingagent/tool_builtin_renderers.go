@@ -66,13 +66,15 @@ func (linesComponent) Invalidate()                 {}
 // renderers keep. The shell ticker and the edit preview update it off the UI
 // loop, so it has its own lock.
 type builtInRenderState struct {
-	mu        sync.Mutex
-	lifetime  context.Context
-	closed    bool
-	tasks     sync.WaitGroup
-	startedAt time.Time
-	endedAt   time.Time
-	stopTick  chan struct{}
+	mu       sync.Mutex
+	lifetime context.Context
+	closed   bool
+	tasks    sync.WaitGroup
+	// headerOwnsTiming suppresses result timers when the rich card owns the clock.
+	headerOwnsTiming bool
+	startedAt        time.Time
+	endedAt          time.Time
+	stopTick         chan struct{}
 	// shellView* is the shell result view the last result render built, reused while its inputs are unchanged.
 	shellViewKey   shellViewKey
 	shellViewValue shellResultView
@@ -281,6 +283,10 @@ func startToolTimer(context extension.ToolRenderContext) {
 func toolTimerText(context extension.ToolRenderContext, isPartial bool) (string, bool) {
 	state := builtInState(context)
 	state.mu.Lock()
+	if state.headerOwnsTiming {
+		state.mu.Unlock()
+		return "", false // The shared header already renders live and final timing.
+	}
 	if !state.closed && !state.startedAt.IsZero() && isPartial && state.stopTick == nil {
 		stop := make(chan struct{})
 		state.stopTick = stop

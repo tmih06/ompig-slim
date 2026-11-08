@@ -458,7 +458,11 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 				return
 			}
 			result := r.Result()
-			comp.BodyRenderer = toolBodyRendererForCall(call, result, recordedTook(call.Name, r.DurationMs, nil))
+			took := recordedTook(call.Name, r.DurationMs, nil)
+			if comp.Rich {
+				took = nil // Restored cards also show timing only in their header.
+			}
+			comp.BodyRenderer = toolBodyRendererForCall(call, result, took)
 			final := ToolExecutionResultOf(result, 0)
 			final.IsError = r.IsError
 			final.DurationMs = r.DurationMs

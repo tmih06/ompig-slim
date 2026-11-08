@@ -63,6 +63,24 @@ make build
 - The importer persists only the access token, optional refresh token, account ID, and expiry. It gets the account ID from the token or `providerSpecificData.chatgptAccountId`; `expiresAt` (RFC3339) takes precedence over `expiresIn` (seconds), and JWT expiry caps either lifetime. Missing or expired expiry is rejected. Fields such as `idToken`, labels, and subscription metadata are discarded. See `vendor/github.com/MichaelKinsy/PiG/ai/omp_codex_json.go`.
 - Imported accounts use the normal quota-aware account router and refresh-token rotation. Definitive refresh failures remove live secrets and routing blocks while retaining an OMP-compatible disabled row. Transport failures, cancellation, rate limits, server errors, and unclassified failures retain credentials. Cleanup is use-driven, not a background timer; browser-login Codex accounts are unaffected. See `vendor/github.com/MichaelKinsy/PiG/ai/omp_codex_json_storage.go` and the routing tests beside it.
 
+### Interactive tool cards
+
+- Interactive cards opt into `ToolExecutionOptions.Rich`: a theme-colored
+  frame adds tool-specific labels, preparation/running/final lifecycle status,
+  live elapsed time, separate Input/Result sections, and an expansion hint.
+  Input contains the call renderer; Result contains streamed or final output,
+  with a waiting placeholder before results arrive. Timing appears only in
+  the header, not again in built-in result footers. The kit card factory also opts in;
+  direct TUI component callers retain the upstream presentation by default.
+- The frame wraps existing call/result renderers, including self-framed edits
+  and extension renderers, without parsing their output. Images stay outside
+  the frame. Mouse coordinates are translated back into renderer space.
+- Animation uses owner-loop render ticks, not per-card goroutines. Recorded
+  `DurationMs` wins over locally measured elapsed time on completed cards;
+  restored cards without timing metadata do not invent a duration.
+- Canonical implementation: `tui/tool_execution_rich.go` in the vendored PiG
+  tree. Frame widths use terminal cells and ANSI-aware truncation.
+
 ### Saved rate-limit resets
 
 - `/usage reset` lists Codex and Claude reset inventory. The interactive spend picker includes only currently redeemable, unexpired resets and requires confirmation twice. Typed targets use `/usage reset <provider>/<account-key>`, including `codex/active` and `claude/active`.

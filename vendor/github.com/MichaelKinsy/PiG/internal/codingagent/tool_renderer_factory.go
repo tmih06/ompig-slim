@@ -47,8 +47,8 @@ type ToolRendererCard struct {
 // NewToolRendererCard binds shared renderers to an independent card. An empty pair retains the native card's unregistered-tool path. RequestRender must be safe from a background invalidation.
 func NewToolRendererCard(ctx context.Context, name, toolCallId, cwd string, args json.RawMessage, renderers ToolRenderers, requestRender func()) *ToolRendererCard {
 	lifetime, cancel := context.WithCancel(ctx)
-	state := &builtInRenderState{lifetime: lifetime}
-	component := tui.NewToolExecutionComponent(name, toolCallId, nil, tui.ToolExecutionOptions{}, nil, nil, cwd)
+	state := &builtInRenderState{lifetime: lifetime, headerOwnsTiming: true}
+	component := tui.NewToolExecutionComponent(name, toolCallId, nil, tui.ToolExecutionOptions{Rich: true}, nil, nil, cwd)
 	card := &ToolRendererCard{Component: component, state: state, cancel: cancel}
 	renderState := map[string]any{builtInRenderStateKey: state}
 	cardId := "card-" + strconv.FormatUint(toolCardSeq.Add(1), 10)

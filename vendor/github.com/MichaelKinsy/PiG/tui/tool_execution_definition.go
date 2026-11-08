@@ -238,9 +238,21 @@ func (c *ToolExecutionComponent) resultFallback() Component {
 
 // definitionComponents wraps the call and result components in the regions that toggle the card on click (createResultRegion).
 func (c *ToolExecutionComponent) definitionComponents() []Component {
-	components := []Component{NewMouseRegion(c.definitionCall, c.handleResultMouse)}
+	var components []Component
+	if c.Rich {
+		components = append(components, toolSection(func(width int) []string { return richSectionLabel("Input", width) }))
+	}
+	components = append(components, NewMouseRegion(c.definitionCall, c.handleResultMouse))
+	if c.Rich {
+		components = append(components, toolSection(func(width int) []string { return richSectionLabel("Result", width) }))
+	}
 	if c.definitionResultComponent != nil {
 		components = append(components, NewMouseRegion(c.definitionResultComponent, c.handleResultMouse))
+	}
+	if c.Rich && c.definitionResultComponent == nil {
+		// Missing output gets a placeholder; a renderer that intentionally
+		// hides collapsed output still owns its empty result section.
+		components = append(components, toolSection(c.richResultPlaceholder))
 	}
 	return components
 }
@@ -274,8 +286,15 @@ func (c *ToolExecutionComponent) definitionBg() func(string) string {
 // renderSelfShell is upstream render for renderShell "self": the components after one blank row, or nothing when they draw nothing. Images follow.
 func (c *ToolExecutionComponent) renderSelfShell(width int) []string {
 	images := c.renderImages(width)
-	content := c.selfRenderContainer.Render(width)
-	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, width, len(content)
+	innerWidth := width
+	if c.Rich && width >= 5 {
+		innerWidth -= 2
+	}
+	content := c.selfRenderContainer.Render(innerWidth)
+	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(content)
+	if c.Rich && width >= 5 {
+		content = c.renderRichFrame(width, content)
+	}
 	if len(content) == 0 && len(images) == 0 {
 		return []string{}
 	}

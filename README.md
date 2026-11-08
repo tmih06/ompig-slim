@@ -35,6 +35,8 @@ Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactiv
 - Shared Pi configuration under `~/.pi/agent` and project settings under `.pi`.
 - Multiple provider accounts with account selection, quota-aware routing, and credential migration.
 - Built-in `web_search`, `web_fetch`, and persistent codemode tools.
+- Rich tool cards with separate Input and Result sections, tool-specific labels,
+  live status and elapsed time, highlighted previews, diffs, and Ctrl+O expansion.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - Native Linux and macOS releases for x64 and arm64.
 

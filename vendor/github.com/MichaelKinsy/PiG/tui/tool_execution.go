@@ -14,6 +14,7 @@ import (
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
 	"github.com/MichaelKinsy/PiG/internal/text"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // ToolExecutionState is the lifecycle stage of a tool call display.
@@ -54,6 +55,8 @@ type ToolExecutionComponent struct {
 	Container
 
 	Name string
+	// Rich enables the native framed lifecycle display around tool-owned content.
+	Rich bool
 	// ToolCallID identifies the tool call the card shows (tool-execution.ts toolCallId); renderers receive it in their context.
 	ToolCallID string
 	// Label is ignored: the fallback call header names the tool by Name, as upstream createCallFallback does.
@@ -211,6 +214,8 @@ type toolImageSource struct {
 // ToolExecutionOptions are the optional constructor settings of a tool card (tool-execution.ts:25). A nil field is
 // upstream's undefined: images show (`showImages ?? true`) and render 60 cells wide (`imageWidthCells ?? 60`).
 type ToolExecutionOptions struct {
+	// Rich opts into tool-specific frames and live lifecycle metadata.
+	Rich            bool
 	ShowImages      *bool
 	ImageWidthCells *int
 	// OutputPad is options.outputPad, the horizontal padding of the card; nil keeps Pi's default of 1.
@@ -233,6 +238,7 @@ func (r *ToolDefinitionRenderers) ToolRenderers() *ToolDefinitionRenderers { ret
 func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage, options ToolExecutionOptions, definition ToolDefinitionSource, ui TUI, cwd string) *ToolExecutionComponent {
 	c := &ToolExecutionComponent{
 		Name:            toolName,
+		Rich:            options.Rich,
 		ToolCallID:      toolCallID,
 		Cwd:             cwd,
 		ui:              ui,
@@ -310,6 +316,9 @@ func (b *toolCardBox) Render(width int) []string {
 func (c *ToolExecutionComponent) IsDirty() bool {
 	if c.invalidatable.IsDirty() {
 		return true
+	}
+	if c.Rich && c.State == ToolStateRunning {
+		return true // The owner-loop spinner tick drives the frame; no per-card timer.
 	}
 	if c.definition != nil {
 		return c.definitionDirty.Load() || c.definitionComponentsDirty()
@@ -708,6 +717,19 @@ func (c *ToolExecutionComponent) runningElapsedRows(width int) []string {
 
 // HandleMouse delegates to nested renderer components before toggling a completed or partial result. Images and the outer spacer never toggle the card.
 func (c *ToolExecutionComponent) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
+	if c.Rich && event.Width >= 5 {
+		// Frame rows are decorative. Translate into the original renderer's
+		// coordinates so nested extension controls retain their hit targets.
+		if c.mouseWidth != event.Width-2 || c.mouseDirty.Load() {
+			c.Render(event.Width)
+		}
+		if event.X == 0 || event.X >= event.Width-1 || event.Y <= 1 || event.Y > c.mouseHeight+1 {
+			return nil
+		}
+		event.X--
+		event.Y--
+		event.Width -= 2
+	}
 	if c.definition == nil && (event.Type != MouseClick || event.Button != MouseButtonLeft || !c.definitionHasResult()) {
 		return nil
 	}
@@ -741,6 +763,18 @@ func (c *ToolExecutionComponent) handleResultMouse(event TuiMouseEvent) *TuiMous
 
 // Render mirrors upstream render (tool-execution.ts:262-292): a registered definition with renderShell "self" draws its components after one blank row, or nothing when they draw nothing; every other card is the Container of spacer, content box and images.
 func (c *ToolExecutionComponent) Render(width int) []string {
+	rows := c.renderTool(width)
+	if c.Rich && width < 5 {
+		// Legacy padded boxes require more cells than tiny panes provide.
+		for i, row := range rows {
+			rows[i] = widthx.TruncateToWidth(row, max(width, 0), "", false)
+		}
+	}
+	return rows
+}
+
+// renderTool preserves tool-owned layout and mouse bookkeeping inside the frame.
+func (c *ToolExecutionComponent) renderTool(width int) []string {
 	c.mouseDirty.Store(false)
 	if c.definition != nil {
 		if c.definitionDirty.Load() || c.definitionCall == nil {
@@ -758,6 +792,14 @@ func (c *ToolExecutionComponent) Render(width int) []string {
 
 // renderCard draws the content box: the definition's Box, or the legacy card for a tool without one. It records the card's height and width for mouse dispatch.
 func (c *ToolExecutionComponent) renderCard(width int) []string {
+	if c.Rich && width >= 5 {
+		return c.renderRichFrame(width, c.renderCardContent(width-2))
+	}
+	return c.renderCardContent(width)
+}
+
+// renderCardContent renders tool-owned content and records its unframed mouse bounds.
+func (c *ToolExecutionComponent) renderCardContent(width int) []string {
 	if c.definition != nil {
 		content := c.contentBox.Render(width)
 		c.mouseChild, c.mouseWidth, c.mouseHeight = c.contentBox, width, len(content)
@@ -773,6 +815,15 @@ func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c
 
 // renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
 func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
+	if c.Rich {
+		var header string
+		if c.isUnregisteredTool() {
+			header = c.formatToolExecution()
+		} else {
+			header = c.renderHeaderInner(width)
+		}
+		return append(richSectionLabel("Input", width), wrapText(header, width)...)
+	}
 	if c.isUnregisteredTool() {
 		return wrapText(c.formatToolExecution(), width)
 	}
@@ -797,7 +848,7 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
 			}
 		}
 	}
-	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" {
+	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" && !c.Rich {
 		out += "\n" + output
 	}
 	return out
@@ -805,6 +856,25 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
 
 // renderLegacyBody draws what follows the header: the live elapsed footer before any output, the collapsed preview, or the separator, result body and footer.
 func (c *ToolExecutionComponent) renderLegacyBody(width int) []string {
+	if c.Rich {
+		rows := richSectionLabel("Result", width)
+		var body []string
+		if c.isUnregisteredTool() {
+			if preview := c.resultFallback(); preview != nil {
+				body = preview.Render(width)
+			}
+		} else if c.Output != "" || c.BodyRenderer != nil {
+			if c.Collapsed && c.BodyRenderer == nil {
+				body = c.renderCollapsedPreview(width)
+			} else {
+				body = c.renderResultBody(width)
+			}
+		}
+		if len(body) == 0 {
+			body = c.richResultPlaceholder(width)
+		}
+		return append(rows, body...)
+	}
 	if c.isUnregisteredTool() {
 		return nil
 	}
