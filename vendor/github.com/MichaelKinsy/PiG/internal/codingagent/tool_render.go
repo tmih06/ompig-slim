@@ -3,6 +3,7 @@ package codingagent
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,6 +117,11 @@ func toolBodyRenderer(toolName string, result agent.AgentToolResult, took *time.
 			}
 			return renderReadLines(d, result.Text(), width, expanded)
 		}
+	case "web_fetch":
+		// A fetch returns the whole rendering the model sees, up to the tool's
+		// own cap (300 lines or 50KB). Without a body renderer the card has no
+		// collapsed form and dumps all of it into the transcript.
+		return makeWebFetchBodyRenderer(result.Text())
 	}
 
 	// Extension-provided preview: when the tool result carries a Preview
@@ -371,6 +377,74 @@ func makePreviewBodyRenderer(content, preview string, elapsed time.Duration) fun
 		}
 
 		return out
+	}
+}
+
+// webFetchPreviewLines is the collapsed visual-line budget of a web_fetch card.
+//
+// A fetch can return hundreds of lines; collapsed, the card keeps the head of
+// the page (header, title, first paragraphs) in view and ctrl+o reveals the
+// rest. The budget counts wrapped visual lines, so one long paragraph or table
+// row cannot fill the screen the way a logical-line budget would.
+const webFetchPreviewLines = 10
+
+// makeWebFetchBodyRenderer renders a web_fetch result: the first
+// webFetchPreviewLines visual lines while collapsed plus a hint for the hidden
+// ones, every line while expanded. Lines are drawn in the tool-output color,
+// which the card's lifecycle background shows through.
+//
+// The renderer only decides how much of the text the transcript shows; the
+// model-facing text is bounded by the tool itself.
+//
+// The preview keeps the head, unlike the shell renderer's tail: a fetched
+// document is read from the top, and the tool's own trailing notices (the
+// truncation warning, the next line range, the full-output path) sit behind
+// ctrl+o with the rest of the body. Keeping them visible would mean either a
+// second preview or poking at the text to find them, and the expanded card
+// already shows them.
+func makeWebFetchBodyRenderer(content string) func(width int, expanded bool) []string {
+	output := jsTrim(shellTextOutput(content))
+	// The card renders every frame while the transcript is redrawn, and a
+	// rendering can be hundreds of lines. Both components cache their own rows
+	// by width, so they are rebuilt only when the active theme changes: colors
+	// are baked into them, and a theme switch must not leave the old ones.
+	var (
+		theme   *tui.Theme
+		body    *tui.Text
+		preview *tui.VisualLinePreview
+	)
+	// refresh rebuilds the styled text and both components when the active
+	// theme changed; every other frame reuses them.
+	refresh := func() {
+		current := tui.ActiveTheme()
+		if body != nil && theme == current {
+			return
+		}
+		theme = current
+		lines := make([]string, 0, strings.Count(output, "\n")+1)
+		for line := range strings.SplitSeq(output, "\n") {
+			lines = append(lines, themeFg(current.ToolOutput, line))
+		}
+		text := strings.Join(lines, "\n")
+		body = tui.NewPaddedText(text, 0, 0, nil)
+		preview = tui.NewVisualLinePreview(tui.VisualLinePreviewOptions{
+			Text:           text,
+			MaxVisualLines: webFetchPreviewLines,
+			Keep:           tui.VisualKeepStart,
+			FormatHint: func(hidden int) string {
+				return moreLinesHint("... (" + strconv.Itoa(hidden) + " more lines,")
+			},
+		})
+	}
+	return func(width int, expanded bool) []string {
+		if output == "" {
+			return nil
+		}
+		refresh()
+		if expanded {
+			return body.Render(width)
+		}
+		return preview.Render(width)
 	}
 }
 
