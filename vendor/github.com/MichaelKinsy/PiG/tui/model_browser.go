@@ -39,7 +39,7 @@ func ModelItemKind(item ModelSelectorItem) string {
 		return "chat"
 	}
 	if item.Kind == "classifier" {
-		return "tiny"
+		return "judge"
 	}
 	return item.Kind
 }
@@ -106,46 +106,6 @@ func (b *ModelBrowser) SetItems(items []ModelSelectorItem) {
 		selected = item.FQ()
 	}
 	b.items = slices.Clone(items)
-	// OMP seats current/role models above the catalog, separated from the rest.
-	// Virtual @role rows instead retain cycle order and never get a separator.
-	if len(items) > 0 && items[0].Role == "" {
-		preferred := map[string]int{}
-		if b.current != "" {
-			preferred[b.current] = 0
-		}
-		for _, role := range b.roleConfig.Known(nil) {
-			if value := b.roles[role]; value != "" {
-				base, _ := modelroles.Split(value)
-				if _, exists := preferred[base]; !exists {
-					preferred[base] = len(preferred)
-				}
-			}
-		}
-		slices.SortStableFunc(b.items, func(a, c ModelSelectorItem) int {
-			ap, aok := preferred[a.FQ()]
-			cp, cok := preferred[c.FQ()]
-			if aok != cok {
-				if aok {
-					return -1
-				}
-				return 1
-			}
-			if aok {
-				return ap - cp
-			}
-			return 0
-		})
-		split := 0
-		for split < len(b.items) {
-			if _, ok := preferred[b.items[split].FQ()]; !ok {
-				break
-			}
-			split++
-		}
-		if split > 0 && split < len(b.items) {
-			b.items = slices.Insert(b.items, split, ModelSelectorItem{Kind: "separator"})
-		}
-	}
 	b.filter()
 	if selected != "" {
 		b.Select(selected)
@@ -163,6 +123,7 @@ func (b *ModelBrowser) SetQuery(query string) { b.search.SetText(query); b.filte
 
 // filter ranks a fixed haystack and resets selection only after a query/data change.
 func (b *ModelBrowser) filter() {
+	b.rankBrowserItems()
 	indices := make([]int, 0, len(b.items))
 	for i, item := range b.items {
 		if item.Kind != "separator" || b.Query() == "" {

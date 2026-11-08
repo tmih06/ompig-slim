@@ -17,7 +17,7 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	if r.GetProvider(id) != nil {
 		return r.enrichModelData(r.GetNativeModels(id))
 	}
-	generatedModels := builtinChatCatalogListed(id)
+	generatedModels := builtinChatCatalog(id)
 	var baseline []*ai.Model
 	if len(generatedModels) > 0 {
 		baseline = make([]*ai.Model, 0, len(generatedModels))
@@ -71,12 +71,12 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	return r.enrichModelData(ai.OfferedModels(models))
 }
 
-// plainGeneratedModels returns the bundled catalog of provider id, with OpenRouter's routing variants (builtinChatCatalogListed), when nothing changes it: no provider code, remote catalog overlay, Radius provider, extension registration or models.json entry. GetProviderModelData's models for such a provider are exactly plainModelData of it, and building them has no effect to observe.
+// plainGeneratedModels returns the bundled catalog of provider id, without synthetic routing variants, when nothing changes it: no provider code, remote catalog overlay, Radius provider, extension registration or models.json entry. GetProviderModelData's models for such a provider are exactly plainModelData of it, and building them has no effect to observe.
 func (r *ModelRegistry) plainGeneratedModels(id string) ([]ai.GeneratedModel, bool) {
 	if !r.isPlainGenerated(id) {
 		return nil, false
 	}
-	return builtinChatCatalogListed(id), true
+	return builtinChatCatalog(id), true
 }
 
 // isPlainGenerated reports whether nothing changes the bundled catalog of provider id (plainGeneratedModels).
@@ -277,6 +277,7 @@ func (r *ModelRegistry) modelProviderIDs() []string {
 	}
 	r.mu.RUnlock()
 	order := ai.ListProviders()
+	order = append(order, ai.OMPCatalogProviders()...)
 	order = append(order, configured...)
 	order = append(order, dynamic...)
 	order = append(order, r.nativeCollectionProviderIDs()...)

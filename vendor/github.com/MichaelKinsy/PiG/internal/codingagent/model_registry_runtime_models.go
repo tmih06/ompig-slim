@@ -12,7 +12,7 @@ func (r *ModelRegistry) RuntimeModels() []RuntimeModel {
 		if overlays[i] = r.hasModelDataOverlay(id); overlays[i] {
 			builtins += len(builtinChatCatalog(id))
 		} else {
-			builtins += len(builtinChatCatalogListed(id))
+			builtins += len(builtinChatCatalog(id))
 		}
 	}
 	result := make([]RuntimeModel, 0, builtins)
@@ -25,7 +25,7 @@ func (r *ModelRegistry) RuntimeModels() []RuntimeModel {
 		}
 		// Unmodified built-ins already contain every field the model resolver reads. Preserve fresh header ownership without materializing the request-only fields of ai.Model.
 		// pig divergence (D199): OpenRouter's routing variants follow their model, as they do in the composed catalog; the held variant entries carry their id and name, so none is built here.
-		for _, model := range builtinChatCatalogListed(id) {
+		for _, model := range builtinChatCatalog(id) {
 			result = append(result, RuntimeModel{Provider: model.Provider, ID: model.ID, Name: model.DisplayName, Reasoning: model.Reasoning, Headers: ai.ProviderHeadersFromStrings(model.Headers)})
 		}
 	}

@@ -85,7 +85,7 @@ func (m *InteractiveMode) pickModel(ctx context.Context) (string, bool, func()) 
 			tokens = *used
 		}
 	}
-	picker := tui.NewModelPicker(tui.ModelPickerConfig{Models: items, QuickRoles: roles, Current: modelSpec(m.opts.Model), CurrentRole: currentRole, TaskSelector: taskSelector, ContextTokens: tokens, RoleConfig: roleConfig, ResolvedRoles: resolvedRoles, Height: m.tuiInst.Height, TaskKeys: []string{"alt+p", "ctrl+l"}})
+	picker := tui.NewModelPicker(tui.ModelPickerConfig{Models: items, QuickRoles: roles, Current: modelSpec(m.opts.Model), CurrentRole: currentRole, TaskSelector: taskSelector, ContextTokens: tokens, RoleConfig: roleConfig, ResolvedRoles: resolvedRoles, Recent: roleConfig.ModelRecent, Height: m.tuiInst.Height, TaskKeys: []string{"alt+p", "ctrl+l"}})
 	m.disposeActiveSelector()
 	overlay := m.tuiInst.ShowOverlay(picker, tui.ModelPickerOverlayOptions())
 	token := new(int)

@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "fetchedAt": 1794146378142,
+  "checkedAt": 1794146378142,
+  "rows": [
+    {
+      "provider": "openai",
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "int": 23.8,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supportsOffEffort": true,
+      "cost": {
+        "input": 0.2,
+        "output": 1.2,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "int": 51.3,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supportsOffEffort": true,
+      "cost": {
+        "input": 1,
+        "output": 5,
+        "cacheRead": 0.05,
+        "cacheWrite": 1.25
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "int": 56.9,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "cost": {
+        "input": 10,
+        "output": 50,
+        "cacheRead": 1,
+        "cacheWrite": 12.5
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "int": 44.2,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supportsOffEffort": true,
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "int": 27.9,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supportsOffEffort": true,
+      "cost": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheRead": 0.01,
+        "cacheWrite": 0.125
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "int": 32.3,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supportsOffEffort": true,
+      "cost": {
+        "input": 2,
+        "output": 12,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    },
+    {
+      "provider": "openai",
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "int": 54.6,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true,
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.1,
+        "cacheWrite": 2.5
+      },
+      "contextWindow": 1050000,
+      "maxTokens": 128000
+    }
+  ]
+}

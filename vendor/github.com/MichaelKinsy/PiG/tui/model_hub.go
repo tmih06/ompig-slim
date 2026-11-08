@@ -15,6 +15,7 @@ import (
 type ModelHubConfig struct {
 	Models            []ModelSelectorItem
 	AllModels         []ModelSelectorItem
+	Providers         []string
 	Scoped            bool
 	Current           string
 	Height            func() int
@@ -161,6 +162,11 @@ func (h *ModelHub) reload() {
 	for _, item := range h.cfg.AllModels {
 		catalog[item.Provider]++
 	}
+	for _, provider := range h.cfg.Providers {
+		if _, exists := catalog[provider]; !exists {
+			catalog[provider] = 0
+		}
+	}
 	providers := []string{}
 	for provider := range catalog {
 		if !slices.Contains(h.config.DisabledProviders, provider) {
@@ -203,6 +209,7 @@ func (h *ModelHub) reload() {
 	h.resolvedRoles = resolved
 	h.browser.SetRoles(resolved)
 	h.browser.roleConfig = h.config
+	h.browser.recent = h.config.ModelRecent
 }
 
 // kindRole separates non-chat role tabs without coupling them to provider APIs.
@@ -1538,8 +1545,8 @@ func (h *ModelHub) Render(width int) []string {
 			status = "Applying model…"
 			statusColor = th.Accent
 		}
-		if h.refreshing[entry.provider] || h.refreshing[""] {
-			status += " · refreshing…"
+		if entry.provider != "" && h.refreshing[entry.provider] {
+			status = entry.label + " · refreshing model list…"
 		}
 		statusText := " " + SanitizeModelText(status)
 		if h.target != nil && h.target.kind != "newFallback" {

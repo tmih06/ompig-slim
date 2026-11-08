@@ -3,11 +3,11 @@ package codingagent
 import (
 	"context"
 	"fmt"
-
-	"github.com/MichaelKinsy/PiG/ai"
 	"maps"
+	"slices"
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/tui"
 )
@@ -64,12 +64,23 @@ func (m *InteractiveMode) showModelHub() {
 	life, cancel := context.WithCancel(m.runCtx)
 	defer cancel()
 	registry := m.modelRegistryOrDefault()
+	var allSnapshot []tui.ModelSelectorItem
+	// One overlay snapshot serves repeated role resolution. Only discovery/login
+	// invalidates it; otherwise each role reparses/clones the entire catalog.
 	allItems := func() []tui.ModelSelectorItem {
-		var items []tui.ModelSelectorItem
-		for _, model := range registry.GetAllProviderModelData() {
-			items = append(items, hubCatalogItem(model))
+		if allSnapshot == nil {
+			allSnapshot = []tui.ModelSelectorItem{}
+			disabled := sm.Get().DisabledProviders
+			for _, provider := range registry.BrowserProviderIDs() {
+				if slices.Contains(disabled, provider) {
+					continue
+				}
+				for _, model := range registry.GetProviderAllModelData(provider) {
+					allSnapshot = append(allSnapshot, hubCatalogItem(model))
+				}
+			}
 		}
-		return items
+		return allSnapshot
 	}
 	availableItems := func() []tui.ModelSelectorItem {
 		items := m.availableModelItems()
@@ -78,16 +89,16 @@ func (m *InteractiveMode) showModelHub() {
 			seen[item.FQ()] = true
 		}
 		for _, item := range allItems() {
-			if ModelKind := tui.ModelItemKind(item); ModelKind != "chat" && !seen[item.FQ()] && registry.HasConfiguredAuth(item.Provider) {
+			if ModelKind := tui.ModelItemKind(item); ModelKind != "chat" && !seen[item.FQ()] && (ai.OMPKeylessCatalog(item.Provider) || registry.HasConfiguredAuth(item.Provider)) {
 				items = append(items, item)
 			}
 		}
 		return m.scopeBrowserModels(items)
 	}
-	refreshes := newHubRefreshQueue(m, life, registry, availableItems, allItems)
+	refreshes := newHubRefreshQueue(m, life, registry, availableItems, func() []tui.ModelSelectorItem { allSnapshot = nil; return allItems() })
 	var hub *tui.ModelHub
 	hub = tui.NewModelHub(tui.ModelHubConfig{
-		Models: availableItems(), AllModels: allItems(), Scoped: m.opts.SessionHandle != nil && len(m.opts.SessionHandle.ScopedModels()) > 0, Current: modelSpec(m.opts.Model), Height: func() int { return m.tuiInst.Height() },
+		Models: availableItems(), AllModels: allItems(), Providers: registry.BrowserProviderIDs(), Scoped: m.opts.SessionHandle != nil && len(m.opts.SessionHandle.ScopedModels()) > 0, Current: modelSpec(m.opts.Model), Height: func() int { return m.tuiInst.Height() },
 		ScopedConfig: func(scope string) modelroles.Config {
 			if scope == "project" {
 				return sm.GetProjectSettings().Config

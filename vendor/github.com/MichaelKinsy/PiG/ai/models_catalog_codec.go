@@ -38,6 +38,7 @@ type modelsCatalogRecord struct {
 	// Int, TPS and Description are the catalog metrics a model may carry (types.ts BaseModel.int/tps/description);
 	// Catalog is where they came from. They are members upstream's enrichment spreads over a model.
 	Int         *float64                `json:"int,omitempty"`
+	Priority    *float64                `json:"priority,omitempty"`
 	TPS         *float64                `json:"tps,omitempty"`
 	Description string                  `json:"description,omitempty"`
 	Catalog     *ModelCatalogProvenance `json:"catalog,omitempty"`
@@ -134,7 +135,7 @@ func anyModelRecord(model AnyModel) (record any, shape **catalogShape, err error
 	switch typed := model.(type) {
 	case *Model:
 		caps := typed.Capabilities
-		return modelsCatalogRecord{Type: typed.Type, ID: typed.ID, Name: typed.DisplayName, API: typed.ProviderMeta.API, Provider: typed.ProviderMeta.ProviderID, BaseURL: typed.ProviderMeta.BaseURL, Reasoning: typed.ProviderMeta.Reasoning, ThinkingLevelMap: typed.ThinkingLevelMap, Input: typed.Input, InputLimits: typed.InputLimits, Cost: ModelCost{Input: caps.InputCostPer1M, Output: caps.OutputCostPer1M, CacheRead: caps.CacheReadCostPer1M, CacheWrite: caps.CacheWriteCostPer1M, Tiers: caps.CostTiers}, PromptCache: typed.PromptCache, ContextWindow: caps.ContextWindow, MaxTokens: caps.MaxOutputTokens, SamplingParams: typed.SamplingParams, SamplingParamsByThinkingLevel: typed.SamplingParamsByThinkingLevel, Headers: typed.ProviderMeta.Headers, Compat: typed.ProviderMeta.Compat, Int: typed.Int, TPS: typed.TPS, Description: typed.Description, Catalog: typed.Catalog}, &typed.catalog, nil
+		return modelsCatalogRecord{Type: typed.Type, ID: typed.ID, Name: typed.DisplayName, API: typed.ProviderMeta.API, Provider: typed.ProviderMeta.ProviderID, BaseURL: typed.ProviderMeta.BaseURL, Reasoning: typed.ProviderMeta.Reasoning, ThinkingLevelMap: typed.ThinkingLevelMap, Input: typed.Input, InputLimits: typed.InputLimits, Cost: ModelCost{Input: caps.InputCostPer1M, Output: caps.OutputCostPer1M, CacheRead: caps.CacheReadCostPer1M, CacheWrite: caps.CacheWriteCostPer1M, Tiers: caps.CostTiers}, PromptCache: typed.PromptCache, ContextWindow: caps.ContextWindow, MaxTokens: caps.MaxOutputTokens, SamplingParams: typed.SamplingParams, SamplingParamsByThinkingLevel: typed.SamplingParamsByThinkingLevel, Headers: typed.ProviderMeta.Headers, Compat: typed.ProviderMeta.Compat, Int: typed.Int, TPS: typed.TPS, Priority: typed.Priority, Description: typed.Description, Catalog: typed.Catalog}, &typed.catalog, nil
 	case *ImageModel:
 		return imageModelRecord{Type: ModelTypeImage, ID: typed.ID, Name: typed.Name, API: typed.API, Provider: typed.Provider, BaseURL: typed.BaseURL, Input: typed.Input, InputLimits: typed.InputLimits, Cost: typed.Cost, Headers: typed.Headers, Output: typed.Output}, &typed.catalog, nil
 	case *ClassifierModel:
@@ -528,7 +529,7 @@ func DecodeModelsCatalog(models []AnyModel, providerID string) ([]AnyModel, erro
 }
 
 func chatModelFromRecord(record modelsCatalogRecord) *Model {
-	return &Model{Type: record.Type, ID: record.ID, DisplayName: record.Name, ProviderMeta: ProviderMetadata{ProviderID: record.Provider, API: record.API, BaseURL: record.BaseURL, Headers: record.Headers, Compat: record.Compat, Reasoning: record.Reasoning}, Capabilities: ModelCapabilities{MaxThinking: thinkingMaxLevel(record.Reasoning, record.ThinkingLevelMap), ContextWindow: record.ContextWindow, MaxOutputTokens: record.MaxTokens, InputCostPer1M: record.Cost.Input, OutputCostPer1M: record.Cost.Output, CacheReadCostPer1M: record.Cost.CacheRead, CacheWriteCostPer1M: record.Cost.CacheWrite, CostTiers: record.Cost.Tiers}, ThinkingLevelMap: record.ThinkingLevelMap, Input: record.Input, InputLimits: record.InputLimits, PromptCache: record.PromptCache, SamplingParams: record.SamplingParams, SamplingParamsByThinkingLevel: record.SamplingParamsByThinkingLevel, Int: record.Int, TPS: record.TPS, Description: record.Description, Catalog: record.Catalog}
+	return &Model{Type: record.Type, ID: record.ID, DisplayName: record.Name, ProviderMeta: ProviderMetadata{ProviderID: record.Provider, API: record.API, BaseURL: record.BaseURL, Headers: record.Headers, Compat: record.Compat, Reasoning: record.Reasoning}, Capabilities: ModelCapabilities{MaxThinking: thinkingMaxLevel(record.Reasoning, record.ThinkingLevelMap), ContextWindow: record.ContextWindow, MaxOutputTokens: record.MaxTokens, InputCostPer1M: record.Cost.Input, OutputCostPer1M: record.Cost.Output, CacheReadCostPer1M: record.Cost.CacheRead, CacheWriteCostPer1M: record.Cost.CacheWrite, CostTiers: record.Cost.Tiers}, ThinkingLevelMap: record.ThinkingLevelMap, Input: record.Input, InputLimits: record.InputLimits, PromptCache: record.PromptCache, SamplingParams: record.SamplingParams, SamplingParamsByThinkingLevel: record.SamplingParamsByThinkingLevel, Int: record.Int, TPS: record.TPS, Priority: record.Priority, Description: record.Description, Catalog: record.Catalog}
 }
 
 // DecodeStoredModel restores one persisted catalog record as a typed model that keeps the fields it has no member for. known is false, with a nil

@@ -1153,6 +1153,8 @@ type Model struct {
 	Int *float64
 	// TPS is the catalog-estimated output speed in tokens per second; nil when unmeasured.
 	TPS *float64
+	// Priority is provider-published display ordering; nil sorts after explicit values.
+	Priority *float64
 	// Description is the provider- or catalog-published one-line blurb; empty when the source has none.
 	Description string
 	// Catalog records which metadata source filled this model's catalog fields, for display and debugging.

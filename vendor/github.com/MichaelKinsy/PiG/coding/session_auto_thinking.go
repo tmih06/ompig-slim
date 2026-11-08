@@ -119,12 +119,19 @@ func (s *Session) applyAutoThinking(ctx context.Context, prompt string) {
 // OMP's built-in priority list. Missing auth and unavailable candidates are skipped.
 func (s *Session) autoThinkingJudges() []ai.AnyModel {
 	config := s.SettingsManager().Get().Config
-	all := s.services.Registry().GetAllProviderModelData()
+	// Filter providers before materializing their catalogs. An unavailable
+	// provider cannot judge; decoding the complete catalog inside the four-second
+	// budget can otherwise consume the entire budget before the first request.
+	var all []ai.AnyModel
+	registry := s.services.Registry()
+	for _, provider := range registry.BrowserProviderIDs() {
+		if s.modelRuntime.HasConfiguredAuth(provider) {
+			all = append(all, registry.GetProviderAllModelData(provider)...)
+		}
+	}
 	pool := []modelroles.Candidate{}
 	for _, model := range all {
-		if s.modelRuntime.HasConfiguredAuth(model.ProviderID()) {
-			pool = append(pool, modelroles.Candidate{Provider: model.ProviderID(), ID: model.ModelID(), Kind: string(model.ModelType())})
-		}
+		pool = append(pool, modelroles.Candidate{Provider: model.ProviderID(), ID: model.ModelID(), Kind: string(model.ModelType())})
 	}
 	patterns := []string{"@judge"}
 	if chain, ok := s.SettingsManager().ModelFallbackChains()["judge"]; ok {

@@ -15,6 +15,14 @@ import (
 // Image/classifier descriptors never masquerade as executable chat models.
 func hubCatalogItem(model ai.AnyModel) tui.ModelSelectorItem {
 	item := tui.ModelSelectorItem{Provider: model.ProviderID(), ID: model.ModelID(), Kind: string(model.ModelType())}
+	if model.ModelType() != ai.ModelTypeChat {
+		if source := ai.OMPCatalogModel(model.ProviderID(), model.ModelID()); source != nil {
+			item.Name = source.DisplayName
+			item.Kind = string(source.ModelType())
+			item.Model = source
+			return item
+		}
+	}
 	switch typed := model.(type) {
 	case *ai.Model:
 		item.Name = typed.DisplayName
@@ -24,7 +32,7 @@ func hubCatalogItem(model ai.AnyModel) tui.ModelSelectorItem {
 		item.Model = &ai.Model{ID: typed.ID, DisplayName: typed.Name, ProviderMeta: ai.ProviderMetadata{ProviderID: typed.Provider}, Input: typed.Input}
 	case *ai.ClassifierModel:
 		item.Name = typed.Name
-		item.Kind = "tiny"
+		item.Kind = "judge"
 		item.Model = &ai.Model{ID: typed.ID, DisplayName: typed.Name, ProviderMeta: ai.ProviderMetadata{ProviderID: typed.Provider}, Input: typed.Input, Capabilities: ai.ModelCapabilities{ContextWindow: typed.ContextWindow}}
 	}
 	return item
@@ -174,7 +182,8 @@ func (q *hubRefreshQueue) start(provider string, job *hubRefreshJob, force bool)
 				return
 			}
 			delete(q.jobs, provider)
-			models, all := q.available(), q.all()
+			all := q.all()
+			models := q.available()
 			for _, finish := range job.callbacks {
 				finish(models, all, err)
 			}

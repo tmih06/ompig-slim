@@ -15,8 +15,13 @@ The sidebar contains All, Recent, Roles, and providers. Locked providers remain
 visible and offer login. Provider refresh is debounced; F5 explicitly reloads
 credentials and catalogs. Search is shared with the embedded assignment browser.
 Model details include available context, pricing, reasoning, and performance facts.
-Kind tabs filter the catalog and assignments. Actual kinds and models come from
-PiG's native provider registry; assigning a role does not install a new backend.
+Kind tabs filter the catalog and assignments. The bundled roster is imported
+from OMP's `@oh-my-pi/pi-catalog@18.14.2`: 5,949 model identities across chat,
+image, tiny, judge, search, TTS/STT, embedding, rerank, and video kinds. OMP-owned
+providers replace the older Pi catalog instead of merging obsolete rows and
+synthetic OpenRouter variants. Explicit user/extension models and authenticated
+native-only providers remain available. Assigning a role does not install weights
+or implement a provider transport; non-chat descriptors never become chat models.
 
 In Roles:
 
@@ -173,6 +178,18 @@ chain with primary restoration, and routed request/resume behavior.
 `make smoke` includes a real PTY menu flow in
 `scripts/smoke-test-model-menu.py`; it uses local fixtures rather than paid API
 calls. No live-provider parity result is implied by those offline tests.
+
+Catalog tests additionally traverse every imported provider and assert that the
+composed browser retains all 5,949 provider/model/kind identities, including the
+61 OpenAI chat models. Display ordering follows OMP's built-in role rank, MRU,
+provider priority, version, and revision rules. The reference comparator accepts
+`--unfiltered` to keep the real local/web/provider catalogs and omit `--models`.
+Provider intelligence/performance metadata may refresh independently of the
+pinned bundled roster. The comparator can seed both profiles with the same public
+`--metadata-cache scripts/testdata/omp-openai-public-metadata.json` snapshot
+without filtering the model roster. Run with `--unfiltered --openai` to inspect
+the actual OpenAI, local, and web lists. OMP may refresh its public catalog even
+with `PI_OFFLINE=1` (that variable controls the native Go runtime only).
 
 Visual regression tests use actual OMP 18.14.2 PTY captures at 120×40 and 80×24
 for the manager, provider scope, Roles, assignment browser, session picker,

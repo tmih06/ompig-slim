@@ -74,6 +74,7 @@ type ModelEntry struct {
 	// (types.ts BaseModel.int/tps/description). Int and TPS stay nil when no source publishes them;
 	// Catalog records which metadata source filled them.
 	Int         *float64
+	Priority    *float64
 	TPS         *float64
 	Description string
 	Catalog     *ai.ModelCatalogProvenance
@@ -1488,7 +1489,7 @@ func (r *ModelRegistry) GetAvailableModelData() []*ai.Model {
 			if len(builtinChatCatalog(provider.id)) == 0 || !r.providerAvailable(configured, filters, provider.id) {
 				continue
 			}
-			plain := ai.OfferedGeneratedModels(builtinChatCatalogListed(provider.id))
+			plain := ai.OfferedGeneratedModels(builtinChatCatalog(provider.id))
 			accepted := make([]*ai.GeneratedModel, 0, len(plain))
 			for _, entry := range plain {
 				if accept(entry.Provider, entry.ID) {

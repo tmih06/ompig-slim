@@ -60,6 +60,13 @@ func (r *ModelRegistry) builtinBase(id string, fallback ai.ModelsStreamFunction)
 	r.remoteMu.Lock()
 	baseURL := r.catalogBaseURL
 	r.remoteMu.Unlock()
+	// The OMP snapshot owns these bundled identities. The inherited PiG
+	// endpoint serves a different catalog and would reintroduce stale rows and
+	// synthetic variants on F5. Explicit endpoint overrides remain supported;
+	// native provider discovery and public metric refresh keep their own paths.
+	if baseURL == "" && ai.HasOMPCatalog(id) {
+		return base
+	}
 	overlay := r.remoteOverlay(id)
 	// OpenRouter narrows the catalog to the models, limits and prices of the user's key.
 	// upstream: model-runtime.ts:create (provider.id === "openrouter" selects withPersonalizedCatalog and personalizeOpenRouterCatalog)

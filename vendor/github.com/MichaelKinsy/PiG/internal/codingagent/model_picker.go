@@ -15,7 +15,14 @@ func (m *InteractiveMode) availableModelItems() []tui.ModelSelectorItem {
 	registry := m.modelRegistryOrDefault()
 	models := registry.GetAvailableModelData()
 	var items []tui.ModelSelectorItem
+	disabled := []string{}
+	if m.opts.SettingsManager != nil {
+		disabled = m.opts.SettingsManager.Get().DisabledProviders
+	}
 	for _, model := range models {
+		if slices.Contains(disabled, model.ProviderID()) {
+			continue
+		}
 		items = append(items, tui.ModelSelectorItem{Provider: model.ProviderMeta.ProviderID, ID: model.ID, Name: model.DisplayName, Model: model})
 	}
 	return items

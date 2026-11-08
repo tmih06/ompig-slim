@@ -12,10 +12,11 @@ import (
 // shape where current/role models sit above a separator and unassigned models.
 func TestBrowserPreferredSeparatorKeepsNavigationValid(t *testing.T) {
 	b := NewModelBrowser("p/current")
-	b.roleConfig = modelroles.Config{ModelRoles: map[string]string{"review": "p/review"}}
-	b.SetRoles(map[string]string{"review": "p/review"})
+	b.recent = []string{"p/current"}
+	b.roleConfig = modelroles.Config{ModelRoles: map[string]string{"slow": "p/review"}}
+	b.SetRoles(map[string]string{"slow": "p/review"})
 	b.SetItems([]ModelSelectorItem{{Provider: "p", ID: "other"}, {Provider: "p", ID: "review"}, {Provider: "p", ID: "current"}})
-	if b.items[0].ID != "current" || b.items[1].ID != "review" || b.items[2].Kind != "separator" || b.items[3].ID != "other" {
+	if b.items[0].ID != "review" || b.items[1].ID != "current" || b.items[2].Kind != "separator" || b.items[3].ID != "other" {
 		t.Fatal(b.items)
 	}
 	b.Move(1, true)
@@ -24,7 +25,7 @@ func TestBrowserPreferredSeparatorKeepsNavigationValid(t *testing.T) {
 		t.Fatal("keyboard landed on separator")
 	}
 	b.Move(-1, true)
-	if b.Selected().ID != "review" {
+	if b.Selected().ID != "current" {
 		t.Fatal("reverse navigation landed on separator")
 	}
 	b.SetQuery("other")

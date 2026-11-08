@@ -22,6 +22,7 @@ type ModelPickerConfig struct {
 	TaskKeys                           []string
 	RoleConfig                         modelroles.Config
 	ResolvedRoles                      map[string]string
+	Recent                             []string
 }
 
 // ModelPicker is OMP's compact bottom-anchored model switcher. A leading @ query
@@ -45,6 +46,7 @@ func NewModelPicker(cfg ModelPickerConfig) *ModelPicker {
 	p := &ModelPicker{cfg: cfg, browser: NewModelBrowser(cfg.Current)}
 	p.browser.contextTokens = cfg.ContextTokens
 	p.browser.roleConfig = cfg.RoleConfig
+	p.browser.recent = cfg.Recent
 	p.browser.SetRoles(cfg.ResolvedRoles)
 	p.browser.SetItems(cfg.Models)
 	p.browser.Select(cfg.Current)

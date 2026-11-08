@@ -35,7 +35,7 @@ func chatModelsOf(models []ai.AnyModel) []*ai.Model {
 // NativeModelEntry lowers native model data to the configured backend representation without resolving credentials.
 func NativeModelEntry(model *ai.Model) ModelEntry {
 	cost := model.CostRates()
-	return ModelEntry{Type: model.Type, CatalogRecord: ai.CatalogRecordOf(model), ProviderID: model.ProviderMeta.ProviderID, ModelID: model.ID, DisplayName: model.DisplayName, API: string(model.ProviderMeta.API), BaseURL: model.ProviderMeta.BaseURL, Reasoning: model.ProviderMeta.Reasoning || model.Capabilities.MaxThinking != "", Input: slices.Clone(model.Input), ContextWindow: model.Capabilities.ContextWindow, MaxTokens: model.Capabilities.MaxOutputTokens, InputCost: cost.Input, OutputCost: cost.Output, CacheReadCost: cost.CacheRead, CacheWriteCost: cost.CacheWrite, CostTiers: slices.Clone(cost.Tiers), ModelHeaders: maps.Clone(model.ProviderMeta.Headers), Headers: maps.Clone(model.ProviderMeta.Headers), Compat: mergeCompat((*providerCompat)(model.ProviderMeta.Compat), nil), ThinkingLevelMap: cloneThinkingLevelMap(model.ThinkingLevelMap), SamplingParams: maps.Clone(model.SamplingParams), SamplingParamsByThinkingLevel: cloneSamplingParamsByThinkingLevel(model.SamplingParamsByThinkingLevel), PromptCache: maps.Clone(model.PromptCache), InputLimits: model.InputLimits.Clone(), Int: cloneFloat64(model.Int), TPS: cloneFloat64(model.TPS), Description: model.Description, Catalog: cloneCatalogProvenance(model.Catalog)}
+	return ModelEntry{Type: model.Type, CatalogRecord: ai.CatalogRecordOf(model), ProviderID: model.ProviderMeta.ProviderID, ModelID: model.ID, DisplayName: model.DisplayName, API: string(model.ProviderMeta.API), BaseURL: model.ProviderMeta.BaseURL, Reasoning: model.ProviderMeta.Reasoning || model.Capabilities.MaxThinking != "", Input: slices.Clone(model.Input), ContextWindow: model.Capabilities.ContextWindow, MaxTokens: model.Capabilities.MaxOutputTokens, InputCost: cost.Input, OutputCost: cost.Output, CacheReadCost: cost.CacheRead, CacheWriteCost: cost.CacheWrite, CostTiers: slices.Clone(cost.Tiers), ModelHeaders: maps.Clone(model.ProviderMeta.Headers), Headers: maps.Clone(model.ProviderMeta.Headers), Compat: mergeCompat((*providerCompat)(model.ProviderMeta.Compat), nil), ThinkingLevelMap: cloneThinkingLevelMap(model.ThinkingLevelMap), SamplingParams: maps.Clone(model.SamplingParams), SamplingParamsByThinkingLevel: cloneSamplingParamsByThinkingLevel(model.SamplingParamsByThinkingLevel), PromptCache: maps.Clone(model.PromptCache), InputLimits: model.InputLimits.Clone(), Int: cloneFloat64(model.Int), TPS: cloneFloat64(model.TPS), Priority: cloneFloat64(model.Priority), Description: model.Description, Catalog: cloneCatalogProvenance(model.Catalog)}
 }
 
 func nativeModelFromEntry(entry ModelEntry) *ai.Model {
@@ -47,6 +47,7 @@ func nativeModelFromEntry(entry ModelEntry) *ai.Model {
 	// The catalog metrics of an entry describe the composed model, so a model rebuilt from it lists
 	// them again (provider-composer.ts modelFromJson keeps int/tps/description on the model object).
 	model.Int = cloneFloat64(entry.Int)
+	model.Priority = cloneFloat64(entry.Priority)
 	model.TPS = cloneFloat64(entry.TPS)
 	model.Description = entry.Description
 	model.Catalog = cloneCatalogProvenance(entry.Catalog)
