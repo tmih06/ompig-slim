@@ -70,6 +70,8 @@ jobs:
           rm -r bin/ompig-slim
           mv bin/ompig-slim-executable bin/ompig-slim
       - run: make smoke-built
+      - name: Prove update and upgrade replace an installed release
+        run: python3 scripts/test-self-update.py ./bin/ompig-slim
       - name: Verify startup accepts and paints early input
         run: |
           profile="$(mktemp -d)"

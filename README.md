@@ -26,6 +26,8 @@ install elsewhere. Prebuilt binaries cover Linux and macOS on x64 and arm64.
 
 Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactive app or `ompig-slim login` in the terminal. Provider API-key environment variables are also supported.
 
+Keep an installed copy current with `ompig-slim update`, or its synonym `ompig-slim upgrade`. Both download the latest release, verify its checksum, and replace the executable in place. `update --all` also refreshes installed packages and `update --models` refreshes model catalogs.
+
 ### Build from source
 
 Requires Go 1.27 or newer. The repository pins Go 1.27.3 and vendors its dependencies.
@@ -61,6 +63,7 @@ make check    # tests and vet, including the patched PiG library
 make race     # race-enabled checks
 make smoke    # compiled codemode, subagent, and web-tool scenarios
 make test-install     # the curl installer against a loopback release server
+make test-self-update # update/upgrade against a loopback release server
 make release  # build supported platform archives
 ```
 
