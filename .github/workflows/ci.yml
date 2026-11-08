@@ -51,6 +51,8 @@ jobs:
         run: python3 scripts/test-check-go.py
       - name: Test benchmark fixtures, accounting and reporting
         run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
+      - name: Test the curl installer against a loopback release server
+        run: python3 scripts/test-install.py -v
       - run: make check
       - run: make race
       - name: Download the already-built release archives
@@ -195,3 +197,37 @@ jobs:
           path: bin/releases/*
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Attach verified archives to the release
+    needs: [release, check, hygiene]
+    # Only a tag push creates a release; the installer's default
+    # releases/latest/download URL resolves to the newest non-prerelease, so
+    # branch and pull-request runs must never publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-archives
+          path: assets
+      # Re-verify before uploading: the checksums that the installer trusts are
+      # only meaningful if the files they describe are the files this workflow
+      # published. verify-releases.py asserts the tree relative to the repo.
+      - run: python3 scripts/verify-releases.py assets
+      - name: Create the release and attach archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" assets/*.tar.gz assets/*.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --verify-tag \
+            --generate-notes

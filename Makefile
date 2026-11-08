@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build run install check test race vet smoke smoke-built release benchmark
+.PHONY: build run install check test race vet smoke smoke-built release benchmark test-install
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -27,6 +27,11 @@ smoke-built:
 
 release:
 	bash scripts/build-binaries.sh $(ARGS)
+
+# Exercise the user-facing installer against a loopback release server; needs
+# only Python 3, bash, and the usual archive/HTTP tools.
+test-install:
+	python3 scripts/test-install.py
 
 # Install the pinned baselines first; benchmark never rebuilds the measured CLI.
 benchmark:
