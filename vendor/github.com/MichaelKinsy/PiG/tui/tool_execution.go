@@ -60,9 +60,12 @@ type ToolExecutionComponent struct {
 	// ExitCode is a completed shell command's status code. Nil means the result
 	// carries none (a running call, or a non-shell tool), so the header omits it.
 	ExitCode *int
-	// Detail is a short tool-specific input summary (a read path, a fetch host)
+	// Detail is a short tool-specific input summary (a read path, a search query)
 	// shown after the tool label. Empty keeps the generic lifecycle label.
 	Detail string
+	// resultMeta are facts the result adds to the status line, such as a
+	// search's `21 matches · 20 files`. Empty leaves the line as it was.
+	resultMeta []string
 	// ToolCallID identifies the tool call the card shows (tool-execution.ts toolCallId); renderers receive it in their context.
 	ToolCallID string
 	// Label is ignored: the fallback call header names the tool by Name, as upstream createCallFallback does.
@@ -373,6 +376,13 @@ func (c *ToolExecutionComponent) SetExitCode(code *int) {
 // card ignores it.
 func (c *ToolExecutionComponent) SetDetail(detail string) {
 	c.Detail = detail
+	c.Invalidate()
+}
+
+// SetResultMeta sets the facts a result contributes to the status line, such as
+// a search's match and file counts. Nil clears them.
+func (c *ToolExecutionComponent) SetResultMeta(meta []string) {
+	c.resultMeta = meta
 	c.Invalidate()
 }
 

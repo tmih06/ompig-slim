@@ -121,10 +121,15 @@ func (c *ToolExecutionComponent) richElapsed(now time.Time) time.Duration {
 	return c.Elapsed
 }
 
-// richMeta is the status line's trailing facts, joined with the separator:
-// an exit code for a shell command, then the duration.
+// richMeta is the status line's trailing facts, joined with the separator: the
+// search result counts oh-my-pi's grep head carries, an exit code for a shell
+// command, then the duration.
 func (c *ToolExecutionComponent) richMeta(now time.Time) []string {
 	var meta []string
+	// Counts describe a finished search, so they appear with its result.
+	if c.State != ToolStateRunning {
+		meta = append(meta, c.resultMeta...)
+	}
 	if c.ExitCode != nil {
 		meta = append(meta, "exit "+fmt.Sprint(*c.ExitCode))
 	}
@@ -452,8 +457,9 @@ func ToolDetailFields(name string, fields map[string]any) string {
 				detail = strings.TrimSuffix(detail, "-")
 			}
 		}
-	case "grep":
-		// grep.ts grepSubject: `<pattern> in <scope>`, or the scope alone.
+	case "grep", "find":
+		// grep.ts grepSubject: `<pattern> in <scope>`, or the scope alone. find
+		// takes the same members: its `pattern` is the glob it searches for.
 		pattern, scope := stringOf("pattern"), stringOf("path")
 		switch {
 		case pattern != "" && scope != "":
@@ -462,17 +468,6 @@ func ToolDetailFields(name string, fields map[string]any) string {
 			detail = pattern
 		default:
 			detail = scope
-		}
-	case "find":
-		// find.ts quoteQuery above the requested keywords and scope.
-		if query := stringOf("query"); query != "" {
-			detail = `"` + query + `"`
-		}
-		if keywords := stringOf("grep_keywords"); keywords != "" {
-			detail = strings.TrimSpace(detail + " " + keywords)
-		}
-		if path := stringOf("path"); path != "" {
-			detail = strings.TrimSpace(detail + " in " + path)
 		}
 	case "web_search":
 		// web-search.ts renderSearchCall puts the query in the description, so

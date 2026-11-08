@@ -227,6 +227,10 @@ func (m *InteractiveMode) toolDefinitionRenderers(definition extension.ToolRende
 			if !ok {
 				result = agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: card().Output}}, IsError: input.IsError}
 			}
+			if comp := card(); comp != nil && (comp.Name == "grep" || comp.Name == "find") {
+				// grep.ts sets the head's counts from the result: `21 matches · 20 files`.
+				comp.SetResultMeta(searchCounts(comp.Name, result))
+			}
 			options := extension.ToolRenderResultOptions{Expanded: input.Expanded, IsPartial: input.IsPartial}
 			component, ok := runToolRenderer(func() extension.Component {
 				return definition.RenderResult(result, options, tui.ActiveTheme(), context(input, last))

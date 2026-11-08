@@ -130,7 +130,7 @@ func TestRichStatusSubjects(t *testing.T) {
 	}{
 		{"web_search", `{"query":"BTC price"}`, "Web Search: BTC price"},
 		{"grep", `{"pattern":"frontmatter|^name:","path":"skills"}`, "Grep: frontmatter|^name: in skills"},
-		{"find", `{"query":"where is auth","path":"src"}`, `Find: "where is auth" in src`},
+		{"find", `{"pattern":"**/*.go","path":"src"}`, "Find: **/*.go in src"},
 		{"read", `{"path":"skills/optimize/SKILL.md","offset":70,"limit":26}`, "Read skills/optimize/SKILL.md:70-95"},
 		{"read", `{"path":"skills/optimize/SKILL.md"}`, "Read skills/optimize/SKILL.md"},
 		{"write", `{"path":"a.txt"}`, "Write a.txt"},

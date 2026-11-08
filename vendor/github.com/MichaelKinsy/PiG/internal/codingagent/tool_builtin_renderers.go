@@ -35,6 +35,9 @@ const (
 	writeGutterMinWidth = 3
 	// editCallPreviewLines is edit.ts CALL_TEXT_PREVIEW_LINES.
 	editCallPreviewLines = 6
+	// searchTreeCollapsedFiles is grep.ts NATIVE_COLLAPSED_FILES, the files a
+	// collapsed search tree shows before summarising the rest.
+	searchTreeCollapsedFiles = 4
 	// writePreviewLines is write.ts WRITE_PREVIEW_LINES: the head a settled
 	// write preview shows.
 	writePreviewLines     = 6
@@ -571,10 +574,14 @@ func richEmptyBody() extension.Component {
 	return linesComponent{render: func(int) []string { return nil }}
 }
 
-// listRenderResult is upstream grep.ts, find.ts and ls.ts renderResult.
+// listRenderResult is upstream grep.ts, find.ts and ls.ts renderResult. In a
+// rich card grep and find draw oh-my-pi's grouped tree instead of a flat list.
 func listRenderResult(name string) extension.ToolRenderResultFunc {
 	return func(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 		value := renderResultValue(result)
+		if richCard(context) && (name == "grep" || name == "find") {
+			return searchTreeResult(name, value, options)
+		}
 		body := makeListBodyRenderer(name, toolResultTextOutput(value, context.ShowImages), value.Details)
 		return linesComponent{render: func(width int) []string {
 			lines := body(width, options.Expanded)
@@ -592,6 +599,59 @@ func pluralLines(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// searchTreeResult draws a grep or find result as oh-my-pi's grouped tree: one
+// branch per file with its matches hanging under it, and a trailing summary of
+// the matches a collapsed card hides.
+func searchTreeResult(name string, value agent.AgentToolResult, options extension.ToolRenderResultOptions) extension.Component {
+	rows := strings.Split(shellTextOutput(value.Text()), "\n")
+	if name == "find" {
+		return searchTreeFromFiles(rows, options)
+	}
+	files := groupGrepRows(rows)
+	return linesComponent{render: func(width int) []string {
+		if len(files) == 0 {
+			return nil
+		}
+		return wrapTreeTree(tui.RenderSearchTree(files, tui.TreeListOptions{
+			Expanded:     options.Expanded,
+			MaxCollapsed: searchTreeCollapsedFiles,
+			ItemType:     "match",
+		}), width)
+	}}
+}
+
+// searchTreeFromFiles draws find's hits, one branch per file with no children.
+// find returns paths, so the card is a list of files rather than of matches.
+func searchTreeFromFiles(rows []string, options extension.ToolRenderResultOptions) extension.Component {
+	files := make([]tui.TreeSearchFile, 0, len(rows))
+	for _, row := range rows {
+		row = strings.TrimSpace(row)
+		if row == "" {
+			continue
+		}
+		files = append(files, tui.TreeSearchFile{Label: fileLabel(row)})
+	}
+	return linesComponent{render: func(width int) []string {
+		if len(files) == 0 {
+			return nil
+		}
+		return wrapTreeTree(tui.RenderSearchTree(files, tui.TreeListOptions{
+			Expanded:     options.Expanded,
+			MaxCollapsed: searchTreeCollapsedFiles,
+			ItemType:     "file",
+		}), width)
+	}}
+}
+
+// wrapTreeTree trims and clips tree rows to the card's content width.
+func wrapTreeTree(rows []string, width int) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, tui.TruncateRow(row, width))
+	}
+	return out
 }
 
 // writeGutterPrefix is one preview row's line-number gutter, the format

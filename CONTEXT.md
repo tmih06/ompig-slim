@@ -107,6 +107,14 @@ make build
   filesystem-derived diff still takes over once `argsComplete` triggers it.
 - A bash exit code comes from the structured result (`exit_code`) because
   `BashDetails` carries none; see `internal/codingagent/tool_shell_exit_code.go`.
+- A collapsed or expanded `grep`/`find` result draws oh-my-pi's grouped tree
+  (`render/tree-list.ts`): one `├`/`└` branch per file, grep's matched rows
+  hanging under it as `*12│text` with the vertical rail, and a trailing
+  `… N more matches` (or `files` for find) row while collapsed. The status line
+  also carries the result counts (`21 matches · 20 files`). This is a display
+  transform: the tools still return flat `path:line: text` rows to the model,
+  and `tool_rich_search_tree.go` groups them. Branch glyphs mark siblings, not
+  nesting depth — the first N-1 roots draw `├` and the last draws `└`.
 - `read` covers files, directories and URLs. A directory lists its entries,
   directories first then files (read.ts `formatDirectoryListing`), marked
   `ReadDetails.IsDirectory` so the card keeps the listing as plain text. A URL

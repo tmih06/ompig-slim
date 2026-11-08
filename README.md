@@ -39,7 +39,7 @@ Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactiv
 - Tool cards rendered like oh-my-pi's: stream tools draw a rounded output block,
   file and search tools a single inline status row (`✔ Read path:70-95`), each
   naming the tool, its target, and exit code or elapsed time, with a filled
-  phase background on every card. Write and edit
+  phase background on every card and grep/find results drawn as a file tree. Write and edit
   stream their content while the arguments arrive, with diffs, highlighting,
   and Ctrl+O expansion.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
