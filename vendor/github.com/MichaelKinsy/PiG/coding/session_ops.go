@@ -327,10 +327,6 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 	internalSC.SettingsManager = s.SettingsManager()
 	internalSC.ShowStatus = func(message string) { output = append(output, message) }
 	internalSC.ShowError = func(message string) { output = append(output, "Error: "+message) }
-	internalSC.ApplyModelPreset = func(name string, finish func(string, error)) {
-		message, err := s.ApplyModelPreset(s.backgroundContext(), name)
-		finish(message, err)
-	}
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {
 			return fmt.Errorf("subagents are unavailable")

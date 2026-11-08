@@ -2,9 +2,9 @@
 package modelroles
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -20,17 +20,20 @@ type Tag struct {
 // Config is shared by settings and the model hub. Nil cycle order uses OMP's defaults;
 // an explicit empty list disables role cycling. Callers own all maps and slices.
 type Config struct {
-	// Preset entries are atomic across layers. Raw JSON preserves malformed hand-edited
-	// entries and null tombstones for diagnostics without breaking unrelated settings.
-	ModelPresets       map[string]json.RawMessage `json:"modelPresets,omitempty"`
-	ModelRecent        []string                   `json:"modelRecent,omitzero"`
-	ModelProviderOrder []string                   `json:"modelProviderOrder,omitzero"`
-	DisabledProviders  []string                   `json:"disabledProviders,omitzero"`
-	ModelRoles         map[string]string          `json:"modelRoles,omitempty"`
-	ModelTags          map[string]Tag             `json:"modelTags,omitempty"`
-	CycleOrder         []string                   `json:"cycleOrder,omitzero"`
-	ModelRoleStorage   string                     `json:"modelRoleStorage,omitempty"`
+	ModelRecent        []string          `json:"modelRecent,omitzero"`
+	ModelProviderOrder []string          `json:"modelProviderOrder,omitzero"`
+	DisabledProviders  []string          `json:"disabledProviders,omitzero"`
+	ModelRoles         map[string]string `json:"modelRoles,omitempty"`
+	ModelTags          map[string]Tag    `json:"modelTags,omitempty"`
+	CycleOrder         []string          `json:"cycleOrder,omitzero"`
+	ModelRoleStorage   string            `json:"modelRoleStorage,omitempty"`
 }
+
+var roleNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
+
+// ValidName accepts custom roles starting with a letter followed by letters,
+// digits, underscores, or hyphens; invalid names never become assignment keys.
+func ValidName(name string) bool { return roleNamePattern.MatchString(name) }
 
 // Builtins returns OMP's stable role order, without sharing mutable storage.
 func Builtins() []string {
@@ -40,10 +43,6 @@ func Builtins() []string {
 // Clone detaches settings snapshots from their writer.
 func (c Config) Clone() Config {
 	c.ModelRoles = maps.Clone(c.ModelRoles)
-	c.ModelPresets = maps.Clone(c.ModelPresets)
-	for k, v := range c.ModelPresets {
-		c.ModelPresets[k] = slices.Clone(v)
-	}
 	c.ModelRecent = slices.Clone(c.ModelRecent)
 	c.ModelProviderOrder = slices.Clone(c.ModelProviderOrder)
 	c.DisabledProviders = slices.Clone(c.DisabledProviders)
@@ -59,12 +58,6 @@ func (c Config) Merge(p Config) Config {
 		c.ModelRoles = map[string]string{}
 	}
 	maps.Copy(c.ModelRoles, p.ModelRoles)
-	if c.ModelPresets == nil && p.ModelPresets != nil {
-		c.ModelPresets = map[string]json.RawMessage{}
-	}
-	for k, v := range p.ModelPresets {
-		c.ModelPresets[k] = slices.Clone(v)
-	}
 	if p.ModelRecent != nil {
 		c.ModelRecent = slices.Clone(p.ModelRecent)
 	}

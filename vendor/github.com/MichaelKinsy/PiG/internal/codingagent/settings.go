@@ -1723,7 +1723,7 @@ func (s Settings) GetBlockImages() bool { return s.BlockImages }
 // SettingsManager loads and merges settings from global and project scopes.
 // Merge order: global defaults → project → CLI flags.
 type SettingsManager struct {
-	// roleMutation serializes default-role and preset transactions across Sessions
+	// roleMutation serializes default-role changes across Sessions
 	// sharing this manager without holding the settings read/write mutex over I/O.
 	roleMutation sync.Mutex
 	// mu guards the settings layers: a cache-warming refresh reads the mode
@@ -3510,19 +3510,6 @@ func mergeSettingsObjects(base, override *orderedjson.Object) *orderedjson.Objec
 	for _, key := range override.Keys() {
 		value, _ := override.Get(key)
 		existing, _ := merged.Get(key)
-		if key == "modelPresets" {
-			var basePresets, overridePresets map[string]json.RawMessage
-			_ = json.Unmarshal(existing, &basePresets)
-			if json.Unmarshal(value, &overridePresets) == nil && overridePresets != nil {
-				if basePresets == nil {
-					basePresets = map[string]json.RawMessage{}
-				}
-				maps.Copy(basePresets, overridePresets)
-				value, _ = json.Marshal(basePresets)
-				merged.Set(key, value)
-				continue
-			}
-		}
 		merged.Set(key, deepMergeJSONObjects(existing, value))
 	}
 	return merged

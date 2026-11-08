@@ -70,13 +70,10 @@ def run(binary):
             send(b"\x1b[A")
             read_until(lambda data: b"DEFAULT" in data, "Roles view")
             send(b"\x1b[C")
-            send(b"s")
-            read_until(lambda data: b"Save preset" in data, "preset input")
-            send(b"fixture")
-            read_until(lambda data: b"fixture" in data, "typed preset name")
-            send(b"\r")
-            read_until(lambda _: "fixture" in json.loads(settings.read_text()).get("modelPresets", {}),
-                       "preset persistence")
+            send(b"c")
+            read_until(lambda _: json.loads(settings.read_text()).get("cycleOrder") == ["review"],
+                       "cycle order persistence")
+            saved_roles = json.loads(settings.read_text())["modelRoles"]
             send(b"\x1b")
             read_until(lambda data: b"\x1b[?1049l" in data, "restore main screen")
             send(b"\x1bp")
@@ -86,7 +83,8 @@ def run(binary):
             send(b"\r")
             read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
                        "role selection")
-            print("PASS: fullscreen hub, Roles, preset save, main-screen restore, @role picker")
+            assert json.loads(settings.read_text())["modelRoles"] == saved_roles, "picker changed saved roles"
+            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker")
         finally:
             if process.poll() is None:
                 process.terminate()

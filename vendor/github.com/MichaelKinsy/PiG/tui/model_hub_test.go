@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -167,33 +166,6 @@ func TestModelHubInlineRoleAndThinking(t *testing.T) {
 	h.HandleInput("\r")
 	if commits != 1 || h.strip != nil {
 		t.Fatal("preselected effort was reapplied")
-	}
-}
-
-// TestModelHubPresets uses OMP's s and p/P controls, including refused-switch cursor.
-func TestModelHubPresets(t *testing.T) {
-	h, c, _ := hubFixture()
-	openRoles(h)
-	saved := ""
-	h.cfg.SavePreset = func(name string) error { saved = name; return nil }
-	h.HandleInput("s")
-	h.HandleInput("work")
-	h.HandleInput("\r")
-	if saved != "work" {
-		t.Fatal(saved)
-	}
-	raw, _ := json.Marshal(modelroles.Preset{ModelRoles: map[string]string{"default": "p/a"}})
-	c.ModelPresets = map[string]json.RawMessage{"a": raw, "b": raw}
-	h.reload()
-	var picked []string
-	h.cfg.SwitchPreset = func(name string, finish func(error)) {
-		picked = append(picked, name)
-		finish(errors.New("unavailable"))
-	}
-	h.HandleInput("p")
-	h.HandleInput("p")
-	if len(picked) != 2 || picked[0] == picked[1] {
-		t.Fatal("refused preset trapped cursor", picked)
 	}
 }
 

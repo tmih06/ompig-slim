@@ -147,7 +147,6 @@ func settingsSchema() *Schema {
 		Optional("defaultProvider", String()),
 		Optional("defaultModel", String()),
 		Optional("modelRoles", Record(String(), D("Model selectors by built-in or custom role."))),
-		Optional("modelPresets", Record(Object([]Prop{P("modelRoles", Record(String())), Optional("defaultThinkingLevel", String())}))),
 		Optional("modelRecent", stringArray()),
 		Optional("modelProviderOrder", stringArray()),
 		Optional("disabledProviders", stringArray()),

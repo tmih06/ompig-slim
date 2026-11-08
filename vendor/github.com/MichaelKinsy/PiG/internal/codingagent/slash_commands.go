@@ -302,21 +302,10 @@ type SlashContext struct {
 	// text when navigating to a user-message entry).
 	SetEditorText func(text string)
 
-	// Mid-session model switch. SwitchModel starts the change and calls settled
-	// on the owner loop once it settles, without waiting for it. An accepted
-	// PickModel selection stays shown and focused until then, as Pi's model
-	// selector closes only once setModel settles. ShowError reports a failure.
-	SwitchModel           func(spec string, settled func(error))
-	ShowError             func(msg string)
-	modelSelectionPersist bool
-	modelSelectorDone     func()
-	PickModel             func(initialQuery string) (spec string, ok bool)
-	ResolveModel          func(input string) (spec string, ok bool)
+	ShowError func(msg string)
 
 	// ShowModelHub manages role assignments, fallback chains, and quick-cycle order.
 	ShowModelHub func()
-	// ApplyModelPreset is asynchronous because a switch awaits auth/model_select.
-	ApplyModelPreset func(name string, finish func(string, error))
 
 	// Settings UI.
 	// SettingsManager provides read/write access to global settings.
@@ -685,7 +674,6 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
 		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
-		{Name: "modelpreset", Description: "Save, switch, list, or delete named model setups", TakesArguments: true, ArgumentHint: "[list|save|switch|delete] [name]", Handler: modelPresetHandler},
 		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
 		{Name: "export", Description: "Export session (HTML default, or specify path: .html/.jsonl)", TakesArguments: true, Handler: exportHandler},
 		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
@@ -895,36 +883,6 @@ func probeOAuthXaiHandler(sc *SlashContext) error {
 	}
 	sc.Append(out)
 	return nil
-}
-
-// switchModelThen applies spec and reports the change once it settles, as Pi's model command and selector do after awaiting
-// setModel (interactive-mode.ts:5163-5180, 5313-5325): the status, or the error's message. The command returns at once; Pi's
-// editor does not await onSubmit (3180, 3195-3199).
-func switchModelThen(sc *SlashContext, spec string) {
-	sc.SwitchModel(spec, func(err error) {
-		if err != nil {
-			if sc.ShowError != nil {
-				sc.ShowError(err.Error())
-			}
-			return
-		}
-		showModelSelectionStatus(sc, spec)
-	})
-}
-
-func showModelSelectionStatus(sc *SlashContext, spec string) {
-	if sc.ShowStatus == nil {
-		return
-	}
-	if sc.modelSelectionPersist {
-		sc.ShowStatus("Default model: " + spec)
-		return
-	}
-	_, bareID, found := strings.Cut(spec, "/")
-	if !found {
-		bareID = spec
-	}
-	sc.ShowStatus("Model: " + bareID)
 }
 
 // loginHandler configures provider authentication, using an optional provider ID or display name.

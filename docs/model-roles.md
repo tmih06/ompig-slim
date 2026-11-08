@@ -1,4 +1,4 @@
-# Model roles, presets, and recovery
+# Model roles and recovery
 
 The native Go port follows OMP's split between **persistent model management**
 and **session-only model selection**:
@@ -30,8 +30,6 @@ In Roles:
 | t | Open the inline effort selector |
 | c | Toggle a chat role in Ctrl+P cycling |
 | k | Edit the highlighted model's compaction threshold |
-| s | Save a named preset |
-| p / P | Apply the next/previous preset |
 | Escape | Back out of the current strip, assignment, search, or overlay |
 
 Assignment uses inline role, global/project scope, and effort strips. Kind roles
@@ -91,7 +89,7 @@ in `.pi/settings.json`, unless an agent directory override is supplied.
 
 The built-in role names are `default`, `smol`, `slow`, `vision`, `plan`, `commit`,
 `tiny`, `memory`, `task`, `advisor`, `widget`, `image`, `web`, `speech`, `dictation`,
-and `judge`. Custom names are lowercase and may include digits, `_`, and `-`.
+and `judge`. Custom names start with a letter and may include digits, `_`, and `-`.
 Unassigned roles resolve through the available catalog and built-in priorities;
 missing task/plan assignments inherit Default. A role is distinct from its
 physical model, even when several roles select the same model.
@@ -117,20 +115,6 @@ individually, including explicit `hidden: false`. An empty `cycleOrder` disables
 role cycling; absent order uses the built-in default. Model changes record the
 logical role, so fallback, cycling, branching, and resume do not infer it from a
 physical model shared by multiple roles.
-
-### Presets
-
-Use `/modelpreset list`, `/modelpreset save NAME`, `/modelpreset switch NAME`, or
-`/modelpreset delete NAME`. The manager's `s` and `p`/`P` expose the same operations.
-Presets capture roles, tags, cycle order, fallback chains, and default effort.
-Applying a preset validates before changing settings and switches the live
-Default when one is selected. A switch failure reports the saved-settings/live-
-model distinction. Default-role/preset transactions are serialized without doing
-credential or extension work on the UI owner loop.
-
-Each `modelPresets` entry is atomic across settings layers: a project entry replaces
-the entire same-named global preset; `null` hides the lower entry. Invalid saved
-entries remain diagnosable instead of preventing unrelated settings from loading.
 
 ### Auto thinking and compaction
 
@@ -183,7 +167,7 @@ walking; context overflow remains compaction's responsibility.
 ## Validation
 
 `make check` covers the vendored runtime as well as the entry point. Tests include
-layered settings, presets, scopes, hub/picker state transitions, auto-thinking,
+layered settings, scopes, hub/picker state transitions, auto-thinking,
 missing-auth and signed-thinking recovery, an actual local SSE quota fallback
 chain with primary restoration, and routed request/resume behavior.
 `make smoke` includes a real PTY menu flow in

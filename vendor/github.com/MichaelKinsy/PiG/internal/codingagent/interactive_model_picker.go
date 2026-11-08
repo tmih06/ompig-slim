@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -11,7 +12,7 @@ import (
 
 // pickModel hosts the compact bottom sheet. Accepted selections remain visible
 // until the caller's model change completes; Task-only choices never switch chat.
-func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (string, bool, bool, func()) {
+func (m *InteractiveMode) pickModel(ctx context.Context) (string, bool, func()) {
 	items := m.availableModelItems()
 	// Explicit CLI models (including keyless local and harness models) can precede
 	// catalog discovery. Keep the live model selectable rather than dropping its roles.
@@ -62,10 +63,18 @@ func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (s
 		}
 	}
 	picker := tui.NewModelPicker(tui.ModelPickerConfig{Models: items, QuickRoles: roles, Current: modelSpec(m.opts.Model), CurrentRole: currentRole, ContextTokens: tokens, Height: m.tuiInst.Height, TaskKeys: []string{"alt+p", "ctrl+l"}})
-	picker.SetFilter(initialQuery)
 	m.disposeActiveSelector()
 	overlay := m.tuiInst.ShowOverlay(picker, tui.ModelPickerOverlayOptions())
-	done := func() { overlay.Close(); m.tuiInst.RequestRender() }
+	token := new(int)
+	done := sync.OnceFunc(func() {
+		overlay.Close()
+		if m.activeSelectorToken == token {
+			m.activeSelectorToken = nil
+			m.activeSelectorDispose = nil
+		}
+		m.tuiInst.RequestRender()
+	})
+	m.activeSelectorToken, m.activeSelectorDispose = token, done
 	input, release := m.acquireModalInputChannel()
 	defer release()
 	m.tuiInst.Render()
@@ -73,7 +82,7 @@ func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (s
 		data, ok := m.readModalInputFor(picker, input)
 		if !ok {
 			done()
-			return "", false, false, nil
+			return "", false, nil
 		}
 		for _, chunk := range m.modalInputChunks(picker, []string{string(data)}) {
 			picker.HandleInput(chunk)
@@ -85,7 +94,7 @@ func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (s
 	}
 	if picker.Cancelled() {
 		done()
-		return "", false, false, nil
+		return "", false, nil
 	}
 	if picker.SelectedTask() {
 		if sm := m.opts.SettingsManager; sm != nil {
@@ -93,17 +102,17 @@ func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (s
 			m.showStatus("Task model: " + picker.SelectedFQ() + " (session only)")
 		}
 		done()
-		return "", false, false, nil
+		return "", false, nil
 	}
 	if picker.OverContext() {
 		handle := m.opts.SessionHandle
 		if handle == nil {
 			done()
-			return "", false, false, nil
+			return "", false, nil
 		}
 		if !m.askConfirm(ctx, "Compact before switching", "The conversation exceeds this model's context window. Compact before switching?") {
 			done()
-			return "", false, false, nil
+			return "", false, nil
 		}
 		// Compaction is asynchronous and drains events through the existing interactive
 		// command path, rather than issuing an oversized request to the chosen model.
@@ -127,11 +136,11 @@ func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (s
 					})
 				})
 			})
-			return "", false, false, nil
+			return "", false, nil
 		}
 		done()
 		m.showError(fmt.Sprintf("Cannot compact before switching to %s", strings.TrimSpace(selected)))
-		return "", false, false, nil
+		return "", false, nil
 	}
-	return picker.SelectedFQ(), true, false, done
+	return picker.SelectedFQ(), true, done
 }

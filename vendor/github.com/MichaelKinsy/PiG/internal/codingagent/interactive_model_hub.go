@@ -95,16 +95,6 @@ func (m *InteractiveMode) showModelHub() {
 			return sm.GetGlobalSettings().Config
 		},
 		DefaultThinking: func() string { return string(sm.GetDefaultThinkingLevel()) },
-		SavePreset:      sm.SaveModelPreset,
-		SwitchPreset: func(name string, finish func(error)) {
-			m.applyModelPreset(life, name, func(message string, err error) {
-				if message != "" {
-					m.showStatus(message)
-				}
-				finish(err)
-				m.tuiInst.RequestRender()
-			})
-		},
 		AssignAsync: func(role, selector, scope string, finish func(error)) {
 			if role != "default" {
 				finish(sm.SetModelRole(role, selector, scope))

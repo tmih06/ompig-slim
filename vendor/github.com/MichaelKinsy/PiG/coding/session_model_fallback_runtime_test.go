@@ -2,13 +2,11 @@ package coding
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // TestFallbackCooldownRestore verifies a prompt restores primary only after the
@@ -112,25 +110,6 @@ func TestFallbackRetryAfterLongest(t *testing.T) {
 		if got := fallbackCooldown(tc.text); got != tc.want {
 			t.Fatalf("%s: %v want %v", tc.text, got, tc.want)
 		}
-	}
-}
-
-// TestPresetSessionRefusesUnavailableBeforeWrites then applies a valid setup with
-// correct logical role and effort; no provider call is needed for either path.
-func TestPresetSessionRefusesUnavailableBeforeWrites(t *testing.T) {
-	s := roleTestSession(t, nil)
-	sm := s.SettingsManager()
-	before := sm.Get().ModelRoles["default"]
-	bad, _ := json.Marshal(modelroles.Preset{ModelRoles: map[string]string{"default": "missing/no-model"}})
-	good, _ := json.Marshal(modelroles.Preset{ModelRoles: map[string]string{"default": "openai/gpt-4o-mini:off"}, DefaultThinkingLevel: "off"})
-	if err := sm.UpdateGlobal(func(settings *Settings) { settings.ModelPresets = map[string]json.RawMessage{"bad": bad, "good": good} }); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.ApplyModelPreset(context.Background(), "bad"); err == nil || sm.Get().ModelRoles["default"] != before {
-		t.Fatal("bad preset wrote settings", err)
-	}
-	if message, err := s.ApplyModelPreset(context.Background(), "good"); err != nil || message == "" || s.Model().ID != "gpt-4o-mini" || s.ActiveModelRole() != "default" || s.ThinkingLevel() != ai.ThinkingOff {
-		t.Fatal(message, err, s.Model().ID, s.ActiveModelRole())
 	}
 }
 

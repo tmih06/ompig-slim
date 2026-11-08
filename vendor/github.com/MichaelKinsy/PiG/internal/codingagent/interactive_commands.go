@@ -27,13 +27,6 @@ func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
 	// Mirror any extension-registered commands into the registry just
 	// before dispatch so a freshly loaded command resolves.
 	m.syncExtensionSlashCommands()
-	if match, ok := m.slashRegistry.Match(line); ok && match.Builtin != nil && match.Builtin.Name == "model" && match.Args != "" {
-		m.findExactModelMatch(ctx, match.Args, func(spec string, found bool) {
-			sc.ResolveModel = func(string) (string, bool) { return spec, found }
-			m.dispatchSlashContext(sc, line)
-		})
-		return
-	}
 	m.dispatchSlashContext(sc, line)
 }
 
@@ -113,9 +106,6 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 		if b.Name == "login" {
 			sc.GetArgumentCompletions = m.loginArgCompletions
 		}
-		if b.Name == "model" {
-			sc.GetArgumentCompletions = m.modelArgCompletions
-		}
 		if b.Name == "thinking" {
 			sc.GetArgumentCompletions = m.thinkingArgCompletions
 		}
@@ -182,26 +172,6 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 	return &subagentAutocomplete{CombinedProvider: prov, m: m}
 }
 
-// modelArgCompletions fuzzy-filters the available runtime snapshot using getModelSearchText.
-func (m *InteractiveMode) modelArgCompletions(prefix string) []tui.AutocompleteItem {
-	items := m.availableModelItems()
-	// A model scope narrows the completions to the scoped models (interactive-mode.ts:731-733).
-	if len(m.scopedModelIDs) > 0 {
-		items = m.scopedModelItems(items)
-	}
-	filtered := tui.FuzzyFilter(items, prefix, func(item tui.ModelSelectorItem) string {
-		return tui.GetModelSearchText(tui.ModelSearchItem{ID: item.ID, Provider: item.Provider, Name: item.Name})
-	})
-	out := make([]tui.AutocompleteItem, 0, len(filtered))
-	for _, item := range filtered {
-		out = append(out, tui.AutocompleteItem{Value: item.FQ(), Label: item.ID, Description: item.Provider})
-	}
-	return out
-}
-
-// thinkingArgCompletions offers the current model's thinking levels after
-// "/thinking ", as upstream's thinking command does
-// (interactive-mode.ts:713-726).
 func (m *InteractiveMode) thinkingArgCompletions(prefix string) []tui.AutocompleteItem {
 	levels := tui.FuzzyFilter(levelsForModel(m.opts.Model), prefix, func(level string) string { return level })
 	out := make([]tui.AutocompleteItem, 0, len(levels))
@@ -209,28 +179,6 @@ func (m *InteractiveMode) thinkingArgCompletions(prefix string) []tui.Autocomple
 		out = append(out, tui.AutocompleteItem{Value: level, Label: level})
 	}
 	return out
-}
-
-func (m *InteractiveMode) resolveAvailableModel(input string) (string, bool) {
-	items := m.availableModelItems()
-	if len(m.scopedModelIDs) > 0 {
-		items = m.scopedModelItems(items)
-	}
-	return resolveModelFromItems(input, items)
-}
-
-// resolveModelFromItems is findExactModelReferenceMatch (core/model-resolver.ts:88) over the selector's models; it returns the match's
-// provider/id specification.
-func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string, bool) {
-	models := make([]RuntimeModel, len(items))
-	for i, item := range items {
-		models[i] = RuntimeModel{Provider: item.Provider, ID: item.ID}
-	}
-	match := FindExactModelReferenceMatch(input, models)
-	if match == nil {
-		return "", false
-	}
-	return match.Provider + "/" + match.ID, true
 }
 
 // buildSlashContext assembles the SlashContext for one dispatch.
@@ -693,34 +641,12 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			m.renderCurrentSessionState()
 			return false, nil
 		},
-		SwitchModel: func(spec string, settled func(error)) {
-			// An accepted pick stays focused until its change settles; then Pi's selectModel calls done() (interactive-mode.ts:5313-5325).
-			done := sc.modelSelectorDone
-			sc.modelSelectorDone = nil
-			m.switchModel(ctx, spec, sc.modelSelectionPersist, func(err error) {
-				if done != nil {
-					done()
-				}
-				settled(err)
-			})
-		},
-		ResolveModel: func(input string) (string, bool) {
-			return m.resolveAvailableModel(input)
-		},
-		PickModel: func(initialQuery string) (string, bool) {
-			m.invalidatePostLoginSelection()
-			spec, ok, persist, done := m.pickModel(ctx, initialQuery)
-			sc.modelSelectionPersist = persist
-			sc.modelSelectorDone = done
-			return spec, ok
-		},
 
 		// Settings UI.
 		SettingsManager: m.opts.SettingsManager,
 
 		// /model opens persistent management; Alt+P owns session-only selection.
-		ShowModelHub:     func() { m.showModelHub() },
-		ApplyModelPreset: func(name string, finish func(string, error)) { m.applyModelPreset(ctx, name, finish) },
+		ShowModelHub: func() { m.showModelHub() },
 
 		// /reload: reload settings, templates, context files, and
 		// re-fire session_start for extensions.

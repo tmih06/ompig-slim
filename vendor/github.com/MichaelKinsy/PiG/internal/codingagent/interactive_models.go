@@ -9,7 +9,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
@@ -180,21 +179,32 @@ func modelCatalogRefreshError(result CatalogRefreshResult, err error) string {
 	}
 }
 
+// handleModelPicker opens Alt+P's session-only selector and keeps it mounted
+// until the asynchronous model change settles. Saved role assignments stay intact.
 func (m *InteractiveMode) handleModelPicker() {
 	ctx := m.runCtx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sc := m.buildSlashContext(ctx)
-	if sc.PickModel == nil || sc.SwitchModel == nil {
-		m.appendToChat(tui.NewText("\033[33mmodel picker unavailable in this build\033[0m"))
-		return
-	}
-	spec, ok := sc.PickModel("")
+	m.invalidatePostLoginSelection()
+	spec, ok, done := m.pickModel(ctx)
 	if !ok {
 		return
 	}
-	switchModelThen(sc, spec)
+	m.switchModel(ctx, spec, false, func(err error) {
+		if done != nil {
+			done()
+		}
+		if err != nil {
+			m.showError(err.Error())
+			return
+		}
+		_, bare, qualified := strings.Cut(spec, "/")
+		if !qualified {
+			bare = spec
+		}
+		m.showStatus("Model: " + bare)
+	})
 }
 
 // cycleModel delegates ordering, scope, and thinking-level changes to the Session.
@@ -278,71 +288,6 @@ func modelSpec(model *ai.Model) string {
 		return model.ID
 	}
 	return providerID + "/" + model.ID
-}
-
-// showScopedModels opens the selector immediately, including configured IDs absent from the available catalog.
-func (m *InteractiveMode) showScopedModels() {
-	availableModels := func() []tui.ModelItem {
-		items := m.availableModelItems()
-		models := make([]tui.ModelItem, 0, len(items))
-		for _, item := range items {
-			models = append(models, tui.ModelItem{FullID: item.FQ(), Name: item.Name, Provider: item.Provider, Model: item.Model})
-		}
-		return models
-	}
-
-	allModels := availableModels()
-	configured := m.opts.Settings.EnabledModels
-	if m.opts.SettingsManager != nil {
-		configured = m.opts.SettingsManager.GetEnabledModels()
-	}
-	selection, enabledIDs := newScopedModelsSelection(allModels, configured, m.scopedModelIDs)
-
-	sl := tui.NewScopedModelsList(tui.ScopedModelsConfig{
-		AllModels:       allModels,
-		EnabledModelIDs: enabledIDs,
-		RefreshStatus:   "Refreshing model catalogs…",
-	})
-	// upstream: packages/coding-agent/src/modes/interactive/interactive-mode.ts:showModelsSelector
-	refreshCtx, cancelRefresh := context.WithTimeout(m.runCtx, 15*time.Second)
-	refresh := make(chan scopedModelsRefresh, 1)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		status := "Model catalogs refreshed."
-		kind := tui.RefreshStatusSuccess
-		result, err := RefreshModelCatalogs(refreshCtx, m.opts.ModelRegistry)
-		if errors.Is(err, context.Canceled) {
-			return
-		}
-		if warning := modelCatalogRefreshError(result, err); warning != "" {
-			if err == nil && len(result.Errors) > 0 {
-				warning = "Could not refresh " + strings.Join(result.failedProviders(), ", ") + "; showing cached models."
-			}
-			status, kind = warning, tui.RefreshStatusWarning
-		} else if m.opts.ModelRegistry != nil && m.opts.ModelRegistry.LoadError() != "" {
-			status = "Could not refresh model catalogs: " + m.opts.ModelRegistry.LoadError()
-			kind = tui.RefreshStatusWarning
-		}
-		refresh <- scopedModelsRefresh{models: availableModels(), status: status, kind: kind}
-	}()
-	defer func() {
-		cancelRefresh()
-		<-done
-	}()
-
-	m.runModalScopedModels(sl, refresh, selection)
-}
-
-func (m *InteractiveMode) persistScopedModelIDs(enabledIDs []string) {
-	if m.opts.SettingsManager == nil {
-		return
-	}
-	// interactive-mode.ts:5444-5445: setEnabledModels queues the write and records a failure for the settings diagnostics, and the status
-	// always reports the save.
-	// upstream: packages/coding-agent/src/core/settings-manager.ts:enqueueWrite
-	_ = m.opts.SettingsManager.SetEnabledModels(enabledIDs)
-	m.showStatus("Model selection saved to settings")
 }
 
 // deliverUserMessage injects a user-authored prompt from an extension host

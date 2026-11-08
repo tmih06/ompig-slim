@@ -26,8 +26,6 @@ type ModelHubConfig struct {
 	AssignAsync       func(role, selector, scope string, finish func(error))
 	Fallback          func(key string, chain []string, scope string) error
 	Cycle             func(order []string, scope string) error
-	SavePreset        func(name string) error
-	SwitchPreset      func(name string, finish func(error))
 	Login             func(provider string)
 	ScopeChanged      func(provider string)
 	Refresh           func(provider string, force bool, finish func([]ModelSelectorItem, []ModelSelectorItem, error))
@@ -92,7 +90,6 @@ type ModelHub struct {
 	resolvedRoles                              map[string]string
 	target                                     *hubRoleRow
 	strip                                      *hubStrip
-	presetCursor                               string
 	refreshing                                 map[string]bool
 	bodyRows, sideWidth, renderWidth, stripRow int
 	roleVisible                                int
@@ -778,20 +775,12 @@ func (h *ModelHub) moveRole(delta int, wrap bool) {
 	}
 }
 
-// roleAction implements OMP's x/f/c/[/]/n/t/k/s/p/P bindings in the Roles view.
+// roleAction edits role assignments, fallback order, effort, cycling, and compaction.
 func (h *ModelHub) roleAction(data string) {
 	row := h.rows[h.cursor]
 	switch data {
 	case "n":
 		h.nameStrip("role")
-	case "s":
-		if h.cfg.SavePreset != nil {
-			h.nameStrip("preset")
-		}
-	case "p":
-		h.switchPreset(1)
-	case "P":
-		h.switchPreset(-1)
 	case "k":
 		if h.cfg.Compaction != nil {
 			if item, _, ok := h.selectedRowItem(); ok {
@@ -856,43 +845,6 @@ func (h *ModelHub) roleAction(data string) {
 	}
 }
 
-// switchPreset wraps names and advances past refused presets, matching OMP's cursor.
-func (h *ModelHub) switchPreset(delta int) {
-	if h.cfg.SwitchPreset == nil {
-		return
-	}
-	names := h.config.PresetNames()
-	if len(names) == 0 {
-		return
-	}
-	thinking := ""
-	if h.cfg.DefaultThinking != nil {
-		thinking = h.cfg.DefaultThinking()
-	}
-	base := h.presetCursor
-	if base == "" {
-		base = h.config.ActivePreset(thinking)
-	}
-	index := slices.Index(names, base)
-	if index < 0 {
-		if delta > 0 {
-			index = -1
-		} else {
-			index = 0
-		}
-	}
-	name := names[(index+delta+len(names))%len(names)]
-	h.pending = true
-	h.cfg.SwitchPreset(name, func(err error) {
-		if h.disposed {
-			return
-		}
-		h.pending = false
-		h.presetCursor = name
-		h.result(err)
-	})
-}
-
 // submitName leaves invalid names/limits editable and requires a second unchanged
 // submission when the host warns about an extended compaction window.
 func (h *ModelHub) submitName() {
@@ -905,13 +857,6 @@ func (h *ModelHub) submitName() {
 		}
 		h.strip = nil
 		h.startAssign(hubRoleRow{key: value, index: -1, kind: "role"})
-	case "preset":
-		if !modelroles.ValidName(value) {
-			return
-		}
-		if h.result(h.cfg.SavePreset(value)) {
-			h.strip = nil
-		}
 	case "compaction":
 		notice, confirm, err := h.cfg.Compaction(strip.item.FQ(), value, strip.confirm == value)
 		if err != nil {
@@ -1024,14 +969,6 @@ func (h *ModelHub) HandleInput(data string) {
 		if !entry.locked {
 			h.refresh(entry.provider, true)
 		}
-		return
-	}
-	if roles && (MatchesKeyID(data, "ctrl+left") || MatchesKeyID(data, "ctrl+right")) {
-		delta := 1
-		if MatchesKeyID(data, "ctrl+left") {
-			delta = -1
-		}
-		h.switchPreset(delta)
 		return
 	}
 	delta := 0
@@ -1240,7 +1177,7 @@ func (h *ModelHub) footer(width int) string {
 	}
 	if strip := h.strip; strip != nil {
 		if strip.input != nil {
-			label := map[string]string{"role": "New role", "preset": "Save preset", "compaction": "Compaction limit"}[strip.kind]
+			label := map[string]string{"role": "New role", "compaction": "Compaction limit"}[strip.kind]
 			input := strip.input.Render(max(1, width-len(label)-3))
 			if len(input) > 0 {
 				return label + ": " + input[0]
@@ -1277,7 +1214,7 @@ func (h *ModelHub) footer(width int) string {
 		return out
 	}
 	if h.entries[h.side].id == "roles" && h.target == nil {
-		return fg(th.Dim, "↵ assign · x clear · f fallback · t thinking · c cycle · [/] reorder · n role · s preset · p/P switch · k compact")
+		return fg(th.Dim, "↵ assign · x clear · f fallback · t thinking · c cycle · [/] reorder · n role · k compact")
 	}
 	return fg(th.Dim, "Tab pane · ↑↓ navigate · ↵ roles · type to search · Alt+←/→ kind · F5 refresh · Esc close")
 }
@@ -1335,9 +1272,6 @@ func (h *ModelHub) roleBody(width, height int) []string {
 	thinking := ""
 	if h.cfg.DefaultThinking != nil {
 		thinking = h.cfg.DefaultThinking()
-	}
-	if active := h.config.ActivePreset(thinking); active != "" {
-		status += " · Preset: " + active
 	}
 	lines := []string{fg(th.Muted, status), h.tabs(true)}
 	tagWidth := 0

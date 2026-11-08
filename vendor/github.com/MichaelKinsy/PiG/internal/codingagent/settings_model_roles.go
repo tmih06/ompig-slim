@@ -5,9 +5,39 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
+
+// AcquireModelRoleMutation acquires the non-reentrant role transaction gate.
+// Call off the UI owner loop, keep settings.mu unlocked, and release on every
+// completion/cancellation path. The returned release is idempotent.
+func (sm *SettingsManager) AcquireModelRoleMutation() func() {
+	sm.roleMutation.Lock()
+	return sync.OnceFunc(sm.roleMutation.Unlock)
+}
+
+// RecordModelUsage updates the bounded MRU list only when its head changes. It
+// records physical served models, never credentials or role alias spellings.
+func (sm *SettingsManager) RecordModelUsage(selector string) error {
+	if selector == "" {
+		return nil
+	}
+	recent := sm.GetGlobalSettings().ModelRecent
+	if len(recent) > 0 && recent[0] == selector {
+		return nil
+	}
+	return sm.UpdateGlobal(func(s *Settings) {
+		next := []string{selector}
+		for _, old := range s.ModelRecent {
+			if old != selector && len(next) < 100 {
+				next = append(next, old)
+			}
+		}
+		s.ModelRecent = next
+	})
+}
 
 // ResolveModelRole expands OMP role aliases against a consistent merged settings snapshot.
 func (sm *SettingsManager) ResolveModelRole(selector string, pools ...[]modelroles.Candidate) (string, error) {

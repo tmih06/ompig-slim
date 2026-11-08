@@ -30,43 +30,6 @@ func hubCatalogItem(model ai.AnyModel) tui.ModelSelectorItem {
 	return item
 }
 
-// applyModelPreset runs blocking session mutation on an owned worker; the modal
-// keeps draining main-loop tasks and receives its completion on that same loop.
-func (m *InteractiveMode) applyModelPreset(ctx context.Context, name string, finish func(string, error)) {
-	handle, ok := m.opts.SessionHandle.(interface {
-		ApplyModelPreset(context.Context, string) (string, error)
-	})
-	if !ok {
-		finish("", fmt.Errorf("preset switching unavailable"))
-		return
-	}
-	if m.runStreaming() {
-		finish("", fmt.Errorf("wait for the current response before switching presets"))
-		return
-	}
-	m.backgroundTasks.Go(func() {
-		var message string
-		var err error
-		if owner, ok := m.opts.SessionHandle.(interface {
-			ApplyModelPresetOnMain(context.Context, string, func(func() error) error) (string, error)
-		}); ok {
-			message, err = owner.ApplyModelPresetOnMain(ctx, name, func(mutate func() error) error { return m.runOnMainAndWait(ctx, mutate) })
-		} else {
-			message, err = handle.ApplyModelPreset(ctx, name)
-		}
-		m.runOnMain(ctx, func() {
-			if err == nil {
-				model := m.opts.SessionHandle.Agent().Model()
-				m.opts.Model = model
-				m.statusLine.SetModel(model)
-				m.refreshThinkingLevel()
-				m.tuiInst.RequestRender()
-			}
-			finish(message, err)
-		})
-	})
-}
-
 // hubAutoRefresh is a process-lifetime once guard, consumed only when a debounce
 // actually starts. Separate registries do not share catalogs or credential state.
 var hubAutoRefresh sync.Map
