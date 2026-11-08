@@ -35,113 +35,131 @@ func browserVersion(id string) float64 {
 	return 0
 }
 
-// compareBrowserItems is OMP modelItemComparator: built-in role rank, MRU,
-// provider, declared priority, version descending, latest/date, then locale ID.
-// A live search skips role rank so a default cannot outrank a better match.
-func (b *ModelBrowser) compareBrowserItems(a, c ModelSelectorItem, search bool) int {
-	if a.Role != "" || c.Role != "" {
+// browserRankedItem owns sort keys for one ranking pass, not a persistent cache.
+// Resolve role/MRU membership and parse IDs once per row rather than on every
+// comparison. Rebuilding on query/data changes keeps live priorities, roles and
+// MRU authoritative without invalidation state or an unbounded model-ID cache.
+type browserRankedItem struct {
+	item                 ModelSelectorItem
+	fq                   string
+	roleRank, recentRank int
+	priority, version    float64
+	latest               bool
+	date                 string
+}
+
+// compareBrowserRankedItems is OMP modelItemComparator with precomputed keys:
+// role rank, MRU, provider, priority, version descending, latest/date, locale ID.
+// Role rows retain stable input order; search callers suppress only role rank.
+func compareBrowserRankedItems(a, c browserRankedItem) int {
+	if a.item.Role != "" || c.item.Role != "" {
 		return 0
 	}
-	if !search {
-		rank := func(item ModelSelectorItem) int {
-			for i, role := range modelroles.Builtins() {
-				base, _ := modelroles.Split(b.roles[role])
-				if base == item.FQ() {
-					return i
-				}
-			}
-			return len(modelroles.Builtins())
-		}
-		if ar, cr := rank(a), rank(c); ar != cr {
-			return ar - cr
-		}
+	if a.roleRank != c.roleRank {
+		return a.roleRank - c.roleRank
 	}
-	recent := func(item ModelSelectorItem) int {
-		i := slices.Index(b.recent, item.Provider+"/"+item.ID)
-		if i < 0 {
-			return math.MaxInt
-		}
-		return i
-	}
-	if ar, cr := recent(a), recent(c); ar != cr {
-		if ar < cr {
+	if a.recentRank != c.recentRank {
+		if a.recentRank < c.recentRank {
 			return -1
 		}
 		return 1
 	}
-	if cmp := localecompare.Compare(a.Provider, c.Provider); cmp != 0 {
-		return cmp
-	}
-	priority := func(item ModelSelectorItem) float64 {
-		if item.Model != nil && item.Model.Priority != nil {
-			return *item.Model.Priority
+	if a.item.Provider != c.item.Provider {
+		if cmp := localecompare.Compare(a.item.Provider, c.item.Provider); cmp != 0 {
+			return cmp
 		}
-		return math.MaxFloat64
 	}
-	if ap, cp := priority(a), priority(c); ap != cp {
-		if ap < cp {
+	if a.priority != c.priority {
+		if a.priority < c.priority {
 			return -1
 		}
 		return 1
 	}
-	if av, cv := browserVersion(a.ID), browserVersion(c.ID); av != cv {
-		if av > cv {
+	if a.version != c.version {
+		if a.version > c.version {
 			return -1
 		}
 		return 1
 	}
-	al, cl := strings.HasSuffix(a.ID, "-latest"), strings.HasSuffix(c.ID, "-latest")
-	ad, cd := "", ""
-	if match := browserDatePattern.FindStringSubmatch(a.ID); match != nil {
-		ad = match[1]
-	}
-	if match := browserDatePattern.FindStringSubmatch(c.ID); match != nil {
-		cd = match[1]
-	}
-	if ar, cr := al || ad != "", cl || cd != ""; ar != cr {
+	if ar, cr := a.latest || a.date != "", c.latest || c.date != ""; ar != cr {
 		if ar {
 			return -1
 		}
 		return 1
 	}
-	if al != cl {
-		if al {
+	if a.latest != c.latest {
+		if a.latest {
 			return -1
 		}
 		return 1
 	}
-	if ad != "" && cd != "" && ad != cd {
-		return strings.Compare(cd, ad)
+	if a.date != "" && c.date != "" && a.date != c.date {
+		return strings.Compare(c.date, a.date)
 	}
-	return localecompare.Compare(a.ID, c.ID)
+	return localecompare.Compare(a.item.ID, c.item.ID)
 }
 
 // rankBrowserItems seats a separator only above genuinely non-role/non-MRU
 // catalog entries. Current selection is not a separate ranking rule in OMP.
+// All work and scratch ownership remain on the TUI owner loop.
 func (b *ModelBrowser) rankBrowserItems() {
 	b.items = slices.DeleteFunc(b.items, func(item ModelSelectorItem) bool { return item.Kind == "separator" })
 	if len(b.items) == 0 || b.items[0].Role != "" {
 		return
 	}
 	search := strings.TrimSpace(b.Query()) != ""
-	slices.SortStableFunc(b.items, func(a, c ModelSelectorItem) int { return b.compareBrowserItems(a, c, search) })
+	roles := modelroles.Builtins()
+	roleRank := make(map[string]int, len(roles))
+	if !search {
+		for i, role := range roles {
+			base, _ := modelroles.Split(b.roles[role])
+			if _, exists := roleRank[base]; !exists {
+				roleRank[base] = i
+			}
+		}
+	}
+	recentRank := make(map[string]int, len(b.recent))
+	for i, selector := range b.recent {
+		if _, exists := recentRank[selector]; !exists {
+			recentRank[selector] = i
+		}
+	}
+	ranked := make([]browserRankedItem, len(b.items))
+	for i, item := range b.items {
+		key := browserRankedItem{item: item, fq: item.FQ(), roleRank: len(roles), recentRank: math.MaxInt, priority: math.MaxFloat64, version: browserVersion(item.ID), latest: strings.HasSuffix(item.ID, "-latest")}
+		if rank, ok := roleRank[key.fq]; ok {
+			key.roleRank = rank
+		}
+		if rank, ok := recentRank[key.fq]; ok {
+			key.recentRank = rank
+		}
+		if item.Model != nil && item.Model.Priority != nil {
+			key.priority = *item.Model.Priority
+		}
+		if match := browserDatePattern.FindStringSubmatch(item.ID); match != nil {
+			key.date = match[1]
+		}
+		ranked[i] = key
+	}
+	slices.SortStableFunc(ranked, compareBrowserRankedItems)
+	for i, key := range ranked {
+		b.items[i] = key.item
+	}
 	if search {
 		return
 	}
-	preferred := func(item ModelSelectorItem) bool {
-		if slices.Contains(b.recent, item.FQ()) {
-			return true
-		}
-		for _, selector := range b.roles {
-			base, _ := modelroles.Split(selector)
-			if base == item.FQ() {
-				return true
-			}
-		}
-		return false
+	// Custom role assignments are preferred for separator placement, but do not
+	// acquire a built-in role's sorting rank. Keep these two rules independent.
+	preferred := make(map[string]bool, len(b.roles)+len(b.recent))
+	for _, selector := range b.recent {
+		preferred[selector] = true
+	}
+	for _, selector := range b.roles {
+		base, _ := modelroles.Split(selector)
+		preferred[base] = true
 	}
 	split := 0
-	for split < len(b.items) && preferred(b.items[split]) {
+	for split < len(ranked) && preferred[ranked[split].fq] {
 		split++
 	}
 	if split > 0 && split < len(b.items) {

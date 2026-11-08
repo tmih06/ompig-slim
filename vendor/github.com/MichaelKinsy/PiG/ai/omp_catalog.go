@@ -150,6 +150,12 @@ func HasOMPCatalog(provider string) bool {
 // Invalid checked-in data is an invariant violation and fails loudly, rather
 // than silently falling back to a different catalog and hiding missing models.
 func loadOMPCatalog(provider string) *ompCatalog {
+	// Warm readers must not allocate a losing OnceValue closure or reopen the
+	// immutable embedded member. Only validated provider IDs enter this map;
+	// the installed loader still provides concurrent once/panic semantics.
+	if loader, ok := ompCatalogLoads.Load(provider); ok {
+		return loader.(func() *ompCatalog)()
+	}
 	if !HasOMPCatalog(provider) {
 		return nil
 	}

@@ -1,0 +1,104 @@
+{
+  "catalog": {
+    "before": {
+      "BenchmarkModelCatalog/RuntimeModels-4": [
+        1022006.0,
+        625504,
+        2052
+      ],
+      "BenchmarkModelCatalog/AllModels-4": [
+        640165249.0,
+        143960144,
+        1413253
+      ],
+      "BenchmarkModelCatalog/ExactModel-4": [
+        145135.0,
+        34248,
+        310
+      ]
+    },
+    "after": {
+      "BenchmarkModelCatalog/RuntimeModels-4": [
+        652112.0,
+        594816,
+        972
+      ],
+      "BenchmarkModelCatalog/AllModels-4": [
+        114749576.0,
+        27225032,
+        391701
+      ],
+      "BenchmarkModelCatalog/ExactModel-4": [
+        17300.0,
+        5696,
+        84
+      ]
+    }
+  },
+  "browser": {
+    "before": {
+      "BenchmarkModelBrowser/openai/SetItems-4": [
+        2482089.0,
+        46034,
+        831
+      ],
+      "BenchmarkModelBrowser/openai/Search-4": [
+        403582.0,
+        12432,
+        323
+      ],
+      "BenchmarkModelBrowser/openai/Render-4": [
+        471735.0,
+        86480,
+        1281
+      ],
+      "BenchmarkModelBrowser/all/SetItems-4": [
+        438078015.0,
+        42504768,
+        811620
+      ],
+      "BenchmarkModelBrowser/all/Search-4": [
+        62120130.0,
+        2954939,
+        47448
+      ],
+      "BenchmarkModelBrowser/all/Render-4": [
+        332198.0,
+        85631,
+        1205
+      ]
+    },
+    "after": {
+      "BenchmarkModelBrowser/openai/SetItems-4": [
+        163735.0,
+        32923,
+        130
+      ],
+      "BenchmarkModelBrowser/openai/Search-4": [
+        167921.0,
+        22563,
+        311
+      ],
+      "BenchmarkModelBrowser/openai/Render-4": [
+        396319.0,
+        86480,
+        1281
+      ],
+      "BenchmarkModelBrowser/all/SetItems-4": [
+        29061297.0,
+        2640974,
+        16215
+      ],
+      "BenchmarkModelBrowser/all/Search-4": [
+        30486853.0,
+        2922842,
+        35156
+      ],
+      "BenchmarkModelBrowser/all/Render-4": [
+        328038.0,
+        85631,
+        1205
+      ]
+    }
+  }
+}
