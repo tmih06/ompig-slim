@@ -70,7 +70,8 @@ func TestRichBashCard(t *testing.T) {
 // TestRichInlineTools checks OMP's inline tools: the collapsed card is the
 // status-line row alone, with no frame, and the body appears under it.
 func TestRichInlineTools(t *testing.T) {
-	for _, name := range []string{"read", "grep", "find", "ls"} {
+	// grep and find draw a search tree, covered by the tree tests.
+	for _, name := range []string{"read", "ls"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{"path":"a.go"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			c.MarkExecutionStarted()
@@ -234,7 +235,9 @@ func TestRichFrameGeometry(t *testing.T) {
 // the borders does nothing. This is the regression the frame's row offsets can
 // silently break.
 func TestRichMouseToggle(t *testing.T) {
-	for _, name := range []string{"bash", "read", "grep", "write", "edit"} {
+	// grep and find draw their result as a search tree, so they are covered by
+	// the tree tests; these tools' bodies come from BodyRenderer.
+	for _, name := range []string{"bash", "read", "write", "edit"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{"command":"ls","path":"a.go"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			// A collapsed body draws one row and an expanded one draws three, so

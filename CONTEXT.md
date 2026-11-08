@@ -114,12 +114,18 @@ make build
   hidden files (oh-my-pi `fitGroupsToBudget`). The status line carries the result
   counts (`21 matches · 20 files`). Branch glyphs mark siblings, not nesting
   depth: the first N-1 roots draw `├` and the last draws `└`.
-- The card owns this transform (`ToolExecutionComponent.SetSearchOutput` →
-  `tui/tree_list.go`), not a tool renderer. Grep and find resolve no registered
+- Every tree row is cut to the card's content width in terminal cells
+  (`tui.TruncateRow`), so a long match line cannot run on past the card. Tree
+  rows never wrap: they truncate, which is what keeps a tree's `│` rail aligned
+  down the block.
+- The card owns this transform (`tui/tree_list.go`), not a tool renderer. Grep and find resolve no registered
   renderers, so a renderer-side implementation never runs in a real session —
   the first attempt was wired that way and drew nothing. Owning it in the card
-  makes the tree independent of how a tool's renderers resolved. The tools still
-  return flat `path:line: text` rows to the model; the tree is display-only.
+  makes the tree independent of how a tool's renderers resolved. `SetSearchOutput`
+  is optional: the card falls back to its own `Output`, so a result path that
+  never records the text still draws the tree instead of an empty body. The
+  tools still return flat `path:line: text` rows to the model; the tree is
+  display-only.
 - `read` covers files, directories and URLs. A directory lists its entries,
   directories first then files (read.ts `formatDirectoryListing`), marked
   `ReadDetails.IsDirectory` so the card keeps the listing as plain text. A URL

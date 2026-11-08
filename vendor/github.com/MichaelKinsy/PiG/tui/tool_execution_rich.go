@@ -128,7 +128,11 @@ func (c *ToolExecutionComponent) richMeta(now time.Time) []string {
 	var meta []string
 	// Counts describe a finished search, so they appear with its result.
 	if c.State != ToolStateRunning {
-		meta = append(meta, c.resultMeta...)
+		if searchMeta := c.searchResultMeta(); searchMeta != nil {
+			meta = append(meta, searchMeta...)
+		} else {
+			meta = append(meta, c.resultMeta...)
+		}
 	}
 	if c.ExitCode != nil {
 		meta = append(meta, "exit "+fmt.Sprint(*c.ExitCode))
@@ -323,23 +327,29 @@ const searchTreeCollapsed = 4
 
 // SetSearchOutput records a search result for the card to draw as a tree. The
 // card owns the transform so the tree appears however the tool's renderers
-// resolved.
+// resolved. It is optional: the card falls back to its own output, so a path
+// that does not call this still draws the tree rather than nothing.
 func (c *ToolExecutionComponent) SetSearchOutput(output string) {
-	c.searchRows = strings.Split(strings.TrimRight(output, "\n"), "\n")
-	c.resultMeta = SearchCounts(c.Name, output)
+	c.searchOutput = output
 	c.Invalidate()
 }
 
-// richSearchRows draws the recorded search result as oh-my-pi's grouped tree.
+// richSearchRows draws the search result as oh-my-pi's grouped tree. The
+// output comes from SetSearchOutput when a caller recorded it, else from the
+// card's own result text, so the tree never depends on which plumbing ran.
 func (c *ToolExecutionComponent) richSearchRows(width int) []string {
-	if len(c.searchRows) == 0 {
+	output := c.searchOutput
+	if output == "" {
+		output = c.Output
+	}
+	if strings.TrimSpace(output) == "" {
 		return nil
 	}
 	itemType := "match"
 	if c.Name == "find" {
 		itemType = "file"
 	}
-	rows := SearchTreeRows(c.Name, strings.Join(c.searchRows, "\n"), TreeListOptions{
+	rows := SearchTreeRows(c.Name, output, TreeListOptions{
 		Expanded:     !c.Collapsed,
 		MaxCollapsed: searchTreeCollapsed,
 		ItemType:     itemType,
@@ -349,6 +359,19 @@ func (c *ToolExecutionComponent) richSearchRows(width int) []string {
 		out = append(out, TruncateRow(row, width))
 	}
 	return out
+}
+
+// searchResultMeta is the status line's counts for a search, from the output the
+// tree was built from.
+func (c *ToolExecutionComponent) searchResultMeta() []string {
+	if !searchTreeTool(c.Name) {
+		return nil
+	}
+	output := c.searchOutput
+	if output == "" {
+		output = c.Output
+	}
+	return SearchCounts(c.Name, output)
 }
 
 // richTone is the card's border color: the lifecycle state's color role, as

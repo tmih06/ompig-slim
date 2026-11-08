@@ -66,9 +66,9 @@ type ToolExecutionComponent struct {
 	// resultMeta are facts the result adds to the status line, such as a
 	// search's `21 matches · 20 files`. Empty leaves the line as it was.
 	resultMeta []string
-	// searchRows is a grep or find result set aside for the card to draw as a
-	// grouped tree (SetSearchOutput). Nil leaves the body to the renderers.
-	searchRows []string
+	// searchOutput is a grep or find result recorded by SetSearchOutput. Empty
+	// falls back to Output, so the tree works without the caller recording it.
+	searchOutput string
 	// ToolCallID identifies the tool call the card shows (tool-execution.ts toolCallId); renderers receive it in their context.
 	ToolCallID string
 	// Label is ignored: the fallback call header names the tool by Name, as upstream createCallFallback does.
@@ -903,7 +903,7 @@ func (c *ToolExecutionComponent) renderRichCard(width int) []string {
 	outputStart := -1
 	// A search result is drawn by the card itself as a grouped tree, so the
 	// shape does not depend on which renderer path resolved for the tool.
-	if c.Rich && searchTreeTool(c.Name) && c.searchRows != nil {
+	if c.Rich && searchTreeTool(c.Name) {
 		rows := c.richSearchRows(inner)
 		if len(rows) > 0 {
 			if richOutputSection(c.Name) {
@@ -953,7 +953,7 @@ func (c *ToolExecutionComponent) renderRichInline(width int) []string {
 	switch {
 	// A search result is drawn by the card itself as oh-my-pi's grouped tree,
 	// so the shape does not depend on which renderer path resolved.
-	case c.searchRows != nil && searchTreeTool(c.Name):
+	case searchTreeTool(c.Name):
 		rows = c.richSearchRows(inner)
 	case c.definition != nil && !c.definition.Self:
 		body = c.definitionResultComponent

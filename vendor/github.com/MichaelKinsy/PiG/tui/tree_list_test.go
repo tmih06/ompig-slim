@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/tui/widthx"
@@ -126,4 +127,43 @@ func stripRows(rows []string) []string {
 		out[i] = widthx.StripAnsi(row)
 	}
 	return out
+}
+
+// TestSearchTreeFitsCardWidth is the regression for long search lines: every
+// row the card emits, including a wrapped-off long match and the trailing
+// notices, must fit the card's width exactly rather than running on.
+func TestSearchTreeFitsCardWidth(t *testing.T) {
+	long := strings.Repeat("word ", 200)
+	output := "SECURITY.md:19: " + long + "\nSECURITY.md:70: " + long + "\n[5 matches limit reached. Use limit=10]\n[Truncated: 5 matches limit]"
+	for _, width := range []int{20, 40, 60, 80, 120, 200} {
+		c := NewToolExecutionComponent("grep", "c", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
+		// No SetSearchOutput: the card must derive the tree from its own output.
+		c.SetResult(output, false, 0)
+		rows := c.Render(width)
+		// Render opens with the card's spacer row, which is not part of the card.
+		for len(rows) > 0 && widthx.VisibleWidth(widthx.StripAnsi(rows[0])) == 0 {
+			rows = rows[1:]
+		}
+		if len(rows) < 2 {
+			t.Fatalf("width %d: no rows", width)
+		}
+		for _, row := range rows {
+			if got := widthx.VisibleWidth(row); got != width {
+				t.Fatalf("width %d: row is %d cells: %q", width, got, widthx.StripAnsi(row))
+			}
+		}
+	}
+}
+
+// TestSearchTreeFromOutput checks the card builds the tree without a caller
+// recording the output, so no plumbing change can silently blank the body.
+func TestSearchTreeFromOutput(t *testing.T) {
+	c := NewToolExecutionComponent("grep", "c", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
+	c.SetResult("a.go:1: one\nb.go:2: two", false, 0)
+	out := widthx.StripAnsi(strings.Join(c.Render(60), "\n"))
+	for _, want := range []string{"├ a.go", "│  *1│one", "└ b.go", "2 matches", "2 files"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
 }
