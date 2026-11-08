@@ -4,8 +4,6 @@ package coding
 
 import (
 	"fmt"
-	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/internal/modelroles"
 
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
@@ -332,24 +330,6 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 	internalSC.ApplyModelPreset = func(name string, finish func(string, error)) {
 		message, err := s.ApplyModelPreset(s.backgroundContext(), name)
 		finish(message, err)
-	}
-	internalSC.SwitchModel = func(selector string, finish func(error)) {
-		resolved, err := s.SettingsManager().ResolveModelRole(selector)
-		if err != nil {
-			finish(err)
-			return
-		}
-		model, err := BuildModel(resolved, s.services)
-		if err != nil {
-			finish(err)
-			return
-		}
-		role, _ := modelroles.Role(selector)
-		_, level := modelroles.Split(resolved)
-		if level == "inherit" {
-			level = ""
-		}
-		finish(s.SetModelOnMain(s.backgroundContext(), model, ModelMutationOptions{Role: role, ThinkingLevel: ai.ModelThinkingLevel(level)}, nil))
 	}
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {

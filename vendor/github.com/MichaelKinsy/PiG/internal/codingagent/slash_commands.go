@@ -685,7 +685,6 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
 		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
-		{Name: "switch", Description: "Switch session model or quick role", TakesArguments: true, Handler: modelHandler},
 		{Name: "modelpreset", Description: "Save, switch, list, or delete named model setups", TakesArguments: true, ArgumentHint: "[list|save|switch|delete] [name]", Handler: modelPresetHandler},
 		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
 		{Name: "export", Description: "Export session (HTML default, or specify path: .html/.jsonl)", TakesArguments: true, Handler: exportHandler},
@@ -895,59 +894,6 @@ func probeOAuthXaiHandler(sc *SlashContext) error {
 		return err
 	}
 	sc.Append(out)
-	return nil
-}
-
-func modelHandler(sc *SlashContext) error {
-	current := "(unknown)"
-	if sc.ModelName != nil {
-		current = sc.ModelName()
-	}
-
-	if sc.Args == "" {
-		// Empty args: prefer the picker overlay if available.
-		if sc.PickModel != nil && sc.SwitchModel != nil {
-			spec, ok := sc.PickModel("")
-			if !ok {
-				return nil
-			}
-			switchModelThen(sc, spec)
-			return nil
-		}
-		// Headless or test context: just print current.
-		sc.Append(fmt.Sprintf("Current model: %s", current))
-		// Upstream v0.70.0 hint text.
-		sc.Append("(Model picker unavailable in this context. Only showing models from configured providers. Use /login to add providers.)")
-		return nil
-	}
-
-	// Direct switch: /model <spec>
-	if sc.SwitchModel == nil {
-		sc.Append("Model switching is not available in this context.")
-		return nil
-	}
-	spec := sc.Args
-	if strings.HasPrefix(spec, "@") || spec == "*" || strings.HasPrefix(spec, "pi/") || strings.Contains(spec, "/") && strings.Contains(spec, "@") {
-		switchModelThen(sc, spec)
-		return nil
-	}
-	if sc.ResolveModel != nil {
-		resolved, ok := sc.ResolveModel(sc.Args)
-		switch {
-		case ok:
-			spec = resolved
-		case sc.PickModel != nil:
-			picked, pickedOK := sc.PickModel(sc.Args)
-			if !pickedOK {
-				return nil
-			}
-			spec = picked
-		default:
-			sc.Append("No matching models")
-			return nil
-		}
-	}
-	switchModelThen(sc, spec)
 	return nil
 }
 

@@ -4,9 +4,10 @@ The native Go port follows OMP's split between **persistent model management**
 and **session-only model selection**:
 
 - `/model` opens the fullscreen manager.
-- Alt+P, Ctrl+L, or `/switch` opens the compact session picker.
-- `/switch @review`, `--model @review`, and subagent `model: "@review"` resolve a
-  logical role. `pi/review` is the legacy spelling; `*` means `@default`.
+- Alt+P opens the compact session-only picker; Ctrl+L remains a shortcut alias.
+- Type `@review` in that picker to select a logical role for this session.
+  `--model @review` and subagent `model: "@review"` also resolve roles.
+  `pi/review` is the legacy spelling; `*` means `@default`.
 
 ## Fullscreen manager
 

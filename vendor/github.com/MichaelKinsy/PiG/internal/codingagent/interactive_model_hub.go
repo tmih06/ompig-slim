@@ -12,7 +12,7 @@ import (
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-// modelHubHandler opens /model management, separate from /switch's session picker.
+// modelHubHandler opens /model management, separate from Alt+P's session picker.
 func modelHubHandler(sc *SlashContext) error {
 	if sc.ShowModelHub == nil {
 		sc.Append("Model management is unavailable in this context.")

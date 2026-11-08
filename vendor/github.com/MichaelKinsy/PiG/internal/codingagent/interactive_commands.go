@@ -718,7 +718,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		// Settings UI.
 		SettingsManager: m.opts.SettingsManager,
 
-		// /model opens persistent model management; /switch stays session-only.
+		// /model opens persistent management; Alt+P owns session-only selection.
 		ShowModelHub:     func() { m.showModelHub() },
 		ApplyModelPreset: func(name string, finish func(string, error)) { m.applyModelPreset(ctx, name, finish) },
 
