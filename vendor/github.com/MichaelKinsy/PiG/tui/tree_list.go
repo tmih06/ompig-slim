@@ -43,6 +43,10 @@ type TreeListOptions struct {
 	// ItemType names the hidden roots in the trailing summary ("match",
 	// "file", "hit"). Empty disables the summary.
 	ItemType string
+	// Summary overrides the generated trailing row. Set it when the hidden
+	// count is not the hidden root count: oh-my-pi counts a search's hidden
+	// *matches*, which can outnumber the files it caps.
+	Summary string
 }
 
 // RenderTreeList draws a tree list with themed branches and an optional
@@ -75,12 +79,17 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 	for _, item := range shown {
 		roots = append(roots, root{item: item})
 	}
-	if hidden > 0 && options.ItemType != "" {
-		roots = append(roots, root{
-			item: TreeItem{Label: theme.Fg("muted", fmt.Sprintf("… %d more %s%s",
-				hidden, options.ItemType, pluralItems(options.ItemType, hidden)))},
-			summary: true,
-		})
+	if hidden > 0 {
+		label := ""
+		switch {
+		case options.Summary != "":
+			label = options.Summary
+		case options.ItemType != "":
+			label = fmt.Sprintf("… %d more %s%s", hidden, options.ItemType, pluralItems(options.ItemType, hidden))
+		}
+		if label != "" {
+			roots = append(roots, root{item: TreeItem{Label: theme.Fg("muted", label)}, summary: true})
+		}
 	}
 
 	out := make([]string, 0, len(roots)*2)
@@ -156,4 +165,143 @@ func wrapTreeRows(prefix, indent, row string, width int) []string {
 // its escape sequences intact.
 func TruncateRow(row string, width int) string {
 	return widthx.TruncateToWidth(row, max(0, width), "…", true)
+}
+
+// SearchMatch is one `path:line:text` row of grep output, the shape the tool's
+// formatter emits (matches as `path:line: text`, context as `path-line- text`).
+type SearchMatch struct {
+	Path string
+	Line string
+	Text string
+}
+
+// ParseSearchRow splits a grep output row. The separator after the path is the
+// first one whose remainder starts with a line number, so a path containing a
+// colon still parses.
+func ParseSearchRow(row string) (SearchMatch, bool) {
+	for i := 1; i < len(row); i++ {
+		c := row[i]
+		if c != ':' && c != '-' {
+			continue
+		}
+		rest := row[i+1:]
+		digits := 0
+		for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+			digits++
+		}
+		if digits == 0 || digits >= len(rest) || (rest[digits] != ':' && rest[digits] != '-') {
+			continue
+		}
+		return SearchMatch{
+			Path: row[:i],
+			Line: rest[:digits],
+			Text: strings.TrimPrefix(rest[digits+1:], " "),
+		}, true
+	}
+	return SearchMatch{}, false
+}
+
+// SearchTreeRows draws a search result as oh-my-pi's grouped tree. grep output
+// is grouped by file with each matched row hanging under it; a find result is a
+// list of paths, so each is a single-branch entry. Rows that do not parse
+// (a truncation notice, an unreadable-file marker) attach to the file they
+// follow so nothing is silently dropped.
+func SearchTreeRows(toolName, output string, options TreeListOptions) []string {
+	theme := ActiveTheme()
+	var files []TreeSearchFile
+	index := map[string]int{}
+	for _, row := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if strings.TrimSpace(row) == "" {
+			continue
+		}
+		if toolName == "find" {
+			files = append(files, TreeSearchFile{Label: theme.Fg("accent", strings.TrimSpace(row))})
+			continue
+		}
+		match, ok := ParseSearchRow(row)
+		if !ok {
+			if len(files) == 0 {
+				files = append(files, TreeSearchFile{})
+			}
+			last := &files[len(files)-1]
+			last.Lines = append(last.Lines, theme.Fg("toolOutput", row))
+			continue
+		}
+		at, seen := index[match.Path]
+		if !seen {
+			at = len(files)
+			index[match.Path] = at
+			files = append(files, TreeSearchFile{Label: theme.Fg("accent", match.Path)})
+		}
+		line := theme.Fg("dim", "*"+match.Line+"│") + theme.Fg("toolOutput", match.Text)
+		files[at].Lines = append(files[at].Lines, line)
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	if options.ItemType == "" {
+		options.ItemType = "match"
+	}
+	// The summary counts the matches a capped card hides, as oh-my-pi's
+	// fitGroupsToBudget does, not the number of hidden files.
+	if !options.Expanded && options.MaxCollapsed > 0 && len(files) > options.MaxCollapsed {
+		hidden := 0
+		for _, file := range files[options.MaxCollapsed:] {
+			hidden += max(1, len(file.Lines))
+		}
+		noun := options.ItemType
+		options.Summary = fmt.Sprintf("… %d more %s%s", hidden, noun, pluralItems(noun, hidden))
+	}
+	return RenderSearchTree(files, options)
+}
+
+// SearchCounts is the status line's `N matches · M files` for a finished search.
+// find returns paths, so its count is of files.
+func SearchCounts(toolName, output string) []string {
+	rows := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if toolName == "find" {
+		files := 0
+		for _, row := range rows {
+			if strings.TrimSpace(row) != "" {
+				files++
+			}
+		}
+		if files == 0 {
+			return nil
+		}
+		return []string{countLabel("file", files)}
+	}
+	seen := map[string]struct{}{}
+	matches := 0
+	for _, row := range rows {
+		match, ok := ParseSearchRow(row)
+		if !ok {
+			continue
+		}
+		matches++
+		seen[match.Path] = struct{}{}
+	}
+	if matches == 0 {
+		return nil
+	}
+	meta := []string{countLabel("match", matches)}
+	if len(seen) > 1 {
+		meta = append(meta, countLabel("file", len(seen)))
+	}
+	return meta
+}
+
+// countLabel is `N noun`, pluralised: the names the search summaries use take
+// `es` when they end in a sibilant, so `1 match` and `21 matches`.
+func countLabel(noun string, n int) string {
+	suffix := "s"
+	switch {
+	case strings.HasSuffix(noun, "ch"), strings.HasSuffix(noun, "sh"),
+		strings.HasSuffix(noun, "s"), strings.HasSuffix(noun, "x"):
+		suffix = "es"
+	}
+	if n == 1 {
+		suffix = ""
+	}
+	return fmt.Sprintf("%d %s%s", n, noun, suffix)
 }

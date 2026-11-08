@@ -450,6 +450,11 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		if comp.Rich && (e.ToolName == "bash" || e.ToolName == "powershell") {
 			comp.SetExitCode(shellExitCode(result))
 		}
+		if comp.Rich && (e.ToolName == "grep" || e.ToolName == "find") {
+			// Drawn by the card itself as oh-my-pi's grouped tree, so the shape
+			// does not depend on which renderers resolved for the tool.
+			comp.SetSearchOutput(result.Text())
+		}
 		comp.UpdateResult(final, false)
 		m.tuiInst.Render()
 

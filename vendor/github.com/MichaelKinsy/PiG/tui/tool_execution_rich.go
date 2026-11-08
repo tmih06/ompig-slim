@@ -314,6 +314,43 @@ func (c *ToolExecutionComponent) renderRichFrame(width int, rows []string, outpu
 	return out
 }
 
+// searchTreeTool reports whether a tool's result is drawn as a grouped tree.
+func searchTreeTool(name string) bool { return name == "grep" || name == "find" }
+
+// searchTreeCollapsed is grep.ts NATIVE_COLLAPSED_FILES: the files a collapsed
+// search tree shows before summarising the rest.
+const searchTreeCollapsed = 4
+
+// SetSearchOutput records a search result for the card to draw as a tree. The
+// card owns the transform so the tree appears however the tool's renderers
+// resolved.
+func (c *ToolExecutionComponent) SetSearchOutput(output string) {
+	c.searchRows = strings.Split(strings.TrimRight(output, "\n"), "\n")
+	c.resultMeta = SearchCounts(c.Name, output)
+	c.Invalidate()
+}
+
+// richSearchRows draws the recorded search result as oh-my-pi's grouped tree.
+func (c *ToolExecutionComponent) richSearchRows(width int) []string {
+	if len(c.searchRows) == 0 {
+		return nil
+	}
+	itemType := "match"
+	if c.Name == "find" {
+		itemType = "file"
+	}
+	rows := SearchTreeRows(c.Name, strings.Join(c.searchRows, "\n"), TreeListOptions{
+		Expanded:     !c.Collapsed,
+		MaxCollapsed: searchTreeCollapsed,
+		ItemType:     itemType,
+	})
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, TruncateRow(row, width))
+	}
+	return out
+}
+
 // richTone is the card's border color: the lifecycle state's color role, as
 // output-block.ts picks the border from the block state.
 func (c *ToolExecutionComponent) richTone() string {

@@ -91,11 +91,6 @@ func NewToolRendererCard(ctx context.Context, name, toolCallId, cwd string, args
 			if !ok {
 				value = agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: component.Output}}, IsError: input.IsError}
 			}
-			// grep.ts sets its head's counts from the result, so the card's
-			// status line carries `21 matches · 20 files`.
-			if name == "grep" || name == "find" {
-				component.SetResultMeta(searchCounts(name, value))
-			}
 			result, ok := runToolRenderer(func() extension.Component {
 				return renderers.RenderResult(value, extension.ToolRenderResultOptions{Expanded: input.Expanded, IsPartial: input.IsPartial}, tui.ActiveTheme(), makeContext(input, last))
 			})

@@ -110,11 +110,16 @@ make build
 - A collapsed or expanded `grep`/`find` result draws oh-my-pi's grouped tree
   (`render/tree-list.ts`): one `├`/`└` branch per file, grep's matched rows
   hanging under it as `*12│text` with the vertical rail, and a trailing
-  `… N more matches` (or `files` for find) row while collapsed. The status line
-  also carries the result counts (`21 matches · 20 files`). This is a display
-  transform: the tools still return flat `path:line: text` rows to the model,
-  and `tool_rich_search_tree.go` groups them. Branch glyphs mark siblings, not
-  nesting depth — the first N-1 roots draw `├` and the last draws `└`.
+  `… N more matches` row while collapsed that counts hidden *matches*, not
+  hidden files (oh-my-pi `fitGroupsToBudget`). The status line carries the result
+  counts (`21 matches · 20 files`). Branch glyphs mark siblings, not nesting
+  depth: the first N-1 roots draw `├` and the last draws `└`.
+- The card owns this transform (`ToolExecutionComponent.SetSearchOutput` →
+  `tui/tree_list.go`), not a tool renderer. Grep and find resolve no registered
+  renderers, so a renderer-side implementation never runs in a real session —
+  the first attempt was wired that way and drew nothing. Owning it in the card
+  makes the tree independent of how a tool's renderers resolved. The tools still
+  return flat `path:line: text` rows to the model; the tree is display-only.
 - `read` covers files, directories and URLs. A directory lists its entries,
   directories first then files (read.ts `formatDirectoryListing`), marked
   `ReadDetails.IsDirectory` so the card keeps the listing as plain text. A URL

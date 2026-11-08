@@ -469,6 +469,9 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 			if comp.Rich && (call.Name == "bash" || call.Name == "powershell") {
 				comp.SetExitCode(shellExitCode(result))
 			}
+			if comp.Rich && (call.Name == "grep" || call.Name == "find") {
+				comp.SetSearchOutput(result.Text())
+			}
 			comp.UpdateResult(final, false)
 		}
 	}
