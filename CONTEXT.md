@@ -74,10 +74,10 @@ make build
     the bars is padded to the full card width, and the phase background tint is
     applied over the whole row, borders included, re-applied after embedded SGR
     resets. Shell cards opt out of the wash (`applyBg:false`) as OMP's do.
-  - **Inline** (`read`, `write`, `edit`, `grep`, `find`, `ls`, plus the ones
-    whose result is a list of issues): no frame at all. The collapsed card is
-    the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95` — and
-    Ctrl+O discloses the body rows under it.
+  - **Inline** (`read`, `grep`, `find`, `ls`): no frame at all. The collapsed
+    card is the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95`
+    — and Ctrl+O discloses the body rows under it. `write` and `edit` return
+    framed boxes in oh-my-pi, so they keep the block.
 - The status line is `renderStatusLine`: `icon Title<sep>description · meta`.
   `read`/`write`/`edit` separate the target with a space and every other tool
   with `: `. The icon is ⏳ before execution, a spinner frame while running,
@@ -89,6 +89,18 @@ make build
   `<pattern> in <scope>` (grep.ts `formatScopedSubject`), find shows
   `"<query>" [keywords] in <scope>` (find.ts `quoteQuery`), web_search shows the
   query truncated to 80 cells (web-search.ts `renderSearchCall`).
+- `write` streams like write.ts. While its `content` argument is still
+  arriving the body is `formatStreamingContent`: the newest
+  `PREVIEW_LIMITS.EXPANDED_LINES` rows of the file, highlighted by its language,
+  numbered from a right-aligned gutter, with a `… N earlier lines` marker and a
+  `streaming` footer fact. Once `argsComplete` finalizes the content the body
+  becomes `renderContentPreview` — the head of the file capped at
+  `WRITE_PREVIEW_LINES` — and the footer clears.
+- `edit` streams like edit.ts's `renderStreamingFallback`. Until the computed
+  diff lands, a replace-mode edit draws its replacement text as `+` rows
+  (`CALL_TEXT_PREVIEW_LINES`, with a `… N more lines` marker), so the edit is
+  visible while its arguments arrive rather than appearing only at the end. The
+  filesystem-derived diff still takes over once `argsComplete` triggers it.
 - A bash exit code comes from the structured result (`exit_code`) because
   `BashDetails` carries none; see `internal/codingagent/tool_shell_exit_code.go`.
 - `read` covers files, directories and URLs. A directory lists its entries,

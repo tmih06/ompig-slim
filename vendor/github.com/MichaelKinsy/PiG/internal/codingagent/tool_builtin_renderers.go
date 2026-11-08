@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"maps"
 	"reflect"
@@ -22,10 +23,21 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 const (
-	builtInPreviewLines   = 10          // upstream: packages/coding-agent/src/core/tools/renderers/read.ts:formatReadResult
+	builtInPreviewLines = 10 // upstream: packages/coding-agent/src/core/tools/renderers/read.ts:formatReadResult
+	// drawPreviewLines is render-utils.ts PREVIEW_LIMITS.EXPANDED_LINES: the tail
+	// window write.ts formatStreamingContent keeps while a file streams in.
+	drawPreviewLines = 12
+	// writeGutterMinWidth is write.ts WRITE_GUTTER_MIN_WIDTH.
+	writeGutterMinWidth = 3
+	// editCallPreviewLines is edit.ts CALL_TEXT_PREVIEW_LINES.
+	editCallPreviewLines = 6
+	// writePreviewLines is write.ts WRITE_PREVIEW_LINES: the head a settled
+	// write preview shows.
+	writePreviewLines     = 6
 	shellElapsedTickEvery = time.Second // upstream: packages/coding-agent/src/core/tools/renderers/bash.ts:createShellRenderers
 	builtInRenderStateKey = "\x00pig-builtin-render-state"
 )
@@ -574,20 +586,106 @@ func listRenderResult(name string) extension.ToolRenderResultFunc {
 	}
 }
 
+// pluralLines is write.ts's `line${n === 1 ? "" : "s"}`.
+func pluralLines(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// writeGutterPrefix is one preview row's line-number gutter, the format
+// write.ts formatStreamingContent emits: a dim right-aligned number and a space.
+func writeGutterPrefix(number, width int) string {
+	return themeFg(tui.ActiveTheme().Dim, fmt.Sprintf("%*d ", width, number))
+}
+
+// writeStreamingRows is write.ts's content preview, numbered and highlighted by
+// the file's language. While the content argument still streams it is
+// formatStreamingContent: a tail window of the newest PREVIEW_LIMITS.EXPANDED_LINES
+// rows that follows the live edge. Once argsComplete finalizes the content it is
+// renderContentPreview: the head of the file, capped to WRITE_PREVIEW_LINES.
+// Expanded shows every row. The rows are re-laid per width, so a resize
+// recomputes the gutter.
+func writeStreamingRows(content, path string, expanded, argsComplete bool) func(width int) []string {
+	return func(width int) []string {
+		content = strings.ReplaceAll(strings.ReplaceAll(content, "\r", ""), "\t", "   ")
+		if content == "" {
+			return nil
+		}
+		lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+		total := len(lines)
+		start, lines := 0, lines
+		switch {
+		case expanded:
+		case !argsComplete:
+			// The live edge: the newest rows stay visible as the file grows.
+			if total > drawPreviewLines {
+				start = total - drawPreviewLines
+				lines = lines[start:]
+			}
+		default:
+			// A settled write reads from the top, as renderContentPreview does.
+			if total > writePreviewLines {
+				lines = lines[:writePreviewLines]
+			}
+		}
+		visible := lines
+		styled := visible
+		if lang := tui.LanguageFromPath(path); lang != "" {
+			if highlighted := tui.HighlightCode(strings.Join(visible, "\n"), lang); len(highlighted) == len(visible) {
+				styled = highlighted
+			}
+		}
+		gutterWidth := max(writeGutterMinWidth, len(strconv.Itoa(total)))
+		out := make([]string, 0, len(styled)+1)
+		if start > 0 {
+			out = append(out, tui.ActiveTheme().Fg("dim", fmt.Sprintf("… (%d earlier line%s)", start, pluralLines(start))))
+		}
+		for i, line := range styled {
+			prefix := writeGutterPrefix(start+i+1, gutterWidth)
+			out = append(out, hangingWrap(prefix, strings.Repeat(" ", gutterWidth), line, width)...)
+		}
+		return out
+	}
+}
+
+// hangingWrap wraps a prefixed row so continuation lines align under the
+// content rather than under the gutter (render/hanging-wrap.ts).
+func hangingWrap(prefix, indent, line string, width int) []string {
+	available := max(1, width-widthx.VisibleWidth(prefix))
+	wrapped := widthx.WrapTextWithAnsi(line, available)
+	if len(wrapped) <= 1 {
+		return []string{prefix + line}
+	}
+	out := make([]string, 0, len(wrapped))
+	out = append(out, prefix+wrapped[0])
+	for _, rest := range wrapped[1:] {
+		out = append(out, indent+rest)
+	}
+	return out
+}
+
 // writeRenderCall is upstream write.ts renderCall: the path, then the content
-// being written, highlighted by the file's language, ten lines while
-// collapsed. A frame reads the lines it draws and the line count: while the
-// content streams in, the card state extends both from the previous frame, and
-// a complete call reuses the row's highlighting of its whole file.
+// being written, highlighted by the file's language, numbered, and following
+// the newest rows while it streams. A frame reads the lines it draws and the
+// line count: while the content streams in, the card state extends both from
+// the previous frame, and a complete call reuses the row's highlighting of its
+// whole file.
 func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 	theme := tui.ActiveTheme()
 	fields := callFields(args, context)
-	text := tui.FormatWriteHeaderArgs(writeHeaderFields(fields), context.Cwd)
-	if richCard(context) {
-		text = "" // The frame's top bar names the file, so only its lines remain.
-	}
 	rawPath, _ := stringField(fields, "file_path", "path")
 	content, ok := stringField(fields, "content")
+	if richCard(context) {
+		// write.ts renderCall: the frame's status line names the file, and the
+		// body is the content arriving, numbered and following the newest rows.
+		if !ok {
+			return tui.NewPaddedText(themeFg(theme.Error, "[invalid content arg - expected string]"), 0, 0, nil)
+		}
+		return linesComponent{render: writeStreamingRows(content, rawPath, context.Expanded, context.ArgsComplete)}
+	}
+	text := tui.FormatWriteHeaderArgs(writeHeaderFields(fields), context.Cwd)
 	lang := ""
 	if rawPath != "" {
 		lang = tui.LanguageFromPath(rawPath)
@@ -745,6 +843,50 @@ func (plain *writePlainLines) lines(n int) iter.Seq[string] {
 	}
 }
 
+// editStreamingRows is edit.ts renderStreamingFallback: until the computed diff
+// preview lands, a replace-mode edit shows the replacement text being written,
+// capped to a head window with a `… N more lines` marker. It needs no
+// filesystem read, so it tracks the arguments as they stream.
+func editStreamingRows(fields map[string]any) func(width int) []string {
+	return func(width int) []string {
+		var replacements []string
+		if newText, ok := stringField(fields, "newText"); ok && newText != "" {
+			replacements = append(replacements, newText)
+		}
+		// A structured edits[] call streams one replacement per entry.
+		if edits, ok := fields["edits"].([]any); ok {
+			for _, entry := range edits {
+				edit, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				if newText, ok := stringField(edit, "newText"); ok && newText != "" {
+					replacements = append(replacements, newText)
+				}
+			}
+		}
+		theme := tui.ActiveTheme()
+		var out []string
+		for _, replacement := range replacements {
+			// A replacement is an addition to the file: mark it as such so the
+			// preview reads as a change rather than as plain text.
+			lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(replacement, "\r", ""), "\n"), "\n")
+			hidden := 0
+			if len(lines) > editCallPreviewLines {
+				hidden = len(lines) - editCallPreviewLines
+				lines = lines[:editCallPreviewLines]
+			}
+			for _, line := range lines {
+				out = append(out, tui.ToolDiffRows("+", line, width)...)
+			}
+			if hidden > 0 {
+				out = append(out, theme.Fg("dim", fmt.Sprintf("… %d more line%s", hidden, pluralLines(hidden))))
+			}
+		}
+		return out
+	}
+}
+
 // writeRenderResult is upstream write.ts renderResult: the error text of a
 // failed write, else nothing.
 func writeRenderResult(result extension.AgentToolResult, _ extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
@@ -839,6 +981,9 @@ func (state *builtInRenderState) editRenderInput(args any) *editRenderArgs {
 // error show in it as they do in upstream's shared call component.
 func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 	state := builtInState(context)
+	// richCard reads the same state under its own lock, so it is asked before
+	// this renderer takes it.
+	rich := richCard(context)
 	state.mu.Lock()
 	input := state.editRenderInput(args)
 	path, edits, ok := input.path, input.edits, input.ok
@@ -871,6 +1016,12 @@ func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 				invalidate()
 			}
 		})
+	}
+	if rich && !context.ArgsComplete {
+		state.mu.Unlock()
+		// edit.ts renderStreamingFallback until the diff lands: the replacement
+		// text itself, so the card shows the edit arriving instead of nothing.
+		return linesComponent{render: editStreamingRows(decodeRenderArgs(args))}
 	}
 	headerArgs := input.header
 	state.mu.Unlock()

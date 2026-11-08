@@ -70,7 +70,7 @@ func TestRichBashCard(t *testing.T) {
 // TestRichInlineTools checks OMP's inline tools: the collapsed card is the
 // status-line row alone, with no frame, and the body appears under it.
 func TestRichInlineTools(t *testing.T) {
-	for _, name := range []string{"read", "write", "edit", "grep", "find", "ls"} {
+	for _, name := range []string{"read", "grep", "find", "ls"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{"path":"a.go"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			c.MarkExecutionStarted()
@@ -96,7 +96,9 @@ func TestRichInlineTools(t *testing.T) {
 // TestRichFramedTools checks that the stream tools keep OMP's output block and
 // that their every row is the card width.
 func TestRichFramedTools(t *testing.T) {
-	for _, name := range []string{"bash", "web_search", "codemode", "custom_tool"} {
+	// write and edit return framed boxes in oh-my-pi (write.ts, edit.ts); the
+	// rest are either framed streams or unknown tools on the generic card.
+	for _, name := range []string{"bash", "web_search", "codemode", "write", "edit", "custom_tool"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			c.MarkExecutionStarted()

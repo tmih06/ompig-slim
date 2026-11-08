@@ -66,11 +66,11 @@ func richToolName(name string) string {
 
 // richInline reports whether a tool is OMP's `inline: true`: its card is the
 // status line plus the disclosed body, with no frame. These are the renderers
-// whose collapsed form is the one-row head (read.ts, write.ts, edit.ts,
-// grep.ts, find.ts, glob.ts), not the shell's framed run box.
+// whose collapsed form is the one-row head — read.ts, grep.ts, find.ts and
+// glob.ts. write.ts and edit.ts return framed boxes, so they keep the block.
 func richInline(name string) bool {
 	switch name {
-	case "read", "write", "edit", "grep", "find", "ls":
+	case "read", "grep", "find", "ls":
 		return true
 	}
 	return false
@@ -190,6 +190,27 @@ func ToolOutputRows(line string, width int) []string {
 	return out
 }
 
+// ToolDiffRows styles one diff row — a `+` or `-` marker and its text — in the
+// theme's added/removed color and wraps it to width. Edit and write previews
+// that have no computed diff still show a change, so they use this.
+func ToolDiffRows(marker, line string, width int) []string {
+	theme := ActiveTheme()
+	token := "toolDiffAdded"
+	if marker == "-" {
+		token = "toolDiffRemoved"
+	}
+	wrapped := WrapText(line, max(1, width-2))
+	out := make([]string, len(wrapped))
+	for i, row := range wrapped {
+		prefix := "  "
+		if i == 0 {
+			prefix = marker + " "
+		}
+		out[i] = theme.Fg(token, prefix+row)
+	}
+	return out
+}
+
 // richFooterMeta is the bottom bar's facts: OMP keeps the expansion hint and
 // the tool's own notices there rather than inside the body.
 func (c *ToolExecutionComponent) richFooterMeta() string {
@@ -203,10 +224,18 @@ func (c *ToolExecutionComponent) richFooterMeta() string {
 	return strings.Join(meta, " · ")
 }
 
-// richFooterFacts is the tool-owned part of the bottom bar, empty for now:
-// OMP fills it with background-job, service and artifact facts the Go runtime
-// does not record.
-func (c *ToolExecutionComponent) richFooterFacts() []string { return nil }
+// richFooterFacts is the tool-owned part of the bottom bar: write.ts labels a
+// call whose file body is still arriving `streaming`, and clears the label once
+// argsComplete makes the content final.
+func (c *ToolExecutionComponent) richFooterFacts() []string {
+	if c.Name == "write" && !c.argsComplete {
+		return []string{"streaming"}
+	}
+	return nil
+}
+
+// ArgsComplete reports whether the call's arguments finished streaming.
+func (c *ToolExecutionComponent) ArgsComplete() bool { return c.argsComplete }
 
 // richExpandable reports whether Ctrl+O opens or closes anything.
 func (c *ToolExecutionComponent) richExpandable() bool {
