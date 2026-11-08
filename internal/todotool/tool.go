@@ -56,6 +56,10 @@ func Definition() extension.ToolDefinition {
 		// The op mutates one shared list, so calls must not interleave.
 		ExecutionMode: "sequential",
 		Execute:       execute,
+		// The card is drawn by OMP's todo renderer (render.go). Without these the
+		// tool falls back to the generic card, which shows the raw summary text.
+		RenderCall:   renderCall,
+		RenderResult: renderResult,
 	}
 }
 

@@ -74,7 +74,11 @@ The harness behavior is the part that makes the tool matter. `SettleExtension` r
 
 `sequential` execution serializes the calls but does not make one call's result visible to the next, so two `todo` calls in one batch each read the same prior list and the later one wins. The tool description therefore instructs one op per call beside the next real action; do not treat batching as safe.
 
-See `internal/todo/state.go`, `internal/todotool/settle.go`, and the tests beside them.
+The card is a line-for-line port of OMP's `todoToolRenderer` (`packages/tui/src/tools/todo.ts`) in `internal/todotool/render.go`: one `Todo N tasks` line, roman-numeral phase headers when there are several phases, `├─`/`└─` tree gutters, `☑`/`☐` checkboxes, dim `closed/total` progress per phase, and a collapsed walking viewport that leads with the last closed task and caps at 8 rows. The card is reproduced rather than approximated because it is the only place a user watches a plan advance; a layout that differs by a gutter or a windowing rule reads as a different tool.
+
+Two vendor limitations shape the renderer, and both are handled in it rather than by patching the runtime. First, OMP's `mergeCallAndResult` has no counterpart here, and the vendored card substitutes a name-and-args fallback when a call renderer returns nil, so `renderCall` draws the streaming header and then nothing once `IsPartial` clears. Without that, a settled card shows a stale `● Todo` line above the result header. Second, the vendored `Theme` exposes foreground tokens but not OMP's symbol table, so checkbox, tree and tool glyphs are constants in `render.go` holding OMP's default-theme values. A pending todo matched to a live subagent renders dim rather than accent, because no subagent registry is wired into a renderer here.
+
+See `internal/todo/state.go`, `internal/todotool/render.go`, `internal/todotool/settle.go`, and the tests beside them.
 
 ### Saved rate-limit resets
 
