@@ -146,8 +146,11 @@ class InstallTests(unittest.TestCase):
         target = self.install_dir() / "ompig-slim"
         self.assertTrue(os.access(target, os.X_OK))
         self.assertIn(FAKE_VERSION, target.read_text())
-        self.assertIn(f"Installed {target}", result.stdout)
+        # The summary names the resolved version; the install directory is
+        # announced by the phase line above it.
+        self.assertIn("installed ompig-slim", result.stdout)
         self.assertIn(FAKE_VERSION, result.stdout)
+        self.assertIn(str(self.install_dir()), result.stdout)
         # Nothing else from the archive lands on PATH, including partial files.
         self.assertEqual(sorted(os.listdir(self.install_dir())), ["ompig-slim"])
 
@@ -351,6 +354,35 @@ class InstallTests(unittest.TestCase):
         result = self.run_installer(TMPDIR=str(self.root / "absent"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.install_dir().exists())
+
+    def test_banner_is_printed_and_stays_aligned_without_color(self):
+        # The mark is plain text with optional color runs, so redirected output
+        # keeps the same geometry and no escape sequence reaches a log file.
+        self.fixture.stage("latest")
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("in Go \u00b7 slim harness", result.stdout)
+        art = [line for line in result.stdout.splitlines() if "\u2588" in line or "\u255a" in line]
+        self.assertEqual(len(art), 5, result.stdout)
+        # Every row of the mark is the same width once color is stripped.
+        widths = {len(line) for line in art}
+        self.assertEqual(len(widths), 1, f"logo rows differ in width: {art}")
+        self.assertNotIn("\x1b", result.stdout)
+
+    def test_a_refused_platform_prints_no_banner(self):
+        # The mark announces an install that is about to happen, so a refusal
+        # before that point prints only its own message.
+        self.fixture.stage("latest")
+        self.use_platform("FreeBSD", "x86_64")
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("in Go", result.stdout)
+        self.assertNotIn("\u2588", result.stdout)
+
+    def test_usage_help_stays_free_of_the_mark(self):
+        result = self.run_installer("--help")
+        self.assertIn("Usage: install.sh", result.stdout)
+        self.assertNotIn("in Go", result.stdout)
 
     def test_usage_errors_exit_two(self):
         for arguments in (["--nope"], ["--dir"], ["--version"]):

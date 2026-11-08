@@ -212,7 +212,7 @@ class SelfUpdateTests(unittest.TestCase):
         result = self.run_binary("update")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.installed_version(), newer)
-        self.assertIn("Updated to ompig-slim", result.stdout)
+        self.assertIn("Updated ompig-slim", result.stdout)
 
     def test_upgrade_does_the_same_thing_as_update(self):
         self.install()
@@ -220,7 +220,7 @@ class SelfUpdateTests(unittest.TestCase):
         result = self.run_binary("upgrade")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.installed_version(), newer)
-        self.assertIn("Updated to ompig-slim", result.stdout)
+        self.assertIn("Updated ompig-slim", result.stdout)
 
     def test_upgrade_is_not_read_as_a_prompt(self):
         # The regression: `upgrade` used to reach PiG as a prompt and fail with
@@ -242,7 +242,7 @@ class SelfUpdateTests(unittest.TestCase):
         self.install()
         result = self.run_binary("update", "--force")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Updated to ompig-slim", result.stdout)
+        self.assertIn("Updated ompig-slim", result.stdout)
 
     def test_explicit_self_targets_still_update(self):
         for target in ("self", "ompig-slim", "pig"):

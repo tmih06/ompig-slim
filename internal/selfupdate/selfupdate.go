@@ -119,8 +119,12 @@ func Update(o Options) int {
 	}
 
 	archiveURL := strings.TrimRight(o.DownloadBase, "/") + "/download/" + tag + "/" + archiveName
-	fmt.Fprintf(o.Stdout, "Updating ompig-slim %s → %s...\n", current, latest)
-	archive, err := o.download(archiveURL)
+	// One banner per run, then a line naming both releases. The progress meter
+	// below is live on a terminal and silent in a pipe; the summary lines are
+	// printed either way.
+	printBanner(o.Stdout)
+	fmt.Fprintf(o.Stdout, "Updating ompig-slim %s → %s\n\n", current, latest)
+	archive, err := o.download(archiveURL, o.Stderr)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: %v\n%s\n", err, fallback())
 		return 1
@@ -132,7 +136,7 @@ func Update(o Options) int {
 		return 1
 	}
 
-	fmt.Fprintf(o.Stdout, "Updated to ompig-slim %s.\n", latest)
+	fmt.Fprintf(o.Stdout, "\n✓ Updated ompig-slim %s → %s\n", current, latest)
 	// The replaced binary ships its own embedded SDK, which only it can stage.
 	// This process still holds the previous bytes, so saying nothing would make
 	// the slower first launch look like a hang.
@@ -185,12 +189,16 @@ func (o Options) latestTag() (string, error) {
 // The checksum comes from the same release as the archive, exactly as in
 // scripts/install.sh: it detects a corrupt, truncated, or swapped download. It
 // is not a signature and does not defend against a compromised release.
-func (o Options) download(archiveURL string) (string, error) {
-	archive, err := o.fetch(archiveURL)
+func (o Options) download(archiveURL string, progressOut io.Writer) (string, error) {
+	meter := newProgress(progressOut, "download")
+	archive, err := o.fetch(archiveURL, meter.set)
 	if err != nil {
 		return "", err
 	}
-	checksumFile, err := o.fetch(archiveURL + ".sha256")
+	meter.finish("archive downloaded")
+	// The checksum file is a few dozen bytes; a meter for it would flicker, so
+	// it is fetched without one.
+	checksumFile, err := o.fetch(archiveURL+".sha256", nil)
 	if err != nil {
 		_ = os.Remove(archive)
 		return "", err
@@ -223,7 +231,11 @@ func (o Options) download(archiveURL string) (string, error) {
 }
 
 // fetch streams url into a new temporary file and returns its path.
-func (o Options) fetch(url string) (string, error) {
+//
+// report, when non-nil, receives the running byte count and the response's
+// Content-Length (0 when the server does not send one) after every chunk, so a
+// caller can render progress. It must be cheap and must not block.
+func (o Options) fetch(url string, report func(done, total int64)) (string, error) {
 	resp, err := o.Client.Get(url)
 	if err != nil {
 		return "", err
@@ -237,7 +249,17 @@ func (o Options) fetch(url string) (string, error) {
 		return "", fmt.Errorf("stage download: %w", err)
 	}
 	name := file.Name()
-	written, copyErr := io.Copy(file, io.LimitReader(resp.Body, maxArchiveBytes+1))
+	// Content-Length bounds the body; ContentLength is -1 when the server omits
+	// it, which the meter reads as an unknown total.
+	total := resp.ContentLength
+	if report != nil {
+		report(0, total)
+	}
+	body := io.Reader(resp.Body)
+	if report != nil {
+		body = &countingReader{inner: resp.Body, total: total, report: report}
+	}
+	written, copyErr := io.Copy(file, io.LimitReader(body, maxArchiveBytes+1))
 	closeErr := file.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = os.Remove(name)
@@ -414,6 +436,27 @@ func parseVersion(raw string) ([3]int, string, bool) {
 		numbers[i] = value
 	}
 	return numbers, prerelease, true
+}
+
+// countingReader reports byte progress while a response body streams past. It
+// forwards reads unchanged, so the caller's size limit and hashing still see the
+// same bytes.
+type countingReader struct {
+	inner  io.Reader
+	total  int64
+	done   int64
+	report func(done, total int64)
+}
+
+// Read forwards to the wrapped reader and reports the new running total. A read
+// error is returned untouched; the caller decides whether a short body is fatal.
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.inner.Read(p)
+	if n > 0 {
+		c.done += int64(n)
+		c.report(c.done, c.total)
+	}
+	return n, err
 }
 
 // fileSHA256 returns the lowercase hex SHA-256 of the file at name.

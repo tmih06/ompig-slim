@@ -24,9 +24,12 @@ needs `bash`, `tar`, and `curl` or `wget`; it does not need Go or `sudo`. Use
 `curl ... | bash -s -- --version v0.1.0` for a specific release, or `--dir` to
 install elsewhere. Prebuilt binaries cover Linux and macOS on x64 and arm64.
 
+On a terminal it shows the startup mark and a progress bar while it downloads.
+Redirect its output and you get plain lines instead, with no escape sequences.
+
 Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactive app or `ompig-slim login` in the terminal. Provider API-key environment variables are also supported.
 
-Keep an installed copy current with `ompig-slim update`, or its synonym `ompig-slim upgrade`. Both download the latest release, verify its checksum, and replace the executable in place. `update --all` also refreshes installed packages and `update --models` refreshes model catalogs.
+Keep an installed copy current with `ompig-slim update`, or its synonym `ompig-slim upgrade`. Both show the same mark and progress bar, verify the checksum, and replace the executable in place. `update --all` also refreshes installed packages and `update --models` refreshes model catalogs.
 
 ### Build from source
 
