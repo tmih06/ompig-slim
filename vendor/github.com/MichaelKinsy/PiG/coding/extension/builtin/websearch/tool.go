@@ -274,4 +274,4 @@ const description = "Search the web without an API key. Use it for current infor
 	"-site:, after:, before:, inurl:, intitle:, filetype:, \"phrase\", -term, OR); unsupported operators are relaxed " +
 	"rather than returning nothing, and the result says so. Returns an answer when a provider synthesizes one, plus " +
 	"numbered cited sources with a snippet each. Providers are tried in order, so a refusal falls through to the next " +
-	"engine and the result names the failure. Known URLs → `web_fetch`."
+	"engine and the result names the failure. Known URLs → `read`."

@@ -64,6 +64,96 @@ make build
 - Imported accounts use the normal quota-aware account router and refresh-token rotation. Definitive refresh failures remove live secrets and routing blocks while retaining an OMP-compatible disabled row. Transport failures, cancellation, rate limits, server errors, and unclassified failures retain credentials. Cleanup is use-driven, not a background timer; browser-login Codex accounts are unaffected. See `vendor/github.com/MichaelKinsy/PiG/ai/omp_codex_json_storage.go` and the routing tests beside it.
 - Sessions using the built-in ModelRuntime stream must also route compaction summaries through it without pre-resolving credentials. Explicit credentials pin a single account and bypass model-plan eligibility and account rotation; caller-supplied Agent streams retain their own auth behavior. See `vendor/github.com/MichaelKinsy/PiG/coding/session_summarization_auth.go`.
 
+### Interactive tool cards
+
+- Interactive cards opt into `ToolExecutionOptions.Rich` and follow one of
+  OMP's two shapes (`packages/tui/src/tools/renderer.ts` `inline`):
+  - **Framed** (`bash`, `codemode`, `web_search`, unregistered tools): OMP's
+    `renderOutputBlock` — `╭─── … ───╮` bars, body rows padded one cell inside
+    the borders, a labelled `├─── Output ───┤` section where the tool has one,
+    and a `╰─ … ─╯` bar carrying facts and the Ctrl+O hint. Every row including
+    the bars is padded to the full card width, and the phase background tint is
+    applied over the whole row, borders included, re-applied after embedded SGR
+    resets. Every tool is filled, the shell included; this project keeps one
+    filled card look instead of oh-my-pi's `applyBg: false` shell exception.
+  - **Inline** (`read`, `grep`, `find`, `ls`): no frame at all. The collapsed
+    card is the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95`
+    — and Ctrl+O discloses the body rows under it. `write` and `edit` return
+    framed boxes in oh-my-pi, so they keep the block.
+- The status line is `renderStatusLine`: `icon Title<sep>description · meta`.
+  `read`/`write`/`edit` separate the target with a space and every other tool
+  with `: ` — so a search reads `Web Search: BTC price` and grep reads
+  `Grep: frontmatter|^name: in skills`. The subject is recomputed from the
+  streaming parser's decoded arguments on every delta, so it appears while the
+  call is still arriving rather than only once its arguments complete. The icon is ⏳ before execution, a spinner frame while running,
+  then ✔, ✘ (error or abort). Meta carries `exit <code>` for a shell command and
+  the duration; Duration prefers the recorded `DurationMs` over the card clock so
+  a reload keeps it, and no result body repeats timing.
+- Status-line subjects (`tui.ToolDetail`) mirror each OMP renderer: read/write/
+  edit show `<path>[:<start>-<end>]` (read.ts `formatReadPathLink`), grep shows
+  `<pattern> in <scope>` (grep.ts `formatScopedSubject`), find shows
+  `"<query>" [keywords] in <scope>` (find.ts `quoteQuery`), web_search shows the
+  query truncated to 80 cells (web-search.ts `renderSearchCall`).
+- `write` streams like write.ts. While its `content` argument is still
+  arriving the body is `formatStreamingContent`: the newest
+  `PREVIEW_LIMITS.EXPANDED_LINES` rows of the file, highlighted by its language,
+  numbered from a right-aligned gutter, with a `… N earlier lines` marker and a
+  `streaming` footer fact. Once `argsComplete` finalizes the content the body
+  becomes `renderContentPreview` — the head of the file capped at
+  `WRITE_PREVIEW_LINES` — and the footer clears.
+- `edit` streams like edit.ts's `renderStreamingFallback`. Until the computed
+  diff lands, a replace-mode edit draws its replacement text as `+` rows
+  (`CALL_TEXT_PREVIEW_LINES`, with a `… N more lines` marker), so the edit is
+  visible while its arguments arrive rather than appearing only at the end. The
+  filesystem-derived diff still takes over once `argsComplete` triggers it.
+- A bash exit code comes from the structured result (`exit_code`) because
+  `BashDetails` carries none; see `internal/codingagent/tool_shell_exit_code.go`.
+- A collapsed or expanded `grep`/`find` result draws oh-my-pi's grouped tree
+  (`render/tree-list.ts`): one `├`/`└` branch per file, grep's matched rows
+  hanging under it as `*12│text` with the vertical rail, and a trailing
+  `… N more matches` row while collapsed that counts hidden *matches*, not
+  hidden files (oh-my-pi `fitGroupsToBudget`). The status line carries the result
+  counts (`21 matches · 20 files`). Branch glyphs mark siblings, not nesting
+  depth: the first N-1 roots draw `├` and the last draws `└`.
+- A card body is bounded by **height**: `RichBodyMaxRows` (50) rows while
+  collapsed, with the rest behind Ctrl+O. Every card goes through this cap, not
+  only searches, because a terminal has a fixed number of rows and an uncapped
+  body would push the conversation off screen. The cap appends the
+  `… N more` marker and keeps the disclosure reachable.
+- A **collapsed** search entry is exactly one row, cut at the card's width with
+  an ellipsis. It never wraps: a wrapped entry needs a continuation rail and
+  stops reading as a tree, and one row per entry is what makes the 50-row budget
+  equal the entry count. Every row is `<glyph><blank><text>` so the text column
+  never shifts.
+- **Expanding restores the full text.** An expanded entry wraps under its own
+  rail rather than showing a wider cut, because a reader who expands wants the
+  whole match. A continuation keeps the tree line — `├`/`│` continue with `│`,
+  `└` continues with the blank gutter, since that branch has already ended
+  (tree_list.go `entryRows`). The card must not re-truncate an expanded row.
+- A collapsed inline card has no bottom bar, so its summary row names the key
+  (`… 39 more matches ⟨Ctrl+O: Expand⟩`); a framed card names it on the bottom
+  bar.
+- The card owns this transform (`tui/tree_list.go`), not a tool renderer. Grep and find resolve no registered
+  renderers, so a renderer-side implementation never runs in a real session —
+  the first attempt was wired that way and drew nothing. Owning it in the card
+  makes the tree independent of how a tool's renderers resolved. `SetSearchOutput`
+  is optional: the card falls back to its own `Output`, so a result path that
+  never records the text still draws the tree instead of an empty body. The
+  tools still return flat `path:line: text` rows to the model; the tree is
+  display-only.
+- `read` covers files, directories and URLs. A directory lists its entries,
+  directories first then files (read.ts `formatDirectoryListing`), marked
+  `ReadDetails.IsDirectory` so the card keeps the listing as plain text. A URL
+  path is fetched through `internal/webtools` and marked `kind: "url"`; the
+  retired `web_fetch` tool's model-facing contract is preserved in
+  `internal/codingagent/tools/read_url.go`.
+- Cards narrower than 10 cells fall back to the plain upstream presentation.
+  Images stay outside the frame, and mouse coordinates are translated back into
+  renderer space.
+- Canonical implementation: `tui/tool_execution_rich.go` (frame, inline row,
+  status line, `ToolDetail`), `internal/codingagent/tool_builtin_renderers.go`
+  (per-tool bodies), `internal/codingagent/tool_codemode_renderer.go`.
+
 ### Saved rate-limit resets
 
 - `/usage reset` lists Codex and Claude reset inventory. The interactive spend picker includes only currently redeemable, unexpired resets and requires confirmation twice. Typed targets use `/usage reset <provider>/<account-key>`, including `codex/active` and `claude/active`.

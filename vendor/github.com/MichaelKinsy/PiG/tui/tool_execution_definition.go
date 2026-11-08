@@ -70,6 +70,11 @@ func (c *ToolExecutionComponent) SetDefinition(definition *ToolDefinitionRendere
 		c.clearStreamedArgs()
 		c.definitionArgs = append(c.definitionArgs[:0], args...)
 	}
+	// A definition's own renderer may draw the subject (a codemode cell title),
+	// but the status line is the card's identity, so it is always refreshed.
+	if len(args) > 0 && json.Valid(args) {
+		c.Detail = ToolDetail(c.Name, args, c.Cwd)
+	}
 	c.Invalidate()
 }
 
@@ -84,6 +89,9 @@ func (c *ToolExecutionComponent) SetStructuredArgs(args json.RawMessage) {
 // SetDefinitionArgs replaces the arguments the definition's renderers
 // receive, as upstream updateArgs does.
 func (c *ToolExecutionComponent) SetDefinitionArgs(args json.RawMessage) {
+	if len(args) > 0 {
+		c.Detail = ToolDetail(c.Name, args, c.Cwd)
+	}
 	// A caller may pass argument text that is still arriving; mayBeCompleteJSON keeps a half-received value from being validated from its first byte each time. Streamed partial arguments arrive through SetStreamedArgs instead.
 	if len(args) > 0 && mayBeCompleteJSON(args) && json.Valid(args) {
 		c.clearStreamedArgs()
@@ -238,11 +246,20 @@ func (c *ToolExecutionComponent) resultFallback() Component {
 
 // definitionComponents wraps the call and result components in the regions that toggle the card on click (createResultRegion).
 func (c *ToolExecutionComponent) definitionComponents() []Component {
-	components := []Component{NewMouseRegion(c.definitionCall, c.handleResultMouse)}
+	call := NewMouseRegion(c.definitionCall, c.handleResultMouse)
+	var result Component
 	if c.definitionResultComponent != nil {
-		components = append(components, NewMouseRegion(c.definitionResultComponent, c.handleResultMouse))
+		result = NewMouseRegion(c.definitionResultComponent, c.handleResultMouse)
 	}
-	return components
+	if c.Rich {
+		// The frame renders the result region itself after its full-width
+		// Output divider, so the shell holds only the call rows.
+		return []Component{call}
+	}
+	if result == nil {
+		return []Component{call}
+	}
+	return []Component{call, result}
 }
 
 // definitionComponentsDirty reports a renderer component whose frame changed
@@ -274,8 +291,22 @@ func (c *ToolExecutionComponent) definitionBg() func(string) string {
 // renderSelfShell is upstream render for renderShell "self": the components after one blank row, or nothing when they draw nothing. Images follow.
 func (c *ToolExecutionComponent) renderSelfShell(width int) []string {
 	images := c.renderImages(width)
-	content := c.selfRenderContainer.Render(width)
-	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, width, len(content)
+	innerWidth := width
+	if c.Rich && width >= richMinWidth {
+		// A self-framed renderer draws at the block's content width, the same
+		// width renderRichFrame pads out to its borders.
+		innerWidth = richContentWidth(width)
+	}
+	content := c.selfRenderContainer.Render(innerWidth)
+	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(trimBlankEdges(content))
+	if c.Rich && width >= richMinWidth {
+		content = c.renderRichFrame(width, trimBlankEdges(content), -1)
+		// One status bar above the body inside the frame, plus the leading
+		// spacer row the plain shell adds.
+		c.mouseTop = 2
+	} else {
+		c.mouseTop = 1
+	}
 	if len(content) == 0 && len(images) == 0 {
 		return []string{}
 	}
