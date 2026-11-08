@@ -195,6 +195,9 @@ func cloneSnapshot(snapshot ai.ModelCatalogMetadataSnapshot) ai.ModelCatalogMeta
 
 func cloneRow(row ai.ModelCatalogMetadataRow) ai.ModelCatalogMetadataRow {
 	copied := row
+	if row.ToolCall != nil {
+		copied.ToolCall = new(*row.ToolCall)
+	}
 	if row.Int != nil {
 		copied.Int = new(*row.Int)
 	}
@@ -449,6 +452,14 @@ func (s *Service) Load(ctx context.Context) error {
 			s.updatedAt = &fetchedAt
 			s.checkedAt = &checkedAt
 			s.etag = snapshot.ETag
+			// Schema 1 stores useful metrics but not discovery eligibility. Retain
+			// those observations offline and force an unconditional schema-2 fetch
+			// online; a 304 could otherwise leave new models undiscoverable forever.
+			if snapshot.Version < ai.ModelCatalogMetadataVersion {
+				stale := int64(0)
+				s.checkedAt = &stale
+				s.etag = ""
+			}
 			s.source = SourceCached
 			s.mu.Unlock()
 		}()

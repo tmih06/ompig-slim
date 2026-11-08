@@ -9,6 +9,7 @@ import gzip
 import io
 import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -79,6 +80,29 @@ def main():
     compiled = json.loads(rules_raw)["providers"]
     for provider in compiled:
         providers.setdefault(provider, [])
+    # Public-source aliases are transport configuration, not model identities.
+    # Read the canonical descriptor arguments so Together/W&B/etc. keep using
+    # OMP's source keys even when they differ from the runtime provider ID.
+    descriptor_raw = (
+        args.source.parent / "provider-models" / "openai-compat.ts"
+    ).read_text()
+    aliases = {}
+    for match in re.finditer(
+        r'(?:simpleModelsDevDescriptor|openAiCompletionsDescriptor|openAiResponsesDescriptor|anthropicMessagesDescriptor)\(\s*"([^"]+)"\s*,\s*"([^"]+)"',
+        descriptor_raw,
+    ):
+        source_key, provider = match.groups()
+        aliases.setdefault(provider, []).append(source_key)
+    policies = {}
+    for provider, entry in compiled.items():
+        policies[provider] = {
+            "defaultModel": entry.get("defaultModel", ""),
+            "sourceKeys": list(dict.fromkeys([provider, *aliases.get(provider, [])])),
+            "accountScoped": bool(
+                entry.get("dynamicModelsAuthoritative")
+                or entry.get("discovery", {}).get("oauthProvider")
+            ),
+        }
     args.output.mkdir(parents=True, exist_ok=True)
     for previous in args.output.glob("*.json.gz"):
         if previous.name.removesuffix(".json.gz") not in providers:
@@ -112,6 +136,9 @@ def main():
         metric_aliases, ensure_ascii=False, separators=(",", ":")
     ).encode()
     (args.output / "metric-aliases.json.gz").write_bytes(gzip_bytes(metrics_raw))
+    (args.output / "provider-policy.json").write_text(
+        json.dumps(policies, indent=2) + "\n"
+    )
     auth = {
         provider: entry["envVars"]
         for provider, entry in compiled.items()
@@ -124,6 +151,9 @@ def main():
         "sourceSha256": hashlib.sha256(raw).hexdigest(),
         "rulesSha256": hashlib.sha256(rules_raw).hexdigest(),
         "metricAliasesSha256": hashlib.sha256(metrics_raw).hexdigest(),
+        "discoveryDescriptorsSha256": hashlib.sha256(
+            descriptor_raw.encode()
+        ).hexdigest(),
         "providers": {provider: len(models) for provider, models in providers.items()},
     }
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

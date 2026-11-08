@@ -53,7 +53,7 @@ func (r *ModelRegistry) remoteOverlayReplaces(providerID string) bool {
 
 // builtinBase is the built-in provider with its remote catalog overlay, or nil for a provider with no built-in model of any type.
 func (r *ModelRegistry) builtinBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsProvider {
-	base := builtinTypedBase(id, fallback)
+	base := r.withPublicCatalog(id, builtinTypedBase(id, fallback))
 	if base == nil || id == RadiusProviderID {
 		return base
 	}

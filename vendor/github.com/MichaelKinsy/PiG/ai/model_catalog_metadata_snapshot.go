@@ -26,11 +26,11 @@ type decodedStoredCatalogRow struct {
 
 func decodeTypedCatalogSnapshot(payload []byte) (ModelCatalogMetadataSnapshot, bool) {
 	var decoded decodedCatalogSnapshot
-	if err := jsonv2.Unmarshal(payload, &decoded); err != nil || decoded.Version == nil || *decoded.Version != ModelCatalogMetadataVersion || decoded.FetchedAt == nil || decoded.CheckedAt == nil || decoded.Rows == nil {
+	if err := jsonv2.Unmarshal(payload, &decoded); err != nil || decoded.Version == nil || (*decoded.Version != ModelCatalogMetadataVersion && *decoded.Version != 1) || decoded.FetchedAt == nil || decoded.CheckedAt == nil || decoded.Rows == nil {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
 	snapshot := ModelCatalogMetadataSnapshot{
-		Version: ModelCatalogMetadataVersion, FetchedAt: int64(*decoded.FetchedAt),
+		Version: int(*decoded.Version), FetchedAt: int64(*decoded.FetchedAt),
 		CheckedAt: int64(*decoded.CheckedAt), ETag: decoded.ETag,
 		Rows: make([]ModelCatalogMetadataRow, 0, len(*decoded.Rows)),
 	}

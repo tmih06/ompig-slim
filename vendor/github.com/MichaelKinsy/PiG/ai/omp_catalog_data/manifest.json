@@ -4,6 +4,7 @@
   "sourceSha256": "50dac642562975cdbe885acb9fba1327251340e756df7b4fb06c8d8aab5704f0",
   "rulesSha256": "f25217996428ca750ff84c6b9b3493970db883045aa8ec87cf6703fc82027ac4",
   "metricAliasesSha256": "016ca1b5f9139fc67462ba62421cd7806c497c9f4ee437404e44da454e6e133d",
+  "discoveryDescriptorsSha256": "ead1f264d0b63718c33328b82fc4c7ca614ee8959dfdc328bf5678e690b33af8",
   "providers": {
     "abliteration": 3,
     "aiand": 15,

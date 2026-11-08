@@ -25,6 +25,7 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	for _, generated := range generatedModels {
 		baseline = append(baseline, generated.ToModel())
 	}
+	baseline = append(baseline, r.publicCatalogAdditions(id)...)
 	// The remote catalog overlay adds models to, and replaces same-id models of, the bundled catalog (remote-catalog-provider.ts:getModels).
 	// A personalized catalog (the user's own list) replaces the bundled one instead (remote-catalog-provider.ts:withPersonalizedCatalog getModels).
 	if overlay := r.remoteOverlayModels(id); len(overlay) > 0 {
@@ -84,7 +85,7 @@ func (r *ModelRegistry) isPlainGenerated(id string) bool {
 	if r.GetProvider(id) != nil {
 		return false
 	}
-	if len(r.remoteOverlayModels(id)) > 0 {
+	if len(r.remoteOverlayModels(id)) > 0 || len(r.publicCatalogAdditions(id)) > 0 {
 		return false
 	}
 	r.mu.RLock()

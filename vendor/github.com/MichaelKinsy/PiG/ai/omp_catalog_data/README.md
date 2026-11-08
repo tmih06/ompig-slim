@@ -6,7 +6,14 @@ counts. The snapshot contains 5,949 model IDs across all ten OMP kinds. The
 provider roster also includes empty discovery providers so login rows remain
 visible; Apple is omitted from Linux browser navigation, as in OMP.
 
-Regenerate without running upstream install scripts:
+This is the cold-start seed. The runtime also discovers new chat IDs from
+OMP\'s public source and restores its last-known-good disk snapshot; installing a
+new binary or regenerating this directory is not required for those new IDs.
+`provider-policy.json` pins trusted default transports/source aliases and marks
+account-scoped rosters. Public data cannot redefine transport or authentication.
+
+Regenerate the seed for intentional compatibility/catalog baseline updates,
+without running upstream install scripts:
 
 ```sh
 mkdir -p /tmp/omp-catalog-source
@@ -37,6 +44,6 @@ backends; listing a runner does not install weights or add its transport.
 Premium long-context models use OMP's default standard-pricing window; the raw
 record retains the full advertised limit and tier rates. Public intelligence/
 throughput metadata remains refreshable rather than becoming a user override.
-The metadata service reads OMP\'s `models.json.zstd` endpoint and also accepts
+The metadata service reads OMP's `models.json.zstd` endpoint and also accepts
 plain JSON mirrors. Provider/variant identity remains significant: a `pro`
-model never borrows the base model\'s score.
+model never borrows the base model's score.

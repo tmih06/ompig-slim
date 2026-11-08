@@ -15,7 +15,7 @@ import (
 // published MIT-licensed pi-catalog package. Providers decompress independently;
 // exact-model startup must not parse thousands of unrelated catalog entries.
 //
-//go:embed omp_catalog_data/*.json.gz omp_catalog_data/provider-auth.json
+//go:embed omp_catalog_data/*.json.gz omp_catalog_data/provider-auth.json omp_catalog_data/provider-policy.json
 var ompCatalogFiles embed.FS
 
 type ompCatalogMetric struct {
@@ -57,6 +57,34 @@ var ompCatalogEnvKeys = sync.OnceValue(func() map[string][]string {
 	}
 	return keys
 })
+
+// OMPCatalogPolicy pins trusted provider routing and public-source aliases, not
+// model IDs. The feed can grow a supported provider without authoring endpoints
+// or supplying headers, credentials, compatibility code, or executable content.
+type OMPCatalogPolicy struct {
+	DefaultModel  string   `json:"defaultModel"`
+	SourceKeys    []string `json:"sourceKeys"`
+	AccountScoped bool     `json:"accountScoped"`
+}
+
+var ompCatalogPolicies = sync.OnceValue(func() map[string]OMPCatalogPolicy {
+	raw, err := ompCatalogFiles.ReadFile("omp_catalog_data/provider-policy.json")
+	if err != nil {
+		panic(err)
+	}
+	var policies map[string]OMPCatalogPolicy
+	if err = json.Unmarshal(raw, &policies); err != nil {
+		panic(err)
+	}
+	return policies
+})
+
+// OMPProviderCatalogPolicy returns detached source aliases for a known provider.
+func OMPProviderCatalogPolicy(provider string) (OMPCatalogPolicy, bool) {
+	policy, ok := ompCatalogPolicies()[provider]
+	policy.SourceKeys = slices.Clone(policy.SourceKeys)
+	return policy, ok
+}
 
 // OMPProviderEnvKeys returns the published provider credential names, not guessed
 // provider-to-environment conversions. Returned slices are detached from catalog state.

@@ -381,6 +381,9 @@ type ModelRegistry struct {
 	// enricher memoizes catalog enrichment per base model object and per source list, keyed by the
 	// catalog generation (model-metadata-provider.ts withModelMetadata).
 	enricher metadataEnricher
+	// publicCatalog is the generation-keyed shared-source projection; the durable
+	// metadata service owns refresh/persistence so list paths never do network I/O.
+	publicCatalog publicModelCatalog
 
 	// availabilityRefresh reconciles the Services-owned snapshot before catalog/auth changes notify consumers.
 	availabilityRefresh func(context.Context, []string) ai.ModelsRefreshResult

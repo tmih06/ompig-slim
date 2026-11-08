@@ -169,6 +169,39 @@ Same-model retry defaults are ten retries with a 500ms exponential base and an
 `any`, `usage-limit`, and `except-usage-limit`. Cancellation does not trigger chain
 walking; context overflow remains compaction's responsibility.
 
+## Catalog freshness and offline recovery
+
+New chat model IDs on supported provider APIs do not require a binary update.
+The runtime reads OMP\'s public `https://catalog.stencil.so/models.json.zstd`
+source (plain JSON mirrors are also accepted), independently of authenticated
+provider discovery. The bundled catalog is a cold-start/offline seed, not the
+only list the runtime can select from.
+
+- Startup restores `models-metadata.json` immediately, before selection; network
+  work runs in the background. Interactive sessions revalidate every two hours,
+  retry after ten minutes on failure, and support forced F5 refresh.
+- Conditional ETag requests avoid downloading unchanged data. Valid snapshots
+  are written atomically. Network errors, malformed/empty responses, and offline
+  mode keep the last usable snapshot and bundled seed.
+- Shared-source rows can add IDs with affirmative tool support, text input, and
+  positive context/output limits. New IDs retain published limits, pricing,
+  modalities and reasoning tiers. Known seed rows keep curated provider metadata
+  under OMP\'s additive shared-source precedence; endpoint/native discovery owns
+  its own membership and overrides. User model definitions are applied last.
+- Public data cannot supply inference endpoints, headers, credentials, arbitrary
+  APIs, compatibility code or executable content. Trusted provider transport and
+  public-source aliases stay in the binary. Account-scoped providers use their
+  native manager rather than an unauthenticated global roster.
+- Refreshing the catalog does not switch the current model or rewrite roles.
+  Cached additions remain selectable after restart without network access.
+  Schema-1 metric caches are retained offline and upgraded with an unconditional
+  source fetch when online, so an old ETag cannot block discovery indefinitely.
+
+A genuinely new protocol, authentication flow, provider-specific compatibility
+rule or inference backend can still require a binary update. Data refresh is not
+remote code loading. `PI_OFFLINE=1` disables native network discovery and periodic
+refresh; it does not prevent the cached catalog from being used.
+
 ## Validation
 
 `make check` covers the vendored runtime as well as the entry point. Tests include

@@ -1942,14 +1942,28 @@ func (m *InteractiveMode) run(ctx context.Context) error {
 
 	m.startVersionCheck()
 
-	// Share the interactive catalog refresh with selectors, with independent cancellation for each caller.
+	// Restore-first startup never waits on discovery. Long-lived interactive
+	// sessions revalidate every two hours; failures retry after ten minutes while
+	// last-known-good models remain available. Selectors share in-flight work.
 	if m.opts.ModelRegistry != nil && ModelNetworkEnabled() {
 		m.backgroundTasks.Go(func() {
-			// upstream: packages/coding-agent/src/modes/interactive/interactive-mode.ts:run
-			refreshCtx, cancel := context.WithTimeout(m.backgroundCtx, 15*time.Second)
-			defer cancel()
-			if _, err := RefreshModelCatalogs(refreshCtx, m.opts.ModelRegistry); err == nil {
-				_ = m.postToMain(m.backgroundCtx, m.updateProviderInfo)
+			for {
+				refreshCtx, cancel := context.WithTimeout(m.backgroundCtx, 15*time.Second)
+				result, err := RefreshModelCatalogs(refreshCtx, m.opts.ModelRegistry)
+				cancel()
+				delay := 2 * time.Hour
+				if err != nil || result.Aborted || len(result.Errors) > 0 {
+					delay = 10 * time.Minute
+				} else {
+					_ = m.postToMain(m.backgroundCtx, m.updateProviderInfo)
+				}
+				timer := time.NewTimer(delay)
+				select {
+				case <-m.backgroundCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
 			}
 		})
 	}
