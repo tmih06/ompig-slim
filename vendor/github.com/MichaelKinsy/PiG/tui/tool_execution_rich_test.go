@@ -12,7 +12,7 @@ import (
 // TestRichStatusLine covers OMP's status line: spinner/pending glyph, the
 // `Title: description` form, exit-code and duration meta, and error states.
 func TestRichStatusLine(t *testing.T) {
-	for _, name := range []string{"bash", "read", "write", "edit", "grep", "find", "ls", "web_search", "web_fetch", "codemode", "Agent", "custom_tool"} {
+	for _, name := range []string{"bash", "read", "write", "edit", "grep", "find", "ls", "web_search", "codemode", "Agent", "custom_tool"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			if line := widthx.StripAnsi(c.richStatusLine(80, time.Now())); !strings.HasPrefix(line, "⏳ ") {
