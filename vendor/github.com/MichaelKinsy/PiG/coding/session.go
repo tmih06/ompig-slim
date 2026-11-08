@@ -225,8 +225,9 @@ type Session struct {
 	// Override in tests to inject a fake.
 	completer compaction.SimpleCompleter
 	streamFn  compaction.StreamFn
-	// runtimeStream is set on a session CreateAgentSession built: its agent's default stream resolves auth through modelRuntime itself
-	// (upstream markRuntimeStreamFunction, agent-session.ts), so summaries must not pre-resolve it.
+	// runtimeStream marks Sessions using the built-in, modelRuntime-backed stream.
+	// Summary requests leave auth resolution to it; pre-resolved credentials pin
+	// one account and bypass account-pool eligibility and rotation.
 	runtimeStream bool
 
 	// agentStartMu guards agentStartMessages: the custom messages the last
@@ -750,6 +751,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 		toolRegistry:            registry,
 		modelRuntime:            svcs.ModelRuntime(),
 		modelRegistry:           svcs.Registry(),
+		runtimeStream:           opts.Agent == nil,
 		sessionDir:              opts.SessionDir,
 		noSession:               opts.NoSession,
 		runner:                  opts.Runner,

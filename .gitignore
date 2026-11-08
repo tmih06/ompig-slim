@@ -2,5 +2,6 @@
 /ompig-slim
 /ompig-slim.exe
 node_modules/
+.pi/
 /benchmark-results/
 __pycache__/

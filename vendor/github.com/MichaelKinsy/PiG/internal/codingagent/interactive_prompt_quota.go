@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -12,7 +13,10 @@ import (
 )
 
 // Personal runtime presentation: the prompt shows aggregate subscription quota across accounts.
-const promptQuotaInterval = time.Minute
+const (
+	promptQuotaInterval = time.Minute
+	promptQuotaBarWidth = 12
+)
 
 type promptQuotaState struct {
 	snapshot       ai.UsageSnapshot
@@ -135,6 +139,20 @@ func (m *InteractiveMode) refreshPromptQuota(ctx context.Context) {
 	})
 }
 
+// renderPromptQuotaBar returns a compact meter for used fractions, clamped to [0,1].
+// Width is measured in terminal cells; nonpositive widths return an empty string.
+// The centered block cells keep the bar aligned with prompt-border text. Rendering
+// reads the active theme for status and track colors but does not mutate state.
+func renderPromptQuotaBar(used float64, status ai.UsageStatus, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	filled := int(math.Round(math.Max(0, math.Min(1, used)) * float64(width)))
+	theme := tui.ActiveTheme()
+	return theme.Fg(tui.StatusColorToken(status), strings.Repeat("■", filled)) +
+		theme.Fg(string(tui.ThemeColorDim), strings.Repeat("□", width-filled))
+}
+
 func (m *InteractiveMode) promptQuotaLabel(maxWidth int) string {
 	if m.opts.Model == nil || maxWidth <= 0 {
 		return ""
@@ -178,8 +196,8 @@ func (m *InteractiveMode) promptQuotaLabel(maxWidth int) string {
 		suffix += " (partial)"
 	}
 	prefix := window.label + " "
-	barWidth := min(24, maxWidth-widthx.VisibleWidth(prefix+suffix))
-	if barWidth < 12 {
+	barWidth := min(promptQuotaBarWidth, maxWidth-widthx.VisibleWidth(prefix+suffix))
+	if barWidth < promptQuotaBarWidth {
 		return ""
 	}
 	quotaStatus := ai.UsageStatusOK
@@ -188,8 +206,7 @@ func (m *InteractiveMode) promptQuotaLabel(maxWidth int) string {
 	} else if window.used >= .8 {
 		quotaStatus = ai.UsageStatusWarning
 	}
-	limit := ai.UsageLimit{Amount: ai.UsageAmount{UsedFraction: &window.used}, Status: quotaStatus}
-	status := prefix + tui.RenderUsageBar(tui.ActiveTheme(), limit, barWidth) + suffix
+	status := prefix + renderPromptQuotaBar(window.used, quotaStatus, barWidth) + suffix
 	if widthx.VisibleWidth(status) <= maxWidth {
 		return status
 	}
