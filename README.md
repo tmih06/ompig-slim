@@ -12,6 +12,27 @@ This is an independent personal project, not an official PiG, Pi, or oh-my-pi re
 
 ## Get started
 
+Install the latest release into `~/.local/bin` with one command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash
+```
+
+The installer downloads the prebuilt binary for your OS and CPU, verifies its
+published SHA-256 checksum, and replaces `~/.local/bin/ompig-slim` atomically. It
+needs `bash`, `tar`, and `curl` or `wget`; it does not need Go or `sudo`. Use
+`curl ... | bash -s -- --version v0.1.0` for a specific release, or `--dir` to
+install elsewhere. Prebuilt binaries cover Linux and macOS on x64 and arm64.
+
+On a terminal it shows the startup mark and a progress bar while it downloads.
+Redirect its output and you get plain lines instead, with no escape sequences.
+
+Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactive app or `ompig-slim login` in the terminal. Provider API-key environment variables are also supported.
+
+Keep an installed copy current with `ompig-slim update`, or its synonym `ompig-slim upgrade`. Both show the same mark and progress bar, verify the checksum, and replace the executable in place. `update --all` also refreshes installed packages and `update --models` refreshes model catalogs.
+
+### Build from source
+
 Requires Go 1.27 or newer. The repository pins Go 1.27.3 and vendors its dependencies.
 
 ```sh
@@ -26,8 +47,6 @@ To install in `~/.local/bin`:
 ```sh
 make install
 ```
-
-Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactive app or `ompig-slim login` in the terminal. Provider API-key environment variables are also supported.
 
 ## What it includes
 
@@ -53,6 +72,8 @@ Codemode and other agent tools run with your user permissions; codemode is not a
 make check    # tests and vet, including the patched PiG library
 make race     # race-enabled checks
 make smoke    # compiled codemode, subagent, and web-tool scenarios
+make test-install     # the curl installer against a loopback release server
+make test-self-update # update/upgrade against a loopback release server
 make release  # build supported platform archives
 ```
 
