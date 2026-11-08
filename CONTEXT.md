@@ -65,21 +65,37 @@ make build
 
 ### Interactive tool cards
 
-- Interactive cards opt into `ToolExecutionOptions.Rich`: a theme-colored
-  frame adds tool-specific labels, preparation/running/final lifecycle status,
-  live elapsed time, separate Input/Result sections, and an expansion hint.
-  Input contains the call renderer; Result contains streamed or final output,
-  with a waiting placeholder before results arrive. Timing appears only in
-  the header, not again in built-in result footers. The kit card factory also opts in;
-  direct TUI component callers retain the upstream presentation by default.
-- The frame wraps existing call/result renderers, including self-framed edits
-  and extension renderers, without parsing their output. Images stay outside
-  the frame. Mouse coordinates are translated back into renderer space.
-- Animation uses owner-loop render ticks, not per-card goroutines. Recorded
-  `DurationMs` wins over locally measured elapsed time on completed cards;
-  restored cards without timing metadata do not invent a duration.
-- Canonical implementation: `tui/tool_execution_rich.go` in the vendored PiG
-  tree. Frame widths use terminal cells and ANSI-aware truncation.
+- Interactive cards opt into `ToolExecutionOptions.Rich`, which ports OMP's
+  `renderOutputBlock` + `renderStatusLine`: a rounded `╭─── … ───╮` frame whose
+  top bar is the status line, body rows padded one cell inside the borders, an
+  optional labelled `├─── Output ───┤` section, and a bottom bar for facts and
+  the Ctrl+O hint. Bodies render at `outputBlockContentWidth` (width minus both
+  borders and the one-cell padding), not at a padded child width.
+- The status line is OMP's: `icon Title: description · meta`. The icon is ⏳
+  before execution, a spinner frame while it runs, then ✔, ✘ (error or abort).
+  The description is the target (`ToolDetail`: read/write/edit path, grep
+  pattern and scope, ls path, search query), and the meta carries `exit <code>`
+  for a shell command and the duration. Duration prefers the recorded
+  `DurationMs` over the card's own clock, so a reload keeps it. Result bodies
+  never repeat timing. A bash exit code comes from the structured result
+  (`exit_code`) because `BashDetails` carries none.
+- Only the shell draws an `Output` section (its command pane above, its output
+  below). Read, write, edit, grep, find, ls and search render their result
+  directly under the status line, as OMP's inline renderers do.
+- `User-facing parity: read owns URL fetching.` OMP has no `web_fetch` tool;
+  its read tool accepts a URL path and renders it through the fetch pipeline.
+  Ompig now matches that: `tools.ReadTool` dispatches `http(s)://` and `www.`
+  paths to `read_url.go`, which keeps the retired tool's model-facing contract
+  (header line, 300-line/50KB cap, artifact, continuation range, notes) and
+  marks the details `kind: "url"` so the card renders the document preview.
+  The `web_fetch` built-in and its renderers are removed from the default tool
+  set, the built-in registry and the smoke test.
+- Cards narrower than 10 cells fall back to the plain upstream presentation.
+  Images stay outside the frame, and mouse coordinates are translated back into
+  renderer space.
+- Canonical implementation: `tui/tool_execution_rich.go` (frame, status line,
+  `ToolDetail`), `internal/codingagent/tool_rich_renderers.go` (per-tool body
+  previews), `internal/codingagent/tools/read_url.go` (URL reads).
 
 ### Saved rate-limit resets
 

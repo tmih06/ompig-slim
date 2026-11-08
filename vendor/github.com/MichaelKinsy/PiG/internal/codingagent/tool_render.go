@@ -31,6 +31,11 @@ func toolBodyRendererForCall(call ai.ToolCall, result agent.AgentToolResult, too
 		}
 		result.Details = &tools.WriteDetails{Path: path, Content: content}
 	case "read":
+		// A URL read keeps its own metadata: it is a document, not a file, and
+		// rebuilding file details over it would erase the fetch result.
+		if _, isURL := tools.ReadURLDetailsOf(result.Details); isURL {
+			break
+		}
 		var details tools.ReadDetails
 		switch d := detailsObject(result.Details).(type) {
 		case *tools.ReadDetails:
@@ -107,6 +112,11 @@ func toolBodyRenderer(toolName string, result agent.AgentToolResult, took *time.
 			return out
 		}
 	case "read":
+		// `read` covers both sources. A URL returns a document rendering whose
+		// card keeps the head in view; a file keeps its per-file renderer.
+		if _, isURL := tools.ReadURLDetailsOf(result.Details); isURL {
+			return makeWebFetchBodyRenderer(result.Text())
+		}
 		d, ok := result.Details.(*tools.ReadDetails)
 		if !ok || d == nil {
 			return nil
@@ -117,11 +127,6 @@ func toolBodyRenderer(toolName string, result agent.AgentToolResult, took *time.
 			}
 			return renderReadLines(d, result.Text(), width, expanded)
 		}
-	case "web_fetch":
-		// A fetch returns the whole rendering the model sees, up to the tool's
-		// own cap (300 lines or 50KB). Without a body renderer the card has no
-		// collapsed form and dumps all of it into the transcript.
-		return makeWebFetchBodyRenderer(result.Text())
 	}
 
 	// Extension-provided preview: when the tool result carries a Preview
@@ -380,7 +385,7 @@ func makePreviewBodyRenderer(content, preview string, elapsed time.Duration) fun
 	}
 }
 
-// webFetchPreviewLines is the collapsed visual-line budget of a web_fetch card.
+// webFetchPreviewLines is the collapsed visual-line budget of a URL read card.
 //
 // A fetch can return hundreds of lines; collapsed, the card keeps the head of
 // the page (header, title, first paragraphs) in view and ctrl+o reveals the
@@ -388,7 +393,7 @@ func makePreviewBodyRenderer(content, preview string, elapsed time.Duration) fun
 // row cannot fill the screen the way a logical-line budget would.
 const webFetchPreviewLines = 10
 
-// makeWebFetchBodyRenderer renders a web_fetch result: the first
+// makeWebFetchBodyRenderer renders a URL read result: the first
 // webFetchPreviewLines visual lines while collapsed plus a hint for the hidden
 // ones, every line while expanded. Lines are drawn in the tool-output color,
 // which the card's lifecycle background shows through.

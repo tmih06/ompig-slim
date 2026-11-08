@@ -57,6 +57,12 @@ type ToolExecutionComponent struct {
 	Name string
 	// Rich enables the native framed lifecycle display around tool-owned content.
 	Rich bool
+	// ExitCode is a completed shell command's status code. Nil means the result
+	// carries none (a running call, or a non-shell tool), so the header omits it.
+	ExitCode *int
+	// Detail is a short tool-specific input summary (a read path, a fetch host)
+	// shown after the tool label. Empty keeps the generic lifecycle label.
+	Detail string
 	// ToolCallID identifies the tool call the card shows (tool-execution.ts toolCallId); renderers receive it in their context.
 	ToolCallID string
 	// Label is ignored: the fallback call header names the tool by Name, as upstream createCallFallback does.
@@ -169,6 +175,7 @@ type ToolExecutionComponent struct {
 	legacyCard                *toolCardBox
 	outputPad                 int // horizontal padding of the card (tool-execution.ts outputPad)
 	ui                        TUI // asked for a render after an asynchronous change (tool-execution.ts ui)
+	richOutputStart           int // first framed row after the Output divider; -1 when the card has no output
 
 	// compactHeader is the collapsed read card's upstream compact label
 	// (FormatCompactReadHeader), or "" for the full header.
@@ -259,6 +266,7 @@ func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage
 		c.outputPad = *options.OutputPad
 	}
 	c.ArgsPreview = HeaderForTool(toolName, args, cwd)
+	c.Detail = ToolDetail(toolName, args, cwd)
 	if len(args) > 0 {
 		c.SetHeaderArgs(args)
 	}
@@ -273,9 +281,13 @@ func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage
 
 // addChildren adds Pi's constructor children (tool-execution.ts:93-104): a spacer, the content box, then the image spacers and images. The card and the images are private children that render from the component's current state, so a parent Container never serves a stale frame.
 func (c *ToolExecutionComponent) addChildren() {
-	c.contentBox = NewPaddedBox(c.outputPad, 1, func(text string) string { return c.definitionBg()(text) })
+	paddingY := 1
+	if c.Rich {
+		paddingY = 0 // The frame already separates the card from the transcript.
+	}
+	c.contentBox = NewPaddedBox(c.outputPad, paddingY, func(text string) string { return c.definitionBg()(text) })
 	c.selfRenderContainer = NewContainer()
-	c.legacyCard = &toolCardBox{children: []Component{toolSection(c.renderLegacyHeader), toolSection(c.renderLegacyBody)}, open: c.bgOpenSGR, pad: &c.outputPad}
+	c.legacyCard = &toolCardBox{children: []Component{toolSection(c.renderLegacyHeader), toolSection(c.renderLegacyBody)}, open: c.bgOpenSGR, pad: &c.outputPad, paddingY: paddingY}
 	c.Add(NewSpacer(1))
 	c.Add(toolSection(c.renderCard))
 	c.Add(toolSection(c.renderToolImages))
@@ -292,6 +304,7 @@ type toolCardBox struct {
 	children []Component
 	open     func() string
 	pad      *int // horizontal padding, the component's outputPad
+	paddingY int  // zero inside rich frames, one for the upstream plain card
 }
 
 func (b *toolCardBox) Invalidate() {}
@@ -299,13 +312,19 @@ func (b *toolCardBox) Invalidate() {}
 func (b *toolCardBox) Render(width int) []string {
 	open := b.open()
 	pad := *b.pad
-	out := []string{paintBgWith(open, "", width)}
+	var out []string
+	if b.paddingY > 0 {
+		out = append(out, paintBgWith(open, "", width))
+	}
 	for _, child := range b.children {
 		for _, line := range child.Render(max(width-2*pad, 1)) {
 			out = append(out, paintBgWith(open, strings.Repeat(" ", pad)+line, width))
 		}
 	}
-	return append(out, paintBgWith(open, "", width))
+	if b.paddingY > 0 {
+		out = append(out, paintBgWith(open, "", width))
+	}
+	return out
 }
 
 // IsDirty reports whether the component needs re-rendering. While a shell
@@ -336,6 +355,21 @@ func (c *ToolExecutionComponent) Invalidate() {
 		image.Invalidate()
 	}
 	c.invalidatable.Invalidate()
+}
+
+// SetExitCode records a completed shell command's status for the framed
+// header. Nil clears it, which a re-render of an unfinished call expects.
+func (c *ToolExecutionComponent) SetExitCode(code *int) {
+	c.ExitCode = code
+	c.Invalidate()
+}
+
+// SetDetail sets the short, tool-specific summary the framed top bar shows
+// after the tool name. Renderers call it as their arguments change; the plain
+// card ignores it.
+func (c *ToolExecutionComponent) SetDetail(detail string) {
+	c.Detail = detail
+	c.Invalidate()
 }
 
 // SetRunning marks the component as in-flight with the given pre-formatted
@@ -372,6 +406,7 @@ func (c *ToolExecutionComponent) UpdateArgs(args json.RawMessage) {
 			c.definitionArgs = append(c.definitionArgs[:0], raw...)
 		}
 		c.ArgsPreview = HeaderForTool(c.Name, raw, c.Cwd)
+		c.Detail = ToolDetail(c.Name, raw, c.Cwd)
 		c.SetHeaderArgs(raw)
 	}
 	c.Invalidate()
@@ -764,7 +799,8 @@ func (c *ToolExecutionComponent) handleResultMouse(event TuiMouseEvent) *TuiMous
 // Render mirrors upstream render (tool-execution.ts:262-292): a registered definition with renderShell "self" draws its components after one blank row, or nothing when they draw nothing; every other card is the Container of spacer, content box and images.
 func (c *ToolExecutionComponent) Render(width int) []string {
 	rows := c.renderTool(width)
-	if c.Rich && width < 5 {
+	if c.Rich && width < richMinWidth {
+		// The frame needs room for two borders and a three-glyph bar.
 		// Legacy padded boxes require more cells than tiny panes provide.
 		for i, row := range rows {
 			rows[i] = widthx.TruncateToWidth(row, max(width, 0), "", false)
@@ -792,10 +828,88 @@ func (c *ToolExecutionComponent) renderTool(width int) []string {
 
 // renderCard draws the content box: the definition's Box, or the legacy card for a tool without one. It records the card's height and width for mouse dispatch.
 func (c *ToolExecutionComponent) renderCard(width int) []string {
-	if c.Rich && width >= 5 {
-		return c.renderRichFrame(width, c.renderCardContent(width-2))
+	if c.Rich && width >= richMinWidth {
+		return c.renderRichCard(width)
 	}
 	return c.renderCardContent(width)
+}
+
+// renderRichCard renders the tool-owned call rows as the frame's input section
+// and its result rows after the frame's Output divider.
+func (c *ToolExecutionComponent) renderRichCard(width int) []string {
+	// outputBlockContentWidth: both borders plus the block's one-cell padding.
+	inner := richContentWidth(width)
+	var input Component
+	if c.definition != nil {
+		input = c.contentBox
+	} else {
+		input = toolSection(c.renderLegacyInput)
+	}
+	inputRows := trimBlankEdges(input.Render(inner))
+	c.mouseChild, c.mouseWidth, c.mouseHeight = input, inner, len(inputRows)
+
+	outputStart := -1
+	if c.definition != nil && !c.definition.Self {
+		if result := c.definitionResultComponent; result != nil {
+			rows := trimBlankEdges(result.Render(inner))
+			if len(rows) > 0 {
+				if richOutputSection(c.Name) {
+					outputStart = len(inputRows)
+				}
+				inputRows = append(inputRows, rows...)
+			}
+		} else if c.Output != "" || len(c.ImageBlocks) > 0 {
+			if richOutputSection(c.Name) {
+				outputStart = len(inputRows)
+			}
+			inputRows = append(inputRows, c.richResultPlaceholder(inner)...)
+		}
+	} else if c.definition == nil {
+		body := trimBlankEdges(c.renderLegacyOutput(inner))
+		if len(body) > 0 {
+			if richOutputSection(c.Name) {
+				outputStart = len(inputRows)
+			}
+			inputRows = append(inputRows, body...)
+		}
+	}
+	c.richOutputStart = outputStart
+	return c.renderRichFrame(width, inputRows, outputStart)
+}
+
+// renderLegacyInput draws the generic card's body: a shell command pane, then
+// its output. Every other tool's identity lives on the frame's status line, so
+// its body holds only the result, as OMP's inline renderers draw it.
+func (c *ToolExecutionComponent) renderLegacyInput(width int) []string {
+	if richOutputSection(c.Name) {
+		return wrapText(c.renderHeaderInner(width), width)
+	}
+	return nil
+}
+
+// renderLegacyOutput is the generic card's body, or nil when it has none.
+func (c *ToolExecutionComponent) renderLegacyOutput(width int) []string {
+	if c.isUnregisteredTool() {
+		if preview := c.resultFallback(); preview != nil {
+			return preview.Render(width)
+		}
+		return nil
+	}
+	if c.Output == "" && c.BodyRenderer == nil {
+		return nil
+	}
+	if c.Collapsed && c.BodyRenderer == nil {
+		body := c.renderCollapsedPreview(width)
+		if len(body) > 0 {
+			return body
+		}
+		return c.richResultPlaceholder(width)
+	}
+	body := c.renderResultBody(width)
+	if len(body) == 0 && !c.Collapsed {
+		return c.richResultPlaceholder(width)
+	}
+	return body
 }
 
 // renderCardContent renders tool-owned content and records its unframed mouse bounds.
@@ -813,17 +927,9 @@ func (c *ToolExecutionComponent) renderCardContent(width int) []string {
 
 func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c.renderImages(width) }
 
-// renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
+// renderLegacyHeader draws the call header, wrapped across rows like upstream's Text. A rich
+// card draws its identity on the frame's status line, so it has no header row.
 func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
-	if c.Rich {
-		var header string
-		if c.isUnregisteredTool() {
-			header = c.formatToolExecution()
-		} else {
-			header = c.renderHeaderInner(width)
-		}
-		return append(richSectionLabel("Input", width), wrapText(header, width)...)
-	}
 	if c.isUnregisteredTool() {
 		return wrapText(c.formatToolExecution(), width)
 	}
@@ -856,25 +962,6 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
 
 // renderLegacyBody draws what follows the header: the live elapsed footer before any output, the collapsed preview, or the separator, result body and footer.
 func (c *ToolExecutionComponent) renderLegacyBody(width int) []string {
-	if c.Rich {
-		rows := richSectionLabel("Result", width)
-		var body []string
-		if c.isUnregisteredTool() {
-			if preview := c.resultFallback(); preview != nil {
-				body = preview.Render(width)
-			}
-		} else if c.Output != "" || c.BodyRenderer != nil {
-			if c.Collapsed && c.BodyRenderer == nil {
-				body = c.renderCollapsedPreview(width)
-			} else {
-				body = c.renderResultBody(width)
-			}
-		}
-		if len(body) == 0 {
-			body = c.richResultPlaceholder(width)
-		}
-		return append(rows, body...)
-	}
 	if c.isUnregisteredTool() {
 		return nil
 	}

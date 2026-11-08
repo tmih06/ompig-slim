@@ -102,6 +102,16 @@ type builtInRenderState struct {
 	editCall bool
 }
 
+// richCard reports whether the card being rendered opted into the rich frame.
+// The built-in render state records it, because extension render contexts keep
+// upstream's field set and gain no presentation flag of their own.
+func richCard(context extension.ToolRenderContext) bool {
+	state := builtInState(context)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.headerOwnsTiming
+}
+
 func builtInState(context extension.ToolRenderContext) *builtInRenderState {
 	state, ok := context.State.(map[string]any)
 	if !ok || state == nil {
@@ -144,6 +154,10 @@ func builtInToolRenderers(name string) (extension.ToolRenderCallFunc, extension.
 
 func headerRenderCall(header func(json.RawMessage, string) string) extension.ToolRenderCallFunc {
 	return func(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
+		if richCard(context) {
+			// The framed top bar already names the pattern and path.
+			return tui.NewPaddedText("", 0, 0, nil)
+		}
 		return tui.NewPaddedText(header(args, context.Cwd), 0, 0, nil)
 	}
 }
@@ -416,6 +430,19 @@ func moreLinesHint(text string) string {
 // readRenderCall is upstream read.ts renderCall: the compact label for a
 // skill, docs or context file while collapsed, else the path and range.
 func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
+	if rawPath, _ := stringArg(args, "file_path", "path"); tui.IsReadableURLPath(rawPath) {
+		// read.ts isReadableUrlPath -> renderReadUrlCall: a URL read is titled
+		// `Read` with the domain and path of the target.
+		if richCard(context) {
+			return tui.NewPaddedText("", 0, 0, nil) // The status line names it.
+		}
+		return tui.NewPaddedText(tui.FormatReadURLHeader(args, context.Cwd), 0, 0, nil)
+	}
+	if richCard(context) {
+		// The framed top bar already names the file and its line range, so a
+		// read card has no separate input row to repeat them.
+		return tui.NewPaddedText("", 0, 0, nil)
+	}
 	if !context.Expanded {
 		if header := tui.FormatCompactReadHeader(args, context.Cwd); header != "" {
 			return tui.NewPaddedText(header, 0, 0, nil)
@@ -429,7 +456,14 @@ func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 // file's language, the first ten lines while collapsed, and the truncation
 // warning.
 func readRenderResult(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
-	if !options.Expanded && !context.IsError {
+	if _, isURL := tools.ReadURLDetailsOf(renderResultValue(result).Details); isURL {
+		// fetch.ts renderReadUrlResult keeps a bounded head of the document in
+		// view while collapsed and the whole rendering when expanded.
+		value := renderResultValue(result)
+		render := makeWebFetchBodyRenderer(value.Text())
+		return linesComponent{render: func(width int) []string { return render(width, options.Expanded) }}
+	}
+	if !options.Expanded && !context.IsError && !richCard(context) {
 		return tui.NewPaddedText("", 0, 0, nil)
 	}
 	theme := tui.ActiveTheme()
@@ -448,6 +482,8 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	}
 	lines := trimTrailingEmptyLines(rendered)
 	display := lines
+	// A rich read card previews the head of the file in place, with the frame's
+	// footer offering expansion, as OMP's read card does.
 	if !options.Expanded && len(lines) > builtInPreviewLines {
 		display = lines[:builtInPreviewLines]
 	}
@@ -535,6 +571,9 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 	theme := tui.ActiveTheme()
 	fields := callFields(args, context)
 	text := tui.FormatWriteHeaderArgs(writeHeaderFields(fields), context.Cwd)
+	if richCard(context) {
+		text = "" // The frame's top bar names the file, so only its lines remain.
+	}
 	rawPath, _ := stringField(fields, "file_path", "path")
 	content, ok := stringField(fields, "content")
 	lang := ""
@@ -564,7 +603,7 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 	}
 	switch {
 	case !ok:
-		text += "\n\n" + themeFg(theme.Error, "[invalid content arg - expected string]")
+		text += sep(text) + themeFg(theme.Error, "[invalid content arg - expected string]")
 	case content != "":
 		// A path with a language draws the cache's highlighted lines while the content streams in and the highlighter's
 		// lines of the whole file once it is complete, any other path the content's lines (upstream formatWriteCall:
@@ -599,7 +638,7 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 				styled = append(styled, themeFg(theme.ToolOutput, normalizeWriteText(line)))
 			}
 		}
-		text += "\n\n" + strings.Join(styled, "\n")
+		text += sep(text) + strings.Join(styled, "\n")
 		if remaining := total - shown; remaining > 0 {
 			text += moreLinesHint("\n... (" + strconv.Itoa(remaining) + " more lines, " + strconv.Itoa(total) + " total,")
 		}
@@ -609,6 +648,15 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 	component := reusableText(context.LastComponent)
 	component.SetText(text)
 	return component
+}
+
+// sep is the blank separator before a body row, omitted when the card has no
+// header text of its own (a rich frame's top bar already separates them).
+func sep(text string) string {
+	if text == "" {
+		return ""
+	}
+	return "\n\n"
 }
 
 // reusableText is the card's reusable Text: the last component of the renderer, or a new empty one.
@@ -815,6 +863,9 @@ func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 	headerArgs := input.header
 	state.mu.Unlock()
 	header := tui.FormatEditHeader(headerArgs, context.Cwd)
+	if richCard(context) {
+		header = ""
+	}
 	// The box is built once per preview, settled state and theme, and its rows are kept per width: the card draws on
 	// every frame it is dirty, and drawing the diff again each time cost a pass over all of it.
 	type boxKey struct {
@@ -834,6 +885,9 @@ func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 		}
 		if box == nil || key != built {
 			box, built = newEditCallBox(header, key.preview, key.settledError, key.theme, context.OutputPad), key
+			if state.headerOwnsTiming {
+				box.PaddingY = 0
+			}
 		}
 		cached, cachedWidth = box.Render(width), width
 		return cached

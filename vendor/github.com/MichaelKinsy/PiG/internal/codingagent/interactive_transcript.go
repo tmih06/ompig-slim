@@ -466,6 +466,9 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 			final := ToolExecutionResultOf(result, 0)
 			final.IsError = r.IsError
 			final.DurationMs = r.DurationMs
+			if comp.Rich && (call.Name == "bash" || call.Name == "powershell") {
+				comp.SetExitCode(shellExitCode(result))
+			}
 			comp.UpdateResult(final, false)
 		}
 	}

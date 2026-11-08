@@ -84,6 +84,9 @@ func (c *ToolExecutionComponent) SetStructuredArgs(args json.RawMessage) {
 // SetDefinitionArgs replaces the arguments the definition's renderers
 // receive, as upstream updateArgs does.
 func (c *ToolExecutionComponent) SetDefinitionArgs(args json.RawMessage) {
+	if len(args) > 0 {
+		c.Detail = ToolDetail(c.Name, args, c.Cwd)
+	}
 	// A caller may pass argument text that is still arriving; mayBeCompleteJSON keeps a half-received value from being validated from its first byte each time. Streamed partial arguments arrive through SetStreamedArgs instead.
 	if len(args) > 0 && mayBeCompleteJSON(args) && json.Valid(args) {
 		c.clearStreamedArgs()
@@ -238,23 +241,20 @@ func (c *ToolExecutionComponent) resultFallback() Component {
 
 // definitionComponents wraps the call and result components in the regions that toggle the card on click (createResultRegion).
 func (c *ToolExecutionComponent) definitionComponents() []Component {
-	var components []Component
-	if c.Rich {
-		components = append(components, toolSection(func(width int) []string { return richSectionLabel("Input", width) }))
-	}
-	components = append(components, NewMouseRegion(c.definitionCall, c.handleResultMouse))
-	if c.Rich {
-		components = append(components, toolSection(func(width int) []string { return richSectionLabel("Result", width) }))
-	}
+	call := NewMouseRegion(c.definitionCall, c.handleResultMouse)
+	var result Component
 	if c.definitionResultComponent != nil {
-		components = append(components, NewMouseRegion(c.definitionResultComponent, c.handleResultMouse))
+		result = NewMouseRegion(c.definitionResultComponent, c.handleResultMouse)
 	}
-	if c.Rich && c.definitionResultComponent == nil {
-		// Missing output gets a placeholder; a renderer that intentionally
-		// hides collapsed output still owns its empty result section.
-		components = append(components, toolSection(c.richResultPlaceholder))
+	if c.Rich {
+		// The frame renders the result region itself after its full-width
+		// Output divider, so the shell holds only the call rows.
+		return []Component{call}
 	}
-	return components
+	if result == nil {
+		return []Component{call}
+	}
+	return []Component{call, result}
 }
 
 // definitionComponentsDirty reports a renderer component whose frame changed
@@ -287,13 +287,15 @@ func (c *ToolExecutionComponent) definitionBg() func(string) string {
 func (c *ToolExecutionComponent) renderSelfShell(width int) []string {
 	images := c.renderImages(width)
 	innerWidth := width
-	if c.Rich && width >= 5 {
-		innerWidth -= 2
+	if c.Rich && width >= richMinWidth {
+		// A self-framed renderer draws at the block's content width, the same
+		// width renderRichFrame pads out to its borders.
+		innerWidth = richContentWidth(width)
 	}
 	content := c.selfRenderContainer.Render(innerWidth)
 	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(content)
-	if c.Rich && width >= 5 {
-		content = c.renderRichFrame(width, content)
+	if c.Rich && width >= richMinWidth {
+		content = c.renderRichFrame(width, trimBlankEdges(content), -1)
 	}
 	if len(content) == 0 && len(images) == 0 {
 		return []string{}

@@ -447,6 +447,9 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		final := ToolExecutionResultOf(result, elapsed)
 		final.Result = retainToolResult(e.ToolName, result)
 		final.DurationMs = e.DurationMs
+		if comp.Rich && (e.ToolName == "bash" || e.ToolName == "powershell") {
+			comp.SetExitCode(shellExitCode(result))
+		}
 		comp.UpdateResult(final, false)
 		m.tuiInst.Render()
 

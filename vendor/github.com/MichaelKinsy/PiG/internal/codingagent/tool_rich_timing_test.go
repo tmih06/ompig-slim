@@ -21,6 +21,7 @@ func TestRichCardHeaderOwnsTiming(t *testing.T) {
 			defer card.Dispose()
 			c := card.Component
 			c.MarkExecutionStarted()
+			c.StartedAt = time.Now().Add(-5 * time.Second)
 			result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "hi"}}}
 			for _, partial := range []bool{true, false} {
 				update := ToolExecutionResultOf(result, time.Second)
@@ -29,7 +30,8 @@ func TestRichCardHeaderOwnsTiming(t *testing.T) {
 				if strings.Contains(out, "Elapsed ") || strings.Contains(out, "Took ") {
 					t.Fatalf("duplicate timing in result: %s", out)
 				}
-				if !strings.Contains(out, "Running") && !strings.Contains(out, "Done") {
+				// The header carries the only timing line for a rich card.
+				if !strings.Contains(out, "Bash") && !strings.Contains(out, "Codemode") {
 					t.Fatalf("missing header status: %s", out)
 				}
 				card.state.mu.Lock()

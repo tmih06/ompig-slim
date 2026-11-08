@@ -21,7 +21,7 @@ type ToolRenderers = extension.ToolRenderers
 func CreateAllToolRenderers() map[string]ToolRenderers {
 	renderers := make(map[string]ToolRenderers)
 	// createAllToolRenderers: every built-in tool, codemode included (core/tools/renderers/index.ts).
-	for _, name := range []string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode"} {
+	for _, name := range []string{"read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode", "web_search"} {
 		call, result := builtInToolRenderers(name)
 		renderers[name] = ToolRenderers{RenderShell: builtInRenderShell(name), RenderCall: call, RenderResult: result}
 	}
@@ -62,14 +62,18 @@ func NewToolRendererCard(ctx context.Context, name, toolCallId, cwd string, args
 		}
 	}
 	makeContext := func(input tui.ToolRenderInput, last extension.Component) extension.ToolRenderContext {
+		var args any = input.Args
+		if input.Fields != nil {
+			args = input.Fields
+		}
 		return extension.ToolRenderContext{
-			Args: input.Args, ToolCallID: input.ToolCallID, Cwd: cwd, State: renderState, Card: cardId,
+			Args: args, ToolCallID: input.ToolCallID, Cwd: cwd, State: renderState, Card: cardId,
 			Invalidate: invalidate, LastComponent: last, ExecutionStarted: input.ExecutionStarted,
 			ArgsComplete: input.ArgsComplete, IsPartial: input.IsPartial, Expanded: input.Expanded,
 			ShowImages: input.ShowImages, IsError: input.IsError, OutputPad: input.OutputPad, DurationMs: input.DurationMs,
 		}
 	}
-	definition := &tui.ToolDefinitionRenderers{Self: renderers.RenderShell == extension.ToolRenderShellSelf}
+	definition := &tui.ToolDefinitionRenderers{Self: renderers.RenderShell == extension.ToolRenderShellSelf, CallReadsFields: readsCallFields(renderers.RenderCall)}
 	if renderers.RenderCall != nil {
 		var last extension.Component
 		definition.Call = func(input tui.ToolRenderInput) (tui.Component, bool) {
@@ -96,6 +100,7 @@ func NewToolRendererCard(ctx context.Context, name, toolCallId, cwd string, args
 	}
 	if renderers.RenderCall != nil || renderers.RenderResult != nil {
 		component.SetDefinition(definition, args)
+		component.Detail = tui.ToolDetail(name, args, cwd)
 	} else {
 		component.UpdateArgs(args)
 	}
