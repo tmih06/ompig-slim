@@ -50,12 +50,11 @@ type TreeListOptions struct {
 	// MaxRows caps the rendered rows while collapsed, the summary row included
 	// and branches counted with the entries they hang under. Unlike
 	// MaxCollapsed it bounds the block's height, so a file with many matches
-	// cannot push the card past it. Zero means no row budget. Wrapped
-	// continuation rows count toward the budget.
+	// cannot push the card past it. Zero means no row budget.
 	MaxRows int
 	// Width is the number of terminal cells an entry may occupy. A longer
-	// entry wraps under its own rail so the tree stays aligned; zero disables
-	// wrapping.
+	// entry is truncated at that width; zero disables the limit. Rows never
+	// wrap: a tree's `│` rail only stays aligned if every entry is one row.
 	Width int
 	// NoExpandHint drops the disclosure hint from the summary row, for a card
 	// whose own footer already names the key.
@@ -91,13 +90,9 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 	budgetCut := -1
 	if !options.Expanded && options.MaxRows > 0 {
 		used, taken := 0, 0
-		branch := treePrefix("├")
-		rail := treePrefix("│")
 		for _, item := range shown {
-			height := len(wrapEntryRows(branch, item.Label, options.Width))
-			for _, child := range item.Children {
-				height += len(wrapEntryRows(rail, child, options.Width))
-			}
+			// One row per entry, so an entry's height is its entry count.
+			height := 1 + len(item.Children)
 			if used+height > options.MaxRows-1 {
 				budgetCut = taken
 				break
@@ -148,12 +143,12 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 		if isLast {
 			prefix = last
 		}
-		out = append(out, wrapEntryRows(prefix, entry.item.Label, options.Width)...)
+		out = append(out, entryRows(prefix, entry.item.Label, options.Width, options.Expanded)...)
 		if entry.summary {
 			continue
 		}
 		for _, child := range entry.item.Children {
-			out = append(out, wrapEntryRows(rail, child, options.Width)...)
+			out = append(out, entryRows(rail, child, options.Width, options.Expanded)...)
 		}
 	}
 	return out
@@ -169,35 +164,33 @@ func treePrefix(glyph string) string {
 	return ActiveTheme().Fg("dim", glyph+treeGutter)
 }
 
-// wrapEntryRows draws one tree entry, wrapping its text inside the entry so a
-// long row stays readable.
+// entryRows draws one tree entry.
 //
-// The wrapped continuation keeps the tree connected, which is what makes the
-// block read as a tree rather than as separate lines: a row under `├` or `│`
-// continues with `│`, and one under `└` continues with the blank gutter (the
-// branch has already ended, so drawing a rail there would invent a line that
-// connects to nothing). The continuation row holds the same gutter width, so
-// the text column never shifts.
-func wrapEntryRows(prefix, text string, width int) []string {
+// Collapsed, an entry is exactly one row truncated at the width: wrapping it
+// would need a continuation rail and stop reading as a tree, and one row per
+// entry is what makes the row budget equal the entry count, so a card's height
+// is predictable.
+//
+// Expanded, the entry is shown in full: the text wraps under the entry's own
+// rail, because a reader who asked to expand wants the whole match, not a wider
+// cut. A continuation keeps the tree line — `├`/`│` continue with `│`, `└` with
+// the blank gutter, since that branch has already ended.
+func entryRows(prefix, text string, width int, expanded bool) []string {
 	if width <= 0 {
 		return []string{prefix + text}
 	}
 	padWidth := widthx.VisibleWidth(prefix)
-	if padWidth >= width {
+	if !expanded || padWidth >= width {
 		return []string{widthx.TruncateToWidth(prefix+text, width, "…", true)}
 	}
 	wrapped := widthx.WrapTextWithAnsi(text, width-padWidth)
 	if len(wrapped) <= 1 {
 		return []string{prefix + text}
 	}
-	// A continuation of `├` or `│` keeps the vertical line; `└` and a summary
-	// row continue with the blank gutter.
-	glyph := strings.TrimSpace(widthx.StripAnsi(prefix))
 	continuation := treePrefix(" ")
-	if glyph == "├" || glyph == "│" {
+	if glyph := strings.TrimSpace(widthx.StripAnsi(prefix)); glyph == "├" || glyph == "│" {
 		continuation = treePrefix("│")
 	}
-	_ = glyph
 	out := make([]string, 0, len(wrapped))
 	out = append(out, prefix+wrapped[0])
 	for _, rest := range wrapped[1:] {

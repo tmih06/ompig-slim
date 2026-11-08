@@ -388,7 +388,14 @@ func (c *ToolExecutionComponent) richSearchRows(width int) []string {
 	})
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, TruncateRow(row, width))
+		if c.Collapsed {
+			// A collapsed card is one row per entry, cut at the border.
+			out = append(out, TruncateRow(row, width))
+			continue
+		}
+		// Expanded rows were wrapped to the width by the tree itself; cutting
+		// them again would hide the text the reader asked to see.
+		out = append(out, row)
 	}
 	return out
 }

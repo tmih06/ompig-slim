@@ -130,14 +130,37 @@ func stripRows(rows []string) []string {
 	return out
 }
 
-// TestSearchTreeWrapsLongRows checks a long match wraps under its rail instead
-// of running past the card, keeping every row within the width and the tree
-// aligned.
-func TestSearchTreeWrapsLongRows(t *testing.T) {
+// TestSearchTreeTruncatesCollapsed checks a collapsed card keeps one row per
+// entry, cut at the width with an ellipsis rather than wrapped.
+func TestSearchTreeTruncatesCollapsed(t *testing.T) {
+	long := strings.Repeat("word ", 60)
+	rows := SearchTreeRows("grep", "a.go:1: "+long, TreeListOptions{Width: 40})
+	for _, row := range rows {
+		if got := widthx.VisibleWidth(row); got > 40 {
+			t.Fatalf("row is %d cells: %q", got, widthx.StripAnsi(row))
+		}
+	}
+	// One root plus one match row: the long text did not wrap.
+	if len(rows) != 2 {
+		t.Fatalf("collapsed tree drew %d rows, want 2: %q", len(rows), stripRows(rows))
+	}
+	if !strings.HasSuffix(widthx.StripAnsi(rows[1]), "…") {
+		t.Fatalf("collapsed match is not marked as cut: %q", widthx.StripAnsi(rows[1]))
+	}
+}
+
+// TestSearchTreeExpandedRestoresText checks expanding brings the full match back,
+// wrapped under its rail, instead of a wider cut.
+func TestSearchTreeExpandedRestoresText(t *testing.T) {
 	long := strings.Repeat("word ", 60)
 	rows := SearchTreeRows("grep", "a.go:1: "+long, TreeListOptions{Expanded: true, Width: 40})
 	if len(rows) < 3 {
-		t.Fatalf("a long match did not wrap: %q", stripRows(rows))
+		t.Fatalf("an expanded long match did not wrap: %q", stripRows(rows))
+	}
+	// Nothing is cut: the rows hold the whole text.
+	joined := strings.Join(stripRows(rows), "")
+	if strings.Contains(joined, "…") {
+		t.Fatalf("an expanded match was cut: %q", joined)
 	}
 	for _, row := range rows {
 		if got := widthx.VisibleWidth(row); got > 40 {
