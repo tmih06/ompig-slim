@@ -290,7 +290,7 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		if providerID != "openai-codex" || account.Type != CredentialOAuth {
+		if !isCodexAccountProvider(providerID) || account.Type != CredentialOAuth {
 			eligible = append(eligible, account)
 			continue
 		}
@@ -456,6 +456,22 @@ func (r *AccountRouter) Fail(ctx context.Context, model AnyModel, account *Crede
 		_ = r.credentials.BlockAccount(ctx, model.ProviderID(), account.AccountKey, block.Scope, block.Until)
 	}
 	return block
+}
+
+// ClearResetBlocks drops exactly the local scopes healed by a confirmed saved
+// reset. It does not establish access or change affinity: the next real request
+// must still succeed before the account is confirmed. Call after the matching
+// persisted blocks have been cleared. Empty scopes is a no-op.
+func (r *AccountRouter) ClearResetBlocks(providerID string, accountKey *string, scopes []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	blocks := r.localBlocks[providerID][accountKeyOf(accountKey)]
+	for _, scope := range scopes {
+		delete(blocks, scope)
+	}
 }
 
 // retryAfterDelay parses a Retry-After header as delay-seconds or as an HTTP date.

@@ -246,17 +246,35 @@ func (m *InteractiveMode) currentTuiMode() string {
 	return "regular"
 }
 
-// usageHandler runs /usage: it opens the board and rejects unknown arguments as
-// upstream's submit handler does.
+// usageHandler runs /usage: bare or `show` opens the quota board, `reset` spends
+// a saved rate-limit reset, and anything else is a usage error, as upstream's
+// submit handler does.
 func usageHandler(sc *SlashContext) error {
-	if sc.Args != "" && sc.Args != "show" {
-		if sc.ShowError != nil {
-			sc.ShowError("Usage: /usage")
+	verb, rest := parseUsageSubcommand(sc.Args)
+	switch {
+	case verb == "" || (verb == "show" && rest == ""):
+		if sc.ShowUsage != nil {
+			sc.ShowUsage()
+		}
+		return nil
+	case verb == "reset":
+		switch {
+		case rest != "":
+			// A typed target skips the picker: the caller already chose.
+			handleUsageResetCommand(sc, rest)
+		case sc.ShowResetUsageSelector != nil:
+			sc.ShowResetUsageSelector()
+		default:
+			handleUsageResetCommand(sc, "")
 		}
 		return nil
 	}
-	if sc.ShowUsage != nil {
-		sc.ShowUsage()
+	message := "Usage: /usage [show|reset [provider/credential|provider/active]]"
+	if sc.ShowError != nil {
+		sc.ShowError(message)
+	} else if sc.AppendText != nil {
+		// Headless dispatch has no status line; the transcript is the only sink.
+		sc.AppendText(message)
 	}
 	return nil
 }

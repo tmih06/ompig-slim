@@ -350,7 +350,13 @@ func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, provid
 		minimumValidityMs = math.Max(minimumValidityMs, *minOAuthValidityMs)
 	}
 	expiresSoon := func(credential Credential) bool {
-		return float64(nowMillis())+minimumValidityMs >= credential.ExpiresMillis()
+		validity := minimumValidityMs
+		// ompig-slim addition: an access-only import can be used until its actual
+		// expiry; trying a nonexistent refresh five minutes early wastes its life.
+		if providerID == codexJSONProviderID && credential.Refresh == "" && minOAuthValidityMs == nil {
+			validity = 0
+		}
+		return float64(nowMillis())+validity >= credential.ExpiresMillis()
 	}
 	// A forced refresh replaces the token this request just failed with, even while it looks
 	// valid locally. Re-checked under the lock: when another caller already rotated it, that newer
@@ -364,6 +370,12 @@ func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, provid
 		}
 	}
 	credential := stored
+	// An explicit minimum-validity request can reject a still-live access-only
+	// import, but that is not proof its secrets should be retired for everyone.
+	if providerID == codexJSONProviderID && credential.Refresh == "" && !force &&
+		minOAuthValidityMs != nil && expiresSoon(credential) && credential.ExpiresMillis() > float64(nowMillis()) {
+		return nil, NewModelsError(ModelsErrorOAuth, "Codex JSON token expires too soon for the requested minimum validity", nil)
+	}
 	if force || expiresSoon(credential) {
 		// Optimistic check said expired; the authoritative check runs under the lock.
 		post, err := refreshStoredOAuthCredential(ctx, credentials, providerID, oauth, needsRefresh, overrides)

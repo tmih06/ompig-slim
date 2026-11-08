@@ -335,12 +335,18 @@ func oauthToAuth(providerID string, provider OAuthProviderInterface) func(Creden
 			return auth, nil
 		}
 		switch providerID {
+		case codexJSONProviderID:
+			// ompig-slim addition: imported accounts can supply an explicit account ID.
+			return codexJSONToAuth(credential)
 		case "kimi-coding":
 			return ModelAuth{Headers: ProviderHeaders{"Authorization": new("Bearer " + credential.Access)}}, nil
 		case "github-copilot":
 			domain, _ := normalizeDomain(credential.EnterpriseDomain)
 			return ModelAuth{APIKey: credential.Access, BaseURL: getCopilotBaseURL(credential.Access, domain)}, nil
-		case "anthropic", "openai-codex", "openrouter", "xai":
+		case "openai-codex":
+			// OMP allows an email-only free account; workspace headers are optional.
+			return codexRequestAuth(credential), nil
+		case "anthropic", "openrouter", "xai":
 			return ModelAuth{APIKey: credential.Access}, nil
 		}
 		return ModelAuth{APIKey: provider.GetAPIKey(credentialToOAuth(credential))}, nil
@@ -418,7 +424,7 @@ var builtinOAuthNames = map[string]struct {
 	"kimi-coding":    {"Kimi Code (subscription)", true},
 	"meta":           {"Meta (Muse subscription)", true},
 	"openai":         {OpenAIChatGPTOAuthName, true},
-	"openai-codex":   {"OpenAI (ChatGPT Plus/Pro)", true},
+	"openai-codex":   {OpenAICodexOAuthDisplayName, true},
 	"openrouter":     {"OpenRouter OAuth", false},
 	"radius":         {"Radius", false},
 	"xai":            {"xAI (Grok/X subscription)", true},

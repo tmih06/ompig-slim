@@ -501,6 +501,7 @@ var defaultUsageProviders = sync.OnceValue(func() []*UsageProvider {
 	return []*UsageProvider{
 		usageAlibabaProviderImpl(),
 		openAICodexUsageProvider(),
+		codexJSONUsageProvider(), // ompig-slim addition: imported accounts share Codex quota protocols.
 		kimiUsageProvider(),
 		minimaxCodeUsageProvider(),
 		museCodeUsageProvider(),

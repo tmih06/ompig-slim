@@ -11,11 +11,13 @@ import (
 
 // Ports packages/coding-agent/src/modes/interactive/interactive-mode.ts
 
-// handleLoginCommand mirrors Pi's handleLoginCommand (interactive-mode.ts:5775-5795).
+// handleLoginCommand opens the combined fuzzy-searchable login list. Exact provider
+// names retain the method chooser when that provider offers multiple login methods.
 func handleLoginCommand(sc *SlashContext) error {
 	ref := jsstring.ToLower(jsstring.Trim(sc.Args))
 	if ref == "" {
-		return showLoginAuthTypeSelector(sc, nil)
+		// ompig-slim addition: do not hide providers behind an auth-type menu.
+		return showLoginProviderSelector(sc, "", "")
 	}
 	matches := slices.DeleteFunc(slices.Clone(sc.LoginProviders()), func(p tui.OAuthProvider) bool {
 		return jsstring.ToLower(p.ID) != ref && jsstring.ToLower(p.Name) != ref

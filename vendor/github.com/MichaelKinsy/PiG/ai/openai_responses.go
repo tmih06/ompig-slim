@@ -1601,8 +1601,14 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 	accountID := ""
 	if p.cfg.Codex {
 		accountID = CodexAccountID(apiKey)
+		// ompig-slim addition: OMP accepts workspace-less free accounts. An
+		// explicit workspace from stored/ID-token metadata still wins over absence.
 		if accountID == "" {
-			return nil, errors.New("Failed to extract accountId from token")
+			for name, value := range opts.Headers {
+				if strings.EqualFold(name, "chatgpt-account-id") && value != nil {
+					accountID = *value
+				}
+			}
 		}
 	}
 
@@ -1681,7 +1687,8 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 	httpReq.Header.Set("Accept", "application/json")
 	if p.cfg.Codex {
 		httpReq.Header.Set("Accept", "text/event-stream")
-		// pig divergence (D26): PiG names itself as the Codex originator. Like the User-Agent it is a default: model and caller headers override it (openai-codex-responses.ts buildBaseCodexHeaders, #10429).
+		// ompig-slim addition: match the native Codex login originator on requests.
+		// Like User-Agent this remains a default that caller headers may override.
 		httpReq.Header.Set("originator", pigidentity.CodexOriginator)
 	}
 	if apiKey != "" {
@@ -1691,7 +1698,7 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 			httpReq.Header.Set(p.cfg.APIKeyHeader, p.cfg.APIKeyPrefix+apiKey)
 		}
 	}
-	if p.cfg.Codex {
+	if p.cfg.Codex && accountID != "" {
 		httpReq.Header.Set("chatgpt-account-id", accountID)
 	}
 	for k, v := range p.cfg.ExtraHeaders {
@@ -1730,7 +1737,9 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 	applyProviderHeaders(httpReq, opts.Headers)
 	if p.cfg.Codex {
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-		httpReq.Header.Set("chatgpt-account-id", accountID)
+		if accountID != "" {
+			httpReq.Header.Set("chatgpt-account-id", accountID)
+		}
 		httpReq.Header.Set("OpenAI-Beta", "responses=experimental")
 		httpReq.Header.Set("Accept", "text/event-stream")
 		httpReq.Header.Set("Content-Type", "application/json")

@@ -102,7 +102,8 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 		if b.Hidden {
 			continue
 		}
-		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint}
+		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint,
+			GetArgumentCompletions: builtinArgumentCompletions(b.ArgumentOptions)}
 		if b.Name == "login" {
 			sc.GetArgumentCompletions = m.loginArgCompletions
 		}
@@ -314,9 +315,13 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			snap.Cost = totals.cost
 			return formatCostSummary(snap, m.opts.Model)
 		},
-		ShowHotkeys:   m.handleHotkeysCommand,
-		ShowChangelog: m.handleChangelogCommand,
-		ShowUsage:     m.showUsageDashboard,
+		ShowHotkeys:            m.handleHotkeysCommand,
+		ShowChangelog:          m.handleChangelogCommand,
+		ShowUsage:              m.showUsageDashboard,
+		ListResetCredits:       m.listResetCredits,
+		ShowResetUsageSelector: m.showResetUsageSelector,
+		RedeemResetCredit:      m.redeemResetCredit,
+		ResetDispatchContext:   m.backgroundContext,
 
 		// Session ops.
 		CurrentSession: func() *Session { return m.currentSession() },

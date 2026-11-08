@@ -14,7 +14,6 @@ const (
 	codexDefaultBaseURL     = "https://chatgpt.com/backend-api"
 	codexUsagePath          = "wham/usage"
 	codexVerifiedAccessPath = "accounts/verified_access"
-	codexResetCreditsPath   = "wham/rate-limit-reset-credits"
 	codexJWTAuthClaim       = "https://api.openai.com/auth"
 	codexJWTProfileClaim    = "https://api.openai.com/profile"
 	codexSpendCapLimitID    = "openai-codex:spend-cap"
@@ -456,65 +455,6 @@ func parseCodexResetCredits(payload any) *UsageResetCredits {
 	return &UsageResetCredits{AvailableCount: available}
 }
 
-// codexResetCredit is one redeemable saved reset from the detail endpoint.
-type codexResetCredit struct {
-	ID        string
-	Status    string
-	GrantedAt string
-	ExpiresAt string
-}
-
-// listCodexResetCredits lists an account's saved resets. A transport or auth
-// failure reports !ok so the caller keeps the count from `/wham/usage`.
-func listCodexResetCredits(ctx context.Context, fctx UsageFetchContext, accessToken, accountID, baseURL string) ([]codexResetCredit, int, bool) {
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-		"User-Agent":    usageUserAgent(),
-	}
-	if accountID != "" {
-		headers["ChatGPT-Account-Id"] = accountID
-	}
-	response, err := usageDo(ctx, fctx, usageFollowRedirects, "GET", usageAbsoluteURL(normalizeCodexBaseURL(baseURL), codexResetCreditsPath), headers, nil)
-	if err != nil || !response.OK() {
-		return nil, 0, false
-	}
-	payload, ok := response.JSON()
-	if !ok {
-		return nil, 0, false
-	}
-	record, ok := usageRecord(payload)
-	if !ok {
-		return nil, 0, false
-	}
-	credits := make([]codexResetCredit, 0, 4)
-	for _, item := range usageObjectArray(record, "credits") {
-		id, ok := usageString(item, "id")
-		if !ok {
-			continue
-		}
-		credit := codexResetCredit{ID: id}
-		credit.Status, _ = usageString(item, "status")
-		credit.GrantedAt, _ = usageString(item, "granted_at")
-		credit.ExpiresAt, _ = usageString(item, "expires_at")
-		credits = append(credits, credit)
-	}
-	available := 0
-	if reported, ok := usageNumber(record["available_count"]); ok {
-		available = int(math.Max(0, math.Trunc(reported)))
-	} else {
-		for _, credit := range credits {
-			status := credit.Status
-			if status == "" {
-				status = "available"
-			}
-			if status == "available" {
-				available++
-			}
-		}
-	}
-	return credits, available, true
-}
-
 // codexHasDaybreakAccess reports whether the verified-access payload grants
 // the cyber (Daybreak) program.
 func codexHasDaybreakAccess(payload any) bool {
@@ -743,28 +683,11 @@ func fetchOpenAICodexUsage(ctx context.Context, params UsageFetchParams, fctx Us
 
 	resetCredits := parseCodexResetCredits(payload)
 	if resetCredits != nil && resetCredits.AvailableCount > 0 {
-		credits, available, ok := listCodexResetCredits(ctx, fctx, accessToken, accountID, params.BaseURL)
+		// The detail endpoint is authoritative after an expiry or a redeem, and it
+		// is the only source of the credit ids `/usage reset` spends.
+		detail, ok := ListCodexResetCredits(ctx, fctx, credential, params.BaseURL)
 		if ok {
-			if len(credits) > 0 {
-				details := make([]UsageResetCreditDetail, 0, len(credits))
-				for _, credit := range credits {
-					status := credit.Status
-					if status == "" {
-						status = "available"
-					}
-					if status != "available" {
-						continue
-					}
-					details = append(details, UsageResetCreditDetail{
-						GrantedAt: credit.GrantedAt,
-						ExpiresAt: credit.ExpiresAt,
-						Status:    credit.Status,
-					})
-				}
-				resetCredits.Credits = details
-			}
-			// The detail endpoint is authoritative after expiry/redeem.
-			resetCredits.AvailableCount = available
+			resetCredits = detail
 		} else {
 			usageLogWarn(fctx, "Codex reset credits detail fetch failed", nil)
 		}
