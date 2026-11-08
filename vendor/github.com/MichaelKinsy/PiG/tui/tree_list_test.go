@@ -20,28 +20,28 @@ func TestSearchTreeGrouping(t *testing.T) {
 	rows := stripRows(SearchTreeRows("grep", output, TreeListOptions{Expanded: true, ItemType: "match"}))
 	want := []string{
 		"├ AGENTS.md",
-		"│  *1│# AGENTS.md",
+		"│ *1│# AGENTS.md",
 		"├ CONTEXT.md",
-		"│  *22│- `AGENTS.md`: repository-wide change",
+		"│ *22│- `AGENTS.md`: repository-wide change",
 		"├ SECURITY.md",
-		"│  *19│Files such as `AGENTS.md`",
-		"│  *70│includes `~/.pi`",
-		"│  [5 matches limit reached. Use limit=10]",
+		"│ *19│Files such as `AGENTS.md`",
+		"│ *70│includes `~/.pi`",
+		"│ [5 matches limit reached. Use limit=10]",
 		"└ ",
 	}
 	_ = want
 	if len(rows) < 8 {
 		t.Fatalf("too few rows: %d", len(rows))
 	}
-	if rows[0] != "├ AGENTS.md" || rows[1] != "│  *1│# AGENTS.md" {
+	if rows[0] != "├ AGENTS.md" || rows[1] != "│ *1│# AGENTS.md" {
 		t.Fatalf("first file is not a branch with its match: %q", rows[:2])
 	}
 	// SECURITY.md has two matches and then a notice, all on the rail.
 	// The last root uses the closing glyph; its matches keep the rail.
-	if rows[4] != "└ SECURITY.md" || rows[5] != "│  *19│Files such as `AGENTS.md`" || rows[6] != "│  *70│includes `~/.pi`" {
+	if rows[4] != "└ SECURITY.md" || rows[5] != "│ *19│Files such as `AGENTS.md`" || rows[6] != "│ *70│includes `~/.pi`" {
 		t.Fatalf("multi-match file grouped wrong: %q", rows[4:7])
 	}
-	if rows[7] != "│  [5 matches limit reached. Use limit=10]" {
+	if rows[7] != "│ [5 matches limit reached. Use limit=10]" {
 		t.Fatalf("the trailing notice left its file: %q", rows[7])
 	}
 }
@@ -52,7 +52,7 @@ func TestSearchTreeCollapsedSummary(t *testing.T) {
 	output := "a.go:1: one\nb.go:1: two\nc.go:1: three\nd.go:1: four\ne.go:1: five\nf.go:1: six"
 	rows := stripRows(SearchTreeRows("grep", output, TreeListOptions{MaxCollapsed: 2, ItemType: "match"}))
 	// The summary counts the matches of the hidden files (c..f), not the files.
-	want := []string{"├ a.go", "│  *1│one", "├ b.go", "│  *1│two", "└ … 4 more matches ⟨Ctrl+O: Expand⟩"}
+	want := []string{"├ a.go", "│ *1│one", "├ b.go", "│ *1│two", "└ … 4 more matches ⟨Ctrl+O: Expand⟩"}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %q, want %q", rows, want)
 	}
@@ -144,16 +144,23 @@ func TestSearchTreeWrapsLongRows(t *testing.T) {
 			t.Fatalf("row is %d cells: %q", got, widthx.StripAnsi(row))
 		}
 	}
-	// One root draws the closing glyph; its match hangs on the rail and its
-	// wrapped continuations align under the text.
+	// One root draws the closing glyph; its match hangs on the rail, and a
+	// wrapped continuation keeps that rail so the tree stays connected.
 	if first := widthx.StripAnsi(rows[0]); first != "└ a.go" {
 		t.Fatalf("root row = %q", first)
 	}
-	if !strings.HasPrefix(widthx.StripAnsi(rows[1]), "│  *1│") {
+	if !strings.HasPrefix(widthx.StripAnsi(rows[1]), "│ *1│") {
 		t.Fatalf("match row lost its rail: %q", widthx.StripAnsi(rows[1]))
 	}
-	if strings.HasPrefix(widthx.StripAnsi(rows[2]), "│") {
-		t.Fatalf("wrapped row repeats the rail: %q", widthx.StripAnsi(rows[2]))
+	if !strings.HasPrefix(widthx.StripAnsi(rows[2]), "│ ") {
+		t.Fatalf("wrapped row broke the tree line: %q", widthx.StripAnsi(rows[2]))
+	}
+	// Every wrapped continuation keeps the rail, so the lines read as one
+	// connected entry rather than a split block.
+	for i, row := range rows[2:] {
+		if line := strings.SplitN(widthx.StripAnsi(row), " ", 2)[0]; line != "│" {
+			t.Fatalf("wrapped row %d lost the tree line: %q", i+2, widthx.StripAnsi(row))
+		}
 	}
 }
 
@@ -219,7 +226,7 @@ func TestSearchTreeFromOutput(t *testing.T) {
 	c := NewToolExecutionComponent("grep", "c", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
 	c.SetResult("a.go:1: one\nb.go:2: two", false, 0)
 	out := widthx.StripAnsi(strings.Join(c.Render(60), "\n"))
-	for _, want := range []string{"├ a.go", "│  *1│one", "└ b.go", "2 matches", "2 files"} {
+	for _, want := range []string{"├ a.go", "│ *1│one", "└ b.go", "2 matches", "2 files"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}

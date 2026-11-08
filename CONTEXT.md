@@ -119,9 +119,13 @@ make build
   only searches, because a terminal has a fixed number of rows and an uncapped
   body would push the conversation off screen. The cap appends the
   `… N more` marker and keeps the disclosure reachable.
-- Long lines **wrap**, they are not cut: a search entry wraps under its own
-  `│` rail (tree_list.go `wrapEntryRows`) so the tree stays aligned, and the
-  framed body wraps inside its border. Width and height are independent limits.
+- Long lines **wrap**, they are not cut. A wrapped search entry keeps the tree
+  line so the block still reads as one connected tree: a row under `├` or `│`
+  continues with `│`, and one under `└` continues with the blank gutter, because
+  that branch has already ended and a rail there would connect to nothing
+  (tree_list.go `wrapEntryRows`). Every row is `<glyph><blank><text>`, so the
+  text column never shifts. The framed body wraps inside its border. Width and
+  height are independent limits.
 - A collapsed inline card has no bottom bar, so its summary row names the key
   (`… 39 more matches ⟨Ctrl+O: Expand⟩`); a framed card names it on the bottom
   bar.
