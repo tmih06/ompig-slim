@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "optimize": {
+      "source": "Essential-kit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/optimize/SKILL.md",
+      "computedHash": "c605733744946a8c47586a3ead4bb9cfc126ac0a08c4c91b7f4d79889460af30"
+    },
     "pr": {
       "source": "Essential-kit/skills",
       "sourceType": "github",
@@ -11,7 +17,7 @@
       "source": "Essential-kit/skills",
       "sourceType": "github",
       "skillPath": "skills/simplify/SKILL.md",
-      "computedHash": "f65493c786c64239242facec13f6972e37941ef162b38e53e11acb6c4085ec6f"
+      "computedHash": "a0f9a9c52ba2d5a4bde5de90a977bfa0a8e8ee4b6531a3a3c92060d25c2f35a4"
     },
     "writing-for-agents": {
       "source": "Essential-kit/skills",

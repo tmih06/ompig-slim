@@ -26,7 +26,7 @@ If none of these resolve to a concrete change, ask which change is the workpacka
 - Do not perform unrelated cleanup.
 - Read the affected files in full and understand the relevant invariants, call sites, tests, and public API before editing.
 - Optimize for a direct, coherent, maintainable design—not the smallest diff.
-- When the repo has `GLOSSARY.md` (or `GLOSSARY-MAP.md` and the per-context glossaries it points at) or ADRs under `docs/adr/` or `src/*/docs/adr/`, read those covering the area first and keep their vocabulary. Surface an ADR conflict instead of silently overriding it.
+- Names belong to the domain: when the codebase or its docs give a concept a specific term, keep that term rather than renaming it in passing.
 
 ## What to remove or simplify
 
@@ -74,7 +74,7 @@ Apply approved and routine changes in the working tree. Leave everything else un
 - Do not remove code merely because it is unused until you have checked whether it is a public API, extension point, generated entry point, or intentionally retained compatibility surface.
 - Do not replace clear code with a new abstraction solely to reduce line count.
 - Do not weaken tests to permit simplification. Update tests only when an approved behavior change or a cleaner equivalent structure requires it.
-- Follow the repository's validation and testing instructions after edits. If an approval is pending, leave the working tree in a consistent, passing state rather than a half-applied refactor.
+- After edits, run the project's own checks through the same commands it documents or already uses: type check, lint, and the tests covering the affected code. If an approval is pending, leave the working tree in a consistent, passing state rather than a half-applied refactor.
 
 ## Completion
 
