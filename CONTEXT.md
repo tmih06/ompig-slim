@@ -64,6 +64,18 @@ make build
 - Imported accounts use the normal quota-aware account router and refresh-token rotation. Definitive refresh failures remove live secrets and routing blocks while retaining an OMP-compatible disabled row. Transport failures, cancellation, rate limits, server errors, and unclassified failures retain credentials. Cleanup is use-driven, not a background timer; browser-login Codex accounts are unaffected. See `vendor/github.com/MichaelKinsy/PiG/ai/omp_codex_json_storage.go` and the routing tests beside it.
 - Sessions using the built-in ModelRuntime stream must also route compaction summaries through it without pre-resolving credentials. Explicit credentials pin a single account and bypass model-plan eligibility and account rotation; caller-supplied Agent streams retain their own auth behavior. See `vendor/github.com/MichaelKinsy/PiG/coding/session_summarization_auth.go`.
 
+### Todo tool and its stop-time reminder
+
+`todo` is OMP's task list, ported as a program-composed extension in `internal/todotool` (registered from `main.go`) rather than as a vendored patch, so `go mod vendor` cannot drop it. `internal/todo` owns the data model and list semantics; the extension owns the tool definition and the settle-boundary handler.
+
+State lives only in each tool result's `details`. Every call re-reads the newest state-changing `todo` result on the session branch (`internal/todotool/snapshot.go`), so resume, rewind and fork need no persistence of their own, and the list can never disagree with the transcript. A `view` result and an errored result are both skipped as state: the first changed nothing, the second persisted nothing.
+
+The harness behavior is the part that makes the tool matter. `SettleExtension` registers `OnAgentBeforeSettle` and returns `Continue` when the list still has open work, injecting a hidden `todo-reminder` custom message. The handler stays silent, deliberately, when: the run did not complete normally; no list exists; every open task is `blocked`; the agent's last message asks the user something; the list is unchanged since the previous reminder; or the per-run budget of 3 reminders is spent. A `blocked` task is open but never actionable, which is the sanctioned way for an agent to stop: it keeps the list honest while letting the turn end.
+
+`sequential` execution serializes the calls but does not make one call's result visible to the next, so two `todo` calls in one batch each read the same prior list and the later one wins. The tool description therefore instructs one op per call beside the next real action; do not treat batching as safe.
+
+See `internal/todo/state.go`, `internal/todotool/settle.go`, and the tests beside them.
+
 ### Saved rate-limit resets
 
 - `/usage reset` lists Codex and Claude reset inventory. The interactive spend picker includes only currently redeemable, unexpired resets and requires confirmation twice. Typed targets use `/usage reset <provider>/<account-key>`, including `codex/active` and `claude/active`.
