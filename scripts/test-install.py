@@ -11,83 +11,34 @@ executable. That script is portable across the Linux and macOS runners and keeps
 the checks independent of the host architecture; no real release, network, or
 Go toolchain is involved.
 """
-import hashlib
-import http.server
-import io
 import os
 import pathlib
 import shutil
-import socket
 import subprocess
-import tarfile
 import tempfile
-import threading
 import unittest
 
+# Release fixtures live in release_fixture.py so this suite and
+# test-self-update.py prove the same archive layout.
+import release_fixture
 
 INSTALLER = pathlib.Path(__file__).resolve().with_name("install.sh")
 FAKE_VERSION = "ompig-slim 9.9.9-test"
+# TEST_PLATFORM is what the suite's uname shim reports, so one archive name
+# serves every host.
+TEST_PLATFORM = "linux-x64"
 
 
-def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def stage(fixture, tag, content=None, checksum="correct", fake_version=FAKE_VERSION):
+    """Publish the stand-in executable for one release tag.
 
-
-class Fixture:
-    """A writable release tree plus an HTTP server that exposes it."""
-
-    def __init__(self, root):
-        self.root = root
-        self.releases = root / "releases"
-        self.releases.mkdir(parents=True)
-        self.server = None
-        self.thread = None
-
-    def stage(self, tag, content=None, verify=True, fake_version=FAKE_VERSION):
-        """Write ompig-slim (and its checksum) for one release tag."""
-        directory = self.releases / ("latest/download" if tag == "latest" else f"download/{tag}")
-        directory.mkdir(parents=True, exist_ok=True)
-        archive = directory / "ompig-slim-linux-x64.tar.gz"
-        archive.write_bytes(self.archive_bytes(content, fake_version))
-        checksum = pathlib.Path(str(archive) + ".sha256")
-        checksum.write_text(f"{sha256(archive)}  {archive.name}\n" if verify else "not a digest\n")
-        return directory
-
-    @staticmethod
-    def archive_bytes(content, fake_version):
-        """Build the same member layout scripts/build-binaries.sh publishes."""
-        # The executable is a shell script so the per-architecture binary does
-        # not matter; only the archive contract and the --version contract do.
-        executable = content if content is not None else (
-            "#!/bin/sh\nprintf '%s\\n' '" + fake_version + "'\n"
-        )
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as package:
-            payload = executable.encode()
-            member = tarfile.TarInfo("ompig-slim/ompig-slim")
-            member.size = len(payload)
-            member.mode = 0o755
-            package.addfile(member, io.BytesIO(payload))
-            notice = tarfile.TarInfo("ompig-slim/README.md")
-            notice.size = 3
-            notice.mode = 0o644
-            package.addfile(notice, io.BytesIO(b"doc"))
-        return buffer.getvalue()
-
-    def start(self):
-        handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(
-            *args, directory=str(self.root), **kwargs
-        )
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-        host, port = self.server.server_address
-        return f"http://{host}:{port}/releases"
-
-    def stop(self):
-        if self.server is not None:
-            self.server.shutdown()
-            self.server.server_close()
+    `content` replaces the generated script, which is how the suite proves an
+    executable that fails to start is rejected. A "latest" tag also refreshes
+    the alias, matching how a release publishes both.
+    """
+    payload = content.encode() if content is not None else release_fixture.script_payload(fake_version)
+    archive = release_fixture.archive_bytes(payload)
+    return fixture.publish(tag, archive, make_latest=(tag == "latest"), checksum=checksum)
 
 
 class InstallTests(unittest.TestCase):
@@ -97,8 +48,9 @@ class InstallTests(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.fixture = Fixture(self.root / "release")
-        self.base = self.fixture.start()
+        self.fixture = release_fixture.ReleaseServer(self.root / "release", TEST_PLATFORM)
+        # The installer takes the release root, which sits under /releases.
+        self.base = f"{self.fixture.start()}/releases"
         self.addCleanup(self.fixture.stop)
         # A PATH with no ompig-slim directory keeps the "not on PATH" hint
         # deterministic, and shims/ holds a fake uname so every test selects the
@@ -140,7 +92,7 @@ class InstallTests(unittest.TestCase):
         )
 
     def test_latest_release_installs_into_local_bin(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
         target = self.install_dir() / "ompig-slim"
@@ -155,33 +107,33 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.install_dir())), ["ompig-slim"])
 
     def test_tagged_release_uses_the_tag_path(self):
-        self.fixture.stage("v1.2.3")
+        stage(self.fixture, "v1.2.3")
         result = self.run_installer("--version", "v1.2.3")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("/download/v1.2.3/", result.stdout)
         self.assertTrue((self.install_dir() / "ompig-slim").exists())
 
     def test_tag_comes_from_the_environment(self):
-        self.fixture.stage("v1.2.3")
+        stage(self.fixture, "v1.2.3")
         result = self.run_installer(OMPIG_SLIM_VERSION="v1.2.3")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("/download/v1.2.3/", result.stdout)
 
     def test_latest_spelling_resolves_to_the_latest_alias(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer("--version", "latest")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("/latest/download/", result.stdout)
 
     def test_flag_overrides_environment(self):
-        self.fixture.stage("v1.2.3")
+        stage(self.fixture, "v1.2.3")
         result = self.run_installer("--version", "v1.2.3", OMPIG_SLIM_VERSION="v9.9.9")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("/download/v1.2.3/", result.stdout)
         self.assertTrue((self.install_dir() / "ompig-slim").exists())
 
     def test_directory_override_and_environment_fallback(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         explicit = self.root / "explicit bin"
         result = self.run_installer("--dir", str(explicit))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -195,7 +147,7 @@ class InstallTests(unittest.TestCase):
         # `ompig-slim update` only replaces a binary the installer claims, and it
         # finds that claim under the same config root PiG uses: PIG_HOME, else
         # ~/.pi, with a leading ~/ expanded.
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
         marker = self.home / ".pi" / "ompig-slim-install"
@@ -213,7 +165,7 @@ class InstallTests(unittest.TestCase):
     def test_unwritable_config_root_warns_but_keeps_the_install(self):
         # The executable is already installed by then; a marker that cannot be
         # written only costs in-place updates, so it must not fail the install.
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         blocker = self.root / "blocker"
         blocker.write_text("a file, not a directory")
         result = self.run_installer(PIG_HOME=str(blocker / "nested"))
@@ -222,10 +174,10 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((self.install_dir() / "ompig-slim").exists())
 
     def test_upgrade_replaces_the_previous_executable(self):
-        self.fixture.stage("latest", fake_version="ompig-slim 1.0.0-first")
+        stage(self.fixture, "latest", fake_version="ompig-slim 1.0.0-first")
         self.assertEqual(self.run_installer().returncode, 0)
         first = (self.install_dir() / "ompig-slim").read_text()
-        self.fixture.stage("latest", fake_version="ompig-slim 2.0.0-second")
+        stage(self.fixture, "latest", fake_version="ompig-slim 2.0.0-second")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
         second = (self.install_dir() / "ompig-slim").read_text()
@@ -234,21 +186,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.install_dir())), ["ompig-slim"])
 
     def test_checksum_mismatch_keeps_the_previous_install(self):
-        self.fixture.stage("latest", fake_version="ompig-slim 1.0.0-first")
+        stage(self.fixture, "latest", fake_version="ompig-slim 1.0.0-first")
         self.assertEqual(self.run_installer().returncode, 0)
         installed = self.install_dir() / "ompig-slim"
         before = installed.read_bytes()
-        # Publish a different payload under the old checksum file.
-        directory = self.fixture.stage("latest", fake_version="ompig-slim 2.0.0-second")
-        archive = directory / "ompig-slim-linux-x64.tar.gz"
-        archive.write_bytes(self.fixture.archive_bytes(None, "ompig-slim 3.0.0-tampered"))
+        # Republish with a digest that does not describe the archive: the
+        # download is rejected, and the working install stays byte-identical.
+        stage(self.fixture, "latest", fake_version="ompig-slim 2.0.0-second", checksum="wrong")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum mismatch", result.stderr)
         self.assertEqual(installed.read_bytes(), before)
 
     def test_malformed_checksum_is_rejected(self):
-        self.fixture.stage("latest", verify=False)
+        stage(self.fixture, "latest", checksum="garbage")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not a valid checksum file", result.stderr)
@@ -260,40 +211,35 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.install_dir().exists())
 
     def test_archive_without_the_executable_is_rejected(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         directory = self.fixture.releases / "latest" / "download"
         archive = directory / "ompig-slim-linux-x64.tar.gz"
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as package:
-            member = tarfile.TarInfo("ompig-slim/README.md")
-            member.size = 3
-            package.addfile(member, io.BytesIO(b"doc"))
-        archive.write_bytes(buffer.getvalue())
-        pathlib.Path(str(archive) + ".sha256").write_text(f"{sha256(archive)}  {archive.name}\n")
+        archive.write_bytes(release_fixture.archive_of([
+            release_fixture.file_member("ompig-slim/README.md", b"doc", 0o644),
+        ]))
+        checksum = release_fixture.sha256_bytes(archive.read_bytes())
+        pathlib.Path(str(archive) + ".sha256").write_text(f"{checksum}  {archive.name}\n")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not contain ompig-slim/ompig-slim", result.stderr)
         self.assertFalse(self.install_dir().exists())
 
     def test_symlinked_executable_is_rejected(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         directory = self.fixture.releases / "latest" / "download"
         archive = directory / "ompig-slim-linux-x64.tar.gz"
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as package:
-            member = tarfile.TarInfo("ompig-slim/ompig-slim")
-            member.type = tarfile.SYMTYPE
-            member.linkname = "/bin/sh"
-            package.addfile(member)
-        archive.write_bytes(buffer.getvalue())
-        pathlib.Path(str(archive) + ".sha256").write_text(f"{sha256(archive)}  {archive.name}\n")
+        archive.write_bytes(release_fixture.archive_of([
+            release_fixture.symlink_member("ompig-slim/ompig-slim", "/bin/sh"),
+        ]))
+        checksum = release_fixture.sha256_bytes(archive.read_bytes())
+        pathlib.Path(str(archive) + ".sha256").write_text(f"{checksum}  {archive.name}\n")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no regular ompig-slim/ompig-slim file", result.stderr)
         self.assertFalse(self.install_dir().exists())
 
     def test_destination_that_is_not_a_directory_is_reported(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         blocker = self.root / "blocker"
         blocker.write_text("a file, not a directory")
         result = self.run_installer("--dir", str(blocker))
@@ -305,7 +251,7 @@ class InstallTests(unittest.TestCase):
         shell = shutil.which("dash") or shutil.which("sh")
         if shell is None:
             self.skipTest("no POSIX shell available")
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = subprocess.run(
             [shell, str(INSTALLER)],
             env=self.env(), text=True, capture_output=True, timeout=60,
@@ -320,7 +266,7 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.install_dir().exists())
 
     def test_unsupported_platforms_are_refused_before_downloading(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         self.use_platform("FreeBSD", "x86_64")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
@@ -334,7 +280,7 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.install_dir().exists())
 
     def test_missing_home_is_reported_unless_a_directory_is_given(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         env = self.env()
         del env["HOME"]
         result = subprocess.run(["bash", str(INSTALLER)], env=env,
@@ -350,7 +296,7 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((directory / "ompig-slim").exists())
 
     def test_unusable_temporary_directory_is_reported(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer(TMPDIR=str(self.root / "absent"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.install_dir().exists())
@@ -358,7 +304,7 @@ class InstallTests(unittest.TestCase):
     def test_banner_is_printed_and_stays_aligned_without_color(self):
         # The mark is plain text with optional color runs, so redirected output
         # keeps the same geometry and no escape sequence reaches a log file.
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("in Go \u00b7 slim harness", result.stdout)
@@ -372,7 +318,7 @@ class InstallTests(unittest.TestCase):
     def test_a_refused_platform_prints_no_banner(self):
         # The mark announces an install that is about to happen, so a refusal
         # before that point prints only its own message.
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         self.use_platform("FreeBSD", "x86_64")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
@@ -398,7 +344,7 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.install_dir().exists())
 
     def test_path_hint_is_printed_only_when_needed(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertIn("is not on your PATH", result.stdout)
         self.assertIn(str(self.install_dir()), result.stdout)
@@ -408,7 +354,7 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn("is not on your PATH", result.stdout)
 
     def test_executable_that_fails_to_run_is_not_installed(self):
-        self.fixture.stage("latest", content="#!/bin/sh\necho broken >&2\nexit 3\n")
+        stage(self.fixture, "latest", content="#!/bin/sh\necho broken >&2\nexit 3\n")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("did not run on this machine", result.stderr)
@@ -419,7 +365,7 @@ class InstallTests(unittest.TestCase):
     def test_wget_is_used_when_curl_is_absent(self):
         if shutil.which("wget") is None:
             self.skipTest("wget is not installed on this host")
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         # Hide curl by building a PATH that contains every other tool. The shims
         # directory stays first so the fixture's uname still selects the release.
         bindir = self.root / "no-curl"
@@ -436,7 +382,7 @@ class InstallTests(unittest.TestCase):
     def test_missing_http_client_is_reported(self):
         if shutil.which("curl") is None:
             self.skipTest("curl is not installed on this host")
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         bindir = self.root / "no-network"
         bindir.mkdir()
         for tool in ("bash", "tar", "gzip", "mktemp", "awk", "cp", "mv", "chmod", "rm", "mkdir",
@@ -449,7 +395,7 @@ class InstallTests(unittest.TestCase):
         self.assertIn("curl or wget is required", result.stderr)
 
     def test_missing_digest_tool_is_reported(self):
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         bindir = self.root / "no-digest"
         bindir.mkdir()
         for tool in ("bash", "tar", "gzip", "mktemp", "awk", "cp", "mv", "chmod", "rm", "mkdir",
@@ -471,7 +417,7 @@ class InstallTests(unittest.TestCase):
         banner = subprocess.run([tar, "--version"], capture_output=True, text=True).stdout.lower()
         if "bsdtar" in banner:
             self.skipTest("bsdtar decompresses gzip itself")
-        self.fixture.stage("latest")
+        stage(self.fixture, "latest")
         bindir = self.root / "no-gzip"
         bindir.mkdir()
         for tool in ("bash", "tar", "mktemp", "awk", "cp", "mv", "chmod", "rm", "mkdir",

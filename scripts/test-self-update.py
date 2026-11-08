@@ -15,30 +15,25 @@ self-updater relies on.
 
 Usage: scripts/test-self-update.py <path to ompig-slim>
 """
-import hashlib
-import http.server
-import io
-import json
-import os
 import pathlib
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
-import threading
 import unittest
 
+# Release fixtures live in release_fixture.py so this suite and
+# test-install.py prove the same archive layout.
+import release_fixture
+
 INSTALLER = pathlib.Path(__file__).resolve().with_name("install.sh")
-ARCHIVE_MEMBER = "ompig-slim/ompig-slim"
-
-
-def sha256(data):
-    return hashlib.sha256(data).hexdigest()
-
-
 def platform_suffix():
-    """Return the release platform suffix for this host, e.g. linux-x64."""
+    """Return this host's release platform suffix, e.g. linux-x64.
+
+    The updater picks its archive from the Go runtime's GOOS/GOARCH, so unlike
+    the installer suite this one cannot pin a platform: it must name the archive
+    the running executable will actually ask for.
+    """
     system = subprocess.run(["uname", "-s"], capture_output=True, text=True).stdout.strip()
     machine = subprocess.run(["uname", "-m"], capture_output=True, text=True).stdout.strip()
     goos = {"Linux": "linux", "Darwin": "darwin"}.get(system)
@@ -48,100 +43,22 @@ def platform_suffix():
     return f"{goos}-{goarch}"
 
 
-def script_payload(version):
-    """A stand-in executable that reports one version, for observing a replace."""
-    return f"#!/bin/sh\nprintf '%s\\n' '{version}'\n".encode()
-
-
-def release_archive(payload):
-    """Wrap one executable payload in the release archive layout.
-
-    Archives are memoized by payload digest: the executable under test is tens
-    of megabytes, and re-gzipping it per test would dominate the suite's run
-    time without testing anything different.
-    """
-    key = sha256(payload)
-    cached = _ARCHIVES.get(key)
-    if cached is not None:
-        return cached
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz", compresslevel=1) as package:
-        member = tarfile.TarInfo(ARCHIVE_MEMBER)
-        member.size = len(payload)
-        member.mode = 0o755
-        package.addfile(member, io.BytesIO(payload))
-    archive = buffer.getvalue()
-    _ARCHIVES[key] = archive
-    return archive
-
-
-# _ARCHIVES caches encoded archives for the life of the process; see release_archive.
+# The executable under test is tens of megabytes, so an archive is encoded once
+# per payload and reused: re-gzipping it per test would dominate the run time
+# without testing anything different. Keyed by payload digest.
 _ARCHIVES = {}
 
 
-class ReleaseServer:
-    """Serves GitHub's release layout plus the one API route the updater reads."""
-
-    def __init__(self, root):
-        self.root = root
-        self.releases = root / "releases"
-        self.releases.mkdir(parents=True)
-        self.latest_tag = ""
-        self.platform = platform_suffix()
-        self.instance = None
-
-    def publish(self, tag, payload, make_latest=False):
-        directory = self.releases / "download" / tag
-        directory.mkdir(parents=True, exist_ok=True)
-        archive = release_archive(payload)
-        name = f"ompig-slim-{self.platform}.tar.gz"
-        (directory / name).write_bytes(archive)
-        pathlib.Path(str(directory / name) + ".sha256").write_text(f"{sha256(archive)}  {name}\n")
-        if make_latest:
-            self.latest_tag = tag
-            latest = self.releases / "latest" / "download"
-            latest.mkdir(parents=True, exist_ok=True)
-            (latest / name).write_bytes(archive)
-            pathlib.Path(str(latest / name) + ".sha256").write_text(
-                f"{sha256(archive)}  {name}\n")
-
-    def publish_with_bad_checksum(self, tag, payload):
-        """Publish an archive whose checksum does not describe it."""
-        directory = self.releases / "download" / tag
-        directory.mkdir(parents=True, exist_ok=True)
-        name = f"ompig-slim-{self.platform}.tar.gz"
-        (directory / name).write_bytes(release_archive(payload))
-        pathlib.Path(str(directory / name) + ".sha256").write_text(f"{'0' * 64}  {name}\n")
-        self.latest_tag = tag
-
-    def start(self):
-        server = self
-
-        class Handler(http.server.SimpleHTTPRequestHandler):
-            def do_GET(self):
-                if self.path.endswith("/releases/latest"):
-                    body = json.dumps({"tag_name": server.latest_tag}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-                super().do_GET()
-
-            def log_message(self, *args):
-                pass
-
-        self.instance = http.server.ThreadingHTTPServer(
-            ("127.0.0.1", 0), lambda *a, **k: Handler(*a, directory=str(self.root), **k))
-        threading.Thread(target=self.instance.serve_forever, daemon=True).start()
-        host, port = self.instance.server_address
-        return f"http://{host}:{port}"
-
-    def stop(self):
-        if self.instance is not None:
-            self.instance.shutdown()
-            self.instance.server_close()
+def release_archive(payload):
+    """Wrap one executable payload in the release archive layout."""
+    key = release_fixture.sha256_bytes(payload)
+    archive = _ARCHIVES.get(key)
+    if archive is None:
+        # compresslevel=1 keeps encoding cheap; the archive is oversized for its
+        # contents either way, which is all these tests need.
+        archive = release_fixture.archive_bytes(payload, compresslevel=1)
+        _ARCHIVES[key] = archive
+    return archive
 
 
 class SelfUpdateTests(unittest.TestCase):
@@ -163,7 +80,7 @@ class SelfUpdateTests(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.server = ReleaseServer(self.root / "channel")
+        self.server = release_fixture.ReleaseServer(self.root / "channel", platform_suffix())
         self.base = self.server.start()
         self.addCleanup(self.server.stop)
         self.install_dir = self.home / ".local" / "bin"
@@ -189,7 +106,7 @@ class SelfUpdateTests(unittest.TestCase):
         executable. That is intentional: it keeps tests independent, and the
         file is removed with the temporary directory.
         """
-        self.server.publish(tag or f"v{self.version}", self.payload, make_latest=True)
+        self.server.publish(tag or f"v{self.version}", release_archive(self.payload), make_latest=True)
         result = subprocess.run(["bash", str(INSTALLER)], env=self.env(),
                                 text=True, capture_output=True, timeout=180)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -203,7 +120,8 @@ class SelfUpdateTests(unittest.TestCase):
         return self.run_binary("--version").stdout.strip()
 
     def publish_newer(self, version="99.0.0"):
-        self.server.publish(f"v{version}", script_payload(version), make_latest=True)
+        self.server.publish(f"v{version}", release_fixture.archive_bytes(release_fixture.script_payload(version)),
+                            make_latest=True)
         return version
 
     def test_update_replaces_an_archive_install(self):
@@ -256,7 +174,9 @@ class SelfUpdateTests(unittest.TestCase):
     def test_checksum_mismatch_leaves_the_install_untouched(self):
         target = self.install()
         before = pathlib.Path(target).read_bytes()
-        self.server.publish_with_bad_checksum("v99.0.0", script_payload("99.0.0"))
+        self.server.publish("v99.0.0",
+                            release_fixture.archive_bytes(release_fixture.script_payload("99.0.0")),
+                            make_latest=True, checksum="wrong")
         result = self.run_binary("update")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum mismatch", result.stderr)
@@ -265,17 +185,17 @@ class SelfUpdateTests(unittest.TestCase):
     def test_release_without_the_executable_leaves_the_install_untouched(self):
         target = self.install()
         before = pathlib.Path(target).read_bytes()
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as package:
-            member = tarfile.TarInfo("ompig-slim/README.md")
-            member.size = 3
-            package.addfile(member, io.BytesIO(b"doc"))
-        archive = buffer.getvalue()
+        # A well-formed archive that simply lacks the executable: verification
+        # passes and extraction is what must refuse.
+        archive = release_fixture.archive_of([
+            release_fixture.file_member("ompig-slim/README.md", b"doc", 0o644),
+        ])
         directory = self.server.releases / "download" / "v99.0.0"
         directory.mkdir(parents=True, exist_ok=True)
         name = f"ompig-slim-{self.server.platform}.tar.gz"
         (directory / name).write_bytes(archive)
-        pathlib.Path(str(directory / name) + ".sha256").write_text(f"{sha256(archive)}  {name}\n")
+        digest = release_fixture.sha256_bytes(archive)
+        pathlib.Path(str(directory / name) + ".sha256").write_text(f"{digest}  {name}\n")
         self.server.latest_tag = "v99.0.0"
         result = self.run_binary("update")
         self.assertNotEqual(result.returncode, 0)

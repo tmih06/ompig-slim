@@ -30,9 +30,10 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	semver "github.com/MichaelKinsy/PiG/third_party/semver"
 )
 
 const (
@@ -364,78 +365,20 @@ func archiveNameFor(goos, goarch string) (string, error) {
 	return "ompig-slim-" + goos + "-" + arch + ".tar.gz", nil
 }
 
-// isNewer reports whether candidate is a later release than current. Both are
-// already stripped of a leading "v". A prerelease sorts before its release, and
-// an unparsable pair falls back to inequality so an odd tag still offers an
-// update rather than silently reporting success.
+// isNewer reports whether candidate is a later release than current.
+//
+// Both are already stripped of a leading "v", and ordering is semver's: a
+// prerelease sorts before its release, and prerelease identifiers compare
+// numerically where they are numeric (so -alpha.10 is newer than -alpha.9).
+// When either side is not a semantic version, any difference counts as newer,
+// so an odd tag still offers an update instead of silently reporting success.
 func isNewer(candidate, current string) bool {
-	if order, ok := compareVersions(candidate, current); ok {
-		return order > 0
+	left, leftErr := semver.StrictNewVersion(candidate)
+	right, rightErr := semver.StrictNewVersion(current)
+	if leftErr != nil || rightErr != nil {
+		return candidate != current
 	}
-	return candidate != current
-}
-
-// compareVersions orders two semantic versions, reporting false when either is
-// not of the form major.minor.patch with an optional prerelease suffix.
-func compareVersions(left, right string) (int, bool) {
-	l, lpre, ok := parseVersion(left)
-	if !ok {
-		return 0, false
-	}
-	r, rpre, ok := parseVersion(right)
-	if !ok {
-		return 0, false
-	}
-	for i := range l {
-		if l[i] != r[i] {
-			if l[i] > r[i] {
-				return 1, true
-			}
-			return -1, true
-		}
-	}
-	// Build metadata does not order releases; only the prerelease suffix does.
-	switch {
-	case lpre == rpre:
-		return 0, true
-	case lpre == "":
-		return 1, true
-	case rpre == "":
-		return -1, true
-	case lpre < rpre:
-		return -1, true
-	default:
-		return 1, true
-	}
-}
-
-// parseVersion splits major.minor.patch from an optional prerelease suffix.
-func parseVersion(raw string) ([3]int, string, bool) {
-	var numbers [3]int
-	core := raw
-	prerelease := ""
-	if before, after, found := strings.Cut(raw, "-"); found {
-		core, prerelease = before, after
-	}
-	// Drop build metadata; it never affects ordering.
-	if before, _, found := strings.Cut(core, "+"); found {
-		core = before
-	}
-	if before, _, found := strings.Cut(prerelease, "+"); found {
-		prerelease = before
-	}
-	parts := strings.Split(core, ".")
-	if len(parts) != len(numbers) {
-		return numbers, "", false
-	}
-	for i, part := range parts {
-		value, err := strconv.Atoi(part)
-		if err != nil || value < 0 {
-			return numbers, "", false
-		}
-		numbers[i] = value
-	}
-	return numbers, prerelease, true
+	return left.Compare(right) > 0
 }
 
 // countingReader reports byte progress while a response body streams past. It
@@ -474,11 +417,10 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-// request is a parsed `update`/`upgrade` invocation.
+// request is the part of an `update`/`upgrade` invocation this package owns.
+// The parser's second return already says whether the invocation is a
+// self-update, so the fields describe only what to do once that is decided.
 type request struct {
-	// self is true when the caller asked for this binary, by the bare command or
-	// by naming it explicitly.
-	self bool
 	// all is true when packages are updated before the binary.
 	all bool
 	// force reinstalls even when the running version is current.
@@ -530,7 +472,6 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 		// --all: packages first, then this binary.
 		resolved.all = true
 	}
-	resolved.self = true
 	return resolved, true
 }
 

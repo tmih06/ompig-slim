@@ -46,41 +46,6 @@ func digestOf(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func TestCompareVersions(t *testing.T) {
-	cases := []struct {
-		name   string
-		left   string
-		right  string
-		want   int
-		wantOK bool
-	}{
-		{"equal", "1.2.3", "1.2.3", 0, true},
-		{"major", "2.0.0", "1.9.9", 1, true},
-		{"minor", "1.2.0", "1.10.0", -1, true},
-		{"patch", "1.2.4", "1.2.3", 1, true},
-		{"release beats prerelease", "1.0.0", "1.0.0-rc.1", 1, true},
-		{"prerelease loses to release", "1.0.0-rc.1", "1.0.0", -1, true},
-		{"prerelease order", "1.0.0-beta", "1.0.0-alpha", 1, true},
-		{"build metadata ignored", "1.0.0+abc", "1.0.0+def", 0, true},
-		{"leading zeros are numbers", "1.02.0", "1.2.0", 0, true},
-		{"not a version", "nightly", "1.0.0", 0, false},
-		{"two components", "1.0", "1.0.0", 0, false},
-		{"four components", "1.0.0.0", "1.0.0", 0, false},
-		{"negative", "1.-1.0", "1.0.0", 0, false},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got, ok := compareVersions(testCase.left, testCase.right)
-			if ok != testCase.wantOK {
-				t.Fatalf("compareVersions(%q, %q) ok = %v, want %v", testCase.left, testCase.right, ok, testCase.wantOK)
-			}
-			if ok && got != testCase.want {
-				t.Fatalf("compareVersions(%q, %q) = %d, want %d", testCase.left, testCase.right, got, testCase.want)
-			}
-		})
-	}
-}
-
 func TestIsNewer(t *testing.T) {
 	cases := []struct {
 		candidate string
@@ -91,10 +56,19 @@ func TestIsNewer(t *testing.T) {
 		{"1.0.0", "2.0.0", false},
 		{"1.0.0", "1.0.0", false},
 		{"1.0.0-rc.1", "1.0.0", false},
+		{"1.0.0", "1.0.0-rc.1", true},
+		// Prerelease identifiers compare numerically where numeric. A lexical
+		// comparison would call alpha.10 older than alpha.9 and silently skip
+		// the release.
+		{"1.0.0-alpha.10", "1.0.0-alpha.9", true},
+		{"1.0.0-alpha.9", "1.0.0-alpha.10", false},
+		{"1.10.0", "1.9.0", true},
+		// Build metadata never orders releases.
+		{"1.0.0+abc", "1.0.0+def", false},
 		// An unparsable pair still offers the update rather than reporting a
 		// silent success, so a maintainer notices the odd tag.
 		{"nightly", "stable", true},
-		{"same", "same", false},
+		{"nightly", "nightly", false},
 	}
 	for _, testCase := range cases {
 		if got := isNewer(testCase.candidate, testCase.current); got != testCase.want {
@@ -357,21 +331,21 @@ func TestResolveRequest(t *testing.T) {
 		want  request
 		claim bool
 	}{
-		{"bare update", []string{"update"}, request{self: true}, true},
-		{"bare upgrade", []string{"upgrade"}, request{self: true}, true},
-		{"self flag", []string{"update", "--self"}, request{self: true}, true},
-		{"self name", []string{"update", "self"}, request{self: true}, true},
-		{"app name", []string{"update", "ompig-slim"}, request{self: true}, true},
-		{"pig name", []string{"update", "pig"}, request{self: true}, true},
-		{"force", []string{"update", "--force"}, request{self: true, force: true}, true},
-		{"all", []string{"update", "--all"}, request{self: true, all: true}, true},
+		{"bare update", []string{"update"}, request{}, true},
+		{"bare upgrade", []string{"upgrade"}, request{}, true},
+		{"self flag", []string{"update", "--self"}, request{}, true},
+		{"self name", []string{"update", "self"}, request{}, true},
+		{"app name", []string{"update", "ompig-slim"}, request{}, true},
+		{"pig name", []string{"update", "pig"}, request{}, true},
+		{"force", []string{"update", "--force"}, request{force: true}, true},
+		{"all", []string{"update", "--all"}, request{all: true}, true},
 		{"trust flag alone still updates", []string{"update", "--approve"},
-			request{self: true}, true},
+			request{}, true},
 		// PiG resolves an explicit self target with --extensions to --all.
 		{"self with extensions", []string{"update", "self", "--extensions"},
-			request{self: true, all: true}, true},
+			request{all: true}, true},
 		{"self flag with extensions", []string{"update", "--self", "--extensions"},
-			request{self: true, all: true}, true},
+			request{all: true}, true},
 		{"help", []string{"update", "--help"}, request{}, false},
 		{"short help", []string{"update", "-h"}, request{}, false},
 		{"models", []string{"update", "--models"}, request{}, false},

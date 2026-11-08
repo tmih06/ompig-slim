@@ -23,9 +23,9 @@ const (
 	barEmpty  = "─"
 )
 
-// brandEscape is the ANSI SGR sequence for one logo color. The values are the
-// fills used by assets/ompig-banner.svg: white for "OM", coral for the top of
-// the P, blue for its stem, yellow for the "i", purple for the tagline.
+// The SGR codes used by the mark and the meter. The colors are the fills in
+// assets/ompig-banner.svg: white for "OM", coral for the top of the P, blue for
+// its stem, yellow for the "i", purple for the tagline.
 const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
@@ -54,9 +54,8 @@ func isTerminal(w io.Writer) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// logoLines is the startup mark: the product initials in block glyphs, then the
-// tagline. Each color run is a slice so a plain render can drop the escapes and
-// keep the exact same geometry.
+// logoRun is one color run of the mark. Splitting the art into runs lets a plain
+// render drop the escapes and keep the exact same geometry.
 type logoRun struct {
 	text  string
 	color string
@@ -181,7 +180,7 @@ func humanBytes(n int64) string {
 	case n < 1024:
 		return fmt.Sprintf("%d B", n)
 	case n < 1024*1024:
-		return fmt.Sprintf("%.1f KB", float64(n)/(1024))
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
 	case n < 1024*1024*1024:
 		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
 	default:

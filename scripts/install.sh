@@ -139,13 +139,16 @@ human_bytes() {
     }'
 }
 
-# draw_progress <done> <total> <label> renders one meter line in place.
+# draw_progress <done> <total> <label> renders one meter line in place, and
+# skips the redraw when the whole percentage has not moved.
 # total <= 0 means the size is unknown; the meter then shows only the count.
 draw_progress() {
     local done="$1" total="$2" label="$3" filled percent bar_fill bar_empty
     if ((total > 0)); then
         percent=$((done * 100 / total))
         ((percent > 100)) && percent=100
+        if [[ "$percent" == "$last_percent" ]]; then return 0; fi
+        last_percent="$percent"
         filled=$((percent * bar_width / 100))
         bar_fill="$(printf '%*s' "$filled" '')"
         bar_empty="$(printf '%*s' "$((bar_width - filled))" '')"
@@ -172,7 +175,8 @@ settle_progress() {
 }
 
 # The meter only redraws when the whole percentage changes, so a fast download
-# does not emit hundreds of lines over a slow terminal link.
+# does not emit hundreds of lines over a slow terminal link. -1 forces the first
+# draw.
 last_percent=-1
 
 # file_size prints a file's byte count, or 0 while it does not exist yet.
@@ -191,17 +195,10 @@ file_size() {
 # blocked by rendering. Polling the file is what lets one loop serve curl and
 # wget alike: neither is asked to report progress, and neither can be.
 watch_progress() {
-    local pid="$1" destination="$2" total="$3" label="$4" done_bytes percent
+    local pid="$1" destination="$2" total="$3" label="$4" done_bytes
     while kill -0 "$pid" 2>/dev/null; do
         done_bytes="$(file_size "$destination")"
-        done_bytes="${done_bytes//[!0-9]/}"
-        done_bytes="${done_bytes:-0}"
-        percent=-1
-        if ((total > 0)); then percent=$((done_bytes * 100 / total)); fi
-        if [[ "$percent" != "$last_percent" ]]; then
-            last_percent="$percent"
-            draw_progress "$done_bytes" "$total" "$label"
-        fi
+        draw_progress "$done_bytes" "$total" "$label"
         sleep 0.1
     done
 }
@@ -315,6 +312,7 @@ fetch "$archive_url" "$archive" "download"
 settle_progress "archive downloaded"
 fetch "$archive_url.sha256" "$archive.sha256"
 
+printf '  %sverifying checksum%s\n' "$c_dim" "$c_reset"
 # The release checksum file is "<digest>  <filename>". Accept only a complete
 # lowercase/uppercase hex digest so a mangled or empty file fails loudly.
 expected="$(awk 'NR == 1 { print $1 }' "$archive.sha256")"
@@ -338,7 +336,6 @@ if [[ "$actual" != "$expected" ]]; then
     exit 1
 fi
 
-printf '  %sverifying checksum%s\n' "$c_dim" "$c_reset"
 # Extract only the executable; the archive also carries README, LICENSE, NOTICE,
 # and vendored license texts that belong beside a distribution, not on PATH.
 # A release that lacks the executable is rejected before touching the install.
