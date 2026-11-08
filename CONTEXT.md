@@ -114,10 +114,17 @@ make build
   hidden files (oh-my-pi `fitGroupsToBudget`). The status line carries the result
   counts (`21 matches · 20 files`). Branch glyphs mark siblings, not nesting
   depth: the first N-1 roots draw `├` and the last draws `└`.
-- Every tree row is cut to the card's content width in terminal cells
-  (`tui.TruncateRow`), so a long match line cannot run on past the card. Tree
-  rows never wrap: they truncate, which is what keeps a tree's `│` rail aligned
-  down the block.
+- A card body is bounded by **height**: `RichBodyMaxRows` (50) rows while
+  collapsed, with the rest behind Ctrl+O. Every card goes through this cap, not
+  only searches, because a terminal has a fixed number of rows and an uncapped
+  body would push the conversation off screen. The cap appends the
+  `… N more` marker and keeps the disclosure reachable.
+- Long lines **wrap**, they are not cut: a search entry wraps under its own
+  `│` rail (tree_list.go `wrapEntryRows`) so the tree stays aligned, and the
+  framed body wraps inside its border. Width and height are independent limits.
+- A collapsed inline card has no bottom bar, so its summary row names the key
+  (`… 39 more matches ⟨Ctrl+O: Expand⟩`); a framed card names it on the bottom
+  bar.
 - The card owns this transform (`tui/tree_list.go`), not a tool renderer. Grep and find resolve no registered
   renderers, so a renderer-side implementation never runs in a real session —
   the first attempt was wired that way and drew nothing. Owning it in the card

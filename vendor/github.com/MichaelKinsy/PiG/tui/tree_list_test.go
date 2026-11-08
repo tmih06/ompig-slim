@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -51,7 +52,7 @@ func TestSearchTreeCollapsedSummary(t *testing.T) {
 	output := "a.go:1: one\nb.go:1: two\nc.go:1: three\nd.go:1: four\ne.go:1: five\nf.go:1: six"
 	rows := stripRows(SearchTreeRows("grep", output, TreeListOptions{MaxCollapsed: 2, ItemType: "match"}))
 	// The summary counts the matches of the hidden files (c..f), not the files.
-	want := []string{"├ a.go", "│  *1│one", "├ b.go", "│  *1│two", "└ … 4 more matches"}
+	want := []string{"├ a.go", "│  *1│one", "├ b.go", "│  *1│two", "└ … 4 more matches ⟨Ctrl+O: Expand⟩"}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %q, want %q", rows, want)
 	}
@@ -127,6 +128,63 @@ func stripRows(rows []string) []string {
 		out[i] = widthx.StripAnsi(row)
 	}
 	return out
+}
+
+// TestSearchTreeWrapsLongRows checks a long match wraps under its rail instead
+// of running past the card, keeping every row within the width and the tree
+// aligned.
+func TestSearchTreeWrapsLongRows(t *testing.T) {
+	long := strings.Repeat("word ", 60)
+	rows := SearchTreeRows("grep", "a.go:1: "+long, TreeListOptions{Expanded: true, Width: 40})
+	if len(rows) < 3 {
+		t.Fatalf("a long match did not wrap: %q", stripRows(rows))
+	}
+	for _, row := range rows {
+		if got := widthx.VisibleWidth(row); got > 40 {
+			t.Fatalf("row is %d cells: %q", got, widthx.StripAnsi(row))
+		}
+	}
+	// One root draws the closing glyph; its match hangs on the rail and its
+	// wrapped continuations align under the text.
+	if first := widthx.StripAnsi(rows[0]); first != "└ a.go" {
+		t.Fatalf("root row = %q", first)
+	}
+	if !strings.HasPrefix(widthx.StripAnsi(rows[1]), "│  *1│") {
+		t.Fatalf("match row lost its rail: %q", widthx.StripAnsi(rows[1]))
+	}
+	if strings.HasPrefix(widthx.StripAnsi(rows[2]), "│") {
+		t.Fatalf("wrapped row repeats the rail: %q", widthx.StripAnsi(rows[2]))
+	}
+}
+
+// TestSearchTreeHeightCap checks a collapsed card shows at most RichBodyMaxRows
+// rows and expands to all of them.
+func TestSearchTreeHeightCap(t *testing.T) {
+	var builder strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&builder, "f%03d.go:%d: match %d with a long tail %s\n", i, i+1, i, strings.Repeat("x", 60))
+	}
+	card := NewToolExecutionComponent("grep", "c", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
+	card.SetResult(builder.String(), false, 0)
+	nonBlank := func(rows []string) int {
+		n := 0
+		for _, row := range rows {
+			if widthx.VisibleWidth(widthx.StripAnsi(row)) > 0 {
+				n++
+			}
+		}
+		return n
+	}
+	if got := nonBlank(card.Render(80)); got != RichBodyMaxRows {
+		t.Fatalf("collapsed card drew %d rows, want %d", got, RichBodyMaxRows)
+	}
+	if !strings.Contains(widthx.StripAnsi(strings.Join(card.Render(80), "\n")), "Ctrl+O") {
+		t.Fatalf("collapsed card does not advertise the disclosure")
+	}
+	card.SetExpanded(true)
+	if got := nonBlank(card.Render(80)); got <= RichBodyMaxRows {
+		t.Fatalf("expanded card drew %d rows, expected more than %d", got, RichBodyMaxRows)
+	}
 }
 
 // TestSearchTreeFitsCardWidth is the regression for long search lines: every

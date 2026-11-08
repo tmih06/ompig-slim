@@ -47,6 +47,19 @@ type TreeListOptions struct {
 	// count is not the hidden root count: oh-my-pi counts a search's hidden
 	// *matches*, which can outnumber the files it caps.
 	Summary string
+	// MaxRows caps the rendered rows while collapsed, the summary row included
+	// and branches counted with the entries they hang under. Unlike
+	// MaxCollapsed it bounds the block's height, so a file with many matches
+	// cannot push the card past it. Zero means no row budget. Wrapped
+	// continuation rows count toward the budget.
+	MaxRows int
+	// Width is the number of terminal cells an entry may occupy. A longer
+	// entry wraps under its own rail so the tree stays aligned; zero disables
+	// wrapping.
+	Width int
+	// NoExpandHint drops the disclosure hint from the summary row, for a card
+	// whose own footer already names the key.
+	NoExpandHint bool
 }
 
 // RenderTreeList draws a tree list with themed branches and an optional
@@ -69,6 +82,30 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 		shown = items[:options.MaxCollapsed]
 		hidden = len(items) - options.MaxCollapsed
 	}
+	// A row budget keeps the block's height bounded. Entries are taken in
+	// order while they fit, each entry's height being the rows it draws once
+	// wrapped, and the summary row always keeps one row reserved.
+	budgetCut := -1
+	if !options.Expanded && options.MaxRows > 0 {
+		used, taken := 0, 0
+		branch := ActiveTheme().Fg("dim", "├ ")
+		rail := ActiveTheme().Fg("dim", "│  ")
+		for _, item := range shown {
+			height := len(wrapEntryRows(branch, item.Label, options.Width))
+			for _, child := range item.Children {
+				height += len(wrapEntryRows(rail, child, options.Width))
+			}
+			if used+height > options.MaxRows-1 {
+				budgetCut = taken
+				break
+			}
+			used += height
+			taken++
+		}
+		if budgetCut >= 0 {
+			shown = shown[:budgetCut]
+		}
+	}
 
 	type root struct {
 		item TreeItem
@@ -79,6 +116,10 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 	for _, item := range shown {
 		roots = append(roots, root{item: item})
 	}
+	if budgetCut >= 0 {
+		// The row budget hides entries the root cap had kept.
+		hidden = len(items) - budgetCut
+	}
 	if hidden > 0 {
 		label := ""
 		switch {
@@ -88,6 +129,11 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 			label = fmt.Sprintf("… %d more %s%s", hidden, options.ItemType, pluralItems(options.ItemType, hidden))
 		}
 		if label != "" {
+			// An inline card has no bottom bar, so the summary row also names
+			// the key that discloses the rest.
+			if !options.Expanded && !options.NoExpandHint {
+				label += " " + ActiveTheme().Fg("dim", "⟨"+AppKeyText("app.tools.expand", "Ctrl+O")+": Expand⟩")
+			}
 			roots = append(roots, root{item: TreeItem{Label: theme.Fg("muted", label)}, summary: true})
 		}
 	}
@@ -99,13 +145,39 @@ func RenderTreeList(items []TreeItem, options TreeListOptions) []string {
 		if isLast {
 			prefix = last
 		}
-		out = append(out, prefix+entry.item.Label)
+		out = append(out, wrapEntryRows(prefix, entry.item.Label, options.Width)...)
 		if entry.summary {
 			continue
 		}
 		for _, child := range entry.item.Children {
-			out = append(out, rail+child)
+			out = append(out, wrapEntryRows(rail, child, options.Width)...)
 		}
+	}
+	return out
+}
+
+// wrapEntryRows draws one tree entry at the rail's prefix, wrapping its text
+// under that prefix so a long match stays aligned with the tree instead of
+// running past the card. A row that already fits is returned unchanged.
+func wrapEntryRows(prefix, text string, width int) []string {
+	if width <= 0 {
+		return []string{prefix + text}
+	}
+	// The blank pad after the glyph is part of the prefix, so continuation rows
+	// align under the text rather than under the glyph.
+	padWidth := widthx.VisibleWidth(prefix)
+	if padWidth >= width {
+		return []string{widthx.TruncateToWidth(prefix+text, width, "…", true)}
+	}
+	indent := strings.Repeat(" ", padWidth)
+	wrapped := widthx.WrapTextWithAnsi(text, width-padWidth)
+	if len(wrapped) <= 1 {
+		return []string{prefix + text}
+	}
+	out := make([]string, 0, len(wrapped))
+	out = append(out, prefix+wrapped[0])
+	for _, rest := range wrapped[1:] {
+		out = append(out, indent+rest)
 	}
 	return out
 }

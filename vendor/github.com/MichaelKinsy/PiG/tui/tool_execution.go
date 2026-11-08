@@ -938,6 +938,15 @@ func (c *ToolExecutionComponent) renderRichCard(width int) []string {
 			inputRows = append(inputRows, body...)
 		}
 	}
+	// Bound the card's height, not just its width: a long body would push the
+	// conversation off a fixed-height terminal. The disclosed rows stay behind
+	// Ctrl+O, which is what the frame's footer advertises.
+	if len(inputRows) > RichBodyMaxRows && !c.isSearchTree() {
+		inputRows = capBodyRows(inputRows, !c.Collapsed)
+		if outputStart > len(inputRows) {
+			outputStart = -1
+		}
+	}
 	c.richOutputStart = outputStart
 	return c.renderRichFrame(width, inputRows, outputStart)
 }
@@ -962,6 +971,9 @@ func (c *ToolExecutionComponent) renderRichInline(width int) []string {
 	}
 	if body != nil {
 		rows = trimBlankEdges(body.Render(inner))
+	}
+	if !searchTreeTool(c.Name) {
+		rows = capBodyRows(rows, !c.Collapsed)
 	}
 	c.mouseChild, c.mouseWidth, c.mouseHeight = body, inner, len(rows)
 	// An inline card's first rendered row is its status line, so the body

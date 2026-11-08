@@ -224,8 +224,14 @@ func ToolDiffRows(marker, line string, width int) []string {
 // the tool's own notices there rather than inside the body.
 func (c *ToolExecutionComponent) richFooterMeta() string {
 	meta := c.richFooterFacts()
-	if c.richExpandable() && !c.Collapsed {
-		meta = append(meta, AppKeyText("app.tools.expand", "Ctrl+O")+": Collapse")
+	// The bottom bar always names the disclosure, so a collapsed card says what
+	// opens it and an expanded one says how to close it.
+	if c.richExpandable() {
+		action := "Expand"
+		if !c.Collapsed {
+			action = "Collapse"
+		}
+		meta = append(meta, AppKeyText("app.tools.expand", "Ctrl+O")+": "+action)
 	}
 	if len(meta) == 0 {
 		return ""
@@ -318,12 +324,33 @@ func (c *ToolExecutionComponent) renderRichFrame(width int, rows []string, outpu
 	return out
 }
 
+// isSearchTree reports whether the card draws a grouped search tree, which caps
+// its own rows so the branch summary stays meaningful.
+func (c *ToolExecutionComponent) isSearchTree() bool { return searchTreeTool(c.Name) }
+
 // searchTreeTool reports whether a tool's result is drawn as a grouped tree.
 func searchTreeTool(name string) bool { return name == "grep" || name == "find" }
 
-// searchTreeCollapsed is grep.ts NATIVE_COLLAPSED_FILES: the files a collapsed
-// search tree shows before summarising the rest.
-const searchTreeCollapsed = 4
+// RichBodyMaxRows caps the body rows a collapsed card shows, the summary row
+// included. It bounds the card's height rather than its width: a search with
+// hundreds of matches, a long bash tail, or a wide file preview shows this
+// many rows and the rest behind Ctrl+O. A terminal is a fixed number of rows,
+// so an uncapped body would push the conversation off screen.
+const RichBodyMaxRows = 50
+
+// capBodyRows trims a collapsed body to RichBodyMaxRows and appends the
+// disclosure marker naming what it hid. An expanded body is returned whole.
+func capBodyRows(rows []string, expanded bool) []string {
+	if expanded || len(rows) <= RichBodyMaxRows {
+		return rows
+	}
+	// Keep one row for the marker itself.
+	shown := RichBodyMaxRows - 1
+	hidden := len(rows) - shown
+	out := make([]string, 0, RichBodyMaxRows)
+	out = append(out, rows[:shown]...)
+	return append(out, richMoreLines(hidden))
+}
 
 // SetSearchOutput records a search result for the card to draw as a tree. The
 // card owns the transform so the tree appears however the tool's renderers
@@ -349,10 +376,15 @@ func (c *ToolExecutionComponent) richSearchRows(width int) []string {
 	if c.Name == "find" {
 		itemType = "file"
 	}
+	// Rows wrap at the card width so a long match stays readable and aligned
+	// under its rail, rather than being cut at the border.
+	// The row budget, not a file count, bounds the card: a search shows up to
+	// RichBodyMaxRows rows however many files that covers.
 	rows := SearchTreeRows(c.Name, output, TreeListOptions{
-		Expanded:     !c.Collapsed,
-		MaxCollapsed: searchTreeCollapsed,
-		ItemType:     itemType,
+		Expanded: !c.Collapsed,
+		ItemType: itemType,
+		MaxRows:  RichBodyMaxRows,
+		Width:    width,
 	})
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
