@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -67,6 +69,49 @@ func (t *ReadTool) readURL(ctx context.Context, p readParams) (agent.AgentToolRe
 		return readURLError("Error: " + err.Error()), true, nil
 	}
 	return renderReadURL(ctx, result), true, nil
+}
+
+// readDirectory is read.ts #readDirectory: a directory reads as a sorted
+// listing, directories first (`name/`) then files, or `(empty directory)`.
+// Entries named by URL in OMP's internal-resource handlers are listed by name
+// here, which is what the model and the transcript both show.
+func (t *ReadTool) readDirectory(path string, p readParams) (agent.AgentToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return agent.AgentToolResult{}, false
+	}
+	entries, readErr := os.ReadDir(path)
+	if readErr != nil {
+		return agent.AgentToolResult{
+			Content: []ai.ToolResultMessageContent{ai.TextContent{Text: NodeFSError(readErr, "readdir", path)}},
+			Details: &ReadDetails{Path: path, IsDirectory: true},
+			IsError: true,
+		}, true
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	// Directories first, then files, each by name: formatDirectoryListing.
+	sort.SliceStable(names, func(i, j int) bool {
+		dirI, dirJ := strings.HasSuffix(names[i], "/"), strings.HasSuffix(names[j], "/")
+		if dirI != dirJ {
+			return dirI
+		}
+		return names[i] < names[j]
+	})
+	listing := "(empty directory)"
+	if len(names) > 0 {
+		listing = strings.Join(names, "\n")
+	}
+	return agent.AgentToolResult{
+		Content: []ai.ToolResultMessageContent{ai.TextContent{Text: listing}},
+		Details: &ReadDetails{Path: path, IsDirectory: true},
+	}, true
 }
 
 // clampPositiveInt bounds a JSON number to [1, MaxInt32], matching the retired

@@ -156,7 +156,7 @@ func headerRenderCall(header func(json.RawMessage, string) string) extension.Too
 	return func(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 		if richCard(context) {
 			// The framed top bar already names the pattern and path.
-			return tui.NewPaddedText("", 0, 0, nil)
+			return richEmptyBody()
 		}
 		return tui.NewPaddedText(header(args, context.Cwd), 0, 0, nil)
 	}
@@ -434,14 +434,14 @@ func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 		// read.ts isReadableUrlPath -> renderReadUrlCall: a URL read is titled
 		// `Read` with the domain and path of the target.
 		if richCard(context) {
-			return tui.NewPaddedText("", 0, 0, nil) // The status line names it.
+			return richEmptyBody() // The status line names it.
 		}
 		return tui.NewPaddedText(tui.FormatReadURLHeader(args, context.Cwd), 0, 0, nil)
 	}
 	if richCard(context) {
 		// The framed top bar already names the file and its line range, so a
 		// read card has no separate input row to repeat them.
-		return tui.NewPaddedText("", 0, 0, nil)
+		return richEmptyBody()
 	}
 	if !context.Expanded {
 		if header := tui.FormatCompactReadHeader(args, context.Cwd); header != "" {
@@ -464,7 +464,7 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 		return linesComponent{render: func(width int) []string { return render(width, options.Expanded) }}
 	}
 	if !options.Expanded && !context.IsError && !richCard(context) {
-		return tui.NewPaddedText("", 0, 0, nil)
+		return richEmptyBody()
 	}
 	theme := tui.ActiveTheme()
 	value := renderResultValue(result)
@@ -472,7 +472,10 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	output := toolResultTextOutput(value, context.ShowImages)
 	lang := ""
 	if !context.IsError && rawPath != "" {
-		lang = tui.LanguageFromPath(rawPath)
+		// read.ts reads a directory listing as plain text, never as code.
+		if details, ok := detailsObject(value.Details).(*tools.ReadDetails); !ok || !details.IsDirectory {
+			lang = tui.LanguageFromPath(rawPath)
+		}
 	}
 	var rendered []string
 	if lang != "" {
@@ -482,8 +485,11 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	}
 	lines := trimTrailingEmptyLines(rendered)
 	display := lines
-	// A rich read card previews the head of the file in place, with the frame's
-	// footer offering expansion, as OMP's read card does.
+	// read.ts describeResult draws an inline card: while collapsed the row is
+	// only `Read <path>:<range>`, and the content is disclosed on Ctrl+O.
+	if richCard(context) && !options.Expanded && !context.IsError {
+		return richEmptyBody()
+	}
 	if !options.Expanded && len(lines) > builtInPreviewLines {
 		display = lines[:builtInPreviewLines]
 	}
@@ -545,6 +551,12 @@ func readTruncation(details any) *tools.TruncationResult {
 		return &truncation
 	}
 	return nil
+}
+
+// richEmptyBody is the body of a rich card whose renderer drew nothing: the
+// frame then contributes no body rows at all.
+func richEmptyBody() extension.Component {
+	return linesComponent{render: func(int) []string { return nil }}
 }
 
 // listRenderResult is upstream grep.ts, find.ts and ls.ts renderResult.

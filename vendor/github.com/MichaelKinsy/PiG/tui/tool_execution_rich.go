@@ -64,6 +64,18 @@ func richToolName(name string) string {
 	}
 }
 
+// richInline reports whether a tool is OMP's `inline: true`: its card is the
+// status line plus the disclosed body, with no frame. These are the renderers
+// whose collapsed form is the one-row head (read.ts, write.ts, edit.ts,
+// grep.ts, find.ts, glob.ts), not the shell's framed run box.
+func richInline(name string) bool {
+	switch name {
+	case "read", "write", "edit", "grep", "find", "ls":
+		return true
+	}
+	return false
+}
+
 // richOutputSection reports whether a tool draws a labelled Output section.
 // Only the shell keeps its command in one section and its result stream in
 // another; every other tool's body follows its status line directly, as OMP's
@@ -130,7 +142,13 @@ func (c *ToolExecutionComponent) richStatusLine(width int, now time.Time) string
 	icon, iconRole := c.richStatusIcon(now)
 	line := theme.Fg(iconRole, icon) + " " + theme.Fg("toolTitle", richFlatten(richToolName(c.Name)))
 	if detail := strings.TrimSpace(richFlatten(c.Detail)); detail != "" {
-		line += ": " + theme.Fg("muted", widthx.TruncateToWidth(detail, max(0, width/2), "…", false))
+		// OMP's read card reads `Read <path>:<range>`; the search tools read
+		// `<Tool>: <subject>`, so only they use a colon.
+		sep := ": "
+		if c.Name == "read" || c.Name == "write" || c.Name == "edit" {
+			sep = " "
+		}
+		line += sep + theme.Fg("muted", widthx.TruncateToWidth(detail, max(0, width/2), "…", false))
 	}
 	if meta := c.richMeta(now); len(meta) > 0 {
 		// Without a description the facts follow the title directly, so the
@@ -203,48 +221,96 @@ func richMoreLines(hidden int) string {
 	return ActiveTheme().Fg("dim", label)
 }
 
-// renderRichFrame draws the output block: top bar with the status line, body
-// rows with an optional labelled Output section, and a bottom bar.
+// renderRichFrame is render-output-block.ts renderOutputBlock. Every bar and
+// every body row is padded out to the card's full width, so the right border
+// sits in the same column on every line and the block's background tint covers
+// the borders too. `outputStart` is the first body row after the labelled
+// Output section, or -1 for a card with no such section.
 func (c *ToolExecutionComponent) renderRichFrame(width int, rows []string, outputStart int) []string {
 	theme := ActiveTheme()
 	now := time.Now()
-	inner := width - 2         // between the vertical borders, including the label bars
-	content := max(1, inner-2) // output-block.ts contentPaddingLeft/Right default 1
-	run := func(n int) string { return strings.Repeat("─", max(0, n)) }
-	out := make([]string, 0, len(rows)+4)
+	content := richContentWidth(width)
+	tone := c.richTone()
+	border := func(s string) string { return theme.Fg(tone, s) }
+	// The block's background tint covers the borders and the body padding, and
+	// survives the SGR resets a renderer's own rows carry, so a colored body
+	// line cannot punch a hole in the card.
+	bgOpen := c.richBgOpen()
+	paint := func(s string) string {
+		if bgOpen == "" {
+			return s
+		}
+		return bgOpen + strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m"+bgOpen) + SGRBgReset
+	}
+	// A bar is `left + cap + label + fill + right`, always exactly width cells.
+	bar := func(left, right, label string) string {
+		lead := left + strings.Repeat("─", richCapWidth)
+		tail := right
+		maxLabel := max(0, width-widthx.VisibleWidth(lead)-widthx.VisibleWidth(tail))
+		label = widthx.TruncateToWidth(label, maxLabel, "…", false)
+		fill := strings.Repeat("─", max(0, width-widthx.VisibleWidth(lead)-widthx.VisibleWidth(label)-widthx.VisibleWidth(tail)))
+		return paint(border(lead) + label + border(fill+tail))
+	}
 
-	// renderOutputBlock's renderBar: `╭──` + ` label ` + fill + `╮`. A status
-	// line longer than the bar is truncated, never wrapped.
-	label := widthx.TruncateToWidth(" "+c.richStatusLine(inner, now)+" ", max(0, inner-richCapWidth-1), "…", false)
-	out = append(out, theme.Fg("toolTitle", "╭"+run(richCapWidth))+label+
-		theme.Fg("toolTitle", run(inner-widthx.VisibleWidth(label)-richCapWidth-1)+"╮"))
+	out := make([]string, 0, len(rows)+4)
+	// Missing-args cards draw no header at all, as OMP's renderBar does.
+	header := ""
+	if label := c.richStatusLine(content, now); label != "" {
+		header = " " + label + " "
+	}
+	out = append(out, bar("╭", "╮", header))
 
 	appendRow := func(line string) {
-		// renderContent pads the clipped row back out to the content width, so
-		// the right border keeps its column.
 		text := widthx.TruncateToWidth(line, content, "…", true)
 		text += strings.Repeat(" ", max(0, content-widthx.VisibleWidth(text)))
-		out = append(out, theme.Fg("toolTitle", "│ ")+text+theme.Fg("toolTitle", " │"))
+		out = append(out, paint(border("│")+" "+text+" "+border("│")))
 	}
 	for i, line := range rows {
 		if i == outputStart {
-			// A labelled section always draws its titled separator bar, from
-			// border to border.
-			titled := " " + theme.Fg("toolTitle", "Output") + " "
-			out = append(out, theme.Fg("toolTitle", "├"+run(richCapWidth))+titled+
-				theme.Fg("toolTitle", run(inner-widthx.VisibleWidth(titled)-richCapWidth-1)+"┤"))
+			out = append(out, bar("├", "┤", " "+theme.Fg("toolTitle", "Output")+" "))
 		}
 		appendRow(line)
 	}
 
-	// renderOutputBlock's bottom bar: `╰──` + facts + fill + `╯`.
 	footer := ""
 	if meta := c.richFooterMeta(); meta != "" {
 		footer = " " + theme.Fg("dim", richFlatten(meta)) + " "
 	}
-	out = append(out, theme.Fg("toolTitle", "╰"+run(richCapWidth))+footer+
-		theme.Fg("toolTitle", run(inner-widthx.VisibleWidth(footer)-richCapWidth-1)+"╯"))
+	out = append(out, bar("╰", "╯", footer))
 	return out
+}
+
+// richTone is the card's border color: the lifecycle state's color role, as
+// output-block.ts picks the border from the block state.
+func (c *ToolExecutionComponent) richTone() string {
+	switch {
+	case c.State == ToolStateError, c.aborted:
+		return "error"
+	case c.State == ToolStateRunning:
+		return "accent"
+	default:
+		return "dim"
+	}
+}
+
+// richBgOpen is the block's background tint: render/tool-card.ts
+// getStateBgColor over the card phase. A shell card opts out with applyBg:false
+// and keeps a neutral segmented look in every phase, so only the other tools
+// are washed. The tint covers the borders and the padding, as renderOutputBlock
+// pads the whole line before applying it.
+func (c *ToolExecutionComponent) richBgOpen() string {
+	if IsShellTool(c.Name) {
+		return ""
+	}
+	theme := ActiveTheme()
+	switch {
+	case c.State == ToolStateRunning:
+		return theme.GetBgAnsi("toolPendingBg")
+	case c.State == ToolStateError, c.aborted:
+		return theme.GetBgAnsi("toolErrorBg")
+	default:
+		return theme.GetBgAnsi("toolSuccessBg")
+	}
 }
 
 // trimBlankEdges drops blank rows a renderer adds as its own separators. The
@@ -302,8 +368,16 @@ func FormatReadURLHeader(raw json.RawMessage, _ string) string {
 	return toolTitleText("read") + " " + fg(ActiveTheme().Accent, display)
 }
 
-// ToolDetail is the status line's description for a built-in tool, decoded
-// from the same arguments its call header reads. Unknown tools return "".
+// ToolDetail is the status line's subject for a tool, decoded from the same
+// arguments its call header reads. Each follows OMP:
+//
+//	read/write/edit  <path>[:<start>-<end>]      read.ts formatReadPathLink
+//	grep             <pattern> in <scope>        grep.ts formatScopedSubject
+//	globs            "<query>"                   find.ts quoteQuery
+//	web_search       "<query>"                   web-search.ts renderSearchCall
+//	ls               <path>
+//
+// Unknown tools return "" and keep the bare title.
 func ToolDetail(name string, args json.RawMessage, cwd string) string {
 	var fields map[string]any
 	if len(args) == 0 || json.Unmarshal(args, &fields) != nil {
@@ -317,24 +391,60 @@ func ToolDetail(name string, args json.RawMessage, cwd string) string {
 		}
 		return ""
 	}
-	var detail string
+	numberOf := func(key string) (int, bool) {
+		value, ok := fields[key].(float64)
+		return int(value), ok
+	}
+	detail := ""
 	switch name {
 	case "read", "write", "edit":
 		detail = stringOf("file_path", "path")
-	case "grep", "find":
-		pattern := stringOf("pattern")
-		detail = pattern
-		if path := stringOf("path"); path != "" {
-			if pattern != "" {
-				detail = "/" + pattern + "/ in " + path
-			} else {
-				detail = path
+		if name == "read" && detail != "" {
+			// read.ts formatReadPathLink appends the 1-based inclusive range.
+			offset, hasOffset := numberOf("offset")
+			limit, hasLimit := numberOf("limit")
+			if hasOffset || hasLimit {
+				start := 1
+				if hasOffset {
+					start = max(offset, 1)
+				}
+				end := ""
+				if hasLimit {
+					end = fmt.Sprint(start + max(limit, 0) - 1)
+				}
+				detail += ":" + fmt.Sprint(start) + "-" + end
+				detail = strings.TrimSuffix(detail, "-")
 			}
+		}
+	case "grep":
+		// grep.ts grepSubject: `<pattern> in <scope>`, or the scope alone.
+		pattern, scope := stringOf("pattern"), stringOf("path")
+		switch {
+		case pattern != "" && scope != "":
+			detail = pattern + " in " + scope
+		case pattern != "":
+			detail = pattern
+		default:
+			detail = scope
+		}
+	case "find":
+		// find.ts quoteQuery above the requested keywords and scope.
+		if query := stringOf("query"); query != "" {
+			detail = `"` + query + `"`
+		}
+		if keywords := stringOf("grep_keywords"); keywords != "" {
+			detail = strings.TrimSpace(detail + " " + keywords)
+		}
+		if path := stringOf("path"); path != "" {
+			detail = strings.TrimSpace(detail + " in " + path)
+		}
+	case "web_search":
+		// web-search.ts renderSearchCall: the query, truncated to 80 cells.
+		if query := stringOf("query"); query != "" {
+			detail = string([]rune(query)[:min(len([]rune(query)), 80)])
 		}
 	case "ls":
 		detail = stringOf("path")
-	case "web_search":
-		detail = stringOf("query")
 	}
 	return text.SanitizeBinaryOutput(text.StripANSIString(detail))
 }

@@ -70,6 +70,11 @@ func (c *ToolExecutionComponent) SetDefinition(definition *ToolDefinitionRendere
 		c.clearStreamedArgs()
 		c.definitionArgs = append(c.definitionArgs[:0], args...)
 	}
+	// A definition's own renderer may draw the subject (a codemode cell title),
+	// but the status line is the card's identity, so it is always refreshed.
+	if len(args) > 0 && c.Detail == "" {
+		c.Detail = ToolDetail(c.Name, args, c.Cwd)
+	}
 	c.Invalidate()
 }
 

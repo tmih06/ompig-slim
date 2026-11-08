@@ -110,13 +110,23 @@ func codemodeRenderCall(args json.RawMessage, _ extension.Theme, context extensi
 	startToolTimer(context)
 	// The code includes the `// @options:` line, so options show as part of the script.
 	code, valid := codemodeCodeArg(args)
+	// A rich card names the tool on its status line, so the body is the script
+	// alone: OMP's eval cell draws its own `Code` box head, which the shared
+	// frame already is.
+	rich := richCard(context)
 	title := codemodeFg("toolTitle", tui.ChalkBold("codemode"))
 	component := codemodeContainer(context.LastComponent)
 	if !valid {
+		if rich {
+			component.Add(codemodeTextComponent(codemodeFg("error", "[invalid arg]")))
+			return component
+		}
 		component.Add(codemodeTextComponent(title + " " + codemodeFg("error", "[invalid arg]")))
 		return component
 	}
-	component.Add(codemodeTextComponent(title))
+	if !rich {
+		component.Add(codemodeTextComponent(title))
+	}
 	if code != "" {
 		// Progress, timer ticks and expanding redraw the call, so the row keeps the script's highlighting.
 		state := builtInState(context)
@@ -197,7 +207,9 @@ func codemodeRenderResult(result extension.AgentToolResult, options extension.To
 		if priced > 1 {
 			lines = append(lines, codemodeFg("muted", "Model calls: "+codemodeCost(total)))
 		}
-		component.Add(tui.NewSpacer(1))
+		if !richCard(context) {
+			component.Add(tui.NewSpacer(1))
+		}
 		component.Add(codemodeTextComponent(strings.Join(lines, "\n")))
 	}
 
@@ -222,7 +234,9 @@ func codemodeRenderResult(result extension.AgentToolResult, options extension.To
 			lines[i] = codemodeFg(token, line)
 		}
 		styled := strings.Join(lines, "\n")
-		component.Add(tui.NewSpacer(1))
+		if !richCard(context) {
+			component.Add(tui.NewSpacer(1))
+		}
 		if options.Expanded {
 			component.Add(codemodeTextComponent(styled))
 		} else {
@@ -239,7 +253,8 @@ func codemodeRenderResult(result extension.AgentToolResult, options extension.To
 			}
 		}
 	}
-	if hasTimer {
+	// A rich card's status line already shows the duration.
+	if hasTimer && !richCard(context) {
 		component.Add(tui.NewSpacer(1))
 		component.Add(codemodeTextComponent(codemodeFg("muted", timer)))
 	}

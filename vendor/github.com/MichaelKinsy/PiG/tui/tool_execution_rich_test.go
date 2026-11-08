@@ -67,25 +67,53 @@ func TestRichBashCard(t *testing.T) {
 	}
 }
 
-// TestRichInlineTools checks that every non-shell tool draws its body directly
-// under the status line, with no labelled Output section.
+// TestRichInlineTools checks OMP's inline tools: the collapsed card is the
+// status-line row alone, with no frame, and the body appears under it.
 func TestRichInlineTools(t *testing.T) {
-	for _, name := range []string{"read", "write", "edit", "grep", "find", "ls", "web_search", "web_fetch", "custom_tool"} {
+	for _, name := range []string{"read", "write", "edit", "grep", "find", "ls"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{"path":"a.go"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
 			c.MarkExecutionStarted()
 			c.BodyRenderer = func(width int, expanded bool) []string { return []string{"unique-body"} }
 			c.SetResult("unique-body", false, time.Second)
-			out := widthx.StripAnsi(strings.Join(c.Render(70), "\n"))
-			if !strings.Contains(out, "unique-body") {
-				t.Fatalf("body missing: %s", out)
+
+			collapsed := widthx.StripAnsi(strings.Join(c.Render(70), "\n"))
+			if strings.ContainsAny(collapsed, "╭│╰") {
+				t.Fatalf("inline tool drew a frame: %s", collapsed)
 			}
-			if strings.Contains(out, "Output") {
-				t.Fatalf("inline tool drew an Output section: %s", out)
+			if !strings.Contains(collapsed, "unique-body") || !strings.Contains(collapsed, "✔ "+richToolName(name)) {
+				t.Fatalf("inline card is missing its row or body: %s", collapsed)
 			}
-			top := strings.Split(strings.TrimSpace(out), "\n")[0]
-			if !strings.HasPrefix(top, "╭") || !strings.HasSuffix(top, "╮") {
-				t.Fatalf("bad top bar: %s", out)
+			c.SetExpanded(true)
+			expanded := widthx.StripAnsi(strings.Join(c.Render(70), "\n"))
+			if strings.ContainsAny(expanded, "╭│╰") {
+				t.Fatalf("expanded inline tool drew a frame: %s", expanded)
+			}
+		})
+	}
+}
+
+// TestRichFramedTools checks that the stream tools keep OMP's output block and
+// that their every row is the card width.
+func TestRichFramedTools(t *testing.T) {
+	for _, name := range []string{"bash", "web_search", "codemode", "custom_tool"} {
+		t.Run(name, func(t *testing.T) {
+			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
+			c.MarkExecutionStarted()
+			c.BodyRenderer = func(width int, expanded bool) []string { return []string{"unique-body"} }
+			c.SetResult("unique-body", false, time.Second)
+			rows := c.Render(70)
+			for len(rows) > 0 && strings.TrimSpace(widthx.StripAnsi(rows[0])) == "" {
+				rows = rows[1:]
+			}
+			out := widthx.StripAnsi(strings.Join(rows, "\n"))
+			if !strings.Contains(out, "unique-body") || !strings.Contains(out, richToolName(name)) {
+				t.Fatalf("framed card is missing its title or body: %s", out)
+			}
+			for _, row := range rows {
+				if got := widthx.VisibleWidth(row); got != 70 {
+					t.Fatalf("%s: row is %d cells: %q", name, got, row)
+				}
 			}
 		})
 	}
@@ -111,6 +139,45 @@ func TestRichToolWidths(t *testing.T) {
 			}
 			if width < richMinWidth && strings.Contains(strings.Join(rows, "\n"), "╭") {
 				t.Fatalf("frame in a %d-cell pane", width)
+			}
+		}
+	}
+}
+
+// TestRichFrameGeometry checks every row is exactly the card width and that the
+// background tint covers border cells, at several widths and content shapes.
+func TestRichFrameGeometry(t *testing.T) {
+	bodies := map[string][]string{
+		"plain":    {"short", "a longer body row that has to be truncated somewhere near the end of the line"},
+		"wide":     {"界界界 wide text", "code: if (x) { return 1; }"},
+		"styled":   {"\x1b[31mred\x1b[0m", "\x1b[1mbold\x1b[0m text"},
+		"empty":    {},
+		"trailing": {"line with trailing spaces   "},
+	}
+	for name, body := range bodies {
+		for _, width := range []int{richMinWidth, 11, 20, 40, 80, 121} {
+			c := NewToolExecutionComponent("bash", "call", json.RawMessage(`{"command":"x"}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
+			c.BodyRenderer = func(int, bool) []string { return body }
+			c.SetResult(strings.Join(body, "\n"), false, time.Second)
+			rows := c.Render(width)
+			bg := c.richBgOpen()
+			// Render opens with the card's spacer row, which is not part of the frame.
+			for len(rows) > 0 && strings.TrimSpace(widthx.StripAnsi(rows[0])) == "" {
+				rows = rows[1:]
+			}
+			if len(rows) == 0 {
+				t.Fatalf("%s width=%d: no frame rows", name, width)
+			}
+			for _, row := range rows {
+				if got := widthx.VisibleWidth(row); got != width {
+					t.Fatalf("%s width=%d: row is %d cells: %q", name, width, got, row)
+				}
+				if bg != "" && !strings.HasPrefix(row, bg) {
+					t.Fatalf("%s width=%d: row is not tinted: %q", name, width, row)
+				}
+				if bg != "" && !strings.Contains(row, SGRBgReset) {
+					t.Fatalf("%s width=%d: tint is not closed: %q", name, width, row)
+				}
 			}
 		}
 	}

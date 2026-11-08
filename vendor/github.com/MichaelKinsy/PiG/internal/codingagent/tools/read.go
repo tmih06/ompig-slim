@@ -231,6 +231,11 @@ func (t *ReadTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 	if err != nil {
 		return agent.AgentToolResult{}, err
 	}
+	// read.ts #execute: a directory lists its entries instead of failing like a
+	// file read would.
+	if result, isDir := t.readDirectory(path, p); isDir {
+		return result, nil
+	}
 	var data []byte
 	var mime string
 	if ops := t.Operations; ops != nil {

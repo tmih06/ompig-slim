@@ -837,6 +837,9 @@ func (c *ToolExecutionComponent) renderCard(width int) []string {
 // renderRichCard renders the tool-owned call rows as the frame's input section
 // and its result rows after the frame's Output divider.
 func (c *ToolExecutionComponent) renderRichCard(width int) []string {
+	if c.Rich && richInline(c.Name) {
+		return c.renderRichInline(width)
+	}
 	// outputBlockContentWidth: both borders plus the block's one-cell padding.
 	inner := richContentWidth(width)
 	var input Component
@@ -877,10 +880,47 @@ func (c *ToolExecutionComponent) renderRichCard(width int) []string {
 	return c.renderRichFrame(width, inputRows, outputStart)
 }
 
+// renderRichInline draws an inline card: a single status-line row with the
+// result disclosed under it, and no frame at all. OMP's read, write, edit,
+// grep, find and glob renderers are `inline: true`, so their collapsed row is
+// the status line alone — `✔ Read skills/optimize/SKILL.md:70-95`.
+func (c *ToolExecutionComponent) renderRichInline(width int) []string {
+	inner := max(1, width-c.outputPad*2)
+	var rows []string
+	var body Component
+	switch {
+	case c.definition != nil && !c.definition.Self:
+		body = c.definitionResultComponent
+	case c.definition == nil:
+		body = toolSection(c.renderLegacyOutput)
+	}
+	if body != nil {
+		rows = trimBlankEdges(body.Render(inner))
+	}
+	c.mouseChild, c.mouseWidth, c.mouseHeight = body, inner, len(rows)
+	status := widthx.TruncateToWidth(c.richStatusLine(inner, time.Now()), inner, "…", false)
+	pad := strings.Repeat(" ", c.outputPad)
+	// A body row is the disclosed content at the card's padding, padded out so
+	// a caller's frame or tint sees the full width, as OMP's Text does.
+	fill := func(line string) string {
+		line = widthx.TruncateToWidth(line, inner, "…", true)
+		return pad + line + strings.Repeat(" ", max(0, inner-widthx.VisibleWidth(line))) + pad
+	}
+	out := make([]string, 0, len(rows)+1)
+	out = append(out, fill(status))
+	for _, row := range rows {
+		out = append(out, fill(row))
+	}
+	return out
+}
+
 // renderLegacyInput draws the generic card's body: a shell command pane, then
 // its output. Every other tool's identity lives on the frame's status line, so
 // its body holds only the result, as OMP's inline renderers draw it.
 func (c *ToolExecutionComponent) renderLegacyInput(width int) []string {
+	if c.Rich && !richOutputSection(c.Name) {
+		return nil
+	}
 	if richOutputSection(c.Name) {
 		return wrapText(c.renderHeaderInner(width), width)
 	}

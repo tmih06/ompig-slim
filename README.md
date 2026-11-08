@@ -36,9 +36,10 @@ Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactiv
 - Multiple provider accounts with account selection, quota-aware routing, and credential migration.
 - Built-in `web_search` and persistent codemode tools. `read` fetches http(s)
   URLs as well as files, matching oh-my-pi, which has no separate fetch tool.
-- Tool cards rendered like oh-my-pi's: a rounded output block whose status line
-  names the tool, its target, and exit code or elapsed time, with per-tool body
-  previews, diffs, syntax highlighting, and Ctrl+O expansion.
+- Tool cards rendered like oh-my-pi's: stream tools draw a rounded output block,
+  file and search tools a single inline status row (`✔ Read path:70-95`), each
+  naming the tool, its target, and exit code or elapsed time, with diffs,
+  highlighting, and Ctrl+O expansion.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - Native Linux and macOS releases for x64 and arm64.
 
