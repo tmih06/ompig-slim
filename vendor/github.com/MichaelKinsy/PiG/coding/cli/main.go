@@ -1487,6 +1487,7 @@ func Main(args []string, options *MainOptions) {
 	}
 	interactiveRegistryAllowed, _ := toolRegistryFilters(flags)
 	iopts := codingagent.InteractiveModeOptions{
+		ModelScopeExplicit: flags.Models != nil,
 		ContextUsage: func() (*int, int) {
 			usage := rt.Session().ContextUsage()
 			if usage == nil {

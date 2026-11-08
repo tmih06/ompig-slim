@@ -28,3 +28,9 @@ The native Agent Hub ports the oh-my-pi Agent Hub overlay, projection, and
 renderer from can1357/oh-my-pi at commit
 f2b795ba747b23d42052184d822b41e3d01357cc (MIT).
 The upstream copyright and permission notice are reproduced in LICENSE.
+
+The native model manager, quick picker, role and preset configuration,
+retry/fallback recovery, compaction controls, and auto-thinking rubric
+translate can1357/oh-my-pi at commit
+2f833c564598b878ab7c5a752672e6c5b1f0ae60 (MIT). The upstream copyright and
+permission notice are reproduced in LICENSE.

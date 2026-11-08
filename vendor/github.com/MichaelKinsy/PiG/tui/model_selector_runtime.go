@@ -31,6 +31,8 @@ type ModelSelectorRuntime interface {
 
 // ScopedModelItem is one scoped model of a session (model-selector.ts ScopedModelItem).
 type ScopedModelItem struct {
+	// Role makes this a logical role selection rather than a bare scoped model.
+	Role          string
 	Model         *ai.Model
 	ThinkingLevel string
 }
@@ -94,6 +96,7 @@ func NewModelSelectorComponent(ui TUI, current *ai.Model, runtime ModelSelectorR
 			model = refreshed
 		}
 		item := modelSelectorItemOf(model)
+		item.Role = entry.Role
 		callbacks.models[item.FQ()] = model
 		scopedItems = append(scopedItems, item)
 	}

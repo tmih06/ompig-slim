@@ -18,6 +18,7 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // startupModelRuntime is the ModelRuntime surface startup model selection
@@ -164,6 +165,8 @@ type startupModelOptions struct {
 
 // startupModel keeps immediate scope warnings separate from deferred model warnings and errors. Selection and fallback continue after an explicit-model diagnostic so metadata can still use the runtime.
 type startupModel struct {
+	Upstream             string
+	Role                 string
 	Model                *ai.Model
 	Thinking             string
 	Warnings             []string
@@ -178,6 +181,7 @@ func selectStartupModel(ctx context.Context, options startupModelOptions, settin
 	modelRuntime := services.ModelRuntime()
 	rt := newLazyStartupModelRuntime(modelRuntime.RuntimeModels, modelRuntime.HasConfiguredAuth)
 	var result startupModel
+	result.Role, _ = modelroles.Role(options.CLIModel)
 	selected, err := selectSessionOptionModel(rt, modelRuntime, options, settings, &result)
 	if err != nil {
 		result.Errors = append(result.Errors, err)
@@ -214,6 +218,40 @@ func selectStartupModel(ctx context.Context, options startupModelOptions, settin
 			}
 		}
 	}
+	if selected == nil && settings.ModelRoles["default"] != "" {
+		resolved, roleErr := settings.Config.Resolve("@default", settings.DefaultProvider+"/"+settings.DefaultModel)
+		if roleErr != nil {
+			result.Errors = append(result.Errors, roleErr)
+		} else {
+			chains := map[string][]string{}
+			if settings.Retry != nil {
+				chains = settings.Retry.FallbackChains
+			}
+			selectors := append([]string{resolved}, chains["default"]...)
+			for _, selector := range selectors {
+				value, e := settings.Config.Resolve(selector, settings.DefaultProvider+"/"+settings.DefaultModel)
+				if e != nil {
+					continue
+				}
+				base, level := modelroles.Split(value)
+				parsed, ok := modelroles.ParseSelector(base, func(provider, id string) bool { return rt.getModel(provider, id) != nil })
+				provider, id := parsed.Provider, parsed.ID
+				if !ok {
+					continue
+				}
+				candidate := rt.getModel(provider, id)
+				if candidate != nil && rt.HasConfiguredAuth(provider) {
+					selected = candidate
+					result.Role = "default"
+					result.Upstream = parsed.Upstream
+					if level != "inherit" {
+						result.Thinking = level
+					}
+					break
+				}
+			}
+		}
+	}
 	if selected == nil {
 		selected, err = findInitialModel(rt, settings.DefaultProvider, settings.DefaultModel)
 		if err != nil {
@@ -228,6 +266,9 @@ func selectStartupModel(ctx context.Context, options startupModelOptions, settin
 		}
 	}
 	result.Model, err = buildModelFromRef(ctx, selected.Provider, selected.ID, services)
+	if err == nil && result.Model != nil && result.Upstream != "" {
+		result.Model, err = ai.WithModelUpstreamRoute(result.Model, result.Upstream)
+	}
 	// A virtual model is the runtime's shared catalog entry and carries its reasoning from its definition (virtual-models.ts:159-176 createVirtualModel), so startup does not rewrite it.
 	if err == nil && selected.Reasoning && result.Model != nil && !coding.IsVirtualModel(result.Model) {
 		result.Model.ProviderMeta.Reasoning = true
@@ -260,6 +301,24 @@ func selectSessionOptionModel(rt *startupModelRuntime, modelRuntime *coding.Mode
 		cliErr = fmt.Errorf("--provider requires --model (for example: --provider %s --model <pattern>)", options.CLIProvider)
 	}
 	if options.CLIModel != "" {
+		if _, isRole := modelroles.Role(options.CLIModel); isRole {
+			value, err := settings.Config.Resolve(options.CLIModel, settings.DefaultProvider+"/"+settings.DefaultModel)
+			if err != nil {
+				return nil, err
+			}
+			base, level := modelroles.Split(value)
+			options.CLIModel = base
+			if options.CLIThinking == "" && level != "inherit" {
+				options.CLIThinking = level
+			}
+		}
+		if parsed, ok := modelroles.ParseSelector(options.CLIModel, func(provider, id string) bool { return rt.getModel(provider, id) != nil }); ok && parsed.Upstream != "" {
+			options.CLIModel = parsed.Provider + "/" + parsed.ID
+			result.Upstream = parsed.Upstream
+			if options.CLIThinking == "" && parsed.Thinking != "" {
+				options.CLIThinking = parsed.Thinking
+			}
+		}
 		resolved := coding.ResolveCliModel(coding.ResolveCliModelOptions{CliProvider: options.CLIProvider, CliModel: options.CLIModel, CliThinking: ai.ThinkingLevel(options.CLIThinking), InlineApiKey: options.APIKey != "", ModelRuntime: modelRuntime})
 		if resolved.Warning != "" {
 			result.Warnings = append(result.Warnings, resolved.Warning)
@@ -269,6 +328,11 @@ func selectSessionOptionModel(rt *startupModelRuntime, modelRuntime *coding.Mode
 		}
 		if resolved.Model != nil {
 			result.Thinking = string(resolved.ThinkingLevel)
+			// A role's explicit :off must not disappear merely because the catalog
+			// model is non-reasoning; startup would otherwise reapply the global default.
+			if result.Role != "" && result.Thinking == "" {
+				result.Thinking = options.CLIThinking
+			}
 			return runtimeModelOf(resolved.Model), nil
 		}
 	}

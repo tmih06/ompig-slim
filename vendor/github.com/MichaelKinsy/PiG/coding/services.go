@@ -727,6 +727,13 @@ func (runtime *ModelRuntime) prepareRequest(ctx context.Context, model *ai.Model
 		}
 		registry := runtime.services.Registry()
 		if refreshed := runtime.GetModel(providerID, model.ID); refreshed != nil {
+			if route := ai.ModelUpstreamRoute(model); route != "" {
+				var err error
+				refreshed, err = ai.WithModelUpstreamRoute(refreshed, route)
+				if err != nil {
+					return nil, nil, ai.StreamOptions{}, err
+				}
+			}
 			requestModel = refreshed
 		}
 		auth, err := registry.ResolveRegistryModelAuth(ctx, requestModel, overrides)

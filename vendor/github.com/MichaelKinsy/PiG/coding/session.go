@@ -32,6 +32,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/imageprocessing"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/internal/subagents"
 )
 
@@ -191,10 +192,26 @@ type Session struct {
 
 	// retryAttempt counts committed automatic retries of the current retry
 	// sequence (agent-session.ts _retryAttempt).
-	retryAttempt  atomic.Int32
-	retryMu       sync.Mutex
-	retryCancel   *sessionRetryWait
-	retrySchedule func(func())
+	retryAttempt atomic.Int32
+	// activeModelRole survives fallback hops; atomic because cycling and prompt recovery have different owners.
+	activeModelRole atomic.Pointer[string]
+	// autoThinking retains the configured selector while the agent stores a concrete effort.
+	autoThinking atomic.Bool
+	// fallbackTried and fallbackChain are owned by the post-run recovery loop under mu.
+	fallbackTried map[string]bool
+	fallbackChain string
+	// retryFallbackMu protects cross-prompt suppression and original-primary state;
+	// no registry/auth/notification callback executes with this lock held.
+	retryFallbackMu      sync.Mutex
+	retryFallback        *sessionModelFallback
+	fallbackCooldowns    map[string]time.Time
+	fallbackNow          func() time.Time
+	usageFallbackService *icodingagent.UsageService
+	usageFallbackConfirm func(context.Context, string, string, float64) bool
+	usageReserveApproved string
+	retryMu              sync.Mutex
+	retryCancel          *sessionRetryWait
+	retrySchedule        func(func())
 
 	// assistantEnds carries, in message_end order, what the agent goroutine
 	// decided when each assistant message persisted, for forwardAgentEvents to
@@ -257,6 +274,8 @@ type SessionOptions struct {
 
 	// Model is the selected LLM model. Nil allows an existing Session to restore its saved selection.
 	Model *ai.Model
+	// ModelRole retains logical fallback ownership independently of the physical model.
+	ModelRole string
 
 	// ThinkingLevel overrides restored and configured preferences before model clamping. Empty uses the Session or settings preference.
 	ThinkingLevel ai.ModelThinkingLevel
@@ -502,6 +521,13 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 			thinkingLevel = perModel
 		}
 	}
+	if opts.ModelRole != "" {
+		if selector, err := svcs.SettingsManager().ResolveModelRole("@" + opts.ModelRole); err == nil {
+			if _, level := modelroles.Split(selector); level != "" && level != "inherit" {
+				thinkingLevel = level
+			}
+		}
+	}
 	if opts.ThinkingLevel != "" {
 		thinkingLevel = string(opts.ThinkingLevel)
 	}
@@ -510,6 +536,10 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 	}
 	if opts.ThinkingLevel != "" {
 		thinkingLevel = string(opts.ThinkingLevel)
+	}
+	initialAutoThinking := thinkingLevel == "auto"
+	if initialAutoThinking {
+		thinkingLevel = string(provisionalAutoLevel(opts.Model))
 	}
 	thinkingLevel = string(ai.ClampThinkingLevel(opts.Model, ai.ModelThinkingLevel(thinkingLevel)))
 
@@ -622,7 +652,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 		inner = opts.SessionManager
 		if len(inner.BuildContext(inner.GetLeafID())) == 0 {
 			if opts.Model != nil {
-				if _, err := inner.AppendModelChange(providerID(opts.Model), opts.Model.ID); err != nil {
+				if _, err := inner.AppendModelChangeWithRole(providerID(opts.Model), strings.TrimPrefix(ai.ModelSelector(opts.Model), providerID(opts.Model)+"/"), opts.ModelRole); err != nil {
 					return nil, err
 				}
 			}
@@ -683,7 +713,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 		// sdk.ts:449-459: a session with messages gets the missing thinking_level_change entry; one without gets its model and thinking level recorded like a new session.
 		if len(inner.BuildContext(inner.GetLeafID())) == 0 {
 			if opts.Model != nil {
-				if _, err := inner.AppendModelChange(providerID(opts.Model), opts.Model.ID); err != nil {
+				if _, err := inner.AppendModelChangeWithRole(providerID(opts.Model), strings.TrimPrefix(ai.ModelSelector(opts.Model), providerID(opts.Model)+"/"), opts.ModelRole); err != nil {
 					return nil, err
 				}
 			}
@@ -716,7 +746,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 			inner = created
 		}
 		if opts.Model != nil {
-			if _, err := inner.AppendModelChange(providerID(opts.Model), opts.Model.ID); err != nil {
+			if _, err := inner.AppendModelChangeWithRole(providerID(opts.Model), strings.TrimPrefix(ai.ModelSelector(opts.Model), providerID(opts.Model)+"/"), opts.ModelRole); err != nil {
 				return nil, fmt.Errorf("coding.NewSession: bootstrap model_change: %w", err)
 			}
 		}
@@ -763,8 +793,24 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 			transport:       opts.Transport,
 		},
 	}
+	if opts.ModelRole == "" {
+		opts.ModelRole = branchModelRole(inner.GetContextBranch(), opts.Model)
+	}
+	if opts.ModelRole != "" {
+		role := opts.ModelRole
+		sess.activeModelRole.Store(&role)
+	}
+	sess.autoThinking.Store(initialAutoThinking)
 	sess.resourceLoader.Store(resourceLoader)
 	sess.SetScopedModels(opts.ScopedModels)
+	if opts.ModelRole != "" && opts.Model != nil {
+		if configured, err := svcs.SettingsManager().ResolveModelRole("@" + opts.ModelRole); err == nil {
+			base, _ := modelroles.Split(configured)
+			if base != providerID(opts.Model)+"/"+opts.Model.ID {
+				sess.retryFallback = &sessionModelFallback{Primary: configured, OriginalThinking: agent.ThinkingLevel(), LastThinking: agent.ThinkingLevel(), Role: opts.ModelRole, Chain: opts.ModelRole, MissingCredential: true}
+			}
+		}
+	}
 	var initialToolNames []string
 	for _, tool := range allTools {
 		initialToolNames = append(initialToolNames, tool.Name())
@@ -1228,6 +1274,13 @@ func (s *Session) refreshCurrentModelFromRegistry() {
 	if refreshed == nil {
 		return
 	}
+	if route := ai.ModelUpstreamRoute(current); route != "" {
+		var err error
+		refreshed, err = ai.WithModelUpstreamRoute(refreshed, route)
+		if err != nil {
+			return
+		}
+	}
 	if s.modelRuntime.sameBoundModelMetadata(current, refreshed) {
 		return
 	}
@@ -1375,9 +1428,28 @@ func (s *Session) beginModelChangeState(ctx context.Context, m *ai.Model, source
 		return nil, fmt.Errorf("coding: SetModel: model is nil")
 	}
 	previous := s.Model()
+	if source != "fallback" {
+		s.retryFallbackMu.Lock()
+		s.retryFallback = nil
+		s.retryFallbackMu.Unlock()
+		role := ""
+		if len(options) > 0 {
+			role = options[0].Role
+		}
+		s.activeModelRole.Store(&role)
+	}
 	thinkingLevel := s.thinkingLevelForModelSwitch(m)
+	if len(options) > 0 && options[0].ThinkingLevel != "" {
+		thinkingLevel = options[0].ThinkingLevel
+	}
 	if explicit != nil {
 		thinkingLevel = *explicit
+	}
+	if thinkingLevel == "auto" {
+		s.autoThinking.Store(true)
+		thinkingLevel = provisionalAutoLevel(m)
+	} else if source != "fallback" {
+		s.autoThinking.Store(false)
 	}
 	s.modelChangeMu.Lock()
 	if s.agent != nil {
@@ -1386,8 +1458,9 @@ func (s *Session) beginModelChangeState(ctx context.Context, m *ai.Model, source
 	s.modelChangeMu.Unlock()
 	// The change is reported once the whole synchronous mutation, including the thinking level the model implies, has run, and on the error paths after the agent holds the model.
 	defer s.notifyReplicatedState()
+	_ = s.SettingsManager().RecordModelUsage(providerID(m) + "/" + m.ID)
 	if s.inner != nil {
-		if _, err := s.inner.AppendModelChange(providerID(m), m.ID); err != nil {
+		if _, err := s.inner.AppendModelChangeWithRole(providerID(m), strings.TrimPrefix(ai.ModelSelector(m), providerID(m)+"/"), s.ActiveModelRole()); err != nil {
 			return nil, fmt.Errorf("coding: SetModel: persist audit: %w", err)
 		}
 	}
@@ -1431,7 +1504,7 @@ func (s *Session) thinkingLevelForModelSwitch(target *ai.Model) ai.ModelThinking
 	if level := settings.GetDefaultThinkingLevel(); level != "" {
 		return ai.ModelThinkingLevel(level)
 	}
-	return s.agent.ThinkingLevel()
+	return s.ConfiguredThinkingLevel()
 }
 
 // Services returns the parent Services container.
@@ -1482,6 +1555,8 @@ func (s *Session) ReplaceInner(sess *icodingagent.Session) {
 	s.agent.SetSessionID(sess.ID())
 	s.refreshReplacementContext()
 	model, thinking := restoreSessionRuntimeState(sess, s.services, s.Model(), s.agent.ThinkingLevel(), true)
+	role := branchModelRole(sess.GetContextBranch(), model)
+	s.activeModelRole.Store(&role)
 	if model != nil {
 		s.agent.SetModel(model)
 		thinking = ai.ClampThinkingLevel(model, thinking)
@@ -2043,6 +2118,7 @@ func (s *Session) ThinkingLevel() ai.ModelThinkingLevel {
 // A change admits the thinking_level_select handlers' synchronous prefix before returning; Pi does not await them (agent-session.ts:2629).
 // Suspended handler work belongs to the Session lifetime.
 func (s *Session) SetThinkingLevel(level ai.ModelThinkingLevel, options ...ModelMutationOptions) error {
+	s.autoThinking.Store(level == "auto")
 	notify, err := s.setThinkingLevelState(level, options...)
 	if err != nil {
 		return err
@@ -2059,6 +2135,7 @@ func (s *Session) SetThinkingLevel(level ai.ModelThinkingLevel, options ...Model
 func (s *Session) SetThinkingLevelOnMain(level ai.ModelThinkingLevel, options ModelMutationOptions, dispatch func(func() error) error) error {
 	var notify func()
 	mutate := func() error {
+		s.autoThinking.Store(level == "auto")
 		var err error
 		notify, err = s.setThinkingLevelState(level, options)
 		return err
@@ -2078,6 +2155,10 @@ func (s *Session) SetThinkingLevelOnMain(level ai.ModelThinkingLevel, options Mo
 func (s *Session) setThinkingLevelState(level ai.ModelThinkingLevel, options ...ModelMutationOptions) (func(), error) {
 	model := s.Model()
 	effective := ai.ClampThinkingLevel(model, level)
+	if level == "auto" {
+		s.autoThinking.Store(true)
+		effective = provisionalAutoLevel(model)
+	}
 	previous := s.agent.ThinkingLevel()
 	s.agent.SetThinkingLevel(effective)
 	s.notifyReplicatedState()

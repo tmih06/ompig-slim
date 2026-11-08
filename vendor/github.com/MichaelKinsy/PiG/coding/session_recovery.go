@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/compaction"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // messageIdentity returns the pointer that identifies one in-memory message,
@@ -244,6 +246,9 @@ func (s *Session) runPostAgentRuns(ctx context.Context, messages []agent.AgentMe
 // runPostAgentRunsWith is runPostAgentRuns with the continuation supplied by
 // the caller, which decides whether the Session lock is held across it.
 func (s *Session) runPostAgentRunsWith(ctx context.Context, messages []agent.AgentMessage, runErr error, resume func(context.Context) ([]agent.AgentMessage, error)) ([]agent.AgentMessage, error) {
+	s.fallbackTried = map[string]bool{}
+	s.fallbackChain = ""
+	defer func() { s.fallbackTried = nil; s.fallbackChain = "" }()
 	for !s.agentRunAborted(ctx) {
 		continueRun, err := s.handlePostAgentRun(ctx)
 		if err != nil {
@@ -280,6 +285,14 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
 		return s.agent.HasQueuedMessages(), nil
 	}
 	if icodingagent.IsRetryableError(message, s.contextWindowFor(message)) {
+		cfg := s.SettingsManager().GetRetrySettings()
+		available := int(s.retryAttempt.Load()) < cfg.MaxRetries
+		if delay := fallbackRetryDelay(message.ErrorMessage); cfg.MaxDelayMs > 0 && delay > time.Duration(cfg.MaxDelayMs)*time.Millisecond {
+			available = false
+		}
+		if hopped, err := s.tryModelFallback(ctx, message, available); hopped || err != nil {
+			return hopped, err
+		}
 		retrying, err := s.prepareRetry(ctx, message)
 		if err != nil {
 			return false, err
@@ -297,6 +310,9 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if message.StopReason == ai.StopReasonError {
+		if hopped, err := s.tryModelFallback(ctx, message); hopped || err != nil {
+			return hopped, err
+		}
 		if attempt := s.retryAttempt.Swap(0); attempt > 0 {
 			s.emitEvent(agent.AutoRetryEndEvent{Success: false, Attempt: int(attempt), FinalError: message.ErrorMessage})
 		}
@@ -330,6 +346,16 @@ func (s *Session) prepareRetry(ctx context.Context, message *agent.AssistantMess
 			return nil, nil
 		}
 		delayMs := ai.RetryDelayMs(ai.RetryPolicy{BaseDelayMs: cfg.BaseDelayMs, MaxAgentDelayMs: &cfg.MaxAgentDelayMs}, attempt)
+		hint := fallbackRetryDelay(message.ErrorMessage)
+		if hint > 0 {
+			delayMs = max(delayMs, int(hint.Milliseconds()))
+		} else if text := strings.ToLower(message.ErrorMessage); strings.Contains(text, "concurrent") || strings.Contains(text, "rate limit") || strings.Contains(text, "rate_limit") {
+			delayMs = max(delayMs, int(fallbackReasonDelay(message.ErrorMessage).Milliseconds()))
+		}
+		if cfg.MaxDelayMs > 0 && delayMs > cfg.MaxDelayMs && !(cfg.WaitForUsageReset && isModelUsageLimit(message.ErrorMessage) && hint > 0) {
+			s.retryAttempt.Add(-1)
+			return nil, nil
+		}
 		errorMessage := message.ErrorMessage
 		if errorMessage == "" {
 			errorMessage = "Unknown error"
@@ -448,7 +474,16 @@ func (s *Session) compactionSettings() (compaction.CompactionSettings, error) {
 	if err != nil {
 		return compaction.CompactionSettings{}, err
 	}
+	point, percent, fixed, err := s.SettingsManager().ModelCompactionPolicy(s.Model())
+	if err != nil {
+		return compaction.CompactionSettings{}, err
+	}
+	trigger := 0
+	if model := s.Model(); model != nil && (point.Tokens > 0 || point.Percent > 0 || percent > 0 || fixed > 0) {
+		trigger = modelroles.CompactionTrigger(model.Capabilities.ContextWindow, cfg.ReserveTokens, percent, fixed, point)
+	}
 	return compaction.CompactionSettings{
+		TriggerTokens:    trigger,
 		Enabled:          cfg.Enabled,
 		ReserveTokens:    cfg.ReserveTokens,
 		KeepRecentTokens: cfg.KeepRecentTokens,

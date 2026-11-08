@@ -653,7 +653,7 @@ type InteractiveMode struct {
 
 	// Scoped model IDs for Ctrl+P cycling.
 	// nil = all models enabled (no filter).
-	// Populated from settings on startup; updated by /scoped-models.
+	// Populated from settings on startup; legacy saved scopes migrate into roles.
 	scopedModelIDs []string
 
 	// managedToolStatusStarted mirrors upstream managedToolStatusStarted:
@@ -1002,10 +1002,13 @@ func (m *InteractiveMode) routeReadEnd(ctx context.Context, readCh chan<- inputC
 
 // InteractiveModeOptions configures the interactive mode.
 type InteractiveModeOptions struct {
-	CWD      string
-	AgentDir string
-	Model    *ai.Model
-	Settings Settings
+	// ModelScopeExplicit distinguishes --models from a migrated saved scope; the
+	// former stays session-only and continues to restrict chat-model browsing.
+	ModelScopeExplicit bool
+	CWD                string
+	AgentDir           string
+	Model              *ai.Model
+	Settings           Settings
 	// InitialThemeSetting selects a theme for this run without changing the SettingsManager. A non-nil empty name is a selection that fails and falls back to dark. Explicit selections replace it; absent selections follow the current manager.
 	InitialThemeSetting *string
 	// TuiMode selects "regular" or "fullscreen" for this run without changing the SettingsManager. Empty captures Settings.TuiMode at construction; only a live mode switch changes it afterwards.

@@ -54,6 +54,11 @@ func (s *Session) beginModelCycle(ctx context.Context, direction string, deferTh
 	if direction != "" && direction != "forward" && direction != "backward" {
 		return nil, nil, fmt.Errorf("unknown model cycle direction %q", direction)
 	}
+	if order := s.SettingsManager().ModelRoleCycle(); order != nil {
+		if len(s.ScopedModels()) == 0 || s.SettingsManager().Get().CycleOrder != nil || len(s.SettingsManager().Get().ModelRoles) > 0 {
+			return s.beginRoleCycle(ctx, direction, deferThinking, order, options...)
+		}
+	}
 	available := s.modelRuntime.GetAvailableSnapshot()
 	scoped := s.ScopedModels()
 	isScoped := len(scoped) > 0
@@ -102,7 +107,10 @@ func (s *Session) CycleThinkingLevel(options ...ModelMutationOptions) (ai.ModelT
 		return "", nil
 	}
 	levels := s.AvailableThinkingLevels()
-	next := levels[(slices.Index(levels, s.ThinkingLevel())+1)%len(levels)]
+	if len(levels) > 1 {
+		levels = append([]ai.ModelThinkingLevel{ai.ThinkingOff, "auto"}, levels[1:]...)
+	}
+	next := levels[(slices.Index(levels, s.ConfiguredThinkingLevel())+1)%len(levels)]
 	if err := s.SetThinkingLevel(next, options...); err != nil {
 		return "", err
 	}

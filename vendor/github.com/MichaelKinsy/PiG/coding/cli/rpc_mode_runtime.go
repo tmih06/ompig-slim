@@ -49,6 +49,7 @@ func (b *cliRuntimeBuilder) rpcInputs(owner context.Context, build *cliBuild, st
 		ResourceLoader:    resources,
 		ScopedModels:      extensionScopedModels(build.Services, scopePatterns),
 		Model:             build.Model,
+		ModelRole:         build.Selected.Role,
 		ThinkingLevel:     ai.ModelThinkingLevel(flags.Thinking),
 		// The tool selection is the build's, the one print, JSON and interactive modes start their Sessions with (main.ts:822-830 passes the same tools, excludeTools and noTools to every mode).
 		AllowedTools:           build.Allowed,

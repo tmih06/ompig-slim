@@ -590,6 +590,34 @@ func (b *cliRuntimeBuilder) buildSession(ctx context.Context, build *cliBuild, i
 		Continuing:     in.Continuing,
 		APIKey:         flags.APIKey,
 	}, settings, services)
+	// Fold saved legacy scopes into roles before constructing any runtime mode.
+	// CLI --models remains a process-only filter and is never copied to settings.
+	saved := services.SettingsManager().Get()
+	if saved.CycleOrder == nil && len(saved.EnabledModels) > 0 {
+		models := []codingagent.RuntimeModel{}
+		for _, model := range services.ModelRuntime().GetAvailableSnapshot() {
+			models = append(models, *runtimeModelOf(model))
+		}
+		choices := codingagent.ResolveModelScopeFromModels(saved.EnabledModels, models).ScopedModels
+		if migrated, err := services.SettingsManager().ImportLegacyModelScope(choices); err != nil {
+			selected.Warnings = append(selected.Warnings, "Could not migrate model scope: "+err.Error())
+		} else if migrated {
+			updated := services.SettingsManager().Get()
+			settings.Config = updated.Config
+			if flags.Models == nil {
+				settings.EnabledModels = updated.EnabledModels
+			}
+			build.Settings = settings
+			if selected.Role == "" && flags.Model == "" && selected.Model != nil {
+				for _, role := range settings.Config.Order() {
+					if value := settings.ModelRoles[role]; value == selected.Model.ProviderID()+"/"+selected.Model.ID || strings.HasPrefix(value, selected.Model.ProviderID()+"/"+selected.Model.ID+":") {
+						selected.Role = role
+						break
+					}
+				}
+			}
+		}
+	}
 	build.Selected, build.ModelErr = selected, modelErr
 	build.Model = selected.Model
 	build.ModelFallbackMessage = selected.ModelFallbackMessage

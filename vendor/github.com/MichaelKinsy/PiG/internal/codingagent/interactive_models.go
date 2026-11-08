@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
@@ -35,87 +36,37 @@ func (m *InteractiveMode) scopedModelItems(items []tui.ModelSelectorItem) []tui.
 	return scoped
 }
 
-// modelSelectorRuntime is the ModelRuntime the model selector reads (model-selector.ts modelRuntime): the registry's models, its load error and its
-// catalog refresh. After a refresh the footer's provider information is updated on the owner loop.
-type modelSelectorRuntime struct {
-	m        *InteractiveMode
-	registry *ModelRegistry
-}
-
-func (r modelSelectorRuntime) GetAvailableSnapshot() []*ai.Model {
-	return r.registry.GetAvailableModelData()
-}
-
-func (r modelSelectorRuntime) GetModel(provider, id string) *ai.Model {
-	return r.registry.modelData(provider, id)
-}
-
-func (r modelSelectorRuntime) GetError() string { return r.registry.LoadError() }
-
-// Refresh is ModelRuntime.refresh as the selector reaches it: the interactive mode's shared all-catalog refresh. A refresh that the context
-// ended is an aborted result (model-catalog-refresh.ts raceWithAbortSignal), and a settled one republishes the provider info on the main loop.
-func (r modelSelectorRuntime) Refresh(ctx context.Context, _ ...ai.ModelsRefreshOptions) ai.ModelsRefreshResult {
-	result, err := RefreshModelCatalogs(ctx, r.registry)
-	if err != nil {
-		return ai.ModelsRefreshResult{Aborted: true}
-	}
-	r.m.runOnMain(ctx, r.m.updateProviderInfo)
-	return ai.ModelsRefreshResult{Aborted: result.Aborted, Errors: result.Errors, ErrorOrder: result.failedProviders()}
-}
-
-// pickModel shows the model selector until the user decides. An accepted selection stays shown and focused until the caller calls done, as Pi's showModelSelector closes the selector only once setModel settles (interactive-mode.ts:5313-5320). Meanwhile its cancel closes it, and another selection is applied after the pending one, as Pi's selectModel starts another setModel.
-func (m *InteractiveMode) pickModel(ctx context.Context, initialQuery string) (spec string, accepted, persist bool, done func()) {
-	runtime := modelSelectorRuntime{m: m, registry: m.modelRegistryOrDefault()}
-	var defaultModel *tui.DefaultModelReference
-	if sm := m.opts.SettingsManager; sm != nil && sm.GetDefaultProvider() != "" && sm.GetDefaultModel() != "" {
-		defaultModel = &tui.DefaultModelReference{Provider: sm.GetDefaultProvider(), ID: sm.GetDefaultModel()}
-	}
-	var scoped []tui.ScopedModelItem
-	for _, item := range m.scopedModelItems(m.availableModelItems()) {
-		if model := runtime.GetModel(item.Provider, item.ID); model != nil {
-			scoped = append(scoped, tui.ScopedModelItem{Model: model})
-		}
-	}
-	pending := false
-	var selector *tui.ModelSelectorComponent
-	selectAgain := func(persist bool) {
-		if pending {
-			m.reselectModel(ctx, selector.SelectedFQ(), persist, done)
-		}
-	}
-	selector = tui.NewModelSelectorComponent(m.tuiInst, m.opts.Model, runtime, scoped,
-		func(*ai.Model) { selectAgain(false) }, func() { done() }, initialQuery,
-		func(*ai.Model) { selectAgain(true) }, defaultModel)
-	done = m.showModelSelector(selector)
-	spec, accepted = m.runModelSelectorInput(ctx, selector)
-	if !accepted {
-		done()
-		return "", false, false, nil
-	}
-	pending = true
-	return spec, true, selector.SelectedAsDefault(), done
-}
-
-// reselectModel applies a selection made while an earlier one awaits model_select: Pi's selectModel starts another setModel at once, then closes the selector and reports the outcome (interactive-mode.ts:5313-5325).
-func (m *InteractiveMode) reselectModel(ctx context.Context, spec string, persist bool, done func()) {
-	m.switchModel(ctx, spec, persist, func(err error) {
-		done()
-		if err != nil {
-			m.showError(err.Error())
-			return
-		}
-		showModelSelectionStatus(&SlashContext{ShowStatus: m.showStatus, modelSelectionPersist: persist}, spec)
-	})
-}
-
 // switchModel applies the model spec names and calls finish with the result on the owner loop once the change settles; it does not wait for that. With a Session, Pi's setModel checks auth, applies the model synchronously and then awaits model_select (agent-session.ts:2430-2449): SetModelOnMain checks auth and awaits the handlers off the loop and dispatches the state change to the loop, where the mode shows the model at once unless the Session was replaced meanwhile.
 // The Session emits model_select once, for a changed selection (agent-session.ts:2372-2384, 2411).
 // With a Session, SetModel persists the default and extends a nonempty scope itself, before model_select (agent-session.ts:setModel; interactive-mode.ts:5314).
 func (m *InteractiveMode) switchModel(ctx context.Context, spec string, persist bool, finish func(error)) {
+	m.switchModelForRole(ctx, spec, "", persist, finish)
+}
+
+// switchModelForRole lets a scoped assignment preserve its logical role while
+// switching to the chosen layer's model, even when another layer shadows it.
+func (m *InteractiveMode) switchModelForRole(ctx context.Context, spec, roleOverride string, persist bool, finish func(error)) {
 	m.invalidatePostLoginSelection()
 	if m.opts.ModelBuilder == nil {
 		finish(fmt.Errorf("model switching is not configured (no ModelBuilder)"))
 		return
+	}
+	role, _ := modelroles.Role(spec)
+	if roleOverride != "" {
+		role = roleOverride
+	}
+	var effort ai.ModelThinkingLevel
+	if sm := m.opts.SettingsManager; sm != nil {
+		resolved, err := sm.ResolveModelRole(spec)
+		if err != nil {
+			finish(err)
+			return
+		}
+		base, level := modelroles.Split(resolved)
+		spec = base
+		if level != "inherit" {
+			effort = ai.ModelThinkingLevel(level)
+		}
 	}
 	newModel, err := m.opts.ModelBuilder(spec)
 	if err != nil {
@@ -158,7 +109,7 @@ func (m *InteractiveMode) switchModel(ctx context.Context, spec string, persist 
 	}
 	notify := m.modelNotificationContext(ctx)
 	m.awaitModelChange(ctx, func() error {
-		return handle.SetModelOnMain(notify, newModel, ModelMutationOptions{Persist: persist}, dispatch)
+		return handle.SetModelOnMain(notify, newModel, ModelMutationOptions{Persist: persist, Role: role, ThinkingLevel: effort}, dispatch)
 	}, func(err error) {
 		if err == nil {
 			// A handler may have changed the thinking level.
@@ -315,6 +266,9 @@ func (m *InteractiveMode) finishCycleModel(result *ModelCycleResult) {
 func modelSpec(model *ai.Model) string {
 	if model == nil {
 		return ""
+	}
+	if route := ai.ModelUpstreamRoute(model); route != "" {
+		return ai.ModelSelector(model)
 	}
 	providerID := model.ProviderMeta.ProviderID
 	if providerID == "" && model.Provider != nil {

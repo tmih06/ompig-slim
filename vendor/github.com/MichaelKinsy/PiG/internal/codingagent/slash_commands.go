@@ -313,8 +313,10 @@ type SlashContext struct {
 	PickModel             func(initialQuery string) (spec string, ok bool)
 	ResolveModel          func(input string) (spec string, ok bool)
 
-	// /scoped-models selector.
-	ShowScopedModels func() // opens editor-slot scoped-models list
+	// ShowModelHub manages role assignments, fallback chains, and quick-cycle order.
+	ShowModelHub func()
+	// ApplyModelPreset is asynchronous because a switch awaits auth/model_select.
+	ApplyModelPreset func(name string, finish func(string, error))
 
 	// Settings UI.
 	// SettingsManager provides read/write access to global settings.
@@ -681,10 +683,11 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			return sc.Subagents(args)
 		}},
 		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
-		{Name: "model", Description: "Select model (opens selector UI)", ArgumentHint: "<provider/model>", TakesArguments: true, Handler: modelHandler},
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
 		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
-		{Name: "scoped-models", Description: "Enable/disable models for Ctrl+P cycling", Handler: scopedModelsHandler},
+		{Name: "switch", Description: "Switch session model or quick role", TakesArguments: true, Handler: modelHandler},
+		{Name: "modelpreset", Description: "Save, switch, list, or delete named model setups", TakesArguments: true, ArgumentHint: "[list|save|switch|delete] [name]", Handler: modelPresetHandler},
+		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
 		{Name: "export", Description: "Export session (HTML default, or specify path: .html/.jsonl)", TakesArguments: true, Handler: exportHandler},
 		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
 		// pig divergence (D64): PiG shares through its own expiring gateway, not a GitHub gist.
@@ -924,6 +927,10 @@ func modelHandler(sc *SlashContext) error {
 		return nil
 	}
 	spec := sc.Args
+	if strings.HasPrefix(spec, "@") || spec == "*" || strings.HasPrefix(spec, "pi/") || strings.Contains(spec, "/") && strings.Contains(spec, "@") {
+		switchModelThen(sc, spec)
+		return nil
+	}
 	if sc.ResolveModel != nil {
 		resolved, ok := sc.ResolveModel(sc.Args)
 		switch {
@@ -972,19 +979,6 @@ func showModelSelectionStatus(sc *SlashContext, spec string) {
 		bareID = spec
 	}
 	sc.ShowStatus("Model: " + bareID)
-}
-
-// scopedModelsHandler implements /scoped-models: enable/disable models
-// for Ctrl+P cycling. Mirrors upstream interactive-mode.ts:3925
-// (showModelsSelector). Opens a multi-select toggle list via the
-// editor-slot pattern.
-func scopedModelsHandler(sc *SlashContext) error {
-	if sc.ShowScopedModels == nil {
-		sc.Append("Scoped models selector not available in this context.")
-		return nil
-	}
-	sc.ShowScopedModels()
-	return nil
 }
 
 // loginHandler configures provider authentication, using an optional provider ID or display name.

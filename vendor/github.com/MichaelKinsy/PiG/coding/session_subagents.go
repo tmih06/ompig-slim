@@ -14,6 +14,7 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/internal/packagemanager"
 	"github.com/MichaelKinsy/PiG/internal/subagents"
 )
@@ -153,6 +154,18 @@ func (s *Session) syncSubagentTools() error {
 func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) (subagents.Child, error) {
 	model := s.Model()
 	spec := inv.Params.Model
+	if (spec == "" || spec == "default") && s.SettingsManager().Get().ModelRoles["task"] != "" {
+		spec = "@task"
+	}
+	role, _ := modelroles.Role(spec)
+	effort := ""
+	if role != "" {
+		resolved, err := s.SettingsManager().ResolveModelRole(spec)
+		if err != nil {
+			return nil, err
+		}
+		spec, effort = modelroles.Split(resolved)
+	}
 	if spec != "" && spec != "default" {
 		var err error
 		model, err = subagents.ResolveModel(spec, s.AvailableModelSnapshot())
@@ -266,6 +279,10 @@ func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) 
 		}
 	}
 	childOpts := SessionOptions{Model: model, ThinkingLevel: ai.ModelThinkingLevel(inv.Params.Thinking), ResourceLoader: NoResources, SystemPrompt: prompt, Tools: toolList, AllowedTools: allowed, ExcludedTools: excluded, InitialActiveToolNames: initial, SessionDir: dir, subagentChild: true}
+	childOpts.ModelRole = role
+	if childOpts.ThinkingLevel == "" && effort != "auto" {
+		childOpts.ThinkingLevel = ai.ModelThinkingLevel(effort)
+	}
 	if childOpts.ThinkingLevel == "" {
 		childOpts.ThinkingLevel = s.ThinkingLevel()
 	}

@@ -154,7 +154,7 @@ type Args struct {
 // validThinkingLevels matches upstream VALID_THINKING_LEVELS (args.ts:49).
 var validThinkingLevels = map[string]bool{
 	"off": true, "minimal": true, "low": true,
-	"medium": true, "high": true, "xhigh": true, "max": true,
+	"medium": true, "high": true, "xhigh": true, "max": true, "auto": true,
 }
 
 // parseArgs parses os.Args[1:] into Args.

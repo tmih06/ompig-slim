@@ -1,0 +1,253 @@
+package codingagent
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/MichaelKinsy/PiG/ai"
+	"maps"
+	"strings"
+
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
+	"github.com/MichaelKinsy/PiG/tui"
+)
+
+// modelHubHandler opens /model management, separate from /switch's session picker.
+func modelHubHandler(sc *SlashContext) error {
+	if sc.ShowModelHub == nil {
+		sc.Append("Model management is unavailable in this context.")
+		return nil
+	}
+	sc.ShowModelHub()
+	return nil
+}
+
+// showModelHub owns the overlay and modal input until closure. The ordinary UI
+// task queue keeps running through readModalInputFor, so cancellation and catalog
+// notifications cannot deadlock the owner loop. Assignments never switch a busy model.
+func (m *InteractiveMode) showModelHub() {
+	previousMode := "regular"
+	if m.altScreen != nil {
+		previousMode = "fullscreen"
+	}
+	if previousMode == "regular" {
+		if !m.switchTuiMode("fullscreen", true, true) {
+			m.showWarning("Close active overlays before opening Models.")
+			return
+		}
+		defer m.switchTuiMode(previousMode, true, true)
+	}
+	sm := m.opts.SettingsManager
+	if sm == nil {
+		m.showError("Model settings unavailable")
+		return
+	}
+	// Import the old saved scope once, preserving resolved order and thinking. CLI-only
+	// scopes are not persisted; subsequent role edits use the unified manager.
+	settings := sm.Get()
+	if settings.CycleOrder == nil && len(settings.EnabledModels) > 0 {
+		var models []RuntimeModel
+		for _, item := range m.availableModelItems() {
+			models = append(models, RuntimeModel{Provider: item.Provider, ID: item.ID, Name: item.Name})
+		}
+		items := ResolveModelScopeFromModels(settings.EnabledModels, models).ScopedModels
+		migrated, err := sm.ImportLegacyModelScope(items)
+		if err != nil {
+			m.showError(err.Error())
+			return
+		}
+		if migrated && !m.opts.ModelScopeExplicit && m.opts.SessionHandle != nil {
+			m.opts.SessionHandle.SetScopedModels(nil)
+			m.initScopedModels()
+		}
+	}
+	life, cancel := context.WithCancel(m.runCtx)
+	defer cancel()
+	registry := m.modelRegistryOrDefault()
+	allItems := func() []tui.ModelSelectorItem {
+		var items []tui.ModelSelectorItem
+		for _, model := range registry.GetAllProviderModelData() {
+			items = append(items, hubCatalogItem(model))
+		}
+		return items
+	}
+	availableItems := func() []tui.ModelSelectorItem {
+		items := m.availableModelItems()
+		seen := map[string]bool{}
+		for _, item := range items {
+			seen[item.FQ()] = true
+		}
+		for _, item := range allItems() {
+			if ModelKind := tui.ModelItemKind(item); ModelKind != "chat" && !seen[item.FQ()] && registry.HasConfiguredAuth(item.Provider) {
+				items = append(items, item)
+			}
+		}
+		return m.scopeBrowserModels(items)
+	}
+	refreshes := newHubRefreshQueue(m, life, registry, availableItems, allItems)
+	var hub *tui.ModelHub
+	hub = tui.NewModelHub(tui.ModelHubConfig{
+		Models: availableItems(), AllModels: allItems(), Scoped: m.opts.SessionHandle != nil && len(m.opts.SessionHandle.ScopedModels()) > 0, Current: modelSpec(m.opts.Model), Height: func() int { return m.tuiInst.Height() },
+		ScopedConfig: func(scope string) modelroles.Config {
+			if scope == "project" {
+				return sm.GetProjectSettings().Config
+			}
+			return sm.GetGlobalSettings().Config
+		},
+		DefaultThinking: func() string { return string(sm.GetDefaultThinkingLevel()) },
+		SavePreset:      sm.SaveModelPreset,
+		SwitchPreset: func(name string, finish func(error)) {
+			m.applyModelPreset(life, name, func(message string, err error) {
+				if message != "" {
+					m.showStatus(message)
+				}
+				finish(err)
+				m.tuiInst.RequestRender()
+			})
+		},
+		AssignAsync: func(role, selector, scope string, finish func(error)) {
+			if role != "default" {
+				finish(sm.SetModelRole(role, selector, scope))
+				return
+			}
+			if m.runStreaming() {
+				finish(fmt.Errorf("wait for the current response before changing the default model"))
+				return
+			}
+			global, project := sm.GetGlobalSettings().Config, sm.GetProjectSettings().Config
+			layer := &global
+			if scope == "project" {
+				layer = &project
+			}
+			layer.ModelRoles = maps.Clone(layer.ModelRoles)
+			if layer.ModelRoles == nil {
+				layer.ModelRoles = map[string]string{}
+			}
+			if selector == "" {
+				delete(layer.ModelRoles, role)
+			} else {
+				layer.ModelRoles[role] = selector
+			}
+			prospective := global.Merge(project)
+			// Explicit assignment switches to the chosen layer even if another layer
+			// shadows its persisted role. Clear switches only when it exposes a role.
+			value := selector
+			if value == "" {
+				value = prospective.ModelRoles[role]
+				if value == "" {
+					finish(sm.SetModelRole(role, "", scope))
+					return
+				}
+			}
+			pool := []modelroles.Candidate{}
+			for _, item := range availableItems() {
+				pool = append(pool, modelroles.Candidate{Provider: item.Provider, ID: item.ID, Kind: tui.ModelItemKind(item)})
+			}
+			resolved, err := prospective.ResolveAvailable(value, "", pool)
+			if err != nil {
+				finish(err)
+				return
+			}
+			if m.opts.ModelBuilder == nil {
+				finish(fmt.Errorf("model switching unavailable"))
+				return
+			}
+			base, _ := modelroles.Split(resolved)
+			model, err := m.opts.ModelBuilder(base)
+			if err != nil {
+				finish(err)
+				return
+			}
+			handle := m.opts.SessionHandle
+			m.backgroundTasks.Go(func() {
+				release := sm.AcquireModelRoleMutation()
+				if life.Err() != nil {
+					release()
+					return
+				}
+				stop := context.AfterFunc(life, release)
+				settle := func(err error) { stop(); release(); finish(err) }
+				var authErr error
+				if checker, ok := handle.(interface{ CheckModelAuth(*ai.Model) error }); ok {
+					authErr = checker.CheckModelAuth(model)
+				}
+				m.runOnMain(life, func() {
+					if authErr != nil {
+						settle(authErr)
+						return
+					}
+					if m.opts.SessionHandle != handle {
+						settle(fmt.Errorf("session changed during model assignment"))
+						return
+					}
+					if err := sm.SetModelRole(role, selector, scope); err != nil {
+						settle(err)
+						return
+					}
+					m.switchModelForRole(life, resolved, "default", scope == "global" && selector != "", settle)
+				})
+			})
+		},
+		Login: func(provider string) {
+			sc := m.buildSlashContext(life)
+			sc.Args = provider
+			if err := handleLoginCommand(sc); err != nil {
+				m.showError(err.Error())
+			}
+			refreshes.request(provider, true, func(models, all []tui.ModelSelectorItem, err error) { hub.UpdateCatalog(models, all, err) })
+		},
+		Refresh:      refreshes.request,
+		ScopeChanged: refreshes.cancelScheduledExcept,
+		Compaction: func(selector, input string, confirmed bool) (string, bool, error) {
+			provider, id, _ := strings.Cut(selector, "/")
+			model := registry.GetProviderModelDataByID(provider, id)
+			if model == nil {
+				return "", false, fmt.Errorf("model unavailable: %s", selector)
+			}
+			return sm.SetModelCompactionPoint(model, input, confirmed)
+		},
+		CompactionPreview: func(selector, input string) string {
+			provider, id, _ := strings.Cut(selector, "/")
+			model := registry.GetProviderModelDataByID(provider, id)
+			if model == nil {
+				return ""
+			}
+			return sm.PreviewModelCompactionPoint(model, input)
+		},
+		Snapshot: func() (modelroles.Config, map[string][]string) {
+			s := sm.Get()
+			var chains map[string][]string
+			if s.Retry != nil {
+				chains = modelroles.CloneChains(s.Retry.FallbackChains)
+			}
+			return s.Config, chains
+		},
+		Resolve: func(selector string) (string, error) {
+			pool := []modelroles.Candidate{}
+			for _, item := range availableItems() {
+				pool = append(pool, modelroles.Candidate{Provider: item.Provider, ID: item.ID, Kind: tui.ModelItemKind(item)})
+			}
+			return sm.ResolveModelRole(selector, pool)
+		}, Assign: sm.SetModelRole, Fallback: sm.SetFallbackChain, Cycle: sm.SetRoleCycleOrder,
+	})
+	h := m.tuiInst.ShowOverlay(hub, tui.ModelHubOverlayOptions())
+	defer h.Close()
+	defer hub.Dispose()
+	hub.StartRefresh()
+	input, release := m.acquireModalInputChannel()
+	defer release()
+	m.tuiInst.Render()
+	for !hub.Done() {
+		data, ok := m.readModalInputFor(hub, input)
+		if !ok {
+			return
+		}
+		for _, chunk := range m.modalInputChunks(hub, []string{string(data)}) {
+			hub.HandleInput(chunk)
+			if hub.Done() {
+				break
+			}
+		}
+		m.tuiInst.Render()
+	}
+}

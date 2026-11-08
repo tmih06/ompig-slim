@@ -103,8 +103,16 @@ func GetBranchSelection(branch []icodingagent.SessionEntry, getModel func(provid
 			response := &ModelSelection{Provider: message.Message.Assistant.Provider, ModelID: message.Message.Assistant.ModelID}
 			if change := findLastModelChange(branch, i); change != nil {
 				if !change.Unresolvable {
-					if model := getModel(change.Provider, change.ModelID); model != nil && IsVirtualModel(model) {
-						return change
+					if model := getModel(change.Provider, change.ModelID); model != nil {
+						if IsVirtualModel(model) {
+							return change
+						}
+					} else if at := strings.LastIndex(change.ModelID, "@"); at > 0 {
+						if model := getModel(change.Provider, change.ModelID[:at]); model != nil {
+							if _, err := ai.WithModelUpstreamRoute(model, change.ModelID[at+1:]); err == nil {
+								return change
+							}
+						}
 					}
 				}
 			}

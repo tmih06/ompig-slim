@@ -718,10 +718,9 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		// Settings UI.
 		SettingsManager: m.opts.SettingsManager,
 
-		// /scoped-models selector.
-		ShowScopedModels: func() {
-			m.showScopedModels()
-		},
+		// /model opens persistent model management; /switch stays session-only.
+		ShowModelHub:     func() { m.showModelHub() },
+		ApplyModelPreset: func(name string, finish func(string, error)) { m.applyModelPreset(ctx, name, finish) },
 
 		// /reload: reload settings, templates, context files, and
 		// re-fire session_start for extensions.

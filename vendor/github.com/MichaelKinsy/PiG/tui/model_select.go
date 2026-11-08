@@ -27,6 +27,11 @@ const (
 
 // ModelSelectorItem is one row in the picker.
 type ModelSelectorItem struct {
+	// Kind is the OMP catalog kind; empty means chat. Non-chat rows carry
+	// descriptor-only metadata in Model and are never sent through chat APIs.
+	Kind string
+	// Role preserves logical identity in the quick picker; empty is a direct catalog selection.
+	Role     string
 	Provider string
 	ID       string // bare model id (e.g. "gpt-4o")
 	// Name is the raw model display name (upstream model.name), empty when
@@ -40,7 +45,12 @@ type ModelSelectorItem struct {
 }
 
 // FQ returns the "<provider>/<id>" form used for switch dispatch.
-func (m ModelSelectorItem) FQ() string { return m.Provider + "/" + m.ID }
+func (m ModelSelectorItem) FQ() string {
+	if m.Role != "" {
+		return "@" + m.Role
+	}
+	return m.Provider + "/" + m.ID
+}
 
 // ModelSelectorComponent renders a fuzzy-filtered list of models with a
 // scope-toggle header.
@@ -323,6 +333,9 @@ func (m *ModelSelectorComponent) updateList() {
 			nameText = fg(th.Muted, " ("+name+")")
 		}
 		providerBadge := fg(th.Muted, "["+SanitizeModelText(item.Provider)+"]")
+		if item.Role != "" {
+			modelText = fg(th.Accent, "["+strings.ToUpper(SanitizeModelText(item.Role))+"] ") + modelText
+		}
 		rows = append(rows, ModelMetricRow{Left: cursor + currentMarker + modelText + nameText + " " + providerBadge + defaultBadge, Model: item.Model})
 	}
 	if len(rows) > 0 {
@@ -467,7 +480,7 @@ func (m *ModelSelectorComponent) applyFilter() {
 		if m.isDefaultModel(item) {
 			defaultText = " default"
 		}
-		return GetModelSelectorSearchText(ModelSearchItem{ID: item.ID, Provider: item.Provider, Name: item.Name}) + defaultText
+		return GetModelSelectorSearchText(ModelSearchItem{ID: item.ID, Provider: item.Provider, Name: item.Name}) + " " + item.Role + defaultText
 	})
 	if isDefaultSearch(query) {
 		// Upstream lists the default model first for a "default" prefix query.

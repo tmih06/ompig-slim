@@ -17,6 +17,7 @@ check test race vet:
 	GO="$(GO)" bash scripts/check-go.sh $@
 
 smoke: build
+	python3 scripts/smoke-test-model-menu.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-web-tools-binary.py ./bin/ompig-slim

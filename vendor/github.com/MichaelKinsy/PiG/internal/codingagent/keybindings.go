@@ -71,7 +71,7 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.thinking.save", description: "Save thinking level", keys: []KeyID{"ctrl+s"}},
 	{id: "app.model.cycleForward", description: "Cycle to next model", keys: []KeyID{"ctrl+p"}},
 	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"shift+ctrl+p"}, Windows: []KeyID{"alt+p"}}},
-	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"ctrl+l"}},
+	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"alt+p", "ctrl+l"}},
 	{id: "app.usage.toggleView", description: "Switch usage overview and detailed report", keys: []KeyID{"tab", "enter"}},
 	{id: "app.usage.refresh", description: "Refresh provider usage quotas", keys: []KeyID{"r"}},
 	{id: "app.tools.expand", description: "Toggle tool output", keys: []KeyID{"ctrl+o"}},

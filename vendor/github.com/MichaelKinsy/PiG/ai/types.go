@@ -1130,6 +1130,9 @@ const (
 
 // Model pairs an identifier with a provider and capabilities.
 type Model struct {
+	// selectedUpstream is an explicit selector suffix, not a catalog routing default.
+	// Keep it on clones so literal @ IDs and preconfigured provider.only stay distinct.
+	selectedUpstream string
 	// Type is optional: chat is the default model type, so models without it are chat models.
 	Type             ModelType
 	ID               string

@@ -10,7 +10,11 @@ import (
 
 // ModelMutationOptions controls whether a Session mutation also saves a global default.
 type ModelMutationOptions struct {
-	Persist bool
+	// Role pins fallback-chain ownership across automatic hops; empty means a direct model selection.
+	Role string
+	// ThinkingLevel, when nonempty, overrides the model's saved effort for this selection.
+	ThinkingLevel ai.ModelThinkingLevel
+	Persist       bool
 }
 
 // CompactionResult is the result of manual compaction (agent-session.ts compact()). The public coding package names it coding.CompactionResult.

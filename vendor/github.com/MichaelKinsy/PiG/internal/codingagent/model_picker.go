@@ -21,6 +21,28 @@ func (m *InteractiveMode) availableModelItems() []tui.ModelSelectorItem {
 	return items
 }
 
+// scopeBrowserModels restricts chat rows to the Session's explicit scope. Typed
+// runners remain available because OMP's --models scope applies only to chat.
+func (m *InteractiveMode) scopeBrowserModels(items []tui.ModelSelectorItem) []tui.ModelSelectorItem {
+	handle := m.opts.SessionHandle
+	if handle == nil || len(handle.ScopedModels()) == 0 {
+		return items
+	}
+	scoped := map[string]bool{}
+	for _, entry := range handle.ScopedModels() {
+		if entry.Model != nil {
+			scoped[modelSpec(entry.Model)] = true
+		}
+	}
+	out := make([]tui.ModelSelectorItem, 0, len(items))
+	for _, item := range items {
+		if tui.ModelItemKind(item) != "chat" || scoped[item.FQ()] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 // modelRegistryOrDefault is the mode's model registry, or the fallback registry over the agent
 // directory's credentials when the mode has none. The fallback is built once per mode and released
 // by Stop, so repeated picker passes do not open a new database handle each time. An external
