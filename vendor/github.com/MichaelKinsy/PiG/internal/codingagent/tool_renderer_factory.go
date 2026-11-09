@@ -73,7 +73,7 @@ func NewToolRendererCard(ctx context.Context, name, toolCallId, cwd string, args
 			ShowImages: input.ShowImages, IsError: input.IsError, OutputPad: input.OutputPad, DurationMs: input.DurationMs,
 		}
 	}
-	definition := &tui.ToolDefinitionRenderers{Self: renderers.RenderShell == extension.ToolRenderShellSelf, CallReadsFields: readsCallFields(renderers.RenderCall)}
+	definition := &tui.ToolDefinitionRenderers{Self: renderers.RenderShell == extension.ToolRenderShellSelf, Unframed: renderers.RenderShell == extension.ToolRenderShellUnframed, CallReadsFields: readsCallFields(renderers.RenderCall)}
 	if renderers.RenderCall != nil {
 		var last extension.Component
 		definition.Call = func(input tui.ToolRenderInput) (tui.Component, bool) {
