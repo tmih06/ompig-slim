@@ -279,7 +279,6 @@ type ModelReference struct {
 type CycleModelResult struct {
 	Model         ModelReference `json:"model"`
 	ThinkingLevel ThinkingLevel  `json:"thinkingLevel"`
-	IsScoped      bool           `json:"isScoped"`
 }
 
 // CycleThinkingLevelResult mirrors upstream cycleThinkingLevel's non-null

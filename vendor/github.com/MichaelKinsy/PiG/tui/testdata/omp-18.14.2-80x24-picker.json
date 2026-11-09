@@ -1,0 +1,16 @@
+[
+  "╭─ Switch Model ───────────────────────────────────────────────────────────────╮",
+  "│  Session-only switch — role models stay unchanged                            │",
+  "│  🔍 >                                                                        │",
+  "│                                                                              │",
+  "│ ❯ fixture/alpha ●                                           128k ◫  $2.5/10  │",
+  "│   fixture/beta                                               64k ◫     free  │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│                                                                              │",
+  "│   Alpha · 128k ctx · 16k out · $2.5/10 per M · vision                        │",
+  "│   ● current · ● default ◒ · ○ smol · ○ slow · ○ tiny · ○ memory · ○ widget … │",
+  "│ ↑/↓ models · ⏎ use for this session · type to search · @ quick roles · ⎋ cl… │",
+  "╰──────────────────────────────────────────────────────────────────────────────╯"
+]

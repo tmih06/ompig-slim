@@ -12,6 +12,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // BuildModel constructs an *ai.Model from a "provider/model" spec
@@ -52,6 +53,30 @@ func BuildModel(spec string, svcs *AgentSessionServices) (*ai.Model, error) {
 func buildModel(spec string, svcs *AgentSessionServices, apiKey string) (*ai.Model, error) {
 	if svcs == nil {
 		return nil, fmt.Errorf("coding: BuildModel: Services is required")
+	}
+	var pool []modelroles.Candidate
+	if base, _ := modelroles.Split(spec); strings.HasPrefix(base, "@") || base == "*" || strings.HasPrefix(base, "pi/") {
+		for _, model := range svcs.ModelRuntime().GetAvailableSnapshot() {
+			pool = append(pool, modelroles.Candidate{Provider: providerID(model), ID: model.ID})
+		}
+	}
+	var resolved string
+	var err error
+	if pool != nil {
+		resolved, err = svcs.SettingsManager().ResolveModelRole(spec, pool)
+	} else {
+		resolved, err = svcs.SettingsManager().ResolveModelRole(spec)
+	}
+	if err != nil {
+		return nil, err
+	}
+	spec, _ = modelroles.Split(resolved)
+	if selector, ok := modelroles.ParseSelector(spec, func(provider, id string) bool { return svcs.ModelRuntime().GetModel(provider, id) != nil }); ok && selector.Upstream != "" {
+		base, err := buildModel(selector.Provider+"/"+selector.ID, svcs, apiKey)
+		if err != nil {
+			return nil, err
+		}
+		return ai.WithModelUpstreamRoute(base, selector.Upstream)
 	}
 	parts := strings.SplitN(spec, "/", 2)
 	if len(parts) == 1 {

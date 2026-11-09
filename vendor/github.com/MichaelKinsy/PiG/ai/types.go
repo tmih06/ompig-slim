@@ -1130,6 +1130,9 @@ const (
 
 // Model pairs an identifier with a provider and capabilities.
 type Model struct {
+	// selectedUpstream is an explicit selector suffix, not a catalog routing default.
+	// Keep it on clones so literal @ IDs and preconfigured provider.only stay distinct.
+	selectedUpstream string
 	// Type is optional: chat is the default model type, so models without it are chat models.
 	Type             ModelType
 	ID               string
@@ -1150,6 +1153,8 @@ type Model struct {
 	Int *float64
 	// TPS is the catalog-estimated output speed in tokens per second; nil when unmeasured.
 	TPS *float64
+	// Priority is provider-published display ordering; nil sorts after explicit values.
+	Priority *float64
 	// Description is the provider- or catalog-published one-line blurb; empty when the source has none.
 	Description string
 	// Catalog records which metadata source filled this model's catalog fields, for display and debugging.

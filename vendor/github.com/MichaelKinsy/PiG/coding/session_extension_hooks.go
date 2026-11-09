@@ -462,7 +462,6 @@ func (s *Session) ExtensionCommandActions() extension.CommandActions {
 func (s *Session) bindExtensionCommandActions(runner *inproc.Runner) {
 	if runner != nil {
 		runner.BindAbort(s.RequestAbort)
-		runner.BindScopedModels(s.ScopedModels)
 		runner.BindSystemPromptOptions(s.GetSystemPromptOptions)
 		runner.BindTools(extension.ContextActions{
 			GetAllTools: s.GetAllTools, GetActiveTools: s.ActiveToolNames,

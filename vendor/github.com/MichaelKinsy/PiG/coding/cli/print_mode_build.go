@@ -34,8 +34,8 @@ func (b *cliRuntimeBuilder) printHost(owner context.Context, build *cliBuild, st
 			// The Session builds its default system prompt from this loader, as AgentSession._rebuildSystemPrompt does.
 			BuiltinEventBuses:      build.builtinEventBuses(),
 			ResourceLoader:         b.buildResourceLoader(owner, build),
-			ScopedModels:           extensionScopedModels(build.Services, build.Settings.EnabledModels),
 			Model:                  build.Model,
+			ModelRole:              build.Selected.Role,
 			ThinkingLevel:          ai.ModelThinkingLevel(build.Flags.Thinking),
 			AllowedTools:           build.Allowed,
 			ToolScope:              build.ToolScope,
@@ -81,9 +81,8 @@ func (b *cliRuntimeBuilder) printHost(owner context.Context, build *cliBuild, st
 func (b *cliRuntimeBuilder) rebuild(ctx context.Context, options coding.CreateAgentSessionRuntimeOptions) (*cliBuild, error) {
 	manager := options.SessionManager
 	in := cliBuildInput{
-		CWD:        options.CWD,
-		Manager:    manager,
-		Continuing: len(manager.BuildSessionContext().Messages) > 0,
+		CWD:     options.CWD,
+		Manager: manager,
 	}
 	if options.ProjectTrustContext != nil {
 		// The replacement's trust prompt uses the live extension UI the context carries (agent-session-runtime.ts:219).

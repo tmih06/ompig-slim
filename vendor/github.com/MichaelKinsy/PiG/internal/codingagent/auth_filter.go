@@ -6,7 +6,7 @@
 // built-in catalog plus ollama; authenticated is the subset whose
 // credentials resolve from the environment, models.json, or auth.json.
 //
-// Used by the interactive model surfaces (cycleModel, showScopedModels,
+// Used by the interactive model surfaces (cycleModel, showModelHub,
 // --list-models) to default the picker scope to {auth ∩ reachable}.
 //
 // Mirrors upstream pi-coding-agent's model-runtime.ts availability filter:

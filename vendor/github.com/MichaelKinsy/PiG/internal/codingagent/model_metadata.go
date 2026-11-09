@@ -409,14 +409,13 @@ func (r *ModelRegistry) enrichAnyModelData(models []ai.AnyModel) []ai.AnyModel {
 
 // enrichDefinitionEntry applies the full catalog patch to one models.json model entry that the
 // composer just built, excluding every field the entry set itself (provider-composer.ts
-// modelFromJson). allowEffortMap reports that the model's API transmits reasoning effort.
+// modelFromJson). Resolve even without fetched rows: bundled references supply
+// declared thinking/cache capabilities on a first offline launch. Explicit
+// endpoint effort opt-outs still prevent inheriting a nonfunctional ladder.
 func (r *ModelRegistry) enrichDefinitionEntry(entry *ModelEntry, definition modelDefinition) {
 	// Every registry path that builds an entry must publish the same values, so a registry that was
 	// constructed without a service gets one here rather than listing unenriched models.
 	service := r.modelMetadata()
-	if service.Generation() == 0 {
-		return
-	}
 	explicit := modelmetadata.ExplicitMetadataFields(modelmetadata.ExplicitDefinition{
 		Int:              definition.Int,
 		TPS:              definition.TPS,

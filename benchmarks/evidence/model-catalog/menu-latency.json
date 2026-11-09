@@ -1,0 +1,48 @@
+{
+  "baseline": "0239eee",
+  "workload": "120x40 real PTY, isolated offline profile; dummy OpenAI/Anthropic/Google/OpenRouter auth; two configured roles; three sequential process runs per binary, cold then reopen per process; timed /model write to first All available models frame; no paid calls",
+  "metadata": {
+    "rows": 8671,
+    "bytes": 2089955,
+    "sha256": "5dc03d92253422fc1c1a694d0e55bf5a7509c7965264ee152a8f726ae0e1a6f8",
+    "retained": false
+  },
+  "before": {
+    "samples_ms": [
+      [
+        1018.7003169849049,
+        895.5934849800542
+      ],
+      [
+        1036.2425550119951,
+        872.8550800005905
+      ],
+      [
+        1042.4848120019305,
+        903.1793539761566
+      ]
+    ],
+    "cold_median_ms": 1036.2425550119951,
+    "reopen_median_ms": 895.5934849800542
+  },
+  "after": {
+    "samples_ms": [
+      [
+        298.1621310173068,
+        151.75412999815308
+      ],
+      [
+        287.9655590222683,
+        145.09306999389082
+      ],
+      [
+        346.7606899794191,
+        216.98427901719697
+      ]
+    ],
+    "cold_median_ms": 298.1621310173068,
+    "reopen_median_ms": 151.75412999815308
+  },
+  "environment": "b548ef0749868ee7b6f2092a22b72907946691e4b6e57d24ec69ce0e65daca42  /tmp/omp-model-menu-before\n3f587648b96158c89728272e48cb7a10d74b754737f22aaac8e0efce21fd7531  bin/ompig-slim\ngo version go1.27.3 linux/arm64\n4\n",
+  "regressions": "Baseline fails legacy enabledModels + pre-existing cycleOrder check; after passes. Explicit CLI --models remains filtered. make check/race/smoke pass; 120x40 and 80x24 real OMP text/style comparisons pass."
+}

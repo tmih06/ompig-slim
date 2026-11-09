@@ -95,6 +95,15 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		m.handleEntryAppended(e.Entry)
 
 	case agent.AgentStartEvent:
+		// Recovery may have hopped providers without a user picker action. Read the
+		// session at each continuation so the footer never advertises the old model.
+		if handle := m.opts.SessionHandle; handle != nil {
+			if current := handle.Agent().Model(); current != nil {
+				m.opts.Model = current
+				m.statusLine.SetModel(current)
+				m.refreshThinkingLevel()
+			}
+		}
 		// interactive-mode.ts:3520-3521: agent_start resets the run's timer, so a retried run reports once, from its own start.
 		m.agentStartAt = throughputNow()
 		m.toolMu.Lock()

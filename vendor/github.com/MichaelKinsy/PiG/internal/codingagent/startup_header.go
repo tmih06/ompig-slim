@@ -33,7 +33,6 @@ func (m *InteractiveMode) fillHeaderContainer(box *tui.Container) {
 		box.Add(tui.NewSpacer(1))
 	}
 	if m.altScreen != nil {
-		m.showFullscreenModelScopeNotice(box)
 	}
 }
 

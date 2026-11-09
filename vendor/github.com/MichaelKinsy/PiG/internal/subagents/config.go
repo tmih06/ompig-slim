@@ -26,7 +26,6 @@ type Settings struct {
 	DefaultJoinMode         string `json:"defaultJoinMode"`
 	BackgroundByDefault     bool   `json:"backgroundByDefault"`
 	SchedulingEnabled       bool   `json:"schedulingEnabled"`
-	ScopeModels             bool   `json:"scopeModels"`
 	StrictAgentFiles        bool   `json:"strictAgentFiles"`
 	DisableDefaultAgents    bool   `json:"disableDefaultAgents"`
 	AgentMentions           string `json:"agentMentions"`

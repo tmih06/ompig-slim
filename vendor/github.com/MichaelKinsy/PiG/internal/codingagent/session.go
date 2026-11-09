@@ -997,6 +997,12 @@ func (s *Session) noteNameLocked(raw []byte, entryType string) {
 // AppendModelChange appends a model_change entry as a child of the current leaf, advances the leaf, and returns the entry id
 // (session-manager.ts appendModelChange(provider, modelId)).
 func (s *Session) AppendModelChange(provider, modelID string) (string, error) {
+	return s.AppendModelChangeWithRole(provider, modelID, "")
+}
+
+// AppendModelChangeWithRole records the physical model and its logical role in
+// one audit entry, so resume and fork cannot infer the wrong shared-model role.
+func (s *Session) AppendModelChangeWithRole(provider, modelID, role string) (string, error) {
 	s.leafAppendMu.Lock()
 	defer s.leafAppendMu.Unlock()
 	id, err := s.generateEntryID()
@@ -1012,6 +1018,7 @@ func (s *Session) AppendModelChange(provider, modelID string) (string, error) {
 		},
 		Provider: provider,
 		ModelID:  modelID,
+		Role:     role,
 	}
 	if err := s.AppendEntry(entry); err != nil {
 		return "", err

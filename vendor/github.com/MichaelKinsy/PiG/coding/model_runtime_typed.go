@@ -35,7 +35,7 @@ func (runtime *ModelRuntime) GetAllModels(providerID ...string) []ai.AnyModel {
 	// A provider may return its own list; bind into a copy.
 	models = slices.Clone(models)
 	for i, model := range models {
-		if chat, ok := model.(*ai.Model); ok {
+		if chat, ok := model.(*ai.Model); ok && chat.ModelType() == ai.ModelTypeChat {
 			models[i] = runtime.bindCatalogModel(chat)
 		}
 	}
@@ -85,7 +85,7 @@ func (runtime *ModelRuntime) GetAvailableOfType(ctx context.Context, modelType a
 		if !ai.IsModelType(model, modelType) {
 			continue
 		}
-		if chat, ok := model.(*ai.Model); ok {
+		if chat, ok := model.(*ai.Model); ok && chat.ModelType() == ai.ModelTypeChat {
 			model = runtime.bindCatalogModel(chat)
 		}
 		models = append(models, model)

@@ -19,7 +19,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -114,47 +113,8 @@ func (sm *SessionManager) ForkToNewSession(source *Session, userMsgEntryID strin
 	return newSess, selectedText, nil
 }
 
-// showModelSelector replaces the editor with ms in the layout's editor slot and focuses it, as upstream showSelector does
-// (interactive-mode.ts:4844-4867); the chat stays fully visible above. Without a layout (tests, non-TTY) ms is a modal
-// overlay. ms becomes the active selector, which a dialog, selector or component that later takes the slot disposes. done
-// disposes ms and, while it is still the active selector, restores and focuses the editor; later calls do nothing.
-func (m *InteractiveMode) showModelSelector(ms *tui.ModelSelectorComponent) (done func()) {
-	token := new(int) // distinct per selector; pointers to zero-size values may compare equal
-	var dispose func()
-	m.disposeActiveSelector()
-	if m.layout == nil {
-		h := m.tuiInst.ShowOverlay(ms, tui.OverlayOptions{Title: "Select model", WidthFraction: 0.85, HeightFraction: 0.7})
-		dispose = sync.OnceFunc(func() {
-			ms.Dispose()
-			h.Close()
-		})
-	} else {
-		m.editorContainer.SetChildren(ms)
-		m.tuiInst.SetFocus(ms)
-		// PiG's extension dialogs take the keys without taking focus, so a disposed selector also gives focus back.
-		dispose = func() {
-			ms.Dispose()
-			if m.tuiInst.GetFocusedComponent() == ms {
-				m.tuiInst.SetFocus(m.editor)
-			}
-		}
-	}
-	m.activeSelectorToken, m.activeSelectorDispose = token, dispose
-	return func() {
-		dispose()
-		if m.activeSelectorToken != token {
-			return
-		}
-		m.activeSelectorToken, m.activeSelectorDispose = nil, nil
-		if m.layout != nil {
-			m.editorContainer.SetChildren(m.editor)
-			m.tuiInst.SetFocus(m.editor)
-		}
-		m.tuiInst.RequestRender()
-	}
-}
-
-// disposeActiveSelector closes the selector a pending model change still shows (interactive-mode.ts:4833-4838).
+// disposeActiveSelector closes the current session picker when another modal
+// takes ownership. Completion callbacks may safely attempt to close it again.
 func (m *InteractiveMode) disposeActiveSelector() {
 	dispose := m.activeSelectorDispose
 	m.activeSelectorToken, m.activeSelectorDispose = nil, nil
@@ -168,38 +128,6 @@ func (m *InteractiveMode) disposeActiveSelector() {
 func (m *InteractiveMode) takeEditorSlot(component tui.Component) {
 	m.disposeActiveSelector()
 	m.editorContainer.SetChildren(component)
-}
-
-func (m *InteractiveMode) runModelSelectorInput(ctx context.Context, ms *tui.ModelSelectorComponent) (string, bool) {
-	m.tuiInst.Render()
-	inputCh, releaseInput := m.acquireModalInputChannel()
-	defer releaseInput()
-	for !ms.Done() {
-		if m.modalStopped() {
-			return "", false
-		}
-		select {
-		case <-ctx.Done():
-			return "", false
-		case err := <-m.inputErrCh:
-			m.inputLoopErr = err
-			return "", false
-		case task := <-m.uiTaskCh:
-			task()
-		case buf := <-inputCh:
-			for _, chunk := range m.modalInputChunks(ms, []string{string(buf)}) {
-				ms.HandleInput(chunk)
-				if ms.Done() {
-					break
-				}
-			}
-		}
-		m.tuiInst.Render()
-	}
-	if ms.Cancelled() {
-		return "", false
-	}
-	return ms.SelectedFQ(), true
 }
 
 func (m *InteractiveMode) runModalTreeSelector(ts *tui.TreeSelectorComponent, opts tui.OverlayOptions) (string, bool) {
@@ -963,79 +891,6 @@ func (a *treeNodeAdapter) NodeChildren() []tui.TreeNode {
 		out = append(out, &treeNodeAdapter{n: c, f: a.f})
 	}
 	return out
-}
-
-type scopedModelsRefresh struct {
-	models []tui.ModelItem
-	status string
-	kind   tui.RefreshStatusKind
-}
-
-// runModalScopedModels applies selection changes to the available session scope and persists configured IDs only on save.
-func (m *InteractiveMode) runModalScopedModels(sl *tui.ScopedModelsList, refresh <-chan scopedModelsRefresh, selection *scopedModelsSelection) tui.ScopedModelsResult {
-	m.takeEditorSlot(sl)
-	m.tuiInst.Render()
-
-	defer func() {
-		m.editorContainer.SetChildren(m.editor)
-		m.tuiInst.RequestRender()
-	}()
-	inputCh, releaseInput := m.acquireModalInputChannel()
-	defer releaseInput()
-
-	for !sl.Done() {
-		if m.modalStopped() {
-			return tui.ScopedModelsResult{Cancelled: true}
-		}
-		select {
-		case <-m.modalContextDone():
-			return tui.ScopedModelsResult{Cancelled: true}
-		case err := <-m.inputErrCh:
-			m.inputLoopErr = err
-			return tui.ScopedModelsResult{Cancelled: true}
-		case refreshed := <-refresh:
-			selection.updateAvailable(refreshed.models)
-			if !selection.changed && !selection.sessionScoped {
-				sl.UpdateModels(refreshed.models, selection.configuredIDs())
-			} else {
-				sl.UpdateModels(refreshed.models)
-			}
-			if enabled := sl.EnabledIDs(); enabled != nil {
-				selection.apply(m, enabled)
-			}
-			sl.SetRefreshStatus(refreshed.status, refreshed.kind)
-			m.tuiInst.Render()
-			refresh = nil
-			continue
-		case task := <-m.uiTaskCh:
-			task()
-		case buf := <-inputCh:
-			for _, chunk := range m.modalInputChunks(sl, []string{string(buf)}) {
-				previousIDs := sl.EnabledIDs()
-				sl.HandleInput(chunk)
-				currentIDs := sl.EnabledIDs()
-				if !scopedModelIDsEqual(previousIDs, currentIDs) {
-					selection.changed = true
-					selection.apply(m, currentIDs)
-				}
-				if enabledIDs, ok := sl.ConsumeSave(); ok {
-					m.persistScopedModelIDs(selection.persistedIDs(enabledIDs))
-				}
-				if sl.Done() {
-					break
-				}
-			}
-			m.tuiInst.Render()
-		}
-	}
-	return sl.Result()
-}
-
-func scopedModelIDsEqual(a, b []string) bool {
-	if (a == nil) != (b == nil) {
-		return false
-	}
-	return slices.Equal(a, b)
 }
 
 // runEditorSlotOAuthSelector replaces the editor with the OAuth provider

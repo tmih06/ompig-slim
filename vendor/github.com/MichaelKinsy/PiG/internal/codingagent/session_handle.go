@@ -10,7 +10,11 @@ import (
 
 // ModelMutationOptions controls whether a Session mutation also saves a global default.
 type ModelMutationOptions struct {
-	Persist bool
+	// Role pins fallback-chain ownership across automatic hops; empty means a direct model selection.
+	Role string
+	// ThinkingLevel, when nonempty, overrides the model's saved effort for this selection.
+	ThinkingLevel ai.ModelThinkingLevel
+	Persist       bool
 }
 
 // CompactionResult is the result of manual compaction (agent-session.ts compact()). The public coding package names it coding.CompactionResult.
@@ -27,7 +31,6 @@ type CompactionResult struct {
 type ModelCycleResult struct {
 	Model         *ai.Model
 	ThinkingLevel ai.ModelThinkingLevel
-	IsScoped      bool
 }
 
 // InteractiveSessionHandle is the contract InteractiveMode uses to
@@ -70,10 +73,6 @@ type InteractiveSessionHandle interface {
 	BeginModelCycleOnMain(context.Context, string, ModelMutationOptions) (*ModelCycleResult, func(), error)
 	// LastAssistantText is the trimmed text of the last assistant message, nil when it has none (agent-session.ts getLastAssistantText).
 	LastAssistantText() *string
-	// ScopedModels returns the cycling scope. An empty list means all available models.
-	ScopedModels() []extension.ScopedModel
-	// SetScopedModels replaces the cycling scope.
-	SetScopedModels([]extension.ScopedModel)
 	// AvailableModelSnapshot is the Session ModelRuntime's available models, bound to their backends (Pi's session.modelRuntime.getAvailableSnapshot()). Cycling scope entries come from it.
 	AvailableModelSnapshot() []*ai.Model
 	// ExtensionCompact is the compact action Pi binds for extensions: it starts a manual compaction without waiting, reports the result to options.OnComplete and a failure to options.OnError, and drops the outcome without callbacks.

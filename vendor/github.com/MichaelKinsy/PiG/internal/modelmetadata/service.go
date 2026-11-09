@@ -17,6 +17,7 @@
 package modelmetadata
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -26,11 +27,12 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
 	// CatalogURL is the origin OMP reads (MODELS_DEV_URL in pi-catalog's openai-compat discovery).
-	CatalogURL = "https://catalog.stencil.so/models.json"
+	CatalogURL = "https://catalog.stencil.so/models.json.zstd"
 	// TTL is the revalidation window; matches upstream DEFAULT_CACHE_TTL_MS.
 	TTL = 2 * time.Hour
 	// Retry is the failed-fetch retry window; matches upstream NON_AUTHORITATIVE_RETRY_MS.
@@ -193,6 +195,9 @@ func cloneSnapshot(snapshot ai.ModelCatalogMetadataSnapshot) ai.ModelCatalogMeta
 
 func cloneRow(row ai.ModelCatalogMetadataRow) ai.ModelCatalogMetadataRow {
 	copied := row
+	if row.ToolCall != nil {
+		copied.ToolCall = new(*row.ToolCall)
+	}
 	if row.Int != nil {
 		copied.Int = new(*row.Int)
 	}
@@ -447,6 +452,14 @@ func (s *Service) Load(ctx context.Context) error {
 			s.updatedAt = &fetchedAt
 			s.checkedAt = &checkedAt
 			s.etag = snapshot.ETag
+			// Schema 1 stores useful metrics but not discovery eligibility. Retain
+			// those observations offline and force an unconditional schema-2 fetch
+			// online; a 304 could otherwise leave new models undiscoverable forever.
+			if snapshot.Version < ai.ModelCatalogMetadataVersion {
+				stale := int64(0)
+				s.checkedAt = &stale
+				s.etag = ""
+			}
 			s.source = SourceCached
 			s.mu.Unlock()
 		}()
@@ -653,7 +666,7 @@ func (s *Service) runRefresh(ctx context.Context, active *inflightRefresh, force
 		s.finishRefresh(active, result, nil)
 		return
 	}
-	payload, err := io.ReadAll(response.Body)
+	payload, err := readCatalogPayload(response.Body)
 	if err != nil {
 		s.mu.Lock()
 		failure := s.now()
@@ -692,6 +705,37 @@ func (s *Service) runRefresh(ctx context.Context, active *inflightRefresh, force
 	result := s.resultLocked(resultOverride{stale: false, source: &source})
 	s.mu.Unlock()
 	s.finishRefresh(active, result, nil)
+}
+
+// readCatalogPayload accepts OMP's zstd snapshot and plain-JSON mirrors/tests.
+// Sniff frame magic rather than HTTP headers, as upstream does. Bound both wire
+// and decoded bodies to 64 MiB (well above the current catalog) so a malformed
+// public response cannot allocate unlimited memory or erase a usable snapshot.
+func readCatalogPayload(body io.Reader) ([]byte, error) {
+	const limit = 64 << 20
+	payload, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > limit {
+		return nil, fmt.Errorf("metadata catalog exceeds %d bytes", limit)
+	}
+	if !bytes.HasPrefix(payload, []byte{0x28, 0xb5, 0x2f, 0xfd}) {
+		return payload, nil
+	}
+	decoder, err := zstd.NewReader(bytes.NewReader(payload), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer decoder.Close()
+	decoded, err := io.ReadAll(io.LimitReader(decoder, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) > limit {
+		return nil, fmt.Errorf("decoded metadata catalog exceeds %d bytes", limit)
+	}
+	return decoded, nil
 }
 
 func (s *Service) finishRefresh(active *inflightRefresh, result RefreshResult, err error) {

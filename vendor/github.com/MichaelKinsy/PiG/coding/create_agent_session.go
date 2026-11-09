@@ -23,7 +23,6 @@ type CreateAgentSessionFromServicesOptions struct {
 	Model *ai.Model
 	// ThinkingLevel overrides the restored and configured level before clamping to the model.
 	ThinkingLevel ai.ModelThinkingLevel
-	ScopedModels  []ScopedModel
 	// Tools is the allowlist of tool names or `*` patterns, or a list of only `+name` and `-name` entries that changes the default selection.
 	// Nil means no list; a non-nil empty list is an allowlist of nothing.
 	Tools []string
@@ -69,7 +68,6 @@ type CreateAgentSessionOptions struct {
 
 	Model         *ai.Model
 	ThinkingLevel ai.ModelThinkingLevel
-	ScopedModels  []ScopedModel
 	// Tools, ExcludeTools, NoTools and CustomTools are as in [CreateAgentSessionFromServicesOptions].
 	Tools             []string
 	ExcludeTools      []string
@@ -90,7 +88,7 @@ func CreateAgentSession(options CreateAgentSessionOptions) (CreateAgentSessionRe
 	}
 	result, err := createAgentSessionOver(CreateAgentSessionFromServicesOptions{
 		Services: services, SessionManager: options.SessionManager, Model: options.Model, ThinkingLevel: options.ThinkingLevel,
-		ScopedModels: options.ScopedModels, Tools: options.Tools, ExcludeTools: options.ExcludeTools, NoTools: options.NoTools,
+		Tools: options.Tools, ExcludeTools: options.ExcludeTools, NoTools: options.NoTools,
 		CustomTools: options.CustomTools, SessionStartEvent: options.SessionStartEvent,
 	}, options.ResourceLoader)
 	if err != nil {
@@ -126,7 +124,6 @@ func createAgentSessionOver(options CreateAgentSessionFromServicesOptions, resou
 		SessionManager:         manager,
 		Model:                  model,
 		ThinkingLevel:          options.ThinkingLevel,
-		ScopedModels:           options.ScopedModels,
 		CustomTools:            options.CustomTools,
 		NoTools:                options.NoTools,
 		AllowedTools:           selection.allowed,
@@ -239,7 +236,6 @@ func resolveSDKModel(services *AgentSessionServices, manager *SessionManager, gi
 	}
 	settings := services.SettingsManager()
 	result, err := icodingagent.FindInitialModel(icodingagent.FindInitialModelOptions{
-		IsContinuing:         hasExisting,
 		DefaultProvider:      settings.GetDefaultProvider(),
 		DefaultModelId:       settings.GetDefaultModel(),
 		DefaultThinkingLevel: string(settings.GetDefaultThinkingLevel()),

@@ -504,7 +504,6 @@ type StatePayload struct {
 	Commands            json.RawMessage            `json:"commands,omitempty"`
 	ThinkingLevel       string                     `json:"thinkingLevel"`
 	Model               any                        `json:"model"`
-	ScopedModels        []scopedModelSnapshot      `json:"scopedModels"`
 	Session             *SessionStatePayload       `json:"session,omitempty"`
 	IsIdle              bool                       `json:"isIdle"`
 	ProjectTrusted      bool                       `json:"projectTrusted"`

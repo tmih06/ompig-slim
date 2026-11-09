@@ -503,11 +503,6 @@ func (c *ExtensionContext) Model() (map[string]any, error) {
 	return contextGet[map[string]any](c, "model")
 }
 
-// ScopedModels is `ctx.scopedModels`.
-func (c *ExtensionContext) ScopedModels() ([]ScopedModel, error) {
-	return contextGet[[]ScopedModel](c, "scopedModels")
-}
-
 // ThinkingLevel is `ctx.thinkingLevel`: what the bound getThinkingLevel answers.
 func (c *ExtensionContext) ThinkingLevel() (string, error) {
 	return contextGet[string](c, "thinkingLevel")

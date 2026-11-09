@@ -1,0 +1,18 @@
+[
+  "╭─ Switch Task Model ──────────────────────────────────────────────────────────────────────────────────────────────────╮",
+  "│  Task subagent switch — spawned task agents use this model (session-only)                                            │",
+  "│  🔍 >                                                                                                                │",
+  "│                                                                                                                      │",
+  "│ ❯ fixture/alpha ●                                                                                   128k ◫  $2.5/10  │",
+  "│   fixture/beta                                                                                       64k ◫     free  │",
+  "│                                                                                                                      │",
+  "│                                                                                                                      │",
+  "│                                                                                                                      │",
+  "│                                                                                                                      │",
+  "│                                                                                                                      │",
+  "│                                                                                                                      │",
+  "│   Alpha · 128k ctx · 16k out · $2.5/10 per M · vision                                                                │",
+  "│   ● current · ● default ◒ · ○ smol · ○ slow · ○ tiny · ○ memory · ○ widget · ○ judge                                 │",
+  "│ ↑/↓ models · ⏎ use for Task subagents · type to search · ⎋ close · Alt+P session model                               │",
+  "╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯"
+]

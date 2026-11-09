@@ -28,6 +28,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/jsnumber"
 	"github.com/MichaelKinsy/PiG/internal/jsonparse"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/internal/nodeerrno"
 	"github.com/MichaelKinsy/PiG/internal/orderedjson"
 	"github.com/MichaelKinsy/PiG/internal/resolvepath"
@@ -189,7 +190,22 @@ type ProviderRetrySettings struct {
 // (settings-manager.ts:682-690). Defaults: enabled=true, maxRetries=3,
 // baseDelayMs=2000.
 type RetrySettingsJSON struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	// MaxDelayMs caps one agent wait; zero disables the ceiling, as in OMP.
+	MaxDelayMs        *int  `json:"maxDelayMs,omitempty"`
+	WaitForUsageReset *bool `json:"waitForUsageReset,omitempty"`
+	// FallbackRevertPolicy defaults to cooldown-expiry; never keeps the fallback selected.
+	FallbackRevertPolicy string   `json:"fallbackRevertPolicy,omitempty"`
+	RateLimitWalksChain  *bool    `json:"rateLimitWalksChain,omitempty"`
+	UsageAwareFallback   *bool    `json:"usageAwareFallback,omitempty"`
+	UsageReservePct      *float64 `json:"usageReservePct,omitempty"`
+	UsageReservePolicy   string   `json:"usageReservePolicy,omitempty"`
+	// ModelFallback independently disables chain walking; nil keeps OMP's enabled default.
+	ModelFallback *bool `json:"modelFallback,omitempty"`
+	// FallbackOn admits any error, usage-limit errors only, or all except usage limits.
+	FallbackOn string `json:"fallbackOn,omitempty"`
+	// FallbackChains are ordered role/model/provider chains; explicit empty arrays disable fallback.
+	FallbackChains map[string][]string `json:"fallbackChains,omitempty"`
+	Enabled        *bool               `json:"enabled,omitempty"`
 	// MaxRetries and BaseDelayMs are pointers so an explicit 0 is kept, as
 	// upstream's `?? default` does.
 	MaxRetries  *int `json:"maxRetries,omitempty"`
@@ -319,6 +335,7 @@ type imageSettingsWire struct {
 
 // settingsWire mirrors upstream settings JSON.
 type settingsWire struct {
+	modelroles.Config
 	LastChangelogVersion       string                  `json:"lastChangelogVersion,omitempty"`
 	ExtensionChangelogVersions map[string]string       `json:"extensionChangelogVersions,omitzero"`
 	DefaultProvider            *string                 `json:"defaultProvider,omitempty"`
@@ -363,7 +380,6 @@ type settingsWire struct {
 	EnableSkillCommands    *bool                    `json:"enableSkillCommands,omitempty"`
 	Terminal               *terminalSettingsWire    `json:"terminal,omitempty"`
 	Images                 *imageSettingsWire       `json:"images,omitempty"`
-	EnabledModels          []string                 `json:"enabledModels,omitzero"`
 	DefaultTools           []string                 `json:"defaultTools,omitzero"`
 	ModelThinkingLevels    map[string]string        `json:"modelThinkingLevels,omitempty"`
 	DoubleEscapeAction     string                   `json:"doubleEscapeAction,omitempty"`
@@ -504,6 +520,7 @@ func (q *QuietStartup) UnmarshalJSON(data []byte) error {
 
 // Settings mirrors upstream Settings interface.
 type Settings struct {
+	modelroles.Config
 	// ignored names each setting dropped for its wrong JSON type, with the type it expects. Loading reports it once (D158).
 	ignored []string
 	// extra holds the top-level members PiG does not model, as written, after migrateSettings: Pi keeps every member of the file, so
@@ -544,8 +561,7 @@ type Settings struct {
 	WebSocketConnectTimeoutMs      *int            `json:"websocketConnectTimeoutMs,omitempty"`
 	webSocketConnectTimeoutInvalid any
 	webSocketConnectTimeoutNull    bool
-	HTTPIdleTimeoutMs              *int     `json:"httpIdleTimeoutMs,omitempty"`
-	EnabledModels                  []string `json:"enabledModels,omitempty"`
+	HTTPIdleTimeoutMs              *int `json:"httpIdleTimeoutMs,omitempty"`
 	// DefaultTools is the initial built-in tool selection; nil means the
 	// upstream default read, bash, edit and write.
 	DefaultTools []string `json:"defaultTools,omitempty"`
@@ -871,6 +887,9 @@ func cloneRetrySettings(v *RetrySettingsJSON) *RetrySettingsJSON {
 		return nil
 	}
 	return &RetrySettingsJSON{
+		MaxDelayMs: cloneIntPtr(v.MaxDelayMs), WaitForUsageReset: cloneBoolPtr(v.WaitForUsageReset), FallbackRevertPolicy: v.FallbackRevertPolicy, RateLimitWalksChain: cloneBoolPtr(v.RateLimitWalksChain), UsageAwareFallback: cloneBoolPtr(v.UsageAwareFallback), UsageReservePct: cloneFloatPtr(v.UsageReservePct), UsageReservePolicy: v.UsageReservePolicy,
+		FallbackChains: modelroles.CloneChains(v.FallbackChains),
+		ModelFallback:  cloneBoolPtr(v.ModelFallback), FallbackOn: v.FallbackOn,
 		Enabled:         cloneBoolPtr(v.Enabled),
 		MaxRetries:      cloneIntPtr(v.MaxRetries),
 		BaseDelayMs:     cloneIntPtr(v.BaseDelayMs),
@@ -983,6 +1002,7 @@ func presentString(value *string) (string, bool) {
 
 func cloneSettings(s Settings) Settings {
 	return Settings{
+		Config:                         s.Config.Clone(),
 		emptyStrings:                   s.emptyStrings,
 		extra:                          maps.Clone(s.extra),
 		DefaultProvider:                s.DefaultProvider,
@@ -1011,7 +1031,6 @@ func cloneSettings(s Settings) Settings {
 		httpIdleTimeoutInvalid:         s.httpIdleTimeoutInvalid,
 		httpIdleTimeoutNull:            s.httpIdleTimeoutNull,
 		CacheWarming:                   s.CacheWarming,
-		EnabledModels:                  slices.Clone(s.EnabledModels),
 		DefaultTools:                   slices.Clone(s.DefaultTools),
 		ModelThinkingLevels:            maps.Clone(s.ModelThinkingLevels),
 		LastChangelogVersion:           s.LastChangelogVersion,
@@ -1079,6 +1098,7 @@ func (s Settings) themeSetting() *string {
 // internal flattened representation.
 func (s Settings) MarshalJSON() ([]byte, error) {
 	w := settingsWire{
+		Config:                      s.Config,
 		LastChangelogVersion:        s.LastChangelogVersion,
 		DefaultProvider:             optionalString(s.DefaultProvider, s.emptyStrings.defaultProvider),
 		DefaultModel:                optionalString(s.DefaultModel, s.emptyStrings.defaultModel),
@@ -1112,7 +1132,6 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 		Prompts:                     s.Prompts,
 		Themes:                      s.Themes,
 		EnableSkillCommands:         s.EnableSkillCommands,
-		EnabledModels:               s.EnabledModels,
 		DefaultTools:                s.DefaultTools,
 		ModelThinkingLevels:         s.ModelThinkingLevels,
 		ExtensionChangelogVersions:  s.ExtensionChangelogVersions,
@@ -1219,19 +1238,6 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 			delete(legacy, "skills")
 		}
 	}
-	if rawRetry, ok := legacy["retry"].(map[string]any); ok {
-		provider, _ := rawRetry["provider"].(map[string]any)
-		if maxDelayMs, ok := rawRetry["maxDelayMs"]; ok {
-			if provider == nil {
-				provider = map[string]any{}
-			}
-			if _, exists := provider["maxRetryDelayMs"]; !exists {
-				provider["maxRetryDelayMs"] = maxDelayMs
-			}
-			rawRetry["provider"] = provider
-			delete(rawRetry, "maxDelayMs")
-		}
-	}
 	// Decoding drops a mistyped theme, so record its presence first.
 	rawTheme, themePresent := legacy["theme"]
 	_, themeIsString := rawTheme.(string)
@@ -1248,6 +1254,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 	s.LastChangelogVersion = w.LastChangelogVersion
 	s.DefaultProvider, s.emptyStrings.defaultProvider = presentString(w.DefaultProvider)
 	s.DefaultModel, s.emptyStrings.defaultModel = presentString(w.DefaultModel)
+	s.Config = w.Config
 	s.DefaultThinkingLevel = w.DefaultThinkingLevel
 	s.Transport = w.Transport
 	s.SessionShareDestination = w.SessionShareDestination
@@ -1338,7 +1345,6 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 			s.blockImagesSet = true
 		}
 	}
-	s.EnabledModels = w.EnabledModels
 	s.DefaultTools = w.DefaultTools
 	s.ModelThinkingLevels = w.ModelThinkingLevels
 	s.ExtensionChangelogVersions = w.ExtensionChangelogVersions
@@ -1712,6 +1718,9 @@ func (s Settings) GetBlockImages() bool { return s.BlockImages }
 // SettingsManager loads and merges settings from global and project scopes.
 // Merge order: global defaults → project → CLI flags.
 type SettingsManager struct {
+	// roleMutation serializes default-role changes across Sessions
+	// sharing this manager without holding the settings read/write mutex over I/O.
+	roleMutation sync.Mutex
 	// mu guards the settings layers: a cache-warming refresh reads the mode
 	// from its own goroutine while /settings writes it.
 	mu             sync.RWMutex
@@ -2474,9 +2483,11 @@ func (sm *SettingsManager) GetTreeFilterMode() string {
 
 // RetryConfig holds resolved retry settings with defaults applied.
 type RetryConfig struct {
-	Enabled     bool
-	MaxRetries  int
-	BaseDelayMs int
+	MaxDelayMs        int
+	WaitForUsageReset bool
+	Enabled           bool
+	MaxRetries        int
+	BaseDelayMs       int
 	// MaxAgentDelayMs is upstream's maxAgentDelayMs, the cap for exponential retry backoff.
 	MaxAgentDelayMs int
 }
@@ -2494,14 +2505,21 @@ type ProviderRetryConfig struct {
 func (sm *SettingsManager) GetRetrySettings() RetryConfig {
 	result := RetryConfig{
 		Enabled:         true,
-		MaxRetries:      3,     // upstream default: 3 (settings-manager.ts:21)
-		BaseDelayMs:     2000,  // upstream default: 2000ms (settings-manager.ts:22)
-		MaxAgentDelayMs: 60000, // upstream default cap for exponential retry backoff
+		MaxRetries:      10, // OMP session/settings.ts retry.maxRetries.
+		BaseDelayMs:     500,
+		MaxAgentDelayMs: 8000, // OMP's exponential backoff ceiling; provider hints may be longer.
+		MaxDelayMs:      300000,
 	}
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	s := &sm.merged
 	if s.Retry != nil {
+		if s.Retry.MaxDelayMs != nil {
+			result.MaxDelayMs = *s.Retry.MaxDelayMs
+		}
+		if s.Retry.WaitForUsageReset != nil {
+			result.WaitForUsageReset = *s.Retry.WaitForUsageReset
+		}
 		if s.Retry.Enabled != nil {
 			result.Enabled = *s.Retry.Enabled
 		}
@@ -2962,11 +2980,6 @@ func (sm *SettingsManager) RemoveModelThinkingLevel(provider, modelID string) er
 	})
 }
 
-// GetEnabledModels returns the list of enabled models for Ctrl+P cycling, or nil.
-func (sm *SettingsManager) GetEnabledModels() []string {
-	return readMerged(sm, func(s *Settings) []string { return slices.Clone(s.EnabledModels) })
-}
-
 // GetShowHardwareCursor returns whether the hardware cursor is shown.
 func (sm *SettingsManager) GetShowHardwareCursor() bool {
 	return readMerged(sm, (*Settings).GetShowHardwareCursor)
@@ -3227,11 +3240,6 @@ func (sm *SettingsManager) SetBlockImages(blocked bool) error {
 		s.BlockImages = blocked
 		s.blockImagesSet = true
 	})
-}
-
-// SetEnabledModels sets the list of enabled models for Ctrl+P cycling.
-func (sm *SettingsManager) SetEnabledModels(patterns []string) error {
-	return sm.UpdateGlobal(func(s *Settings) { s.EnabledModels = patterns })
 }
 
 // GetExtensionsTypescriptRuntime returns the global extensionsTypescriptRuntime setting, or "" when it is unset. A project file cannot set it.
@@ -3796,7 +3804,13 @@ func rawJSONObject(value json.RawMessage) (map[string]json.RawMessage, bool) {
 }
 
 // settingsWireMembers are the top-level settings members settingsWire decodes.
-var settingsWireMembers = sync.OnceValue(func() map[string]struct{} { return orderedjson.JSONNames(reflect.TypeFor[settingsWire]()) })
+var settingsWireMembers = sync.OnceValue(func() map[string]struct{} {
+	names := orderedjson.JSONNames(reflect.TypeFor[settingsWire]())
+	// encoding/json flattens the embedded role config. JSONNames enumerates only
+	// direct fields, so include these names or stale extras duplicate live values.
+	maps.Copy(names, orderedjson.JSONNames(reflect.TypeFor[modelroles.Config]()))
+	return names
+})
 
 // unmodeledSettings returns the members of the migrated settings object that settingsWire does not decode, with their values as data holds
 // them; nil when there are none. migrateSettings deletes only members it rewrote, so every member left in migrated is in data unchanged.
@@ -3864,6 +3878,7 @@ func deepMergeJSONObjects(base, override json.RawMessage) json.RawMessage {
 // either true or false.
 func mergeSettings(global, project Settings) Settings {
 	m := cloneSettings(global)
+	m.Config = global.Config.Merge(project.Config)
 	m.extra = mergeSettingsExtra(m.extra, project.extra)
 	if project.DefaultProvider != "" || project.emptyStrings.defaultProvider {
 		m.DefaultProvider, m.emptyStrings.defaultProvider = project.DefaultProvider, project.emptyStrings.defaultProvider
@@ -3944,9 +3959,6 @@ func mergeSettings(global, project Settings) Settings {
 		maps.Copy(merged, project.ExtensionChangelogVersions)
 		m.ExtensionChangelogVersions = merged
 	}
-	if project.EnabledModels != nil {
-		m.EnabledModels = append([]string{}, project.EnabledModels...)
-	}
 	if project.NpmCommand != nil {
 		m.NpmCommand = append([]string{}, project.NpmCommand...)
 	}
@@ -3976,7 +3988,7 @@ func mergeSettings(global, project Settings) Settings {
 		if m.Compaction.extra == nil {
 			m.Compaction.extra = make(map[string]json.RawMessage)
 		}
-		maps.Copy(m.Compaction.extra, project.Compaction.extra)
+		m.Compaction.extra = mergeSettingsExtra(m.Compaction.extra, project.Compaction.extra)
 		mergeCompactionNumber(&m.Compaction.ReserveTokens, m.Compaction.extra, "reserveTokens", project.Compaction.ReserveTokens, project.Compaction.extra)
 		mergeCompactionNumber(&m.Compaction.KeepRecentTokens, m.Compaction.extra, "keepRecentTokens", project.Compaction.KeepRecentTokens, project.Compaction.extra)
 		mergeCompactionModelOverrides(m.Compaction, project.Compaction.ModelOverrides)
@@ -3984,6 +3996,39 @@ func mergeSettings(global, project Settings) Settings {
 	if project.Retry != nil {
 		if m.Retry == nil {
 			m.Retry = &RetrySettingsJSON{}
+		}
+		if m.Retry.FallbackChains == nil && project.Retry.FallbackChains != nil {
+			m.Retry.FallbackChains = map[string][]string{}
+		}
+		for key, chain := range project.Retry.FallbackChains {
+			m.Retry.FallbackChains[key] = slices.Clone(chain)
+		}
+		if project.Retry.MaxDelayMs != nil {
+			m.Retry.MaxDelayMs = cloneIntPtr(project.Retry.MaxDelayMs)
+		}
+		if project.Retry.WaitForUsageReset != nil {
+			m.Retry.WaitForUsageReset = cloneBoolPtr(project.Retry.WaitForUsageReset)
+		}
+		if project.Retry.FallbackRevertPolicy != "" {
+			m.Retry.FallbackRevertPolicy = project.Retry.FallbackRevertPolicy
+		}
+		if project.Retry.RateLimitWalksChain != nil {
+			m.Retry.RateLimitWalksChain = cloneBoolPtr(project.Retry.RateLimitWalksChain)
+		}
+		if project.Retry.UsageAwareFallback != nil {
+			m.Retry.UsageAwareFallback = cloneBoolPtr(project.Retry.UsageAwareFallback)
+		}
+		if project.Retry.UsageReservePct != nil {
+			m.Retry.UsageReservePct = cloneFloatPtr(project.Retry.UsageReservePct)
+		}
+		if project.Retry.UsageReservePolicy != "" {
+			m.Retry.UsageReservePolicy = project.Retry.UsageReservePolicy
+		}
+		if project.Retry.ModelFallback != nil {
+			m.Retry.ModelFallback = cloneBoolPtr(project.Retry.ModelFallback)
+		}
+		if project.Retry.FallbackOn != "" {
+			m.Retry.FallbackOn = project.Retry.FallbackOn
 		}
 		if project.Retry.Enabled != nil {
 			m.Retry.Enabled = cloneBoolPtr(project.Retry.Enabled)

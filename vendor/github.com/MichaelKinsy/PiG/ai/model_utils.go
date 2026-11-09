@@ -133,7 +133,13 @@ func ModelsAreEqual(a, b AnyModel) bool {
 	if isNilModel(a) || isNilModel(b) {
 		return false
 	}
-	return GetModelType(a) == GetModelType(b) && a.ModelID() == b.ModelID() && a.ProviderID() == b.ProviderID()
+	same := GetModelType(a) == GetModelType(b) && a.ModelID() == b.ModelID() && a.ProviderID() == b.ProviderID()
+	if am, ok := a.(*Model); ok {
+		if bm, ok := b.(*Model); ok {
+			return same && ModelUpstreamRoute(am) == ModelUpstreamRoute(bm)
+		}
+	}
+	return same
 }
 
 func isNilModel(model AnyModel) bool {

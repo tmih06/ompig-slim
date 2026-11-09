@@ -49,7 +49,8 @@ the value depends on what it detects.
 | `defaultModel` | string |  | Model ID within `defaultProvider`, without a provider prefix. A qualified ID such as `github-copilot/gpt-6-sol` is not supported here. |
 | `defaultThinkingLevel` | string | `medium` | Thinking level applied to a new session: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
 | `modelThinkingLevels` | object |  | Thinking level for a new session per model, keyed by `provider/modelId`. It overrides `defaultThinkingLevel`. |
-| `enabledModels` | string[] | `all` | Models offered in the model selector. |
+| `modelRoles` | object | built-in roles | Named model assignments used by `/model`. |
+| `cycleOrder` | string[] | Smol, Default, Slow | Ordered role IDs for Ctrl+P; an explicit empty list disables cycling. |
 | `thinkingBudgets` | object |  | Token budget per thinking level: `minimal`, `low`, `medium`, `high`. |
 | `transport` | string | `auto` | Transport for providers that support more than one: `auto`, `sse`, `websocket`, or `websocket-cached`. |
 | `retry` | object | see meaning | Retry policy: `enabled` (default `true`), `maxRetries` (default `3`), `baseDelayMs` (default `2000`), `maxAgentDelayMs` (the cap on each retry delay, default `60000`), and a per-`provider` override. An explicit `0` is kept. |

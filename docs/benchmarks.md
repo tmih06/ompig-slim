@@ -164,6 +164,14 @@ Largest embedded payloads are the codemode/QuickJS runtime, syntax-highlighting 
 
 `benchmarks/evidence/footprint.json` records these numbers with the command that produced them.
 The footprint figures come from a single short session whose purpose is only to emit the distribution columns; the 120-turn timing numbers above come from separate full runs.
+## Model catalog and browser paths
+
+[Model catalog performance](../benchmarks/MODEL-CATALOG.md) records the
+profile-driven optimization of full-catalog composition, compatibility copies,
+lookup and browser ranking. It includes interleaved before/after microbenchmarks,
+allocation/CPU attribution, whole-process startup checks, correctness oracles
+and raw evidence. Those results do not imply faster inference or lower RSS.
+
 ## Session memory trace
 
 `PIG_PROFILE=heap,allocs,metrics` already writes whole-process profiles on exit, so no new instrumentation was needed.

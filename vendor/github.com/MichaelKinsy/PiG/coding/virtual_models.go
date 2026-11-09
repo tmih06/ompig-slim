@@ -103,8 +103,16 @@ func GetBranchSelection(branch []icodingagent.SessionEntry, getModel func(provid
 			response := &ModelSelection{Provider: message.Message.Assistant.Provider, ModelID: message.Message.Assistant.ModelID}
 			if change := findLastModelChange(branch, i); change != nil {
 				if !change.Unresolvable {
-					if model := getModel(change.Provider, change.ModelID); model != nil && IsVirtualModel(model) {
-						return change
+					if model := getModel(change.Provider, change.ModelID); model != nil {
+						if IsVirtualModel(model) {
+							return change
+						}
+					} else if at := strings.LastIndex(change.ModelID, "@"); at > 0 {
+						if model := getModel(change.Provider, change.ModelID[:at]); model != nil {
+							if _, err := ai.WithModelUpstreamRoute(model, change.ModelID[at+1:]); err == nil {
+								return change
+							}
+						}
 					}
 				}
 			}
@@ -254,7 +262,7 @@ func (runtime *ModelRuntime) UnregisterVirtualModel(provider, id string) {
 	}
 }
 
-// RuntimeModels returns the selection metadata of the composed catalog: the registry's models with the registered virtual models added after each provider's physical models, or after every provider for a provider of only virtual models. A virtual model hides a physical chat model with the same id. Startup model resolution reads it, so `--model`, the saved default and the `--models` scope can name a virtual model.
+// RuntimeModels returns the selection metadata of the composed catalog: the registry's models with the registered virtual models added after each provider's physical models, or after every provider for a provider of only virtual models. A virtual model hides a physical chat model with the same id. Startup model resolution reads it, so `--model`, roles and the saved default can name a virtual model.
 //
 // upstream: model-runtime.ts:285-293 (provider list with virtual models), virtual-models.ts:190-227 (withVirtualModels)
 func (runtime *ModelRuntime) RuntimeModels() []icodingagent.RuntimeModel {

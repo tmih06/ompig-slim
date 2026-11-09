@@ -1,0 +1,636 @@
+{
+  "abliteration": {
+    "defaultModel": "abliterated-model",
+    "sourceKeys": [
+      "abliteration"
+    ],
+    "accountScoped": true
+  },
+  "aiand": {
+    "defaultModel": "moonshotai/kimi-k2.7-code",
+    "sourceKeys": [
+      "aiand"
+    ],
+    "accountScoped": true
+  },
+  "aimlapi": {
+    "defaultModel": "gpt-5.5-2026-04-23",
+    "sourceKeys": [
+      "aimlapi"
+    ],
+    "accountScoped": true
+  },
+  "alibaba-coding-plan": {
+    "defaultModel": "qwen3.7-plus",
+    "sourceKeys": [
+      "alibaba-coding-plan"
+    ],
+    "accountScoped": false
+  },
+  "alibaba-token-plan": {
+    "defaultModel": "qwen3.7-plus",
+    "sourceKeys": [
+      "alibaba-token-plan"
+    ],
+    "accountScoped": true
+  },
+  "amazon-bedrock": {
+    "defaultModel": "us.anthropic.claude-opus-5-5",
+    "sourceKeys": [
+      "amazon-bedrock"
+    ],
+    "accountScoped": false
+  },
+  "anthropic": {
+    "defaultModel": "claude-opus-5-5",
+    "sourceKeys": [
+      "anthropic"
+    ],
+    "accountScoped": false
+  },
+  "apple": {
+    "defaultModel": "on-device",
+    "sourceKeys": [
+      "apple"
+    ],
+    "accountScoped": false
+  },
+  "azure": {
+    "defaultModel": "gpt-5.5",
+    "sourceKeys": [
+      "azure"
+    ],
+    "accountScoped": false
+  },
+  "baseten": {
+    "defaultModel": "moonshotai/Kimi-K2.7-Code",
+    "sourceKeys": [
+      "baseten"
+    ],
+    "accountScoped": true
+  },
+  "bedrock-mantle": {
+    "defaultModel": "openai.gpt-5.6-terra",
+    "sourceKeys": [
+      "bedrock-mantle"
+    ],
+    "accountScoped": true
+  },
+  "cerebras": {
+    "defaultModel": "zai-glm-4.7",
+    "sourceKeys": [
+      "cerebras"
+    ],
+    "accountScoped": false
+  },
+  "charm-hyper": {
+    "defaultModel": "glm-5.3",
+    "sourceKeys": [
+      "charm-hyper"
+    ],
+    "accountScoped": true
+  },
+  "cline-pass": {
+    "defaultModel": "kimi-k3",
+    "sourceKeys": [
+      "cline-pass"
+    ],
+    "accountScoped": true
+  },
+  "cloudflare-ai-gateway": {
+    "defaultModel": "anthropic/claude-opus-5",
+    "sourceKeys": [
+      "cloudflare-ai-gateway",
+      "cloudflare-workers-ai"
+    ],
+    "accountScoped": false
+  },
+  "cloudflare-workers-ai": {
+    "defaultModel": "@cf/cloudflare/clef",
+    "sourceKeys": [
+      "cloudflare-workers-ai"
+    ],
+    "accountScoped": false
+  },
+  "commandcode": {
+    "defaultModel": "claude-sonnet-5",
+    "sourceKeys": [
+      "commandcode"
+    ],
+    "accountScoped": true
+  },
+  "coralbricks": {
+    "defaultModel": "glm-5.3-fast",
+    "sourceKeys": [
+      "coralbricks"
+    ],
+    "accountScoped": true
+  },
+  "coreweave": {
+    "defaultModel": "openai/gpt-oss-120b",
+    "sourceKeys": [
+      "coreweave",
+      "wandb"
+    ],
+    "accountScoped": true
+  },
+  "cursor": {
+    "defaultModel": "claude-opus-5-high",
+    "sourceKeys": [
+      "cursor"
+    ],
+    "accountScoped": true
+  },
+  "deepinfra": {
+    "defaultModel": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "sourceKeys": [
+      "deepinfra"
+    ],
+    "accountScoped": true
+  },
+  "deepseek": {
+    "defaultModel": "deepseek-v4-pro",
+    "sourceKeys": [
+      "deepseek"
+    ],
+    "accountScoped": false
+  },
+  "devin": {
+    "defaultModel": "swe-1-6",
+    "sourceKeys": [
+      "devin"
+    ],
+    "accountScoped": true
+  },
+  "factory-droid": {
+    "defaultModel": "kimi-k3",
+    "sourceKeys": [
+      "factory-droid"
+    ],
+    "accountScoped": true
+  },
+  "firepass": {
+    "defaultModel": "glm-5.2-fast",
+    "sourceKeys": [
+      "firepass"
+    ],
+    "accountScoped": false
+  },
+  "fireworks": {
+    "defaultModel": "kimi-k3",
+    "sourceKeys": [
+      "fireworks",
+      "fireworks-ai"
+    ],
+    "accountScoped": false
+  },
+  "github-copilot": {
+    "defaultModel": "gpt-5.5",
+    "sourceKeys": [
+      "github-copilot"
+    ],
+    "accountScoped": false
+  },
+  "gitlab-duo": {
+    "defaultModel": "duo-chat-opus-4-6",
+    "sourceKeys": [
+      "gitlab-duo"
+    ],
+    "accountScoped": false
+  },
+  "gitlab-duo-agent": {
+    "defaultModel": "claude_sonnet_4_6_vertex",
+    "sourceKeys": [
+      "gitlab-duo-agent"
+    ],
+    "accountScoped": true
+  },
+  "gmi-cloud": {
+    "defaultModel": "deepseek-ai/DeepSeek-V4-Flash",
+    "sourceKeys": [
+      "gmi-cloud"
+    ],
+    "accountScoped": true
+  },
+  "google": {
+    "defaultModel": "gemini-3.1-pro-preview",
+    "sourceKeys": [
+      "google"
+    ],
+    "accountScoped": false
+  },
+  "google-antigravity": {
+    "defaultModel": "gemini-3.1-pro",
+    "sourceKeys": [
+      "google-antigravity"
+    ],
+    "accountScoped": true
+  },
+  "google-gemini-cli": {
+    "defaultModel": "gemini-3.1-pro-preview",
+    "sourceKeys": [
+      "google-gemini-cli"
+    ],
+    "accountScoped": false
+  },
+  "google-vertex": {
+    "defaultModel": "gemini-3.1-pro-preview",
+    "sourceKeys": [
+      "google-vertex"
+    ],
+    "accountScoped": false
+  },
+  "groq": {
+    "defaultModel": "openai/gpt-oss-120b",
+    "sourceKeys": [
+      "groq"
+    ],
+    "accountScoped": false
+  },
+  "helmcode": {
+    "defaultModel": "deepseek-v4-flash",
+    "sourceKeys": [
+      "helmcode"
+    ],
+    "accountScoped": true
+  },
+  "huggingface": {
+    "defaultModel": "deepseek-ai/DeepSeek-R1",
+    "sourceKeys": [
+      "huggingface"
+    ],
+    "accountScoped": false
+  },
+  "inception": {
+    "defaultModel": "mercury-3",
+    "sourceKeys": [
+      "inception"
+    ],
+    "accountScoped": true
+  },
+  "kilo": {
+    "defaultModel": "anthropic/claude-opus-5",
+    "sourceKeys": [
+      "kilo"
+    ],
+    "accountScoped": false
+  },
+  "kimi-code": {
+    "defaultModel": "kimi-for-coding",
+    "sourceKeys": [
+      "kimi-code"
+    ],
+    "accountScoped": true
+  },
+  "litellm": {
+    "defaultModel": "claude-opus-5-5",
+    "sourceKeys": [
+      "litellm"
+    ],
+    "accountScoped": false
+  },
+  "lm-studio": {
+    "defaultModel": "llama-3-8b",
+    "sourceKeys": [
+      "lm-studio"
+    ],
+    "accountScoped": false
+  },
+  "local": {
+    "defaultModel": "lfm2.5-230m",
+    "sourceKeys": [
+      "local"
+    ],
+    "accountScoped": false
+  },
+  "meta": {
+    "defaultModel": "muse-spark-1.1",
+    "sourceKeys": [
+      "meta"
+    ],
+    "accountScoped": false
+  },
+  "minimax": {
+    "defaultModel": "MiniMax-M3",
+    "sourceKeys": [
+      "minimax"
+    ],
+    "accountScoped": false
+  },
+  "minimax-code": {
+    "defaultModel": "MiniMax-M3",
+    "sourceKeys": [
+      "minimax-code",
+      "minimax-coding-plan"
+    ],
+    "accountScoped": false
+  },
+  "minimax-code-cn": {
+    "defaultModel": "MiniMax-M3",
+    "sourceKeys": [
+      "minimax-code-cn",
+      "minimax-cn-coding-plan"
+    ],
+    "accountScoped": false
+  },
+  "mistral": {
+    "defaultModel": "devstral-medium-latest",
+    "sourceKeys": [
+      "mistral"
+    ],
+    "accountScoped": false
+  },
+  "moonshot": {
+    "defaultModel": "kimi-k2.7-code",
+    "sourceKeys": [
+      "moonshot",
+      "moonshotai"
+    ],
+    "accountScoped": false
+  },
+  "muse-code": {
+    "defaultModel": "muse-spark-1.3",
+    "sourceKeys": [
+      "muse-code"
+    ],
+    "accountScoped": true
+  },
+  "nanogpt": {
+    "defaultModel": "openai/gpt-5.5",
+    "sourceKeys": [
+      "nanogpt",
+      "nano-gpt"
+    ],
+    "accountScoped": false
+  },
+  "novita": {
+    "defaultModel": "moonshotai/kimi-k2.7-code",
+    "sourceKeys": [
+      "novita"
+    ],
+    "accountScoped": true
+  },
+  "nvidia": {
+    "defaultModel": "nvidia/llama-3.1-nemotron-70b-instruct",
+    "sourceKeys": [
+      "nvidia"
+    ],
+    "accountScoped": false
+  },
+  "ollama": {
+    "defaultModel": "gpt-oss:20b",
+    "sourceKeys": [
+      "ollama"
+    ],
+    "accountScoped": false
+  },
+  "ollama-cloud": {
+    "defaultModel": "gpt-oss:120b",
+    "sourceKeys": [
+      "ollama-cloud"
+    ],
+    "accountScoped": true
+  },
+  "openai": {
+    "defaultModel": "gpt-5.5",
+    "sourceKeys": [
+      "openai"
+    ],
+    "accountScoped": false
+  },
+  "openai-codex": {
+    "defaultModel": "gpt-5.5",
+    "sourceKeys": [
+      "openai-codex"
+    ],
+    "accountScoped": true
+  },
+  "opencode-go": {
+    "defaultModel": "kimi-k2.7-code",
+    "sourceKeys": [
+      "opencode-go"
+    ],
+    "accountScoped": true
+  },
+  "opencode-zen": {
+    "defaultModel": "claude-opus-5",
+    "sourceKeys": [
+      "opencode-zen",
+      "opencode"
+    ],
+    "accountScoped": true
+  },
+  "openrouter": {
+    "defaultModel": "openai/gpt-5.5",
+    "sourceKeys": [
+      "openrouter"
+    ],
+    "accountScoped": false
+  },
+  "qianfan": {
+    "defaultModel": "deepseek-v3.2",
+    "sourceKeys": [
+      "qianfan"
+    ],
+    "accountScoped": false
+  },
+  "qwen-portal": {
+    "defaultModel": "coder-model",
+    "sourceKeys": [
+      "qwen-portal"
+    ],
+    "accountScoped": true
+  },
+  "sakana": {
+    "defaultModel": "fugu",
+    "sourceKeys": [
+      "sakana"
+    ],
+    "accountScoped": true
+  },
+  "sambanova": {
+    "defaultModel": "gpt-oss-120b",
+    "sourceKeys": [
+      "sambanova"
+    ],
+    "accountScoped": true
+  },
+  "siliconflow": {
+    "defaultModel": "zai-org/GLM-5.1",
+    "sourceKeys": [
+      "siliconflow"
+    ],
+    "accountScoped": true
+  },
+  "siliconflow-cn": {
+    "defaultModel": "deepseek-ai/DeepSeek-V4-Pro",
+    "sourceKeys": [
+      "siliconflow-cn"
+    ],
+    "accountScoped": true
+  },
+  "singularityapi-dev": {
+    "defaultModel": "deepseek-v4-flash",
+    "sourceKeys": [
+      "singularityapi-dev"
+    ],
+    "accountScoped": true
+  },
+  "singularityapi-tech": {
+    "defaultModel": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "sourceKeys": [
+      "singularityapi-tech"
+    ],
+    "accountScoped": true
+  },
+  "snowflake": {
+    "defaultModel": "claude-opus-5-5",
+    "sourceKeys": [
+      "snowflake"
+    ],
+    "accountScoped": false
+  },
+  "stepfun": {
+    "defaultModel": "step-5-preview",
+    "sourceKeys": [
+      "stepfun"
+    ],
+    "accountScoped": true
+  },
+  "synthetic": {
+    "defaultModel": "hf:zai-org/GLM-5.3-Flash",
+    "sourceKeys": [
+      "synthetic"
+    ],
+    "accountScoped": true
+  },
+  "together": {
+    "defaultModel": "moonshotai/Kimi-K2.7-Code",
+    "sourceKeys": [
+      "together",
+      "togetherai"
+    ],
+    "accountScoped": false
+  },
+  "typesafe": {
+    "defaultModel": "jev-1.14.0",
+    "sourceKeys": [
+      "typesafe"
+    ],
+    "accountScoped": false
+  },
+  "umans": {
+    "defaultModel": "umans-coder",
+    "sourceKeys": [
+      "umans",
+      "umans-ai"
+    ],
+    "accountScoped": true
+  },
+  "venice": {
+    "defaultModel": "llama-3.3-70b",
+    "sourceKeys": [
+      "venice"
+    ],
+    "accountScoped": false
+  },
+  "vercel-ai-gateway": {
+    "defaultModel": "anthropic/claude-opus-5",
+    "sourceKeys": [
+      "vercel-ai-gateway"
+    ],
+    "accountScoped": false
+  },
+  "vllm": {
+    "defaultModel": "gpt-oss-20b",
+    "sourceKeys": [
+      "vllm"
+    ],
+    "accountScoped": false
+  },
+  "wafer-serverless": {
+    "defaultModel": "GLM-5.1",
+    "sourceKeys": [
+      "wafer-serverless"
+    ],
+    "accountScoped": true
+  },
+  "web": {
+    "defaultModel": "public",
+    "sourceKeys": [
+      "web"
+    ],
+    "accountScoped": false
+  },
+  "xai": {
+    "defaultModel": "grok-4.6",
+    "sourceKeys": [
+      "xai"
+    ],
+    "accountScoped": false
+  },
+  "xai-oauth": {
+    "defaultModel": "grok-4.6",
+    "sourceKeys": [
+      "xai-oauth"
+    ],
+    "accountScoped": true
+  },
+  "xiaomi": {
+    "defaultModel": "mimo-v2.6-flash",
+    "sourceKeys": [
+      "xiaomi"
+    ],
+    "accountScoped": false
+  },
+  "xiaomi-token-plan-ams": {
+    "defaultModel": "mimo-v2.6-flash",
+    "sourceKeys": [
+      "xiaomi-token-plan-ams"
+    ],
+    "accountScoped": false
+  },
+  "xiaomi-token-plan-cn": {
+    "defaultModel": "mimo-v2.6-flash",
+    "sourceKeys": [
+      "xiaomi-token-plan-cn"
+    ],
+    "accountScoped": false
+  },
+  "xiaomi-token-plan-sgp": {
+    "defaultModel": "mimo-v2.6-flash",
+    "sourceKeys": [
+      "xiaomi-token-plan-sgp"
+    ],
+    "accountScoped": false
+  },
+  "yolo-auto": {
+    "defaultModel": "qwen3.8-27b",
+    "sourceKeys": [
+      "yolo-auto"
+    ],
+    "accountScoped": true
+  },
+  "zai": {
+    "defaultModel": "glm-5.3",
+    "sourceKeys": [
+      "zai"
+    ],
+    "accountScoped": false
+  },
+  "zenmux": {
+    "defaultModel": "anthropic/claude-opus-5",
+    "sourceKeys": [
+      "zenmux"
+    ],
+    "accountScoped": false
+  },
+  "zhipu-coding-plan": {
+    "defaultModel": "glm-5.1",
+    "sourceKeys": [
+      "zhipu-coding-plan",
+      "zhipuai-coding-plan"
+    ],
+    "accountScoped": true
+  }
+}
