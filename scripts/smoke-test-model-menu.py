@@ -110,7 +110,20 @@ def run(binary):
             assert "review" not in deleted.get("cycleOrder", []), "role cycle survived"
             assert "review" not in deleted.get("retry", {}).get("fallbackChains", {}), "role fallback survived"
             assert deleted["modelRoles"]["default"] == saved_roles["default"], "unrelated role changed"
-            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker, confirmed custom-role deletion")
+            send(b"\x1b")
+            read_until(lambda data: b"\x1b[?1049l" in data, "close after custom deletion")
+            send(b"/model\r")
+            read_until(lambda data: b"All models" in data, "reopen for builtin deletion")
+            send(b"\x1b[A")
+            read_until(lambda data: b"Model roles" in data, "builtin Roles view")
+            send(b"\x1b[C")
+            send(b"D")
+            read_until(lambda data: b"Delete @default (global)" in data, "builtin delete confirmation")
+            send(b"\x1b[C\r")
+            read_until(lambda _: json.loads(settings.read_text()).get("modelTags", {}).get("default", {}).get("deleted") is True,
+                       "builtin deletion marker persistence")
+            assert "default" not in json.loads(settings.read_text()).get("modelRoles", {}), "builtin assignment survived"
+            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker, confirmed custom and builtin role deletion")
         finally:
             if process.poll() is None:
                 process.terminate()

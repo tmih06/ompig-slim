@@ -70,6 +70,7 @@ func (sm *SettingsManager) SetModelRole(role, selector, scope string) error {
 	if role == "" || strings.ContainsAny(role, "/ @:\t\n") {
 		return fmt.Errorf("invalid role name %q", role)
 	}
+	wasDeleted := sm.Get().ModelTags[role].Deleted
 	update := func(s *Settings) {
 		if s.ModelRoles == nil {
 			s.ModelRoles = map[string]string{}
@@ -78,6 +79,12 @@ func (sm *SettingsManager) SetModelRole(role, selector, scope string) error {
 			delete(s.ModelRoles, role)
 		} else {
 			s.ModelRoles[role] = selector
+			if wasDeleted || s.ModelTags[role].Deleted {
+				if s.ModelTags == nil {
+					s.ModelTags = map[string]modelroles.Tag{}
+				}
+				s.ModelTags[role] = s.ModelTags[role].WithDeleted(false)
+			}
 		}
 	}
 	if scope == "project" {
@@ -137,6 +144,11 @@ func (sm *SettingsManager) ModelFallbackChains() map[string][]string {
 		return nil
 	}
 	chains := modelroles.CloneChains(s.Retry.FallbackChains)
+	for role, tag := range s.ModelTags {
+		if tag.Deleted {
+			delete(chains, role)
+		}
+	}
 	if chain, ok := chains["default"]; ok {
 		for _, role := range s.Config.Known(chains) {
 			if slices.Contains([]string{"image", "web", "speech", "dictation", "judge"}, role) {

@@ -23,6 +23,9 @@ func (c Config) resolveAvailable(selector, legacy string, pool []Candidate, seen
 	role, isRole := Role(base)
 	patterns := []string{base}
 	if isRole {
+		if c.ModelTags[role].Deleted {
+			return "", fmt.Errorf("model role @%s was deleted; assign it again to restore it", role)
+		}
 		if seen[role] {
 			return "", fmt.Errorf("model role cycle at @%s", role)
 		}
@@ -42,7 +45,7 @@ func (c Config) resolveAvailable(selector, legacy string, pool []Candidate, seen
 					patterns = append(patterns, legacy)
 				}
 			case "smol", "slow":
-				if value := c.ModelRoles["default"]; value != "" {
+				if value := c.ModelRoles["default"]; value != "" && !c.ModelTags["default"].Deleted {
 					patterns = append(patterns, value)
 				}
 			case "tiny", "widget":
@@ -50,7 +53,7 @@ func (c Config) resolveAvailable(selector, legacy string, pool []Candidate, seen
 			case "memory":
 				patterns = append(patterns, "@tiny")
 			case "advisor":
-				if c.ModelRoles["slow"] != "" {
+				if c.ModelRoles["slow"] != "" && !c.ModelTags["slow"].Deleted {
 					patterns = append(patterns, "@slow")
 				}
 			case "plan", "vision", "task", "commit":

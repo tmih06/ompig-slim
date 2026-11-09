@@ -10,7 +10,7 @@ import (
 )
 
 // TestModelHubDeleteRole exercises cancel-first confirmation, Escape, scope
-// selection, persisted deletion reload and built-in protection through real keys.
+// selection, persisted deletion reload and built-in confirmation through real keys.
 func TestModelHubDeleteRole(t *testing.T) {
 	h, config, chains := hubFixture()
 	config.ModelRoles["review"] = "p/a"
@@ -66,8 +66,13 @@ func TestModelHubDeleteRole(t *testing.T) {
 	}
 	h.cursor = 0 // Built-in default.
 	h.HandleInput("D")
-	if calls != 1 || h.strip != nil || !strings.Contains(h.status, "Built-in") {
-		t.Fatal("built-in protection failed")
+	if calls != 1 || h.strip == nil || h.strip.role != "default" {
+		t.Fatal("built-in deletion did not ask for confirmation")
+	}
+	h.HandleInput("\x1b[C")
+	h.HandleInput("\r")
+	if calls != 2 || config.ModelRoles["default"] != "" {
+		t.Fatal("built-in deletion callback was not invoked")
 	}
 }
 

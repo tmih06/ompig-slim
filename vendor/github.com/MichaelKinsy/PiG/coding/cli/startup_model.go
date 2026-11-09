@@ -218,7 +218,7 @@ func selectStartupModel(ctx context.Context, options startupModelOptions, settin
 			}
 		}
 	}
-	if selected == nil && settings.ModelRoles["default"] != "" {
+	if selected == nil && settings.ModelRoles["default"] != "" && !settings.ModelTags["default"].Deleted {
 		resolved, roleErr := settings.Config.Resolve("@default", settings.DefaultProvider+"/"+settings.DefaultModel)
 		if roleErr != nil {
 			result.Errors = append(result.Errors, roleErr)
