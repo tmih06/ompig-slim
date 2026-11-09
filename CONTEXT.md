@@ -105,16 +105,21 @@ The harness behavior is the part that makes the tool matter. `SettleExtension` r
 
 `sequential` execution serializes the calls but does not make one call's result visible to the next, so two `todo` calls in one batch each read the same prior list and the later one wins. The tool description therefore instructs one op per call beside the next real action; do not treat batching as safe.
 
-The card is a line-for-line port of OMP's `todoToolRenderer` (`packages/tui/src/tools/todo.ts`) in `internal/todotool/render.go`: one `Todo N tasks` line, roman-numeral phase headers when there are several phases, `├─`/`└─` tree gutters, `☑`/`☐` checkboxes, dim `closed/total` progress per phase, and a collapsed walking viewport that leads with the last closed task and caps at 8 rows. The card is reproduced rather than approximated because it is the only place a user watches a plan advance; a layout that differs by a gutter or a windowing rule reads as a different tool.
+The content is a line-for-line port of OMP's `todoToolRenderer` (`packages/tui/src/tools/todo.ts`) in `internal/todotool/render.go`: one `Todo N tasks` line, roman-numeral phase headers when there are several phases, `├─`/`└─` tree gutters, `☑`/`☐` checkboxes, dim `closed/total` progress per phase, and a collapsed walking viewport that leads with the last closed task and caps at 8 rows. The content is reproduced rather than approximated because it is the only place a user watches a plan advance; a layout that differs by a gutter or a windowing rule reads as a different tool.
 
-Two vendor limitations shape the renderer, and both are handled in it rather than by patching the runtime. First, OMP's `mergeCallAndResult` has no counterpart here, and the vendored card substitutes a name-and-args fallback when a call renderer returns nil, so `renderCall` draws the streaming header and then nothing once `IsPartial` clears. Without that, a settled card shows a stale `● Todo` line above the result header. Second, the vendored `Theme` exposes foreground tokens but not OMP's symbol table, so checkbox, tree and tool glyphs are constants in `render.go` holding OMP's default-theme values. A pending todo matched to a live subagent renders dim rather than accent, because no subagent registry is wired into a renderer here.
+The content is drawn **unframed**: the tool sets `RenderShell: extension.ToolRenderShellUnframed`, so the rows are the card's whole presentation, with no border, no status bar and no lifecycle background. The list is already a structured block — a title line, phase headers and tree gutters — so the frame would only box it and repeat its title. `ToolRenderShellUnframed` is a pig addition to the `default`/`self` pair (`tool_execution_definition.go` `Unframed`, set from both renderer factories); the frame itself lives in `renderRichFrame`, which only `renderSelfShell` calls for `Rich` cards, so opting out is a routing change rather than a renderer concern. A frame-less card also skips the mouse inset `HandleMouse` applies inside a border.
+
+Two vendor limitations shape the renderer, both handled in it rather than by patching further. First, OMP's `mergeCallAndResult` has no counterpart here, and the card substitutes a name-and-args fallback when a call renderer returns nil, so `renderCall` draws the streaming header and then nothing once `IsPartial` clears. Without that, a settled card shows a stale `● Todo` line above the list. Second, the vendored `Theme` exposes foreground tokens but not OMP's symbol table, so checkbox, tree and tool glyphs are constants in `render.go` holding OMP's default-theme values. A pending todo matched to a live subagent renders dim rather than accent, because no subagent registry is wired into a renderer here.
+
+Because the frame's bottom bar is gone, it carries no `Ctrl+O: Expand` hint. The card is still click- or Ctrl+O-expandable — `definitionComponents` keeps the result region for an unframed card — so the disclosure works; only the footer that advertised it is gone, which `unframed_test.go` pins alongside the absence of border and background.
 
 See `internal/todo/state.go`, `internal/todotool/render.go`, `internal/todotool/settle.go`, and the tests beside them.
 
 ### Interactive tool cards
 
 - Interactive cards opt into `ToolExecutionOptions.Rich` and follow one of
-  OMP's two shapes (`packages/tui/src/tools/renderer.ts` `inline`):
+  OMP's two shapes (`packages/tui/src/tools/renderer.ts` `inline`), plus a third
+  shape this project adds for tools whose own rows are already structured:
   - **Framed** (`bash`, `codemode`, `web_search`, unregistered tools): OMP's
     `renderOutputBlock` — `╭─── … ───╮` bars, body rows padded one cell inside
     the borders, a labelled `├─── Output ───┤` section where the tool has one,
@@ -123,6 +128,11 @@ See `internal/todo/state.go`, `internal/todotool/render.go`, `internal/todotool/
     applied over the whole row, borders included, re-applied after embedded SGR
     resets. Every tool is filled, the shell included; this project keeps one
     filled card look instead of oh-my-pi's `applyBg: false` shell exception.
+  - **Unframed** (`todo`): `RenderShell: extension.ToolRenderShellUnframed`
+    draws the renderers' rows as the whole card — no bars, no status line, no
+    background tint — while the card stays `Rich` and expandable. A pig addition
+    (`ToolDefinitionRenderers.Unframed`); a tool opts in when its content is its
+    own layout, so the frame would only box it and repeat its title.
   - **Inline** (`read`, `grep`, `find`, `ls`): no frame at all. The collapsed
     card is the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95`
     — and Ctrl+O discloses the body rows under it. `write` and `edit` return

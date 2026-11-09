@@ -49,11 +49,19 @@ type ToolRenderContext struct {
 // ToolRenderShell controls whether the standard tool-execution chrome wraps
 // the tool's renderers, or the tool draws its own framing. Mirrors upstream
 // "default" | "self".
+//
+// ToolRenderShellUnframed is a pig addition: the renderers' rows are drawn as
+// the card's whole content, with no border, no status bar and no lifecycle
+// background. It exists for a tool whose own rows already carry the structure a
+// reader needs, where the frame only adds a box and a repeated title.
 type ToolRenderShell string
 
 const (
 	ToolRenderShellDefault ToolRenderShell = "default"
 	ToolRenderShellSelf    ToolRenderShell = "self"
+	// ToolRenderShellUnframed draws the renderers bare. pig additive (no
+	// upstream equivalent); see [ToolRenderShell].
+	ToolRenderShellUnframed ToolRenderShell = "unframed"
 )
 
 // ToolExecuteFunc mirrors upstream ToolDefinition.execute.

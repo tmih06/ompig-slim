@@ -56,8 +56,11 @@ func Definition() extension.ToolDefinition {
 		// The op mutates one shared list, so calls must not interleave.
 		ExecutionMode: "sequential",
 		Execute:       execute,
-		// The card is drawn by OMP's todo renderer (render.go). Without these the
-		// tool falls back to the generic card, which shows the raw summary text.
+		// The card keeps OMP's todo content — the `Todo N tasks` line and the
+		// phase tree — but not the tool-card chrome around it. `unframed` drops
+		// the border, the status bar and the lifecycle background, so the rows
+		// below are all the transcript shows.
+		RenderShell:  extension.ToolRenderShellUnframed,
 		RenderCall:   renderCall,
 		RenderResult: renderResult,
 	}

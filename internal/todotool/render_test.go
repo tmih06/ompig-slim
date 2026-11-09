@@ -39,8 +39,9 @@ func renderCard(t *testing.T, details todoDetails, expanded bool) []string {
 	def := Definition()
 	result := extension.AgentToolResult{Details: details.value(), Content: details.content()}
 	comp := tui.NewToolExecutionComponent("todo", "call-1", details.args(),
-		tui.ToolExecutionOptions{}, nil, nil, "/tmp")
+		tui.ToolExecutionOptions{Rich: true}, nil, nil, "/tmp")
 	comp.SetDefinition(&tui.ToolDefinitionRenderers{
+		Unframed: def.RenderShell == extension.ToolRenderShellUnframed,
 		Call: func(input tui.ToolRenderInput) (tui.Component, bool) {
 			return def.RenderCall(input.Args, tui.ActiveTheme(), extension.ToolRenderContext{
 				Cwd: "/tmp", Args: input.Args, IsPartial: input.IsPartial, Expanded: input.Expanded,
@@ -169,9 +170,10 @@ func TestRenderCardStatusMarkers(t *testing.T) {
 // text, with no task tree.
 func TestRenderCardError(t *testing.T) {
 	def := Definition()
-	comp := tui.NewToolExecutionComponent("todo", "c", nil, tui.ToolExecutionOptions{}, nil, nil, "/tmp")
+	comp := tui.NewToolExecutionComponent("todo", "c", nil, tui.ToolExecutionOptions{Rich: true}, nil, nil, "/tmp")
 	comp.SetDefinition(&tui.ToolDefinitionRenderers{
-		Call: func(tui.ToolRenderInput) (tui.Component, bool) { return blankComponent(), true },
+		Unframed: def.RenderShell == extension.ToolRenderShellUnframed,
+		Call:     func(tui.ToolRenderInput) (tui.Component, bool) { return blankComponent(), true },
 		Result: func(tui.ToolRenderInput) (tui.Component, bool) {
 			return def.RenderResult(extension.AgentToolResult{
 				Content: []ai.ToolResultMessageContent{ai.TextContent{Text: `Errors: Task "x" not found`}},
