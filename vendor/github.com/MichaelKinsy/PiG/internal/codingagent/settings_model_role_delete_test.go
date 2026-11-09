@@ -58,13 +58,13 @@ func TestDeleteModelRolePersistsAllFields(t *testing.T) {
 	}
 }
 
-// TestDeleteModelRoleGuards ensures invalid names, inbound aliases and
+// TestDeleteModelRoleGuards ensures protected/invalid names, inbound aliases and
 // untrusted project settings fail without removing any authored role data.
 func TestDeleteModelRoleGuards(t *testing.T) {
-	for _, role := range []string{"bad/name", ""} {
+	for _, role := range append(modelroles.Builtins(), "bad/name", "") {
 		sm := NewInMemorySettingsManager(Settings{})
 		if err := sm.DeleteModelRole(role, "global"); err == nil {
-			t.Fatalf("accepted invalid role %q", role)
+			t.Fatalf("accepted protected/invalid role %q", role)
 		}
 	}
 	for _, selector := range []string{"@review", "@review:high", "pi/review:off"} {

@@ -9,14 +9,12 @@ import (
 	"strings"
 )
 
-// Tag supplies role metadata and a persistent deletion marker. Deleted is
-// distinct from Hidden: hidden roles remain functional; deleted roles do not.
+// Tag supplies display metadata for a built-in or user-defined role.
 type Tag struct {
-	Name                                     string `json:"name"`
-	Color                                    string `json:"color,omitempty"`
-	Hidden                                   bool   `json:"hidden,omitempty"`
-	Deleted                                  bool   `json:"deleted,omitempty"`
-	nameSet, colorSet, hiddenSet, deletedSet bool
+	Name                         string `json:"name"`
+	Color                        string `json:"color,omitempty"`
+	Hidden                       bool   `json:"hidden,omitempty"`
+	nameSet, colorSet, hiddenSet bool
 }
 
 // Config is shared by settings and the model hub. Nil cycle order uses OMP's defaults;
@@ -86,17 +84,7 @@ func (c Config) Merge(p Config) Config {
 			tag.Hidden = override.Hidden
 			tag.hiddenSet = override.hiddenSet
 		}
-		if override.Deleted || override.deletedSet {
-			tag = tag.WithDeleted(override.Deleted)
-		}
 		c.ModelTags[role] = tag
-	}
-	// A higher-layer assignment restores a lower-layer deletion unless that
-	// same higher layer explicitly deletes the role too.
-	for role, selector := range p.ModelRoles {
-		if tag := p.ModelTags[role]; selector != "" && !tag.Deleted && !tag.deletedSet && c.ModelTags[role].Deleted {
-			c.ModelTags[role] = c.ModelTags[role].WithDeleted(false)
-		}
 	}
 	if p.CycleOrder != nil {
 		c.CycleOrder = slices.Clone(p.CycleOrder)
@@ -112,7 +100,7 @@ func (c Config) Merge(p Config) Config {
 // containing only removed roles recovers to explicitly assigned chat roles, then
 // built-in defaults if none exist. Reads never rewrite authored settings.
 func (c Config) Order() []string {
-	defaults := slices.DeleteFunc([]string{"smol", "default", "slow"}, func(role string) bool { return c.ModelTags[role].Deleted })
+	defaults := []string{"smol", "default", "slow"}
 	if c.CycleOrder == nil {
 		return defaults
 	}
@@ -122,9 +110,6 @@ func (c Config) Order() []string {
 	builtins := Builtins()
 	order := []string{}
 	for _, role := range c.CycleOrder {
-		if c.ModelTags[role].Deleted {
-			continue
-		}
 		_, assigned := c.ModelRoles[role]
 		_, tagged := c.ModelTags[role]
 		if slices.Contains(builtins, role) || assigned || tagged {
@@ -141,18 +126,17 @@ func (c Config) Order() []string {
 	roles := append(defaults, builtins...)
 	roles = append(roles, slices.Sorted(maps.Keys(c.ModelRoles))...)
 	for _, role := range roles {
-		if c.ModelRoles[role] != "" && !c.ModelTags[role].Deleted && !c.RoleInfo(role).Kind && !slices.Contains(order, role) {
+		if c.ModelRoles[role] != "" && !c.RoleInfo(role).Kind && !slices.Contains(order, role) {
 			order = append(order, role)
 		}
 	}
 	if len(order) > 0 {
 		return order
 	}
-	return defaults
+	return []string{"smol", "default", "slow"}
 }
 
-// Known returns undeleted built-ins first, then deterministic custom roles from
-// settings. Deletion markers survive even when all authored role data is removed.
+// Known returns built-ins first, followed by deterministic custom roles from all settings.
 func (c Config) Known(chains map[string][]string) []string {
 	roles := Builtins()
 	extra := map[string]bool{}
@@ -175,7 +159,7 @@ func (c Config) Known(chains map[string][]string) []string {
 			roles = append(roles, role)
 		}
 	}
-	return slices.DeleteFunc(roles, func(role string) bool { return c.ModelTags[role].Deleted })
+	return roles
 }
 
 // Role recognizes canonical @role, legacy pi/role, and the default shorthand *.
@@ -224,9 +208,6 @@ func (c Config) Resolve(selector, legacyDefault string) (string, error) {
 				selector += ":" + effort
 			}
 			return selector, nil
-		}
-		if c.ModelTags[role].Deleted {
-			return "", fmt.Errorf("model role @%s was deleted; assign it again to restore it", role)
 		}
 		if seen[role] {
 			return "", fmt.Errorf("model role cycle at @%s", role)

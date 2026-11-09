@@ -781,10 +781,14 @@ func (h *ModelHub) unassign(role, scope string) {
 	}
 }
 
-// confirmDeleteRole opens a cancel-first, scope-labelled confirmation for any
-// role; x/d remain assignment clearing. Separate layer actions prevent silently
-// deleting project overrides or globals. The host persists built-in tombstones.
+// confirmDeleteRole opens a cancel-first, scope-labelled confirmation for custom
+// roles. Built-ins never reach the host callback; x/d remain assignment clearing.
+// Separate layer actions prevent silently deleting project overrides or globals.
 func (h *ModelHub) confirmDeleteRole(role string) {
+	if slices.Contains(modelroles.Builtins(), role) {
+		h.status = "Built-in roles cannot be deleted; use x to clear the assignment"
+		return
+	}
 	if h.cfg.DeleteRole == nil {
 		h.status = "Role deletion is unavailable in this context"
 		return
@@ -1326,7 +1330,7 @@ func (h *ModelHub) footer(width int) string {
 			return fg(th.Dim, "↑/↓ rows · ⏎ new model/provider fallback chain · ← providers")
 		}
 		deletion := ""
-		if row.kind == "role" && h.cfg.DeleteRole != nil {
+		if row.kind == "role" && h.cfg.DeleteRole != nil && !slices.Contains(modelroles.Builtins(), row.key) {
 			deletion = " · D delete role"
 		}
 		return fg(th.Dim, "↑/↓ rows · ⏎ pick · f fallback · x clear"+deletion+thinking+compaction+" · c cycle · [/] reorder · n new")

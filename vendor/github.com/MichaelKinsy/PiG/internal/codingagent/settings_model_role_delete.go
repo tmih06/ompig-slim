@@ -7,16 +7,15 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
-// DeleteModelRole removes a role's assignment, display tag, explicit fallback
-// chain and cycle entries in one settings-layer write. Built-ins retain a deleted
-// tag marker so defaults cannot resurrect them. Invalid scopes/names and incoming
-// saved aliases are rejected before mutation. Other authored layers and the live
-// session's selected physical model are untouched.
+// DeleteModelRole removes a custom role's assignment, tag, explicit fallback
+// chain and cycle entries in one settings-layer write. Built-ins, invalid scopes
+// and roles referenced by another saved assignment/chain are rejected before
+// mutation. Other layers and the live session's selected model are untouched.
 // Repeated deletion is harmless. Trust checks and save failures follow
 // UpdateGlobal/UpdateProject: a failed save can leave the in-memory edit applied.
 func (sm *SettingsManager) DeleteModelRole(role, scope string) error {
-	if !modelroles.ValidName(role) {
-		return fmt.Errorf("invalid model role name %q", role)
+	if !modelroles.ValidName(role) || slices.Contains(modelroles.Builtins(), role) {
+		return fmt.Errorf("only custom model roles can be deleted: @%s", role)
 	}
 	if scope != "global" && scope != "project" {
 		return fmt.Errorf("invalid model role scope %q", scope)
@@ -48,25 +47,9 @@ func (sm *SettingsManager) DeleteModelRole(role, scope string) error {
 	if scope == "project" {
 		update = sm.UpdateProject
 	}
-	builtin := slices.Contains(modelroles.Builtins(), role)
-	effectiveOrder := sm.Get().Config.Order()
 	return update(func(s *Settings) {
-		if builtin && s.CycleOrder == nil {
-			// Materialize an inherited/default cycle before removing a built-in;
-			// otherwise nil would immediately opt it into automatic cycling again.
-			s.CycleOrder = s.Config.Order()
-			if scope == "project" {
-				s.CycleOrder = slices.Clone(effectiveOrder)
-			}
-		}
 		delete(s.ModelRoles, role)
 		delete(s.ModelTags, role)
-		if builtin {
-			if s.ModelTags == nil {
-				s.ModelTags = map[string]modelroles.Tag{}
-			}
-			s.ModelTags[role] = (modelroles.Tag{}).WithDeleted(true)
-		}
 		// Preserve nil (inherited defaults) versus explicit empty (disabled).
 		s.CycleOrder = slices.DeleteFunc(s.CycleOrder, func(value string) bool { return value == role })
 		if s.Retry != nil {

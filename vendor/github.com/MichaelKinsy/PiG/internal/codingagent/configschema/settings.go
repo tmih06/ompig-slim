@@ -152,7 +152,7 @@ func settingsSchema() *Schema {
 		Optional("disabledProviders", stringArray()),
 		Optional("cycleOrder", stringArray()),
 		Optional("modelRoleStorage", Union(literals("global", "project"))),
-		Optional("modelTags", Record(Object([]Prop{Optional("name", String()), Optional("color", String()), Optional("hidden", Boolean()), Optional("deleted", Boolean())}))),
+		Optional("modelTags", Record(Object([]Prop{Optional("name", String()), Optional("color", String()), Optional("hidden", Boolean())}))),
 		Optional("defaultThinkingLevel", ModelThinkingLevelSchema()),
 		Optional("modelThinkingLevels", Record(ModelThinkingLevelSchema(), D(`Per-model default thinking level overrides keyed by "provider/modelId".`))),
 		Optional("transport", Union(literals("auto", "sse", "websocket", "websocket-cached"), Default(d.transport))),

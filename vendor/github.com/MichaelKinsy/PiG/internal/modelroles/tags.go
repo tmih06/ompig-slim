@@ -2,9 +2,8 @@ package modelroles
 
 import "encoding/json"
 
-// UnmarshalJSON tracks presence so a project can explicitly unhide or restore
-// a global role without replacing its name/color. Recursive layering preserves
-// authored false overrides for both visibility and deletion.
+// UnmarshalJSON tracks presence so a project can explicitly unhide a global tag
+// without replacing its name/color, matching OMP's recursive record layering.
 func (t *Tag) UnmarshalJSON(data []byte) error {
 	type plain Tag
 	var value plain
@@ -19,7 +18,6 @@ func (t *Tag) UnmarshalJSON(data []byte) error {
 	_, t.nameSet = fields["name"]
 	_, t.colorSet = fields["color"]
 	_, t.hiddenSet = fields["hidden"]
-	_, t.deletedSet = fields["deleted"]
 	return nil
 }
 
@@ -35,15 +33,5 @@ func (t Tag) MarshalJSON() ([]byte, error) {
 	if t.hiddenSet || t.Hidden {
 		fields["hidden"] = t.Hidden
 	}
-	if t.deletedSet || t.Deleted {
-		fields["deleted"] = t.Deleted
-	}
 	return json.Marshal(fields)
-}
-
-// WithDeleted authors a deletion/restoration marker without losing other tag
-// fields. Explicit false must survive serialization to restore a lower layer.
-func (t Tag) WithDeleted(deleted bool) Tag {
-	t.Deleted, t.deletedSet = deleted, true
-	return t
 }
