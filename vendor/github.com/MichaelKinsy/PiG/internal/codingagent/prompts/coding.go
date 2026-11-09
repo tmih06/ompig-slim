@@ -71,7 +71,33 @@ type Options struct {
 	AppendMode string
 }
 
-const preamble = "You are a coding assistant running inside ompig-slim, a coding agent harness. Help users inspect files, run commands, and modify code."
+// Preamble is the base system prompt text: the paragraph that opens the prompt,
+// before the tagged tool, rules, docs, project-context, and skills sections.
+//
+// It is a variable so an embedding program can supply its own prose, which is
+// how ompig-slim ships a prompt maintained as a Markdown file rather than Go
+// source. The vendored default is upstream's paragraph, so a build that never
+// sets it behaves exactly as before. Set it once at startup, before any session
+// builds its prompt; a session that is already running keeps the text it read.
+//
+// The composition around it is unchanged: a program that sets Preamble still
+// gets the tool, rules, docs, project-context, and skills sections.
+//
+// An empty value falls back to the default, so clearing the variable cannot
+// produce a prompt with no opening sentence.
+var Preamble = defaultPreamble
+
+// defaultPreamble is upstream's opening paragraph, and the value Preamble falls
+// back to when it is unset.
+const defaultPreamble = "You are a coding assistant running inside ompig-slim, a coding agent harness. Help users inspect files, run commands, and modify code."
+
+// preambleText resolves the paragraph to render.
+func preambleText() string {
+	if strings.TrimSpace(Preamble) == "" {
+		return defaultPreamble
+	}
+	return Preamble
+}
 
 type section struct{ name, content string }
 
@@ -93,7 +119,7 @@ func BuildSystemPromptSections(o Options) ai.OrderedSections {
 	if o.Tools == nil {
 		o.Tools = []string{"read", "bash", "edit", "write", "grep", "find"}
 	}
-	head := preamble
+	head := preambleText()
 	declared := make([]string, 0, len(o.Tools))
 	for _, name := range o.Tools {
 		if !slices.Contains(o.HiddenTools, name) {

@@ -13,6 +13,7 @@ import (
 
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/internal/todotool"
+	"ompig-slim/prompts"
 )
 
 func main() {
@@ -37,10 +38,15 @@ func main() {
 	//
 	// Pass `delegated`, not `os.Args[1:]`: the self-updater may rewrite the
 	// argument list before handing the rest of the CLI over.
+	//
+	// SystemPromptPreamble is embedded from prompts/system.md rather than written
+	// in Go source, so the prompt is reviewed and diffed as prose. The runtime
+	// composes its tool, rules, project-context and skills sections around it.
 	cli.Main(args, &cli.MainOptions{
 		ExtensionFactories: []extension.InlineExtension{
 			todotool.Extension(),
 			todotool.SettleExtension(),
 		},
+		SystemPromptPreamble: prompts.System(),
 	})
 }

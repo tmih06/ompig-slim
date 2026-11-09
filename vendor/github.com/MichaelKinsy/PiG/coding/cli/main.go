@@ -689,6 +689,17 @@ func reportExtensionSDKStageFailure(stderr io.Writer, err error) {
 type MainOptions struct {
 	// ExtensionFactories are the compiled-in extensions an embedding program adds after the built-in ones (main.ts:575). Only the program's own main passes them (docs/specs/extension-factory-trust.md).
 	ExtensionFactories []extension.InlineExtension
+	// SystemPromptPreamble replaces the opening paragraph of the system prompt,
+	// the text before the tool, rules, docs, project-context and skills sections.
+	//
+	// An embedding program sets it to keep its prompt in its own source tree, for
+	// example embedded from a Markdown file. Empty keeps this build's default, so
+	// an embedder that says nothing gets the stock prompt.
+	//
+	// It must be set before any session builds its prompt; a session already
+	// running keeps the text it read. pig additive: upstream has one program and
+	// no need for this seam.
+	SystemPromptPreamble string
 }
 
 // processCwd is process.cwd(). It is a variable so that a test can make the working directory fail the way Pi's deleted-cwd.test.ts
@@ -709,6 +720,11 @@ func Main(args []string, options *MainOptions) {
 	var programExtensions []extension.InlineExtension
 	if options != nil {
 		programExtensions = options.ExtensionFactories
+		// pig additive: an embedding program's base system prompt, set before any
+		// session builds its prompt. Empty keeps this build's default.
+		if options.SystemPromptPreamble != "" {
+			prompts.Preamble = options.SystemPromptPreamble
+		}
 	}
 	commandRuntime := packageCommandRuntimeOptions{extensionFactories: slices.Concat(builtInExtensions, programExtensions)}
 	// PIG_PROFILE (internal/profiling) is read once here. Unset, it costs one lookup.

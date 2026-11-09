@@ -13,6 +13,7 @@ Technical orientation and maintenance rulings for coding agents working in this 
 ## Repository map
 
 - `main.go`: executable entry point and library registrations.
+- `prompts/system.md`: this program's base system prompt, embedded into the binary at build time. Edit the Markdown, not Go source.
 - `vendor/github.com/MichaelKinsy/PiG/`: PiG runtime plus personal patches; inspect this tree for CLI, coding runtime, provider, and TUI behavior.
 - `scripts/`: Go checks, native builds, smoke tests, startup measurement, CLI benchmarking, release verification, and the user-facing curl installer.
 - `benchmarks/`: pinned OMP/Pi npm manifests and lockfiles plus retained local measurement evidence used by CI comparisons.
@@ -57,6 +58,18 @@ make test-self-update
 - Update this section when an enduring technical ruling changes; keep transient task notes and details discoverable directly from source out of this file.
 
 ## Feature behavior notes
+
+### The base system prompt
+
+The prompt's opening text lives in `prompts/system.md` at the repository root and is embedded into the binary with `go:embed`; nothing reads the file at runtime. Edit the Markdown, not Go source. `prompts.System()` returns it trimmed.
+
+The vendored runtime composes the rest and cannot be bypassed from the root: the prompt-building package is `internal/codingagent/prompts`, and Go forbids an external module from importing a vendored `internal` path. So the seam is an exported field, `cli.MainOptions.SystemPromptPreamble`, next to the existing `ExtensionFactories`. `main.go` passes `prompts.System()`; `cli.Main` assigns it to the package-level `prompts.Preamble` before any session builds a prompt.
+
+Only the preamble is replaceable this way. The tool list, rules, docs, project-context, and skills sections still compose around it, because they depend on runtime facts (selected tools, discovered skills, loaded context files) the root cannot supply. A replaced preamble therefore keeps the stock prompt's structure; it becomes the whole `<preamble>` section and nothing else moves.
+
+Two properties matter for keeping this honest. `prompts.Preamble` is read at render time by both `BuildDefaultPrompt` and `BuildSystemPromptSections`, so startup, resource reload, and per-session rebuild cannot disagree about it; `TestAllBuildersSeeOverride` pins that. An empty or whitespace-only value falls back to the stock paragraph, so a build that never sets the field is byte-identical to before, and clearing it cannot produce a prompt with no opening sentence.
+
+Do not grow this into a prompt file plus a `SYSTEM.md` override layered on top. The runtime already discovers a trusted project `SYSTEM.md` (and `APPEND_SYSTEM.md`) and switches `AppendMode` to `replace` when it exists; that is the user-facing override and it deliberately wins over this embedded default.
 
 ### Release distribution and the curl installer
 
