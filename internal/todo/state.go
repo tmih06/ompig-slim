@@ -187,14 +187,25 @@ func Fingerprint(phases []Phase) string {
 // reported, so a partially applied batch can never be persisted: the natural
 // retry would otherwise collide with the half that landed.
 //
+// Executing an op is not the same as committing one. Read-only ops return the
+// list untouched, so `view` reports what is stored instead of a normalized copy
+// the transcript never accepted.
+//
 // phases is mutated in place and returned; callers that need the previous list
 // pass a ClonePhases copy.
 func Apply(phases []Phase, p Params) ([]Phase, []string) {
 	var errors []string
 	next := applyOp(phases, p, &errors)
-	normalizeInProgress(next)
+	if !p.Op.readOnly() {
+		normalizeInProgress(next)
+	}
 	return next, errors
 }
+
+// readOnly reports whether an op inspects the list without changing it. A
+// read-only op must not run normalizeInProgress: normalization is a write, and
+// a snapshot that never became state must not appear to have been rewritten.
+func (op Op) readOnly() bool { return op == OpView }
 
 // normalizeInProgress enforces the single-active-task invariant: at most one
 // task is in_progress, and while any pending task exists exactly one of them

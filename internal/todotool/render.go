@@ -48,12 +48,16 @@ const collapsedItems = 8
 // instead of silently removing a row.
 const collapsedClosedContext = 1
 
+// headerFlattener is [stripForHeader]'s replacer, built once. Every card row
+// flattens model-authored text, so rebuilding a Replacer per row made the
+// replacer's own construction the largest single cost of a render.
+var headerFlattener = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ")
+
 // stripForHeader flattens model-authored text for a single-line header. OMP's
 // flattenForHeader does the same for status lines: a raw newline would break the
 // line the title rides on.
 func stripForHeader(text string) string {
-	replacer := strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ")
-	return strings.TrimSpace(replacer.Replace(text))
+	return strings.TrimSpace(headerFlattener.Replace(text))
 }
 
 // fg is the theme lookup the card uses throughout.
@@ -63,7 +67,7 @@ func fg(token tui.ThemeColor, text string) string {
 
 // renderStatusLine is OMP's renderStatusLine: `icon title · meta` with the icon
 // and title colored and the meta dim.
-func renderStatusLine(icon, title, titleToken string, meta []string) string {
+func renderStatusLine(icon, title string, meta []string) string {
 	line := fg(tui.ThemeColorAccent, stripForHeader(title))
 	if fgIcon := icon; fgIcon != "" {
 		line = fgIcon + " " + line
@@ -377,7 +381,7 @@ func renderCall(args json.RawMessage, _ extension.Theme, context extension.ToolR
 		return blankComponent()
 	}
 	ops := describeOps(args)
-	header := renderStatusLine(fg(tui.ThemeColorWarning, "●"), "Todo", "", ops)
+	header := renderStatusLine(fg(tui.ThemeColorWarning, "●"), "Todo", ops)
 	return tui.NewPaddedText(header, 0, 0, nil)
 }
 
@@ -413,18 +417,15 @@ func describeOps(args json.RawMessage) []string {
 // renderResult draws the settled card: a status line naming the task count, then
 // the phase tree.
 func renderResult(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
-	container := cardContainer(context.LastComponent)
-
 	if result.IsError {
-		header := renderStatusLine(fg(tui.ThemeColorError, "✗"), "Todo", "", nil)
-		container.Add(textLine(header))
+		rows := []string{renderStatusLine(fg(tui.ThemeColorError, "✗"), "Todo", nil)}
 		for _, line := range strings.Split(toolResultText(result), "\n") {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			container.Add(textLine("  " + fg(tui.ThemeColorError, stripForHeader(line))))
+			rows = append(rows, "  "+fg(tui.ThemeColorError, stripForHeader(line)))
 		}
-		return container
+		return linesComponent{body: strings.Join(rows, "\n")}
 	}
 
 	details := decodeDetails(result)
@@ -439,16 +440,15 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 		total += len(phase.Tasks)
 	}
 	icon := fg(tui.ThemeColorAccent, symTodoTool)
-	header := renderStatusLine(icon, "Todo", "", []string{fmt.Sprintf("%d tasks", total)})
-	container.Add(textLine(header))
+	rows := []string{renderStatusLine(icon, "Todo", []string{fmt.Sprintf("%d tasks", total)})}
 
 	if total == 0 {
 		fallback := toolResultText(result)
 		if strings.TrimSpace(fallback) == "" {
 			fallback = "No todos"
 		}
-		container.Add(textLine("  " + fg(tui.ThemeColorDim, stripForHeader(fallback))))
-		return container
+		rows = append(rows, "  "+fg(tui.ThemeColorDim, stripForHeader(fallback)))
+		return linesComponent{body: strings.Join(rows, "\n")}
 	}
 
 	// Everything below is fixed for this result; only the expand toggle varies.
@@ -475,48 +475,48 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 
 	for i, phase := range phases {
 		if touched != nil && !touched[phase.Name] {
-			container.Add(textLine(formatPhaseSummary(phase, i+1)))
+			rows = append(rows, formatPhaseSummary(phase, i+1))
 			continue
 		}
 		if multiPhase {
 			name := fg(tui.ThemeColorAccent, tui.ChalkBold(phaseDisplayName(phase.Name, i+1)))
-			container.Add(textLine(name + phaseProgress(phase)))
+			rows = append(rows, name+phaseProgress(phase))
 		}
-		var rows []treeRow
+		var treeRows []treeRow
 		if options.Expanded {
 			for _, task := range phase.Tasks {
-				rows = append(rows, treeRow{text: formatTodoLine(task)})
+				treeRows = append(treeRows, treeRow{text: formatTodoLine(task)})
 			}
 		} else {
 			selection := selectCollapsedTodos(phase.Tasks, collapsedItems)
 			for _, task := range selection.items {
-				rows = append(rows, treeRow{text: formatTodoLine(task)})
+				treeRows = append(treeRows, treeRow{text: formatTodoLine(task)})
 			}
 			if selection.summary != "" {
-				rows = append(rows, treeRow{text: fg(tui.ThemeColorMuted, selection.summary), summary: true})
+				treeRows = append(treeRows, treeRow{text: fg(tui.ThemeColorMuted, selection.summary), summary: true})
 			}
 		}
-		for _, line := range renderTreeRows(rows) {
-			container.Add(textLine(indent + line))
+		for _, line := range renderTreeRows(treeRows) {
+			rows = append(rows, indent+line)
 		}
 	}
 
-	return container
+	return linesComponent{body: strings.Join(rows, "\n")}
 }
 
-// cardContainer reuses the component a card already has, clearing it so a
-// re-render after an expand or a progress update redraws in place instead of
-// stacking.
-func cardContainer(last extension.Component) *tui.Container {
-	container, ok := last.(*tui.Container)
-	if !ok || container == nil {
-		container = tui.NewContainer()
-	}
-	container.Clear()
-	return container
+// linesComponent renders pre-joined rows as one text block.
+//
+// One Text for the whole list rather than one per row: the card draws up to 50
+// rows, and each Text pays the width engine's grapheme and SGR scan over its
+// line. Joining first lets that scan run once per render and cuts the
+// allocations of a full card roughly in half.
+type linesComponent struct{ body string }
+
+func (c linesComponent) Render(width int) []string {
+	return tui.NewPaddedText(c.body, 0, 0, nil).Render(width)
 }
 
-func textLine(text string) *tui.Text { return tui.NewPaddedText(text, 0, 0, nil) }
+func (linesComponent) Invalidate() {}
 
 // toolResultText joins a result's text blocks, the provider text OMP reads from
 // content[0].text.
@@ -530,10 +530,20 @@ func toolResultText(result extension.AgentToolResult) string {
 	return strings.Join(parts, "\n")
 }
 
-// decodeDetails reads the todo details a card draws. A card may hold them as the
-// value the tool returned or as decoded JSON after a resume, so they go through
-// JSON either way.
+// decodeDetails reads the todo details a card draws, accepting both shapes they
+// arrive in: the value the tool returned, and the decoded JSON a resumed card
+// holds. The live path is the common one and is asserted directly; re-marshalling
+// a value that is already the right type cost more than the rest of a render.
 func decodeDetails(result extension.AgentToolResult) todo.Details {
+	switch details := result.Details.(type) {
+	case todo.Details:
+		return details
+	case *todo.Details:
+		if details != nil {
+			return *details
+		}
+		return todo.Details{}
+	}
 	var details todo.Details
 	raw, err := jsonMarshal(result.Details)
 	if err != nil {

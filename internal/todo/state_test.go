@@ -250,6 +250,48 @@ func TestCompletedTransitions(t *testing.T) {
 	}
 }
 
+// TestViewDoesNotNormalize guards the read-only path. `view` must report the
+// stored list; running normalizeInProgress over it would demote a second
+// in_progress task and make the result describe a list the transcript never
+// accepted. The tool also skips Apply for a view, so this pins the guarantee at
+// the library boundary where a future caller could regress it.
+func TestViewDoesNotNormalize(t *testing.T) {
+	// Two active tasks, which normalization would reduce to one.
+	phases := []Phase{{Name: "Tasks", Tasks: []Task{
+		{Content: "a", Status: StatusInProgress},
+		{Content: "b", Status: StatusInProgress},
+	}}}
+	out, errs := Apply(ClonePhases(phases), Params{Op: OpView})
+	if len(errs) > 0 {
+		t.Fatalf("view reported problems: %v", errs)
+	}
+	if got := out[0].Tasks[1].Status; got != StatusInProgress {
+		t.Fatalf("view normalized the list: task b became %q, want it untouched", got)
+	}
+}
+
+// TestWriteOpsStillNormalize is the counterpart: dropping normalization for the
+// read-only path must not drop it for the mutating ones.
+func TestWriteOpsStillNormalize(t *testing.T) {
+	phases := []Phase{{Name: "Tasks", Tasks: []Task{
+		{Content: "a", Status: StatusInProgress},
+		{Content: "b", Status: StatusInProgress},
+	}}}
+	out, errs := Apply(phases, Params{Op: OpDone, Task: "a"})
+	if len(errs) > 0 {
+		t.Fatalf("done reported problems: %v", errs)
+	}
+	active := 0
+	for _, task := range out[0].Tasks {
+		if task.Status == StatusInProgress {
+			active++
+		}
+	}
+	if active > 1 {
+		t.Fatalf("a write must keep at most one active task, got %d", active)
+	}
+}
+
 // seed builds a single-phase list and lets Apply establish the active pointer, so
 // tests assert against the same normalization the tool produces.
 func seed(t *testing.T, contents ...string) []Phase {
