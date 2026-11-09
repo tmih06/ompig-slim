@@ -146,6 +146,22 @@ role cycling; absent order uses the built-in default. Model changes record the
 logical role, so fallback, cycling, branching, and resume do not infer it from a
 physical model shared by multiple roles.
 
+### Custom-model thinking capabilities
+
+Custom definitions inherit declared thinking tiers from a matching bundled model
+on the first offline launch, even without `models-metadata.json`. Once fetched,
+matching public tiers take precedence over that seed and persist for offline
+restarts. Version/variant matching prevents borrowing an unrelated model's ladder;
+no manual `thinkingLevelMap` is needed for a recognized model.
+
+Explicit `reasoning: false`, `thinkingLevelMap`, and endpoint compatibility
+settings remain authoritative. In particular, `compat.supportsReasoningEffort:
+false` prevents inheriting effort tiers and suppresses `reasoning_effort` on the
+wire; fetching catalog data never turns it on. Enable it only for an endpoint
+that accepts that parameter. For a compatible custom DeepSeek V4.1 Flash endpoint,
+the canonical positive tiers are **Low / High / Max**, not generic Minimal/Medium;
+Off omits the effort parameter rather than borrowing another host's disable value.
+
 ### Auto thinking and compaction
 
 `auto` keeps the configured selector separate from the concrete provider effort.
