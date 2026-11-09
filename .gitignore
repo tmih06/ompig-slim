@@ -5,3 +5,4 @@ node_modules/
 .pi/
 /benchmark-results/
 __pycache__/
+*.test
