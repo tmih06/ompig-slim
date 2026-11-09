@@ -12,7 +12,7 @@ import (
 // and an explicit empty legacy list prevents it filtering future role choices.
 func (sm *SettingsManager) ImportLegacyModelScope(choices []ScopedModel) (bool, error) {
 	settings := sm.Get()
-	if settings.CycleOrder != nil || len(settings.EnabledModels) == 0 || len(choices) == 0 {
+	if len(settings.EnabledModels) == 0 || len(choices) == 0 {
 		return false, nil
 	}
 	update := sm.UpdateGlobal
@@ -24,8 +24,10 @@ func (sm *SettingsManager) ImportLegacyModelScope(choices []ScopedModel) (bool, 
 		if s.ModelRoles == nil {
 			s.ModelRoles = map[string]string{}
 		}
-		s.CycleOrder = []string{}
-		if len(settings.ModelRoles) > 0 {
+		// A pre-existing role cycle is not evidence that the legacy filter was
+		// cleared. Preserve its order while absorbing any remaining scope rows.
+		s.CycleOrder = append([]string{}, settings.CycleOrder...)
+		if settings.CycleOrder == nil && len(settings.ModelRoles) > 0 {
 			s.CycleOrder = settings.Config.Order()
 		}
 		for i, item := range choices {
@@ -38,7 +40,7 @@ func (sm *SettingsManager) ImportLegacyModelScope(choices []ScopedModel) (bool, 
 				role = fmt.Sprintf("scoped-%d-%d", i+1, suffix)
 			}
 			s.ModelRoles[role] = selector
-			if !slices.Contains(s.CycleOrder, role) {
+			if (settings.CycleOrder == nil || len(settings.CycleOrder) > 0) && !slices.Contains(s.CycleOrder, role) {
 				s.CycleOrder = append(s.CycleOrder, role)
 			}
 		}

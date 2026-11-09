@@ -108,8 +108,9 @@ func (sm *SettingsManager) SetFallbackChain(key string, chain []string, scope st
 	return sm.UpdateGlobal(update)
 }
 
-// SetRoleCycleOrder persists role-based cycling. The legacy enabledModels list is
-// retained for compatibility, but explicit role order becomes authoritative.
+// SetRoleCycleOrder persists role-based cycling, including an explicit empty
+// order to disable it. Startup/manager migration absorbs any legacy enabledModels
+// into roles independently; an existing cycle must not preserve a stale filter.
 func (sm *SettingsManager) SetRoleCycleOrder(order []string, scope string) error {
 	update := func(s *Settings) { s.CycleOrder = append([]string{}, order...) }
 	if scope == "project" {

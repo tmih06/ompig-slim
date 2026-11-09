@@ -3,6 +3,7 @@ package codingagent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -36,6 +37,35 @@ func hubCatalogItem(model ai.AnyModel) tui.ModelSelectorItem {
 		item.Model = &ai.Model{ID: typed.ID, DisplayName: typed.Name, ProviderMeta: ai.ProviderMetadata{ProviderID: typed.Provider}, Input: typed.Input, Capabilities: ai.ModelCapabilities{ContextWindow: typed.ContextWindow}}
 	}
 	return item
+}
+
+// hubCatalogItems composes each visible provider exactly once for an overlay
+// snapshot. Auth and account membership are checked once per provider, without
+// resolving credentials or contacting endpoints. All retains locked-provider
+// rows for login previews; available retains account filters for chat but not
+// other kinds. Both lists share immutable model data, not mutable slice storage.
+func (r *ModelRegistry) hubCatalogItems(disabled []string) (available, all []tui.ModelSelectorItem) {
+	available = []tui.ModelSelectorItem{}
+	all = []tui.ModelSelectorItem{}
+	for _, provider := range r.BrowserProviderIDs() {
+		if slices.Contains(disabled, provider) {
+			continue
+		}
+		configured := r.HasConfiguredAuth(provider)
+		filter := r.accountModelFilter(provider)
+		for _, model := range r.GetProviderAllModelData(provider) {
+			item := hubCatalogItem(model)
+			all = append(all, item)
+			if tui.ModelItemKind(item) == "chat" {
+				if configured && filter(item.ID) {
+					available = append(available, item)
+				}
+			} else if configured || ai.OMPKeylessCatalog(provider) {
+				available = append(available, item)
+			}
+		}
+	}
+	return available, all
 }
 
 // hubAutoRefresh is a process-lifetime once guard, consumed only when a debounce

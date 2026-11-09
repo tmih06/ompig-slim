@@ -59,8 +59,11 @@ the picker restores the editor and does not write an assignment.
 
 Saved `enabledModels` selections migrate at startup (or when opening the manager)
 into collision-safe `scoped-N` roles and cycle order, preserving effort and
-settings-layer ownership. Existing roles are retained. An explicit `cycleOrder`
-is authoritative and suppresses migration. A command-line `--models` scope stays
+settings-layer ownership. Existing roles and cycle order are retained; remaining
+legacy selections are appended without overwriting roles (an explicit empty
+cycle order still disables cycling). Migration clears the
+saved filter even when `cycleOrder` already exists, so it cannot silently hide
+models from the manager. A command-line `--models` scope stays
 session-only and filters chat choices/cycling without hiding typed model kinds.
 
 ## Configuration

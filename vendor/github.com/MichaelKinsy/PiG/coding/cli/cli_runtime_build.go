@@ -593,7 +593,7 @@ func (b *cliRuntimeBuilder) buildSession(ctx context.Context, build *cliBuild, i
 	// Fold saved legacy scopes into roles before constructing any runtime mode.
 	// CLI --models remains a process-only filter and is never copied to settings.
 	saved := services.SettingsManager().Get()
-	if saved.CycleOrder == nil && len(saved.EnabledModels) > 0 {
+	if len(saved.EnabledModels) > 0 {
 		models := []codingagent.RuntimeModel{}
 		for _, model := range services.ModelRuntime().GetAvailableSnapshot() {
 			models = append(models, *runtimeModelOf(model))

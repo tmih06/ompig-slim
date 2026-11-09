@@ -93,6 +93,45 @@ Not applied:
   unfiltered OpenAI/local/web views at both 120×40 and 80×24, using the shared
   public metadata fixture. No inference prompts or paid requests were sent.
 
+## Manager first-display latency
+
+A follow-up against `0239eee` measures the actual `/model` command-to-first-tab
+path, not just warmed catalog operations. With 8,671 cached public metadata rows,
+four dummy authenticated providers, two configured roles and a 120×40 PTY:
+
+| Path | Before median | After median |
+| --- | ---: | ---: |
+| First `/model` display | 1,036 ms | 298 ms |
+| Reopen in the same process | 896 ms | 152 ms |
+
+Three sequential isolated processes per binary, cold then reopen in each. The
+host is Linux arm64 / Go 1.27.3; raw samples, binary hashes and the metadata
+snapshot hash are in `evidence/model-catalog/menu-latency.json`. The public cache
+itself is not retained; its contents affect discovery counts and timing, so these
+are workload-specific observations, not universal latency promises.
+
+`interactive_model_hub.go:showModelHub` previously rebuilt the available catalog
+for every role resolution. `ModelRegistry.hubCatalogItems` now composes each
+provider once and derives authenticated rows from that same overlay snapshot.
+Account filters, disabled providers, locked-provider previews and typed rows
+remain intact. Cost: available/all slice storage lives until overlay closure;
+discovery and login invalidate both lists together. No cross-overlay cache or
+background prewarming was added (*hypothesis*, deferred invalidation complexity).
+
+The same fix migrates stale `enabledModels` even when `cycleOrder` exists. A real
+PTY regression fails against the baseline and passes after the fix, verifies
+persisted filter removal, and separately proves CLI `--models` stays scoped.
+Both scope scenarios now run under `make smoke`. Existing roles and cycle order
+are preserved, including an explicit empty cycle that disables cycling.
+
+```sh
+python3 scripts/measure-model-menu.py ./bin/ompig-slim --runs 3 \
+  --metadata /path/to/models-metadata.json
+python3 scripts/measure-model-menu.py ./bin/ompig-slim --legacy-scope --runs 1
+python3 scripts/measure-model-menu.py ./bin/ompig-slim \
+  --legacy-scope --explicit-scope --runs 1
+```
+
 ## Reproduce
 
 Use the repository's isolated canonical GOPATH setup (populated by `make check`)

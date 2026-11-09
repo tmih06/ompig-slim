@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -45,7 +44,7 @@ func (m *InteractiveMode) showModelHub() {
 	// Import the old saved scope once, preserving resolved order and thinking. CLI-only
 	// scopes are not persisted; subsequent role edits use the unified manager.
 	settings := sm.Get()
-	if settings.CycleOrder == nil && len(settings.EnabledModels) > 0 {
+	if len(settings.EnabledModels) > 0 {
 		var models []RuntimeModel
 		for _, item := range m.availableModelItems() {
 			models = append(models, RuntimeModel{Provider: item.Provider, ID: item.ID, Name: item.Name})
@@ -64,36 +63,18 @@ func (m *InteractiveMode) showModelHub() {
 	life, cancel := context.WithCancel(m.runCtx)
 	defer cancel()
 	registry := m.modelRegistryOrDefault()
-	var allSnapshot []tui.ModelSelectorItem
-	// One overlay snapshot serves repeated role resolution. Only discovery/login
-	// invalidates it; otherwise each role reparses/clones the entire catalog.
+	var allSnapshot, availableSnapshot []tui.ModelSelectorItem
+	// One composed snapshot serves every role and both browser lists. Discovery
+	// and login invalidate both together; role edits never repeat catalog work.
 	allItems := func() []tui.ModelSelectorItem {
 		if allSnapshot == nil {
-			allSnapshot = []tui.ModelSelectorItem{}
-			disabled := sm.Get().DisabledProviders
-			for _, provider := range registry.BrowserProviderIDs() {
-				if slices.Contains(disabled, provider) {
-					continue
-				}
-				for _, model := range registry.GetProviderAllModelData(provider) {
-					allSnapshot = append(allSnapshot, hubCatalogItem(model))
-				}
-			}
+			availableSnapshot, allSnapshot = registry.hubCatalogItems(sm.Get().DisabledProviders)
 		}
 		return allSnapshot
 	}
 	availableItems := func() []tui.ModelSelectorItem {
-		items := m.availableModelItems()
-		seen := map[string]bool{}
-		for _, item := range items {
-			seen[item.FQ()] = true
-		}
-		for _, item := range allItems() {
-			if ModelKind := tui.ModelItemKind(item); ModelKind != "chat" && !seen[item.FQ()] && (ai.OMPKeylessCatalog(item.Provider) || registry.HasConfiguredAuth(item.Provider)) {
-				items = append(items, item)
-			}
-		}
-		return m.scopeBrowserModels(items)
+		allItems()
+		return m.scopeBrowserModels(availableSnapshot)
 	}
 	refreshes := newHubRefreshQueue(m, life, registry, availableItems, func() []tui.ModelSelectorItem { allSnapshot = nil; return allItems() })
 	var hub *tui.ModelHub
