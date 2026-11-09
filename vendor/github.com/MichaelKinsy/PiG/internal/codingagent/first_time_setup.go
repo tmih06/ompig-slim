@@ -36,10 +36,16 @@ const (
 	firstTimeSetupStepAnalytics firstTimeSetupStep = "analytics"
 )
 
+// firstTimeSetupThemeOptions lists the themes the first-run dialog offers, most
+// likely first. Titanium leads because it is the dark default, and the system
+// theme follows it rather than leading: it is only as colorful as the terminal's
+// own reported colors let it be. The dialog itself starts on
+// tui.DefaultThemeName, which is the appearance-dependent default.
 var firstTimeSetupThemeOptions = []struct{ value, label string }{
+	{tui.DefaultDarkTheme, "Titanium"},
 	{tui.SystemThemeName, "System (matches your terminal colors)"},
-	{"dark", "Dark"},
 	{"light", "Light"},
+	{"dark", "Dark"},
 }
 
 var firstTimeSetupAnalyticsOptions = []struct {
@@ -259,7 +265,7 @@ func ShowFirstTimeSetup(settings FirstTimeSetupSettings, opts StartupUIOptions) 
 
 func showFirstTimeSetupWith(settings FirstTimeSetupSettings, opts StartupUIOptions, ui *tui.TuiMainScreen, terminal startupTerminal) (*FirstTimeSetupResult, error) {
 	configureStartupTheme(opts.Settings, opts.ThemePaths)
-	preview := tui.SystemThemeName
+	preview := tui.DefaultThemeName(tui.GetTerminalTheme())
 	tui.SetThemeByName(preview)
 	var result *FirstTimeSetupResult
 	component := NewFirstTimeSetupComponent(FirstTimeSetupOptions{

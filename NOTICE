@@ -28,3 +28,8 @@ The native Agent Hub ports the oh-my-pi Agent Hub overlay, projection, and
 renderer from can1357/oh-my-pi at commit
 f2b795ba747b23d42052184d822b41e3d01357cc (MIT).
 The upstream copyright and permission notice are reproduced in LICENSE.
+
+The bundled theme palettes in
+vendor/github.com/MichaelKinsy/PiG/tui/theme_palettes.json are copied from
+oh-my-pi's packages/tui/src/theme/defaults.json (MIT). The upstream copyright
+and permission notice are reproduced in LICENSE.

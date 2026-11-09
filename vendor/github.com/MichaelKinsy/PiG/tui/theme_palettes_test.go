@@ -1,0 +1,338 @@
+package tui
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// TestBuiltinPalettesLoad covers the bundled oh-my-pi palettes: every one parses
+// and resolves, carries an ANSI palette (so colorful Markdown has hues to paint
+// from), and names itself.
+func TestBuiltinPalettesLoad(t *testing.T) {
+	data, err := builtinThemes.ReadFile("theme_palettes.json")
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	var documents map[string]json.RawMessage
+	if err := json.Unmarshal(data, &documents); err != nil {
+		t.Fatalf("decode bundle: %v", err)
+	}
+	if len(documents) == 0 {
+		t.Fatal("bundle is empty")
+	}
+	names := BuiltinPaletteNames()
+	if len(names) != len(documents) {
+		t.Fatalf("BuiltinPaletteNames has %d names for %d documents", len(names), len(documents))
+	}
+	for _, name := range names {
+		theme := paletteTheme(name)
+		if theme == nil {
+			t.Fatalf("%s: not resolved", name)
+		}
+		if theme.Name != name {
+			t.Fatalf("%s: theme names itself %q", name, theme.Name)
+		}
+		if !theme.HasANSIPalette() {
+			t.Fatalf("%s: no ANSI palette", name)
+		}
+		// Every token a component draws with must resolve; a missing one panics in
+		// Fg, so a palette that loads but lacks one crashes the first render. The
+		// table lists both foreground and background tokens, so the background
+		// half goes through Bg.
+		for _, token := range ThemeColorTokens() {
+			if themeBackgroundTokens[token.Name] {
+				theme.Bg(token.Name, "x")
+				continue
+			}
+			theme.Fg(token.Name, "x")
+		}
+	}
+}
+
+// TestBuiltinPalettesAreRegistered covers that a fresh registry offers the
+// palettes to the theme picker and that selecting one by name works.
+func TestBuiltinPalettesAreRegistered(t *testing.T) {
+	previousRegistry := ActiveThemeRegistry()
+	previous := ActiveTheme()
+	t.Cleanup(func() {
+		SetThemeRegistry(previousRegistry)
+		SetThemeInstance(previous)
+	})
+	registry := NewThemeRegistry()
+	SetThemeRegistry(registry)
+
+	registered := registry.Names()
+	for _, want := range []string{SystemThemeName, "dark", "light", "titanium", "dark-dracula"} {
+		found := false
+		for _, name := range registered {
+			if name == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%q is not registered among %d themes", want, len(registered))
+		}
+	}
+	if len(registered) < 90 {
+		t.Fatalf("only %d themes registered; the palette bundle did not load", len(registered))
+	}
+	if err := SetThemeByNameChecked("titanium"); err != nil {
+		t.Fatalf("select titanium: %v", err)
+	}
+	if ActiveTheme().Name != "titanium" {
+		t.Fatalf("active theme is %q after selecting titanium", ActiveTheme().Name)
+	}
+}
+
+// TestThemeSchemaAcceptsOMPSections covers the sections OMP writes that this
+// engine does not render: a theme carrying them must load rather than be
+// rejected, and a malformed one must still be reported.
+func TestThemeSchemaAcceptsOMPSections(t *testing.T) {
+	minimal := func() map[string]any {
+		colors := map[string]any{}
+		for _, token := range ThemeColorTokens() {
+			if !token.Optional {
+				colors[token.Name] = "#808080"
+			}
+		}
+		return map[string]any{"name": "test", "colors": colors}
+	}
+	document := func(mutate func(map[string]any)) []byte {
+		values := minimal()
+		mutate(values)
+		encoded, err := json.Marshal(values)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return encoded
+	}
+
+	ansi := make([]any, ANSISlotCount)
+	for i := range ansi {
+		ansi[i] = "#101010"
+	}
+	for name, data := range map[string][]byte{
+		"terminal and symbols": document(func(values map[string]any) {
+			values["terminal"] = map[string]any{
+				"background": "#101010", "foreground": "#e0e0e0", "chrome": "#141414",
+				"widget": "#181818", "ansi": ansi,
+			}
+			values["symbols"] = map[string]any{
+				"preset":        "unicode",
+				"overrides":     map[string]any{"status.success": "✔"},
+				"spinnerFrames": []any{"⠋", "⠙"},
+			}
+		}),
+		"symbols spinner object": document(func(values map[string]any) {
+			values["symbols"] = map[string]any{"spinnerFrames": map[string]any{"status": []any{"⠋"}}}
+		}),
+	} {
+		if err := ValidateThemeJSON(name, data); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+
+	for name, data := range map[string][]byte{
+		"terminal ansi wrong length": document(func(values map[string]any) {
+			values["terminal"] = map[string]any{"ansi": []any{"#101010"}}
+		}),
+		"unknown terminal member": document(func(values map[string]any) {
+			values["terminal"] = map[string]any{"chromeColor": "#101010"}
+		}),
+		"unknown symbols member": document(func(values map[string]any) {
+			values["symbols"] = map[string]any{"icons": map[string]any{"a": "b"}}
+		}),
+		"bad symbols preset": document(func(values map[string]any) {
+			values["symbols"] = map[string]any{"preset": "emoji"}
+		}),
+		"empty spinner frame": document(func(values map[string]any) {
+			values["symbols"] = map[string]any{"spinnerFrames": []any{""}}
+		}),
+	} {
+		if err := ValidateThemeJSON(name, data); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+}
+
+// TestThemeOptionalStatusLineTokens covers the fallbacks: a theme that predates
+// the status line names no statusLine* token, and every one must still resolve
+// to the token it borrows instead of panicking on the first footer render.
+func TestThemeOptionalStatusLineTokens(t *testing.T) {
+	foregrounds := []ThemeTokenValue{{Token: "accent", Value: ThemeColorValue{Text: "#00d7ff", isSet: true}}}
+	for _, token := range themeColorTokens {
+		if token.name == "accent" || themeBackgroundTokens[token.name] || token.name == "statusLineSep" || strings.HasPrefix(token.name, "statusLine") {
+			continue
+		}
+		foregrounds = append(foregrounds, ThemeTokenValue{Token: token.name, Value: ThemeColorValue{Text: "#808080", isSet: true}})
+	}
+	backgrounds := []ThemeTokenValue{}
+	for _, token := range themeColorTokens {
+		if themeBackgroundTokens[token.name] {
+			backgrounds = append(backgrounds, ThemeTokenValue{Token: token.name, Value: ThemeColorValue{Text: "#101010", isSet: true}})
+		}
+	}
+	json := &ThemeJSON{
+		Name:   "no-status-line",
+		Colors: map[string]ThemeColorValue{},
+		colorKeys: func() []string {
+			keys := make([]string, 0, len(foregrounds)+len(backgrounds))
+			for _, entry := range foregrounds {
+				keys = append(keys, entry.Token)
+			}
+			for _, entry := range backgrounds {
+				keys = append(keys, entry.Token)
+			}
+			return keys
+		}(),
+	}
+	for _, entry := range foregrounds {
+		json.Colors[entry.Token] = entry.Value
+	}
+	for _, entry := range backgrounds {
+		json.Colors[entry.Token] = entry.Value
+	}
+	theme, err := resolveThemeWithMode(json, TerminalColorModeTrueColor)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	for token, want := range map[string]string{
+		string(ThemeColorStatusLineModel):     theme.Accent,
+		string(ThemeColorStatusLineSep):       theme.Dim,
+		string(ThemeColorStatusLinePath):      theme.Border,
+		string(ThemeColorStatusLineGitDirty):  theme.Warning,
+		string(ThemeColorStatusLineUntracked): theme.Error,
+		string(ThemeColorStatusLineSubagents): theme.Accent,
+	} {
+		got := theme.GetFgAnsi(token)
+		if got != want {
+			t.Fatalf("%s resolved to %q, want the borrowed token %q", token, got, want)
+		}
+	}
+}
+
+// TestANSIFgFallsBackToTerminalPalette covers a theme with no palette of its
+// own: the slot still paints, using the terminal's ANSI color, because the
+// terminal is guaranteed to render its own palette.
+func TestANSIFgFallsBackToTerminalPalette(t *testing.T) {
+	theme := paletteHueTheme(t)
+	theme.ansiFg = nil
+	if theme.HasANSIPalette() {
+		t.Fatal("a theme without a palette reports one")
+	}
+	if got, want := theme.ANSIFg(ANSIGreen, "x"), "\x1b[32mx\x1b[39m"; got != want {
+		t.Fatalf("ANSIFg fallback = %q, want %q", got, want)
+	}
+	theme.ansiFg = make([]string, ANSISlotCount)
+	theme.ansiFg[ANSIBrightBlue] = "\x1b[38;2;1;2;3m"
+	if got, want := theme.ANSIFg(ANSIBrightBlue, "x"), "\x1b[38;2;1;2;3mx\x1b[39m"; got != want {
+		t.Fatalf("ANSIFg = %q, want %q", got, want)
+	}
+}
+
+// TestDefaultThemeIsAPalette covers the out-of-the-box theme: a terminal with no
+// stored setting gets a bundled palette rather than the generated system theme,
+// which renders most tokens in the terminal's default foreground on a terminal
+// that does not answer the color queries (which is what made the TUI look
+// unstyled there).
+func TestDefaultThemeIsAPalette(t *testing.T) {
+	previousRegistry := ActiveThemeRegistry()
+	previous := ActiveTheme()
+	previousSetting := selectedThemeName.Load()
+	t.Cleanup(func() {
+		SetThemeRegistry(previousRegistry)
+		SetThemeInstance(previous)
+		selectedThemeName.Store(previousSetting)
+	})
+	SetThemeRegistry(NewThemeRegistry())
+
+	if got := DefaultThemeName(TerminalColorSchemeDark); got != DefaultDarkTheme {
+		t.Fatalf("dark default = %q", got)
+	}
+	if got := DefaultThemeName(TerminalColorSchemeLight); got != DefaultLightTheme {
+		t.Fatalf("light default = %q", got)
+	}
+	for _, appearance := range []TerminalColorScheme{TerminalColorSchemeDark, TerminalColorSchemeLight} {
+		name := DefaultThemeName(appearance)
+		SetThemeSettingPresence(nil)
+		if err := SetThemeByNameChecked(name); err != nil {
+			t.Fatalf("%s default %q does not resolve: %v", appearance, name, err)
+		}
+		theme := ActiveTheme()
+		if theme.Name != name {
+			t.Fatalf("%s default selected %q", appearance, theme.Name)
+		}
+		if theme.Name == SystemThemeName {
+			t.Fatalf("%s default is still the system theme", appearance)
+		}
+		if !theme.HasANSIPalette() {
+			t.Fatalf("%s default %q has no ANSI palette", appearance, theme.Name)
+		}
+	}
+}
+
+// TestDefaultThemeResolvesThroughTheBundle covers a registry that lists no
+// palettes: the default still resolves, because a bundled palette is resolved by
+// name whether or not the registry enumerated it. A name the bundle does not have
+// resolves to nothing and the selection falls back to the system theme.
+func TestDefaultThemeResolvesThroughTheBundle(t *testing.T) {
+	previousRegistry := ActiveThemeRegistry()
+	previous := ActiveTheme()
+	t.Cleanup(func() {
+		SetThemeRegistry(previousRegistry)
+		SetThemeInstance(previous)
+	})
+	bare := &ThemeRegistry{themes: map[string]*Theme{}, names: []string{SystemThemeName}}
+	SetThemeRegistry(bare)
+
+	SetThemeSettingPresence(nil)
+	if name := ActiveTheme().Name; name != DefaultDarkTheme && name != DefaultLightTheme {
+		t.Fatalf("default selected %q", name)
+	}
+
+	// A theme nothing knows about falls back rather than leaving no theme active.
+	SetThemeByName("no-such-theme")
+	if ActiveTheme() == nil {
+		t.Fatal("no theme active after an unknown selection")
+	}
+	if name := ActiveTheme().Name; name != SystemThemeName {
+		t.Fatalf("fallback selected %q, want the system theme", name)
+	}
+}
+
+// TestANSIPaletteSurvivesColorMode covers the palette across a color-mode
+// rebuild: activating a theme for a 256-color terminal re-resolves it from its
+// JSON source, and the ANSI palette has to come back downsampled rather than
+// missing, or headings would lose their hues on exactly the terminals that need
+// the tree to be readable.
+func TestANSIPaletteSurvivesColorMode(t *testing.T) {
+	theme := paletteTheme("titanium")
+	if theme == nil {
+		t.Fatal("titanium did not resolve")
+	}
+	truecolor := theme.WithColorMode(TerminalColorModeTrueColor)
+	indexed := theme.WithColorMode(TerminalColorMode256)
+	if !indexed.HasANSIPalette() {
+		t.Fatal("the 256-color variant has no palette")
+	}
+	for slot := range ANSISlotCount {
+		got := paletteSlotAnsi(indexed, slot)
+		if got == "" {
+			t.Fatalf("slot %d is unset in the 256-color variant", slot)
+		}
+		if strings.Contains(got, "\x1b[38;2;") {
+			t.Fatalf("slot %d kept a truecolor sequence in the 256-color variant: %q", slot, got)
+		}
+		if want := paletteSlotAnsi(truecolor, slot); got == want {
+			t.Fatalf("slot %d is identical in both modes: %q", slot, got)
+		}
+	}
+}
+
+// paletteSlotAnsi is the sequence ANSIFg opens for slot, so a test can compare
+// the resolved colors instead of wrapped text.
+func paletteSlotAnsi(theme *Theme, slot int) string {
+	return strings.TrimSuffix(theme.ANSIFg(slot, ""), SGRFgReset)
+}

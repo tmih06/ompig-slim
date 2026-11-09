@@ -379,7 +379,7 @@ func defaultAutomaticThemeNames(themeSetting string, names []string) (lightTheme
 	if strings.Contains(themeSetting, "/") {
 		fixedTheme = ""
 	}
-	themeName := preferredThemeName(names, fixedTheme, tui.SystemThemeName)
+	themeName := preferredThemeName(names, fixedTheme, tui.DefaultThemeName(tui.GetTerminalTheme()))
 	return themeName, themeName
 }
 

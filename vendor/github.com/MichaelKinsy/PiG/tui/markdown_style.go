@@ -30,23 +30,88 @@ func markdownStrikethrough(s string) string {
 	return markdownDecoration("\x1b[9m", SGRStrikeReset, s)
 }
 
+// colorfulHeadingSlots are the ANSI palette slots colorful Markdown paints headings with, by depth: H1 magenta,
+// H2 yellow, H3 and deeper blue. Upstream's COLORFUL_HEADING_COLORS.
+var colorfulHeadingSlots = [3]int{ANSIMagenta, ANSIYellow, ANSIBlue}
+
+// colorfulHeading reads the heading style for a depth when called: the palette slot's hue when the active theme names a
+// palette, the theme's mdHeading otherwise. Heading colors come from one palette rather than the md* tokens because themes
+// commonly alias several md* tokens to one color (Dracula's mdCode is its magenta), which would collapse every level back
+// into the same hue.
+//
+// Every colorful role reads ActiveTheme() at call time rather than capturing it, for two reasons: theme switches must
+// restyle components that already hold a MarkdownTheme, and the render cache identifies a theme by its style functions'
+// code addresses, which only stay fixed while each role is one closure at one source location.
+func colorfulHeading(depth int) func(string) string {
+	if depth <= 0 {
+		depth = 1
+	}
+	slot := colorfulHeadingSlots[min(depth, len(colorfulHeadingSlots))-1]
+	return func(s string) string {
+		th := ActiveTheme()
+		if !th.HasANSIPalette() {
+			return markdownForeground(th.MDHeading, s)
+		}
+		return th.ANSIFg(slot, s)
+	}
+}
+
+// colorfulEmphasis is one of colorful Markdown's emphasis roles: a palette hue wrapped around the existing decoration
+// (bold, italic). slot names the hue and decorate builds the attributes; without a palette the role is decorate alone.
+func colorfulEmphasis(slot int, decorate func(string) string) func(string) string {
+	return func(s string) string {
+		if s == "" {
+			return s
+		}
+		th := ActiveTheme()
+		if !th.HasANSIPalette() {
+			return decorate(s)
+		}
+		return th.ANSIFg(slot, decorate(s))
+	}
+}
+
+// colorfulInlineCode is the inline-code role: the palette's green when the theme has one, the mdCode token otherwise.
+func colorfulInlineCode(s string) string {
+	th := ActiveTheme()
+	if !th.HasANSIPalette() {
+		return markdownForeground(th.MDCode, s)
+	}
+	return th.ANSIFg(ANSIGreen, s)
+}
+
+// colorfulTableHeader is the table-header role: the palette's yellow and bold. A table header is the one place upstream's
+// markdown adapter has its own member instead of reusing bold, because a bold header whose row is tinted needs a hue that
+// separates it from the body rows below it.
+func colorfulTableHeader(s string) string {
+	th := ActiveTheme()
+	if !th.HasANSIPalette() {
+		return markdownBold(s)
+	}
+	return th.ANSIFg(ANSIYellow, markdownBold(s))
+}
+
 // GetMarkdownTheme returns the markdown theme that styles each span with the active theme's markdown tokens (upstream theme.ts getMarkdownTheme). Every function reads ActiveTheme when it runs, so a theme switch restyles components that hold the result.
+//
+// When the theme carries an ANSI palette, headings, emphasis, inline code and table headers take their hues from that palette, as upstream's colorfulMarkdownRoles do: H1 magenta, H2 yellow, H3+ blue, strong/emphasis magenta, inline code green, table headers yellow. All hues come from one palette so the roles stay distinct; a theme without a palette keeps its md* tokens, which is the presentation before the palette roles existed.
 func GetMarkdownTheme() MarkdownTheme {
 	return MarkdownTheme{
 		Heading:         func(s string) string { return markdownForeground(ActiveTheme().MDHeading, s) },
+		HeadingAt:       func(s string, depth int) string { return colorfulHeading(depth)(s) },
 		Link:            func(s string) string { return markdownForeground(ActiveTheme().MDLink, s) },
 		LinkUrl:         func(s string) string { return markdownForeground(ActiveTheme().MDLinkUrl, s) },
-		Code:            func(s string) string { return markdownForeground(ActiveTheme().MDCode, s) },
+		Code:            colorfulInlineCode,
 		CodeBlock:       func(s string) string { return markdownForeground(ActiveTheme().MDCodeBlock, s) },
 		CodeBlockBorder: func(s string) string { return markdownForeground(ActiveTheme().MDCodeBlockBorder, s) },
 		Quote:           func(s string) string { return markdownForeground(ActiveTheme().MDQuote, s) },
 		QuoteBorder:     func(s string) string { return markdownForeground(ActiveTheme().MDQuoteBorder, s) },
 		Hr:              func(s string) string { return markdownForeground(ActiveTheme().MDHr, s) },
 		ListBullet:      func(s string) string { return markdownForeground(ActiveTheme().MDListBullet, s) },
-		Bold:            markdownBold,
-		Italic:          markdownItalic,
+		Bold:            colorfulEmphasis(ANSIMagenta, markdownBold),
+		Italic:          colorfulEmphasis(ANSIMagenta, markdownItalic),
 		Strikethrough:   markdownStrikethrough,
 		Underline:       func(s string) string { return markdownDecoration("\x1b[4m", SGRUnderlineReset, s) },
+		TableHeader:     colorfulTableHeader,
 		HighlightCode:   HighlightCode,
 	}
 }

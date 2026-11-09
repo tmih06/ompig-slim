@@ -1421,12 +1421,27 @@ func (m *Markdown) renderInlineTokens(tokens []markedToken, style inlineStyleCon
 	return m.renderInlineTokensSequential(tokens, style)
 }
 
+// renderInlineTokensIn is renderInlineTokens with theme in place of the document's Markdown theme. It takes the per-level
+// path unconditionally: the one-pass span writer recognizes the stock emphasis functions by name, and a caller that
+// substitutes a theme is doing so precisely to change them.
+func (m *Markdown) renderInlineTokensIn(tokens []markedToken, style inlineStyleContext, theme *MarkdownTheme) string {
+	return m.renderInlineTokensSequentialIn(tokens, style, theme)
+}
+
 // renderInlineTokensSequential is markdown.ts renderInlineTokens applied level by level, each theme function receiving the complete rendering of its children.
 func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inlineStyleContext) string {
+	return m.renderInlineTokensSequentialIn(tokens, style, nil)
+}
+
+// renderInlineTokensSequentialIn is renderInlineTokensSequential with theme in place of the document's, nil for the document's own.
+func (m *Markdown) renderInlineTokensSequentialIn(tokens []markedToken, style inlineStyleContext, override *MarkdownTheme) string {
 	var resolved *MarkdownTheme
 	theme := func() *MarkdownTheme {
 		if resolved == nil {
 			t := m.markdownTheme()
+			if override != nil {
+				t = *override
+			}
 			resolved = &t
 		}
 		return resolved

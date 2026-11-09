@@ -82,6 +82,24 @@ var themeColorTokens = []themeColorToken{
 	{"thinkingXhigh", false, "Thinking level border: xhigh"},
 	{"thinkingMax", true, "Thinking level border: max (falls back to thinkingXhigh when omitted)"},
 	{"bashMode", false, "Editor border color in bash mode"},
+	{"pythonMode", true, "Editor border color in python mode (falls back to bashMode when omitted)"},
+
+	// Status line segments. Upstream's schema has these tokens in the same object;
+	// they are optional here so a theme written before the status line existed
+	// still loads, and themeColorFallbacks gives each one a token to borrow.
+	{"statusLineSep", true, "Status line separators (falls back to dim when omitted)"},
+	{"statusLineModel", true, "Status line model name (falls back to accent when omitted)"},
+	{"statusLinePath", true, "Status line working directory (falls back to border when omitted)"},
+	{"statusLineGitClean", true, "Status line git branch, clean tree (falls back to success when omitted)"},
+	{"statusLineGitDirty", true, "Status line git branch, dirty tree (falls back to warning when omitted)"},
+	{"statusLineContext", true, "Status line context window (falls back to muted when omitted)"},
+	{"statusLineSpend", true, "Status line token counters (falls back to accent when omitted)"},
+	{"statusLineStaged", true, "Status line staged-file counter (falls back to success when omitted)"},
+	{"statusLineDirty", true, "Status line modified-file counter (falls back to warning when omitted)"},
+	{"statusLineUntracked", true, "Status line untracked-file counter (falls back to error when omitted)"},
+	{"statusLineOutput", true, "Status line output-token counter (falls back to muted when omitted)"},
+	{"statusLineCost", true, "Status line spend (falls back to success when omitted)"},
+	{"statusLineSubagents", true, "Status line subagent counter (falls back to accent when omitted)"},
 }
 
 // ThemeColorToken is one token of the theme "colors" object: its description and whether a theme may omit it.
@@ -108,6 +126,12 @@ func ThemeColorTokens() []ThemeColorToken {
 
 // themeExportTokens lists ThemeJsonSchema.export in schema order.
 var themeExportTokens = []string{"pageBg", "cardBg", "infoBg"}
+
+// themeTerminalTokens lists ThemeJsonSchema.terminal's color members in schema order; ansi is checked separately because it is an array.
+var themeTerminalTokens = []string{"background", "foreground", "chrome", "widget"}
+
+// themeSymbolPresets are ThemeJsonSchema.symbols.preset's allowed values.
+var themeSymbolPresets = []string{"unicode", "nerd", "ascii"}
 
 type themeSchemaError struct {
 	path, keyword, message string
@@ -169,7 +193,7 @@ func checkThemeDocument(errs *themeSchemaErrors, root any, data []byte) {
 	}
 	checkRequired(errs, "", object, []string{"name", "colors"})
 	checkAdditionalProperties(errs, "", rawObjectKeys(data), func(key string) bool {
-		return slices.Contains([]string{"$schema", "name", "appearance", "vars", "colors", "export"}, key)
+		return slices.Contains([]string{"$schema", "name", "appearance", "vars", "colors", "export", "terminal", "symbols"}, key)
 	})
 	if value, present := object["$schema"]; present {
 		checkString(errs, "/$schema", value)
@@ -191,6 +215,15 @@ func checkThemeDocument(errs *themeSchemaErrors, root any, data []byte) {
 	}
 	if value, present := object["colors"]; present {
 		checkThemeColors(errs, value, themeObjectKeys(data, "colors"))
+	}
+	// ThemeJsonSchema.terminal and .symbols describe the terminal a theme was made for rather than anything this engine draws,
+	// but OMP writes them into every built-in palette and into custom themes saved from one. They are checked and then ignored:
+	// rejecting them made every OMP palette unreadable here, and silently dropping unknown keys would hide a real typo.
+	if value, present := object["terminal"]; present {
+		checkThemeTerminal(errs, value, themeObjectKeys(data, "terminal"))
+	}
+	if value, present := object["symbols"]; present {
+		checkThemeSymbols(errs, value)
 	}
 	if value, present := object["export"]; present {
 		exports, ok := value.(map[string]any)
@@ -262,6 +295,135 @@ func checkThemeColors(errs *themeSchemaErrors, value any, keys []string) {
 			checkThemeColorValue(errs, "/colors/"+key, colors[key])
 		}
 	}
+}
+
+// checkThemeTerminal checks ThemeJsonSchema.terminal: five color members, with ansi
+// being exactly sixteen color values when it is present.
+func checkThemeTerminal(errs *themeSchemaErrors, value any, keys []string) {
+	terminal, ok := value.(map[string]any)
+	if !ok {
+		errs.add(themeSchemaError{path: "/terminal", message: "must be object"})
+		return
+	}
+	checkAdditionalProperties(errs, "/terminal", keys, func(key string) bool {
+		return slices.Contains(append(slices.Clone(themeTerminalTokens), "ansi"), key)
+	})
+	for _, token := range themeTerminalTokens {
+		if member, present := terminal[token]; present {
+			checkThemeColorValue(errs, "/terminal/"+token, member)
+		}
+	}
+	if member, present := terminal["ansi"]; present {
+		entries, ok := member.([]any)
+		if !ok {
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must be array"})
+			return
+		}
+		if len(entries) != ANSISlotCount {
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must not have fewer than 16 items"})
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must not have more than 16 items"})
+		}
+		for index, entry := range entries {
+			checkThemeColorValue(errs, "/terminal/ansi/"+strconv.Itoa(index), entry)
+		}
+	}
+}
+
+// checkThemeSymbols checks ThemeJsonSchema.symbols: an optional preset name, a
+// string map of glyph overrides, and optional spinner frames. Override keys are
+// reported in sorted order because this check reads the decoded object, not the
+// document, and a stable order keeps the error text diffable.
+func checkThemeSymbols(errs *themeSchemaErrors, value any) {
+	symbols, ok := value.(map[string]any)
+	if !ok {
+		errs.add(themeSchemaError{path: "/symbols", message: "must be object"})
+		return
+	}
+	checkAdditionalProperties(errs, "/symbols", sortedObjectKeys(symbols), func(key string) bool {
+		return slices.Contains([]string{"preset", "overrides", "spinnerFrames"}, key)
+	})
+	if preset, present := symbols["preset"]; present {
+		name, isString := preset.(string)
+		if !isString {
+			errs.add(themeSchemaError{path: "/symbols/preset", message: "must be string"})
+		} else if !slices.Contains(themeSymbolPresets, name) {
+			errs.add(themeSchemaError{path: "/symbols/preset", message: "must be equal to one of the allowed values"})
+		}
+	}
+	if overrides, present := symbols["overrides"]; present {
+		entries, isObject := overrides.(map[string]any)
+		if !isObject {
+			errs.add(themeSchemaError{path: "/symbols/overrides", message: "must be object"})
+			return
+		}
+		for _, key := range sortedObjectKeys(entries) {
+			if _, isString := entries[key].(string); !isString {
+				errs.add(themeSchemaError{path: "/symbols/overrides/" + key, message: "must be string"})
+			}
+		}
+	}
+	if frames, present := symbols["spinnerFrames"]; present {
+		checkThemeSpinnerFrames(errs, "/symbols/spinnerFrames", frames)
+	}
+}
+
+// checkThemeSpinnerFrames checks symbols.spinnerFrames: one non-empty string array
+// for both spinner kinds, or an object naming either kind.
+func checkThemeSpinnerFrames(errs *themeSchemaErrors, path string, value any) {
+	if entries, ok := value.([]any); ok {
+		checkThemeFrameArray(errs, path, entries)
+		return
+	}
+	framing, ok := value.(map[string]any)
+	if !ok {
+		errs.add(themeSchemaError{path: path, message: "must match a schema in anyOf"})
+		return
+	}
+	checkAdditionalProperties(errs, path, sortedObjectKeys(framing), func(key string) bool {
+		return key == "status" || key == "activity"
+	})
+	named := false
+	for _, key := range []string{"status", "activity"} {
+		member, present := framing[key]
+		if !present {
+			continue
+		}
+		named = true
+		if entries, ok := member.([]any); ok {
+			checkThemeFrameArray(errs, path+"/"+key, entries)
+		} else {
+			errs.add(themeSchemaError{path: path + "/" + key, message: "must be array"})
+		}
+	}
+	if !named {
+		errs.add(themeSchemaError{path: path, message: "must have required properties status, activity"})
+	}
+}
+
+// checkThemeFrameArray requires a spinner frame list to hold at least one non-empty string.
+func checkThemeFrameArray(errs *themeSchemaErrors, path string, entries []any) {
+	if len(entries) == 0 {
+		errs.add(themeSchemaError{path: path, message: "must not have fewer than 1 items"})
+	}
+	for index, entry := range entries {
+		frame, isString := entry.(string)
+		if !isString {
+			errs.add(themeSchemaError{path: path + "/" + strconv.Itoa(index), message: "must be string"})
+		} else if frame == "" {
+			errs.add(themeSchemaError{path: path + "/" + strconv.Itoa(index), message: "must not have fewer than 1 characters"})
+		}
+	}
+}
+
+// sortedObjectKeys returns object's keys in sorted order, the deterministic
+// stand-in for insertion order where the raw document is unavailable.
+func sortedObjectKeys(object map[string]any) []string {
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func checkRequired(errs *themeSchemaErrors, path string, object map[string]any, required []string) {

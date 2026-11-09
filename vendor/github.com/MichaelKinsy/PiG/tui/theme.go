@@ -5,6 +5,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,23 @@ type Theme struct {
 	ThinkingXhigh   string
 
 	// ─── Misc ────────────────────────────────────────────────
-	BashMode string // bash mode indicator
+	BashMode   string // bash mode indicator
+	PythonMode string // python mode indicator
+
+	// ─── Status line segment colors ─────────────────────────────
+	StatusLineSep       string
+	StatusLineModel     string
+	StatusLinePath      string
+	StatusLineGitClean  string
+	StatusLineGitDirty  string
+	StatusLineContext   string
+	StatusLineSpend     string
+	StatusLineStaged    string
+	StatusLineDirty     string
+	StatusLineUntracked string
+	StatusLineOutput    string
+	StatusLineCost      string
+	StatusLineSubagents string
 
 	// ─── Export colors (for HTML export) ─────────────────────
 	ExportPageBg string // hex string (not ANSI)
@@ -116,6 +133,8 @@ type Theme struct {
 	// concreteColors are the tokens with a color of their own; the others follow the terminal's default colors.
 	concreteColors                                   map[string]Color
 	defaultForegroundTokens, defaultBackgroundTokens []string
+	// ansiFg holds the theme's "terminal.ansi" palette as foreground escapes, indexed by slot 0-15; nil when the theme names no palette.
+	ansiFg []string
 	// dimTokens are the foreground tokens rendered faint (SGR 2) on top of their color.
 	dimTokens        map[string]bool
 	ownAppearance    ThemeAppearance
@@ -244,6 +263,36 @@ func (t *Theme) GetBgAnsi(token string) string {
 	}
 	return ansi
 }
+
+// ANSIFg returns text in an ANSI palette slot (0-15), closing the color afterwards.
+// It is colorful Markdown's coloring primitive: the hues come from one palette, so
+// headings, emphasis, inline code and table headers stay distinct even in a theme
+// whose md* tokens all alias the same color. A theme without a palette of its own
+// falls back to the terminal's ANSI colors, which every terminal renders; a slot
+// outside 0-15 panics with the upstream message.
+// Mirrors upstream Theme.ansiFg(color, text).
+func (t *Theme) ANSIFg(slot int, text string) string {
+	if slot < 0 || slot >= ANSISlotCount {
+		panic(fmt.Sprintf("Invalid ANSI color slot: %d", slot))
+	}
+	ansi := ""
+	if t.ansiFg != nil {
+		ansi = t.ansiFg[slot]
+	}
+	if ansi == "" {
+		// Slots 0-7 are SGR 30-37 and 8-15 are their bright forms, 90-97.
+		code := 30 + slot
+		if slot >= 8 {
+			code = 90 + slot - 8
+		}
+		ansi = "\x1b[" + strconv.Itoa(code) + "m"
+	}
+	return ansi + text + SGRFgReset
+}
+
+// HasANSIPalette reports whether the theme names its own terminal.ansi palette, so
+// callers can tell a themed palette from the terminal's fallback.
+func (t *Theme) HasANSIPalette() bool { return t != nil && t.ansiFg != nil }
 
 // ANSIPalette returns every resolved token as foreground and background ANSI
 // openings. It is used at process boundaries where theme helper functions
@@ -571,13 +620,37 @@ func ResolveThemeSetting(themeSetting string, terminalTheme TerminalTheme) (stri
 	return ResolveThemeSettingPresence(themeSettingPresence(themeSetting), terminalTheme)
 }
 
-// SetThemeSettingPresence applies a theme setting before the terminal answers: the theme it resolves to for the terminal's appearance so far, or the system theme when there is no setting or it is malformed (theme.ts initTheme, interactive-mode.ts initTheme). A name that is not registered also selects the system theme.
+// SetThemeSettingPresence applies a theme setting before the terminal answers: the theme it resolves to for the terminal's appearance so far, or the default theme when there is no setting or it is malformed (theme.ts initTheme, interactive-mode.ts initTheme). A name that is not registered also selects the default theme.
 func SetThemeSettingPresence(themeSetting *string) {
 	if name, ok := ResolveThemeSettingPresence(themeSetting, GetTerminalTheme()); ok {
 		SetThemeByName(name)
 		return
 	}
-	SetThemeByName(SystemThemeName)
+	SetThemeByName(DefaultThemeName(GetTerminalTheme()))
+}
+
+// The default theme for each terminal appearance, matching oh-my-pi's
+// `theme.dark`/`theme.light` defaults (packages/coding-agent/src/modes/settings.ts).
+// They name bundled palettes rather than SystemThemeName on purpose: the system
+// theme is generated from the terminal's own reported colors, and a terminal
+// that answers none of the color queries has colors this engine cannot invent,
+// so it renders most tokens in the terminal default foreground. That is correct
+// for a theme called "system" and wrong as the out-of-the-box look, which read
+// as an unstyled TUI on those terminals.
+const (
+	DefaultDarkTheme  = "titanium"
+	DefaultLightTheme = "light"
+)
+
+// DefaultThemeName is the theme for a terminal appearance when the user has not
+// chosen one: DefaultDarkTheme on a dark terminal, DefaultLightTheme on a light
+// one. A build whose registry lacks the named palette still resolves to a theme
+// that exists, because SetThemeByNameChecked falls back to the system theme.
+func DefaultThemeName(terminalTheme TerminalTheme) string {
+	if terminalTheme == TerminalTheme("light") {
+		return DefaultLightTheme
+	}
+	return DefaultDarkTheme
 }
 
 // SetThemeSetting applies a stored theme setting.
@@ -605,7 +678,9 @@ type ThemeRegistry struct {
 	paths map[string]string
 }
 
-// NewThemeRegistry creates a registry with the system theme and the built-in dark and light themes.
+// NewThemeRegistry creates a registry holding the system theme, the built-in dark and light themes, and the bundled
+// palettes (BuiltinPaletteNames). The palette names are listed here because the registry is the theme picker's source and
+// /theme enumerates them, but a palette is only resolved into ANSI sequences when something asks for it: see Get.
 func NewThemeRegistry() *ThemeRegistry {
 	r := &ThemeRegistry{
 		themes: make(map[string]*Theme),
@@ -613,6 +688,7 @@ func NewThemeRegistry() *ThemeRegistry {
 	r.themes["dark"] = builtinDarkTheme()
 	r.themes["light"] = builtinLightTheme()
 	r.names = []string{SystemThemeName, "dark", "light"}
+	r.names = append(r.names, BuiltinPaletteNames()...)
 	return r
 }
 
@@ -652,14 +728,29 @@ func (r *ThemeRegistry) AddFile(t *Theme, path string) {
 	r.paths[t.Name] = path
 }
 
-// Get returns a theme by name, or nil.
+// Get returns a theme by name, or nil. A bundled palette is resolved here on
+// first use, so listing a hundred palettes costs one JSON decode rather than a
+// hundred theme constructions.
 func (r *ThemeRegistry) Get(name string) *Theme {
 	if name == SystemThemeName {
 		return createSystemTheme(currentColorMode())
 	}
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.themes[name]
+	theme, ok := r.themes[name]
+	r.mu.RUnlock()
+	if ok {
+		return theme
+	}
+	theme = paletteTheme(name)
+	if theme == nil {
+		return nil
+	}
+	// The name was listed by NewThemeRegistry or added by a caller; store the
+	// resolved theme so a second Get is a map read.
+	r.mu.Lock()
+	r.themes[name] = theme
+	r.mu.Unlock()
+	return theme
 }
 
 // PathOf returns the file a theme was loaded from, or "" for built-ins.
@@ -868,7 +959,13 @@ func (t *Theme) populateFields() {
 		"syntaxType": &t.SyntaxType, "syntaxOperator": &t.SyntaxOperator, "syntaxPunctuation": &t.SyntaxPunctuation,
 		"thinkingText": &t.ThinkingText, "thinkingOff": &t.ThinkingOff, "thinkingMinimal": &t.ThinkingMinimal,
 		"thinkingLow": &t.ThinkingLow, "thinkingMedium": &t.ThinkingMedium, "thinkingHigh": &t.ThinkingHigh,
-		"thinkingXhigh": &t.ThinkingXhigh, "bashMode": &t.BashMode,
+		"thinkingXhigh": &t.ThinkingXhigh, "bashMode": &t.BashMode, "pythonMode": &t.PythonMode,
+		"statusLineSep": &t.StatusLineSep, "statusLineModel": &t.StatusLineModel, "statusLinePath": &t.StatusLinePath,
+		"statusLineGitClean": &t.StatusLineGitClean, "statusLineGitDirty": &t.StatusLineGitDirty,
+		"statusLineContext": &t.StatusLineContext, "statusLineSpend": &t.StatusLineSpend,
+		"statusLineStaged": &t.StatusLineStaged, "statusLineDirty": &t.StatusLineDirty,
+		"statusLineUntracked": &t.StatusLineUntracked, "statusLineOutput": &t.StatusLineOutput,
+		"statusLineCost": &t.StatusLineCost, "statusLineSubagents": &t.StatusLineSubagents,
 	} {
 		*dst = t.GetFgAnsi(token)
 	}
