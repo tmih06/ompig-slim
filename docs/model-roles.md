@@ -31,6 +31,7 @@ In Roles:
 | n | Create a custom role |
 | f (also a) | Append an ordered fallback |
 | x (also d) | Unassign a primary or remove a fallback |
+| Shift+D | Delete a custom role after choosing a settings layer and confirming |
 | [ / ] | Reorder a fallback or move a role in the cycle track |
 | t | Open the inline effort selector |
 | c | Toggle a chat role in Ctrl+P cycling |
@@ -41,6 +42,17 @@ Assignment uses inline role, global/project scope, and effort strips. Kind roles
 reject incompatible models. Role tags supply labels, colors, and visibility.
 Mouse navigation, scrolling, hover, provider rows, and kind tabs are supported.
 Changes persist immediately; closing the manager does not discard them.
+
+To delete a custom role, highlight its primary row and press **Shift+D**. The
+confirmation starts on Cancel; select **Delete @role (global)** or **(project)**
+and press Enter. Escape cancels. Deletion removes that layer's assignment, tag,
+explicit fallback chain, and cycle entries in one settings write; other layers
+and the live selected model remain unchanged. A role defined in both layers
+must be deleted from each to disappear completely. Built-in roles cannot be
+deleted. If another saved assignment or fallback explicitly references the role
+(`@role` or `pi/role`, including effort suffixes), reassign that reference first;
+deletion reports the dependency instead of leaving a broken alias. Project
+writes require trust. Lowercase **x/d** still only clears an assignment.
 
 Assigning Default switches the live session after credential validation. Clearing
 it can expose an inherited assignment. Project writes require a trusted project.

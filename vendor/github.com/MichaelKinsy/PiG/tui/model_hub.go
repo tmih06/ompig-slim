@@ -24,6 +24,7 @@ type ModelHubConfig struct {
 	DefaultThinking   func() string
 	Resolve           func(string) (string, error)
 	Assign            func(role, selector, scope string) error
+	DeleteRole        func(role, scope string) error
 	AssignAsync       func(role, selector, scope string, finish func(error))
 	Fallback          func(key string, chain []string, scope string) error
 	Cycle             func(order []string, scope string) error
@@ -718,6 +719,13 @@ func (h *ModelHub) activateChip() {
 	}
 	chip := strip.chips[strip.index]
 	switch strip.kind {
+	case "deleteRole":
+		h.strip = nil
+		if chip.action == "deleteRole" && h.cfg.DeleteRole != nil {
+			if h.result(h.cfg.DeleteRole(strip.role, chip.scope)) {
+				h.status = fmt.Sprintf("Deleted @%s from %s; other settings layers are unchanged", strip.role, chip.scope)
+			}
+		}
 	case "scope":
 		h.assign(strip.item, strip.role, chip.scope, "", strip.returnRoles)
 	case "thinking":
@@ -773,6 +781,30 @@ func (h *ModelHub) unassign(role, scope string) {
 	}
 }
 
+// confirmDeleteRole opens a cancel-first, scope-labelled confirmation for custom
+// roles. Built-ins never reach the host callback; x/d remain assignment clearing.
+// Separate layer actions prevent silently deleting project overrides or globals.
+func (h *ModelHub) confirmDeleteRole(role string) {
+	if slices.Contains(modelroles.Builtins(), role) {
+		h.status = "Built-in roles cannot be deleted; use x to clear the assignment"
+		return
+	}
+	if h.cfg.DeleteRole == nil {
+		h.status = "Role deletion is unavailable in this context"
+		return
+	}
+	scope := h.selectedScope(role)
+	chips := []hubChip{{label: "Cancel"}, {label: "Delete @" + role + " (" + scope + ")", action: "deleteRole", scope: scope}}
+	if h.cfg.ScopedConfig != nil {
+		other := "project"
+		if scope == "project" {
+			other = "global"
+		}
+		chips = append(chips, hubChip{label: "Delete @" + role + " (" + other + ")", action: "deleteRole", scope: other})
+	}
+	h.strip = &hubStrip{kind: "deleteRole", role: role, chips: chips}
+}
+
 // assignThinking persists a changed chip without reopening its strip after completion.
 func (h *ModelHub) assignThinking(strip *hubStrip, level string) {
 	selector := strip.item.FQ()
@@ -820,6 +852,9 @@ func (h *ModelHub) moveRole(delta int, wrap bool) {
 
 // roleAction edits role assignments, fallback order, effort, cycling, and compaction.
 func (h *ModelHub) roleAction(data string) {
+	if MatchesKeyID(data, "shift+d") {
+		data = "D"
+	}
 	row := h.rows[h.cursor]
 	switch data {
 	case "n":
@@ -873,6 +908,10 @@ func (h *ModelHub) roleAction(data string) {
 				order[index], order[next] = order[next], order[index]
 				h.result(h.cfg.Cycle(order, "global"))
 			}
+		}
+	case "D":
+		if row.kind == "role" {
+			h.confirmDeleteRole(row.key)
 		}
 	case "x", "d":
 		switch row.kind {
@@ -1290,7 +1329,11 @@ func (h *ModelHub) footer(width int) string {
 		case "newFallback":
 			return fg(th.Dim, "↑/↓ rows · ⏎ new model/provider fallback chain · ← providers")
 		}
-		return fg(th.Dim, "↑/↓ rows · ⏎ pick · f fallback · x clear"+thinking+compaction+" · c cycle · [/] reorder · n new")
+		deletion := ""
+		if row.kind == "role" && h.cfg.DeleteRole != nil && !slices.Contains(modelroles.Builtins(), row.key) {
+			deletion = " · D delete role"
+		}
+		return fg(th.Dim, "↑/↓ rows · ⏎ pick · f fallback · x clear"+deletion+thinking+compaction+" · c cycle · [/] reorder · n new")
 	}
 	entry := h.entries[h.side]
 	if entry.locked {

@@ -210,7 +210,7 @@ func (m *InteractiveMode) showModelHub() {
 				pool = append(pool, modelroles.Candidate{Provider: item.Provider, ID: item.ID, Kind: tui.ModelItemKind(item)})
 			}
 			return sm.ResolveModelRole(selector, pool)
-		}, Assign: sm.SetModelRole, Fallback: sm.SetFallbackChain, Cycle: sm.SetRoleCycleOrder,
+		}, Assign: sm.SetModelRole, DeleteRole: sm.DeleteModelRole, Fallback: sm.SetFallbackChain, Cycle: sm.SetRoleCycleOrder,
 	})
 	h := m.tuiInst.ShowOverlay(hub, tui.ModelHubOverlayOptions())
 	defer h.Close()

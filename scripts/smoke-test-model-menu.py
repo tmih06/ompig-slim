@@ -26,6 +26,8 @@ def run(binary):
             "tuiMode": "regular",
             "modelRoles": {"default": "test-faux/model", "review": "test-faux/model"},
             "cycleOrder": ["default", "review"],
+            "modelTags": {"review": {"name": "Reviewer"}},
+            "retry": {"fallbackChains": {"review": ["test-faux/model"]}},
         }))
         env = dict(os.environ, PIG_TEST_FAUX="1", PIG_STARTUP_TRACE="1",
                    PI_OFFLINE="1", PI_SKIP_VERSION_CHECK="1", PI_TELEMETRY="0",
@@ -84,7 +86,31 @@ def run(binary):
             read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
                        "role selection")
             assert json.loads(settings.read_text())["modelRoles"] == saved_roles, "picker changed saved roles"
-            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker")
+            send(b"/model\r")
+            read_until(lambda data: b"All models" in data, "reopen manager")
+            send(b"\x1b[A")
+            read_until(lambda data: b"Model roles" in data, "reopen Roles")
+            send(b"\x1b[C")
+            # The stable built-in chat-role order has eleven rows; review is
+            # the first custom chat role, before the kind-role separator.
+            send(b"\x1bf")  # Alt+Right selects the chat-only role tab.
+            for _ in range(11):
+                send(b"\x1b[B")
+            send(b"D")
+            read_until(lambda data: b"Delete @review (global)" in data, "delete confirmation")
+            send(b"\r")  # Cancel is selected by default.
+            assert "review" in json.loads(settings.read_text())["modelRoles"], "default confirmation deleted"
+            send(b"D")
+            read_until(lambda data: b"Delete @review (global)" in data, "second delete confirmation")
+            send(b"\x1b[C\r")
+            read_until(lambda _: "review" not in json.loads(settings.read_text()).get("modelRoles", {}),
+                       "delete role persistence")
+            deleted = json.loads(settings.read_text())
+            assert "review" not in deleted.get("modelTags", {}), "role tag survived"
+            assert "review" not in deleted.get("cycleOrder", []), "role cycle survived"
+            assert "review" not in deleted.get("retry", {}).get("fallbackChains", {}), "role fallback survived"
+            assert deleted["modelRoles"]["default"] == saved_roles["default"], "unrelated role changed"
+            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker, confirmed custom-role deletion")
         finally:
             if process.poll() is None:
                 process.terminate()
