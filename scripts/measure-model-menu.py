@@ -15,6 +15,45 @@ import termios
 import time
 
 
+def wait_for(master, process, marker, timeout=60, complete_frame=False):
+    """Return observed bytes and the first marker time, or fail with the PTY tail.
+
+    PTY reads do not preserve renderer writes (notably on macOS). Menu assertions
+    require the synchronized-output end after the title, not an arbitrary read
+    containing it. Keep the marker time separate so frame validation does not
+    inflate command-to-first-visible-title measurements. Other callers only need
+    their literal marker and do not wait for a renderer frame.
+    """
+    received = bytearray()
+    deadline = time.monotonic() + timeout
+    visible_at = None
+    marker_end = 0
+    while time.monotonic() < deadline:
+        if select.select([master], [], [], 0.02)[0]:
+            try:
+                chunk = os.read(master, 1048576)
+            except OSError:
+                break
+            if not chunk:
+                break
+            received.extend(chunk)
+            for query, response in ((b"\x1b[6n", b"\x1b[1;1R"),
+                                    (b"\x1b[c", b"\x1b[?1;2c"),
+                                    (b"\x1b]11;?", b"\x1b]11;rgb:1010/1010/1010\x1b\\")):
+                if query in chunk:
+                    os.write(master, response)
+            if visible_at is None and marker in received:
+                visible_at = time.monotonic()
+                marker_end = received.index(marker) + len(marker)
+            if visible_at is not None:
+                if not complete_frame or b"\x1b[?2026l" in received[marker_end:]:
+                    return bytes(received), visible_at
+        if process.poll() is not None:
+            break
+    label = f"complete frame after {marker!r}" if complete_frame else repr(marker)
+    raise AssertionError(f"missing {label}; exit={process.poll()}: {received[-2000:]!r}")
+
+
 def measure(binary, metadata, legacy_settings, stale_cycle):
     """Return cold/reopen latencies; dummy auth never sends inference requests."""
     with tempfile.TemporaryDirectory(prefix="omp-model-latency-") as directory:
@@ -53,35 +92,16 @@ def measure(binary, metadata, legacy_settings, stale_cycle):
                                    start_new_session=True)
         os.close(slave)
 
-        def wait_for(marker, timeout=60):
-            """Answer terminal queries and wait for a literal first-frame marker."""
-            received = bytearray()
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                if select.select([master], [], [], 0.02)[0]:
-                    chunk = os.read(master, 1048576)
-                    received.extend(chunk)
-                    for query, response in ((b"\x1b[6n", b"\x1b[1;1R"),
-                                            (b"\x1b[c", b"\x1b[?1;2c"),
-                                            (b"\x1b]11;?", b"\x1b]11;rgb:1010/1010/1010\x1b\\")):
-                        if query in chunk:
-                            os.write(master, response)
-                    if marker in received:
-                        return bytes(received)
-                if process.poll() is not None:
-                    break
-            raise AssertionError(f"missing {marker!r}: {received[-2000:]!r}")
-
         try:
-            wait_for(b"interactive-ready")
+            wait_for(master, process, b"interactive-ready")
             if stale_cycle:
                 # Exercise the real Ctrl+P binding, not only Session.CycleModel.
                 # Dummy env auth permits switching but no prompt is ever sent.
                 for _ in range(2):
                     os.write(master, b"\x10")
-                    wait_for(b"Switched to GPT-4o mini", timeout=15)
+                    wait_for(master, process, b"Switched to GPT-4o mini", timeout=15)
                     os.write(master, b"\x10")
-                    frame = wait_for(b"Switched to GPT-4o", timeout=15)
+                    frame, _ = wait_for(master, process, b"Switched to GPT-4o", timeout=15)
                     assert b"Switched to GPT-4o mini" not in frame, "Default was skipped"
                 assert json.loads((agent / "settings.json").read_text())["modelRoles"] == settings["modelRoles"], "cycling changed assignments"
             timings = []
@@ -93,14 +113,14 @@ def measure(binary, metadata, legacy_settings, stale_cycle):
                         os.read(master, 1048576)
                 started = time.monotonic()
                 os.write(master, b"/model\r")
-                frame = wait_for(b"All available models")
-                timings.append((time.monotonic() - started) * 1000)
+                frame, visible_at = wait_for(master, process, b"All available models", complete_frame=True)
+                timings.append((visible_at - started) * 1000)
                 saved = json.loads((agent / "settings.json").read_text())
                 assert saved["modelRoles"] == settings["modelRoles"], "obsolete settings created or changed roles"
                 assert b"--models scope" not in frame, "obsolete model filter still active"
                 assert b"openai" in frame, "authenticated provider missing"
                 os.write(master, b"\x1b")
-                wait_for(b"\x1b[?1049l")
+                wait_for(master, process, b"\x1b[?1049l")
             return timings
         finally:
             process.terminate()

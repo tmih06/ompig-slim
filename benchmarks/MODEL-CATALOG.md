@@ -108,7 +108,11 @@ Three sequential isolated processes per binary, cold then reopen in each. The
 host is Linux arm64 / Go 1.27.3; raw samples, binary hashes and the metadata
 snapshot hash are in `evidence/model-catalog/menu-latency.json`. The public cache
 itself is not retained; its contents affect discovery counts and timing, so these
-are workload-specific observations, not universal latency promises.
+are workload-specific observations, not universal latency promises. Timing stops
+at the first menu-title marker. Roster assertions and Escape wait until that
+renderer's synchronized-output end: PTY reads, especially on macOS, can split
+the title and provider rows across packets. Frame validation does not extend the
+reported first-display interval.
 
 `interactive_model_hub.go:showModelHub` previously rebuilt the available catalog
 for every role resolution. `ModelRegistry.hubCatalogItems` now composes each
