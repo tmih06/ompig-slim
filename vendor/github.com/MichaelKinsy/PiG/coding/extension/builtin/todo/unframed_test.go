@@ -1,4 +1,4 @@
-package todotool
+package todo
 
 import (
 	"strings"
@@ -6,8 +6,6 @@ import (
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/tui"
-
-	"ompig-slim/internal/todo"
 )
 
 // TestCardIsUnframed pins the presentation contract: the todo card draws OMP's
@@ -25,12 +23,12 @@ func TestCardIsUnframed(t *testing.T) {
 		t.Fatalf("todo must opt out of the tool-card frame, got renderShell %q", def.RenderShell)
 	}
 
-	d := todoDetails{phases: []todo.Phase{
-		{Name: "Foundation", Tasks: []todo.Task{
-			{Content: "port the model", Status: todo.StatusCompleted},
-			{Content: "port the reminder", Status: todo.StatusInProgress},
+	d := todoDetails{phases: []Phase{
+		{Name: "Foundation", Tasks: []Task{
+			{Content: "port the model", Status: StatusCompleted},
+			{Content: "port the reminder", Status: StatusInProgress},
 		}},
-		{Name: "Verify", Tasks: []todo.Task{{Content: "run tests", Status: todo.StatusPending}}},
+		{Name: "Verify", Tasks: []Task{{Content: "run tests", Status: StatusPending}}},
 	}}
 	result := extension.AgentToolResult{Details: d.value(), Content: d.content()}
 	comp := tui.NewToolExecutionComponent("todo", "call-1", d.args(),
@@ -83,11 +81,11 @@ func TestCardIsUnframed(t *testing.T) {
 // TestCardKeepsContentWhenExpanded pins that dropping the frame did not drop the
 // expand behaviour: the collapsed card windows the list and Ctrl+O shows it all.
 func TestCardKeepsContentWhenExpanded(t *testing.T) {
-	many := make([]todo.Task, 0, collapsedItems+4)
+	many := make([]Task, 0, collapsedItems+4)
 	for i := 0; i < collapsedItems+4; i++ {
-		many = append(many, todo.Task{Content: "task number " + strings.Repeat("x", i+1), Status: todo.StatusPending})
+		many = append(many, Task{Content: "task number " + strings.Repeat("x", i+1), Status: StatusPending})
 	}
-	d := todoDetails{phases: []todo.Phase{{Name: "Tasks", Tasks: many}}}
+	d := todoDetails{phases: []Phase{{Name: "Tasks", Tasks: many}}}
 
 	collapsed := renderCard(t, d, false)
 	expanded := renderCard(t, d, true)

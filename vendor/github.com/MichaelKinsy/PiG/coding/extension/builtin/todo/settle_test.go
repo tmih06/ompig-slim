@@ -1,9 +1,7 @@
-package todotool
+package todo
 
 import (
 	"testing"
-
-	"ompig-slim/internal/todo"
 )
 
 // TestEndsWithQuestion pins the guard that keeps the reminder from talking over
@@ -37,16 +35,16 @@ func TestEndsWithQuestion(t *testing.T) {
 // reminder that just says "keep going" can be satisfied by a summary; one that
 // lists the open tasks and their count cannot.
 func TestRenderReminder(t *testing.T) {
-	phases := []todo.Phase{{
+	phases := []Phase{{
 		Name: "Port",
-		Tasks: []todo.Task{
-			{Content: "read OMP source", Status: todo.StatusCompleted},
-			{Content: "port the tool", Status: todo.StatusInProgress},
-			{Content: "port the reminder", Status: todo.StatusPending},
-			{Content: "wait for user", Status: todo.StatusBlocked, Blocker: "needs a decision"},
+		Tasks: []Task{
+			{Content: "read OMP source", Status: StatusCompleted},
+			{Content: "port the tool", Status: StatusInProgress},
+			{Content: "port the reminder", Status: StatusPending},
+			{Content: "wait for user", Status: StatusBlocked, Blocker: "needs a decision"},
 		},
 	}}
-	out := renderReminder(phases, todo.OpenTasks(phases), 1)
+	out := renderReminder(phases, OpenTasks(phases), 1)
 
 	for _, want := range []string{"2 open todo item(s)", "port the tool", "port the reminder", "Reminder 1/3"} {
 		if !contains(out, want) {
@@ -66,9 +64,9 @@ func TestRenderReminder(t *testing.T) {
 // deliberate "do not continue" decision, and a regression in any of them turns a
 // helpful nudge into a loop that burns the user's budget.
 func TestCheckGuards(t *testing.T) {
-	open := []todo.Phase{{Name: "P", Tasks: []todo.Task{{Content: "a", Status: todo.StatusPending}}}}
-	settled := []todo.Phase{{Name: "P", Tasks: []todo.Task{{Content: "a", Status: todo.StatusCompleted}}}}
-	blockedOnly := []todo.Phase{{Name: "P", Tasks: []todo.Task{{Content: "a", Status: todo.StatusBlocked}}}}
+	open := []Phase{{Name: "P", Tasks: []Task{{Content: "a", Status: StatusPending}}}}
+	settled := []Phase{{Name: "P", Tasks: []Task{{Content: "a", Status: StatusCompleted}}}}
+	blockedOnly := []Phase{{Name: "P", Tasks: []Task{{Content: "a", Status: StatusBlocked}}}}
 
 	t.Run("no list means no reminder", func(t *testing.T) {
 		st := &reminderState{}
@@ -105,9 +103,9 @@ func TestCheckGuards(t *testing.T) {
 	t.Run("progress earns a fresh reminder", func(t *testing.T) {
 		st := &reminderState{}
 		st.recordSent(open)
-		progressed := []todo.Phase{{Name: "P", Tasks: []todo.Task{
-			{Content: "a", Status: todo.StatusCompleted},
-			{Content: "b", Status: todo.StatusPending},
+		progressed := []Phase{{Name: "P", Tasks: []Task{
+			{Content: "a", Status: StatusCompleted},
+			{Content: "b", Status: StatusPending},
 		}}}
 		if !st.shouldRemind(progressed) {
 			t.Fatal("a changed list with open work should be nudged")
@@ -119,7 +117,7 @@ func TestCheckGuards(t *testing.T) {
 		// Each iteration makes progress, so the fingerprint guard never fires and
 		// only the count can stop it.
 		for i := 0; i < maxReminders; i++ {
-			list := []todo.Phase{{Name: "P", Tasks: []todo.Task{{Content: string(rune('a' + i)), Status: todo.StatusPending}}}}
+			list := []Phase{{Name: "P", Tasks: []Task{{Content: string(rune('a' + i)), Status: StatusPending}}}}
 			if !st.shouldRemind(list) {
 				t.Fatalf("reminder %d should be allowed", i+1)
 			}

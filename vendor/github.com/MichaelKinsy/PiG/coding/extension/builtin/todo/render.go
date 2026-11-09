@@ -1,4 +1,4 @@
-package todotool
+package todo
 
 import (
 	"encoding/json"
@@ -8,8 +8,6 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/tui"
-
-	"ompig-slim/internal/todo"
 )
 
 // This file ports oh-my-pi's todo card, packages/tui/src/tools/todo.ts
@@ -118,7 +116,7 @@ func phaseDisplayName(name string, oneBased int) string {
 // phase header carries. It counts closed tasks, not just completed ones, because
 // the collapsed viewport hides both, so an abandoned task must still move the
 // counter or its phase reads as permanently stuck.
-func phaseProgress(phase todo.Phase) string {
+func phaseProgress(phase Phase) string {
 	closed := 0
 	for _, task := range phase.Tasks {
 		if task.Status.Settled() {
@@ -131,31 +129,31 @@ func phaseProgress(phase todo.Phase) string {
 // formatPhaseSummary is OMP's one-line row for a phase this update did not
 // touch: a dim bold header plus progress, so a single task flip does not redraw
 // every phase's full task list.
-func formatPhaseSummary(phase todo.Phase, oneBased int) string {
+func formatPhaseSummary(phase Phase, oneBased int) string {
 	name := fg(tui.ThemeColorDim, tui.ChalkBold(phaseDisplayName(phase.Name, oneBased)))
 	return name + phaseProgress(phase)
 }
 
 // isClosedTask mirrors OMP's isClosedTodo.
-func isClosedTask(task todo.Task) bool { return task.Status.Settled() }
+func isClosedTask(task Task) bool { return task.Status.Settled() }
 
 // isActiveTask mirrors OMP's isActiveTodo for the paths this port supports. OMP
 // also counts a pending task a live subagent is executing as active; ompig-slim
 // has no equivalent registry wired into a renderer, so only the literal
 // in_progress task is active. A pending task therefore stays dim.
-func isActiveTask(task todo.Task) bool { return task.Status == todo.StatusInProgress }
+func isActiveTask(task Task) bool { return task.Status == StatusInProgress }
 
 // formatTodoLine is OMP's formatTodoLine: one checkbox row, colored by status.
-func formatTodoLine(item todo.Task) string {
+func formatTodoLine(item Task) string {
 	text := stripForHeader(item.Content)
 	switch item.Status {
-	case todo.StatusCompleted:
+	case StatusCompleted:
 		return fg(tui.ThemeColorSuccess, fmt.Sprintf("%s %s", symCheckboxChecked, strikethrough(text)))
-	case todo.StatusInProgress:
+	case StatusInProgress:
 		return fg(tui.ThemeColorAccent, fmt.Sprintf("%s %s", symCheckboxUnchecked, text))
-	case todo.StatusAbandoned:
+	case StatusAbandoned:
 		return fg(tui.ThemeColorError, fmt.Sprintf("%s %s", symCheckboxUnchecked, strikethrough(text)))
-	case todo.StatusBlocked:
+	case StatusBlocked:
 		note := "blocked"
 		if item.Blocker != "" {
 			note = "blocked: " + stripForHeader(item.Blocker)
@@ -174,7 +172,7 @@ func strikethrough(text string) string {
 // collapsedSelection is OMP's CollapsedTodoSelection: the rows to draw plus an
 // optional summary line ("" means no summary row).
 type collapsedSelection struct {
-	items   []todo.Task
+	items   []Task
 	summary string
 }
 
@@ -199,11 +197,11 @@ func formatMoreItems(remaining int, itemType string) string {
 //
 // The summary occupies a row, so a summary that would hide exactly one task is
 // replaced by that task: the selection spends at most cap+1 rows.
-func selectWithinCap(base []todo.Task, cap int) collapsedSelection {
+func selectWithinCap(base []Task, cap int) collapsedSelection {
 	if len(base) <= cap+1 {
 		return collapsedSelection{items: base}
 	}
-	var active []todo.Task
+	var active []Task
 	for _, task := range base {
 		if isActiveTask(task) {
 			active = append(active, task)
@@ -229,14 +227,14 @@ func selectWithinCap(base []todo.Task, cap int) collapsedSelection {
 			}
 		}
 	}
-	fill := make([]todo.Task, 0, cap)
+	fill := make([]Task, 0, cap)
 	for i := firstActive; i < len(base) && len(active)+len(fill) < cap; i++ {
 		if isActiveTask(base[i]) {
 			continue
 		}
 		fill = append(fill, base[i])
 	}
-	items := append(append([]todo.Task{}, active...), fill...)
+	items := append(append([]Task{}, active...), fill...)
 	hidden := len(base) - len(items)
 	selection := collapsedSelection{items: items}
 	if hidden > 0 {
@@ -252,8 +250,8 @@ func selectWithinCap(base []todo.Task, cap int) collapsedSelection {
 // collapsedClosedContext closed tasks so a checked row stays visible. The lead is
 // additive and never costs an open row; a phase with no open work falls back to
 // its closed tasks so a settled phase still draws something.
-func selectCollapsedTodos(tasks []todo.Task, cap int) collapsedSelection {
-	var open []todo.Task
+func selectCollapsedTodos(tasks []Task, cap int) collapsedSelection {
+	var open []Task
 	for _, task := range tasks {
 		if !isClosedTask(task) {
 			open = append(open, task)
@@ -262,7 +260,7 @@ func selectCollapsedTodos(tasks []todo.Task, cap int) collapsedSelection {
 	if len(open) == 0 {
 		return selectWithinCap(tasks, cap)
 	}
-	var closed []todo.Task
+	var closed []Task
 	for _, task := range tasks {
 		if isClosedTask(task) {
 			closed = append(closed, task)
@@ -276,7 +274,7 @@ func selectCollapsedTodos(tasks []todo.Task, cap int) collapsedSelection {
 		lead = lead[len(lead)-collapsedClosedContext:]
 	}
 	selected := selectWithinCap(open, cap)
-	items := append(append([]todo.Task{}, lead...), selected.items...)
+	items := append(append([]Task{}, lead...), selected.items...)
 	return collapsedSelection{items: items, summary: selected.summary}
 }
 
@@ -309,11 +307,11 @@ type treeRow struct {
 // touchedPhases is OMP's computeTouchedPhases: the phases the latest update
 // touched, plus the phase holding the active task. A nil result means "draw every
 // phase fully", which preserves the legacy view and the manual-expand path.
-func touchedPhases(p todo.Params, phases []todo.Phase, completed []todo.CompletedTask) map[string]bool {
+func touchedPhases(p Params, phases []Phase, completed []CompletedTask) map[string]bool {
 	touched := map[string]bool{}
 	for _, phase := range phases {
 		for _, task := range phase.Tasks {
-			if task.Status == todo.StatusInProgress {
+			if task.Status == StatusInProgress {
 				touched[phase.Name] = true
 				break
 			}
@@ -324,7 +322,7 @@ func touchedPhases(p todo.Params, phases []todo.Phase, completed []todo.Complete
 	}
 	// `init` replaces the whole list, so the entire plan is fresh and every phase
 	// counts as touched.
-	if p.Op == todo.OpInit {
+	if p.Op == OpInit {
 		for _, phase := range phases {
 			touched[phase.Name] = true
 		}
@@ -351,7 +349,7 @@ func touchedPhases(p todo.Params, phases []todo.Phase, completed []todo.Complete
 	return touched
 }
 
-func findPhaseNamed(phases []todo.Phase, name string) *todo.Phase {
+func findPhaseNamed(phases []Phase, name string) *Phase {
 	for i := range phases {
 		if phases[i].Name == name {
 			return &phases[i]
@@ -429,7 +427,7 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 	}
 
 	details := decodeDetails(result)
-	phases := make([]todo.Phase, 0, len(details.Phases))
+	phases := make([]Phase, 0, len(details.Phases))
 	for _, phase := range details.Phases {
 		if len(phase.Tasks) > 0 {
 			phases = append(phases, phase)
@@ -453,9 +451,9 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 
 	// Everything below is fixed for this result; only the expand toggle varies.
 	args := decodeArgs(context.Args)
-	var params todo.Params
+	var params Params
 	if op, ok := args["op"].(string); ok {
-		params.Op = todo.Op(op)
+		params.Op = Op(op)
 	}
 	params.Task = stringOr(args, "task", "")
 	params.Phase = stringOr(args, "phase", "")
@@ -534,17 +532,17 @@ func toolResultText(result extension.AgentToolResult) string {
 // arrive in: the value the tool returned, and the decoded JSON a resumed card
 // holds. The live path is the common one and is asserted directly; re-marshalling
 // a value that is already the right type cost more than the rest of a render.
-func decodeDetails(result extension.AgentToolResult) todo.Details {
+func decodeDetails(result extension.AgentToolResult) Details {
 	switch details := result.Details.(type) {
-	case todo.Details:
+	case Details:
 		return details
-	case *todo.Details:
+	case *Details:
 		if details != nil {
 			return *details
 		}
-		return todo.Details{}
+		return Details{}
 	}
-	var details todo.Details
+	var details Details
 	raw, err := jsonMarshal(result.Details)
 	if err != nil {
 		return details
