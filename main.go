@@ -30,11 +30,13 @@ func main() {
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
 	// The vendored personal runtime supplies the defaults; keep the complete CLI.
 	//
-	// The todo extension is composed in here rather than patched into the
-	// vendored runtime, so it survives a future `go mod vendor` and can be
-	// removed in one line. It registers both halves of the feature: the tool the
-	// model calls, and the settle-boundary handler that continues a run whose
-	// todo list still has open work.
+	// The todo feature has two halves. The tool the model calls is a real built-in
+	// (internal/todotool registers it through coding.RegisterExtendedBuiltinTool
+	// from its init), so it exists with --no-extensions, is dropped by
+	// --no-builtin-tools, and never shows in the startup Extensions list. The
+	// settle-boundary handler that continues a run with open work cannot be a
+	// built-in: that boundary is reachable only through the extension API, so it
+	// stays the one extension factory this program passes.
 	//
 	// Pass `delegated`, not `os.Args[1:]`: the self-updater may rewrite the
 	// argument list before handing the rest of the CLI over.
@@ -44,7 +46,6 @@ func main() {
 	// composes its tool, rules, project-context and skills sections around it.
 	cli.Main(args, &cli.MainOptions{
 		ExtensionFactories: []extension.InlineExtension{
-			todotool.Extension(),
 			todotool.SettleExtension(),
 		},
 		SystemPromptPreamble: prompts.System(),

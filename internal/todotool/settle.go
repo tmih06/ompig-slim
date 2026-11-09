@@ -37,6 +37,16 @@ type reminderState struct {
 	fingerprint string
 }
 
+// SettleExtensionName is the name the startup Extensions list shows for
+// [SettleExtension], as `<inline:todo-reminder>`.
+//
+// A name is required, not cosmetic: an unnamed factory is labelled by its 1-based
+// position among the program's non-built-in factories and the list reads
+// `<inline:1>`. `todo` itself is a built-in (see [Register]) and never appears
+// here; this reminder is the one half of the feature that must stay an extension,
+// because `agent_before_settle` is reachable only through the extension API.
+const SettleExtensionName = "todo-reminder"
+
 // SettleExtension wires the stop-time reminder.
 //
 // This is the behavior the todo tool exists for: without it, a tool that merely
@@ -44,13 +54,16 @@ type reminderState struct {
 // The handler runs on the agent_before_settle boundary — the last point where the
 // harness can still turn a would-be stop into another turn — and returns
 // Continue when the list proves the agent is not done.
-func SettleExtension() extension.ExtensionFactory {
-	return func(api extension.API) error {
-		state := &reminderState{}
-		api.OnAgentBeforeSettle(func(ctx context.Context, evt *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
-			return state.check(ctx, api, evt)
-		})
-		return nil
+func SettleExtension() extension.NamedInlineExtension {
+	return extension.NamedInlineExtension{
+		Name: SettleExtensionName,
+		Factory: func(api extension.API) error {
+			state := &reminderState{}
+			api.OnAgentBeforeSettle(func(ctx context.Context, evt *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
+				return state.check(ctx, api, evt)
+			})
+			return nil
+		},
 	}
 }
 

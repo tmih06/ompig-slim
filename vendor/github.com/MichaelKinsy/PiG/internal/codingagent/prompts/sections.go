@@ -45,5 +45,8 @@ func DefaultToolSnippets() map[string]string {
 		// tool like the others, so the prompt lists it.
 		"codemode":   "Run JavaScript that calls other tools",
 		"web_search": "Search the web using free providers and return cited sources",
+		// omp-slim addition: the todo built-in's own promptSnippet (internal/todotool), so the host action list and the
+		// prompt's tool list name it like any other built-in.
+		"todo": "Track multi-step work in a session todo list",
 	}
 }
