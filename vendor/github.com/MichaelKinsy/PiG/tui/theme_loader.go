@@ -410,6 +410,11 @@ var themeColorFallbacks = []struct{ token, from string }{
 	{"statusLineOutput", "muted"},
 	{"statusLineCost", "success"},
 	{"statusLineSubagents", "accent"},
+	// assistantMessageText is optional and has no token to borrow: an omitted one
+	// is the terminal's default foreground, which is what every theme rendered
+	// prose in before the token existed. "text" is not a substitute, because most
+	// palettes set text to the terminal default as well.
+	{"assistantMessageText", ""},
 }
 
 // themeBackgroundTokens are the tokens drawn as backgrounds (theme.ts BACKGROUND_TOKENS).
@@ -435,12 +440,17 @@ func resolveThemeWithMode(tj *ThemeJSON, mode TerminalColorMode) (*Theme, error)
 		}
 		resolved[k] = next
 	}
-	// Optional tokens use nullish fallbacks: only an omitted token falls back, while an explicitly configured value, including "", is retained.
+	// Optional tokens use nullish fallbacks: only an omitted token falls back, while an explicitly configured value, including "", is retained. A
+	// fallback naming no token resolves to the terminal default, the "no opinion" value for a token whose absence means "inherit".
 	for _, fallback := range themeColorFallbacks {
 		if _, present := tj.Colors[fallback.token]; present {
 			continue
 		}
-		resolved[fallback.token] = resolved[fallback.from]
+		if fallback.from != "" {
+			resolved[fallback.token] = resolved[fallback.from]
+		} else {
+			resolved[fallback.token] = ThemeColorValue{isSet: true}
+		}
 		keys = append(keys, fallback.token)
 	}
 	// Themes shared with OMP carry color tokens this engine does not render. They validate so one
@@ -465,6 +475,11 @@ func resolveThemeWithMode(tj *ThemeJSON, mode TerminalColorMode) (*Theme, error)
 	}
 	theme.source = source
 	theme.ansiFg = resolveThemeANSIPalette(tj, mode)
+	// A palette that leaves `text` at the terminal default records the body color it
+	// was designed against in terminal.foreground; adopting it here makes every
+	// existing Fg("text", ...) call site (dialogs, descriptions, login prompts) draw
+	// that color instead of inheriting the terminal's own foreground.
+	theme.adoptPaletteForeground()
 	exportColors := resolveThemeExportColors(tj)
 	theme.ExportPageBg, theme.ExportCardBg, theme.ExportInfoBg = exportColors["pageBg"], exportColors["cardBg"], exportColors["infoBg"]
 	return theme, nil

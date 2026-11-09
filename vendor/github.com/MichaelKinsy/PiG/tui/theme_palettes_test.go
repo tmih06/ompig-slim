@@ -336,3 +336,74 @@ func TestANSIPaletteSurvivesColorMode(t *testing.T) {
 func paletteSlotAnsi(theme *Theme, slot int) string {
 	return strings.TrimSuffix(theme.ANSIFg(slot, ""), SGRFgReset)
 }
+
+// TestProseFg covers the assistant prose color. `text` is the terminal default in
+// 96 of the bundled palettes, so prose that follows `text` inherits whatever the
+// user's terminal shows; a palette records the body color it was designed against
+// in terminal.foreground, which is what ProseFg falls back to.
+// TestPaletteForegroundIsAdopted covers the body-color repair. `text` is "" in 96
+// of the bundled palettes ("the terminal's default foreground"), so every
+// Fg("text", ...) call site — dialog descriptions, list rows, login prompts,
+// assistant prose — inherited whatever the user's terminal shows. Each palette
+// records the body color it was designed against in terminal.foreground, and the
+// loader adopts it, so those call sites draw a real color.
+func TestPaletteForegroundIsAdopted(t *testing.T) {
+	for _, name := range []string{"titanium", "dark-dracula", "light-solarized", "dark-github"} {
+		theme := paletteTheme(name)
+		if theme == nil {
+			t.Fatalf("%s did not resolve", name)
+		}
+		if theme.Text == SGRFgReset || theme.Text == "" {
+			t.Fatalf("%s: text is still the terminal default (%q)", name, theme.Text)
+		}
+		if theme.Text != theme.fgAnsi["text"] {
+			t.Fatalf("%s: the Text field disagrees with the token table", name)
+		}
+		if theme.ProseFg() == "" {
+			t.Fatalf("%s: prose fell back to the terminal default", name)
+		}
+		// The adopted color has to be a concrete color, not a re-registered default.
+		if _, ok := theme.concreteColors["text"]; !ok {
+			t.Fatalf("%s: the adopted text color is not in concreteColors", name)
+		}
+	}
+}
+
+// TestThemeNamingTextKeepsIt covers the other direction: a theme that writes a
+// real color for `text` keeps exactly that color, and a theme with no terminal
+// section keeps the terminal default it asked for.
+func TestThemeNamingTextKeepsIt(t *testing.T) {
+	for _, name := range []string{"light", "dark"} {
+		theme, err := LoadBuiltinTheme(name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if theme.Text == SGRFgReset {
+			t.Fatalf("%s: text should be a real color", name)
+		}
+		if _, ok := theme.concreteColors["text"]; !ok {
+			t.Fatalf("%s: text should resolve as a concrete color", name)
+		}
+	}
+
+	// A theme assembled in code has no terminal section and no JSON source, so
+	// adoption never ran and its own text color stands.
+	bare := paletteHueTheme(t)
+	if bare.source != nil {
+		t.Fatalf("the fixture unexpectedly has JSON source")
+	}
+	if got := bare.Text; got != "\x1b[38;2;128;128;128m" {
+		t.Fatalf("a theme without JSON source changed its text color to %q", got)
+	}
+}
+
+// TestAssistantMessageTextWins covers the explicit token: a theme that names
+// assistantMessageText paints prose in it rather than in `text`.
+func TestAssistantMessageTextWins(t *testing.T) {
+	theme := paletteHueTheme(t)
+	theme.fgAnsi["text"] = "\x1b[38;2;99;99;99m"
+	theme.fgAnsi[string(ThemeColorAssistantMessageText)] = "\x1b[38;2;1;2;3m"
+	if got := theme.ProseFg(); got != "\x1b[38;2;1;2;3m" {
+		t.Fatalf("assistantMessageText did not win over text: %q", got)
+	}
+}

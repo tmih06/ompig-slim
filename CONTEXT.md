@@ -148,6 +148,16 @@ Two constraints hold the render path together. Each colorful role is one package
 
 Tests: `tui/theme_palettes_test.go` (bundle loads, every token resolves, registration, defaults, schema acceptance and rejection, optional-token fallbacks, `ANSIFg` fallback), `tui/markdown_palette_test.go` (role hues, token fallback, heading emphasis, width-and-text parity), `internal/codingagent/status_line_test.go` (segment tokens, context thresholds).
 
+**The body color.** `text` is `""` in 96 of the 100 bundled palettes — the token means "the terminal's own foreground" — and every palette records the body color it was designed against in `terminal.foreground` instead. That combination is the rest of the "everything is white" report: assistant prose, dialog descriptions, list rows, login prompts and settings labels all resolve through `Fg("text", …)`, so on a terminal whose default foreground sits close to its background they all render as the same uncolored glyphs, with only headings, code and accents standing out.
+
+`Theme.adoptPaletteForeground` (`theme.go`, called from `resolveThemeWithMode`) closes this at the source rather than at each call site: when a theme's JSON leaves `text` unset, the loader resolves `terminal.foreground` and adopts it as a concrete color, updating `fgAnsi`, the `Text` field, `concreteColors` and `defaultForegroundTokens` together. Every existing `Fg("text", …)` call site then draws the palette's own body color with no call-site change. A theme that writes a real color for `text` is untouched, and a theme assembled in code (no JSON source) keeps whatever it set. Nothing else in the loader depends on `text` staying a default token.
+
+On top of that, `assistantMessageText` (upstream's only `OPTIONAL_THEME_COLOR_RECORD` member) is now a real optional token, and `Theme.ProseFg` returns it when set, else `text`. Assistant prose, the changelog, `/hotkeys` and any `SlashContext.Append` content go through `InteractiveMode.proseMarkdown`, which applies `ProseFg` via `SetDefaultColor` — the same primitive `UserMessageComponent` uses. `proseMarkdown` is the single seam: a Markdown block built with `tui.NewMarkdownWithOptions(..., nil, nil)` anywhere else deliberately has no prose color.
+
+Two visual fixes came with it. `renderInlineTokensSequential` no longer writes the context's opening codes twice on a text run that follows an inline token (`applyText` strips the prefix when `stylePrefix` is already pending), which halves the escape bytes of every line carrying emphasis or a code span. And the settings list's unselected label now uses `th.Text` instead of the terminal default, so the list is not the one surface whose rows have no color at all.
+
+Surfaces audited and left as upstream renders them, so a reviewer does not re-open them: Markdown table borders and body cells (`#renderTable` styles only the header), an unselected model-browser row's bare id (`model-browser.ts` uses `item.labelColor`, which is unset outside the picker), `/session` values (the report styles `Key:` lines and headings only), and `system`'s thin palette (it is generated from reported colors and is no longer the default).
+
 ### Interactive tool cards
 
 - Interactive cards opt into `ToolExecutionOptions.Rich` and follow one of

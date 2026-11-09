@@ -1447,12 +1447,21 @@ func (m *Markdown) renderInlineTokensSequentialIn(tokens []markedToken, style in
 		return resolved
 	}
 	var out strings.Builder
+	// applyText writes a text run in the context's text style. The style's opening
+	// codes (stylePrefix) are written after every inline token instead, so a run that
+	// already starts with them is written without them: otherwise each run after a
+	// token would open the same color twice, which is invisible but doubles the
+	// escape bytes of every line carrying emphasis or a code span.
 	applyText := func(text string) {
 		for i, segment := range strings.Split(text, "\n") {
 			if i > 0 {
 				out.WriteByte('\n')
 			}
-			out.WriteString(style.applyText(segment))
+			styled := style.applyText(segment)
+			if style.stylePrefix != "" && strings.HasPrefix(styled, style.stylePrefix) && strings.HasSuffix(out.String(), style.stylePrefix) {
+				styled = strings.TrimPrefix(styled, style.stylePrefix)
+			}
+			out.WriteString(styled)
 		}
 	}
 	for _, token := range tokens {

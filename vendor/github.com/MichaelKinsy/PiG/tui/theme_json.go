@@ -100,6 +100,10 @@ var themeColorTokens = []themeColorToken{
 	{"statusLineOutput", true, "Status line output-token counter (falls back to muted when omitted)"},
 	{"statusLineCost", true, "Status line spend (falls back to success when omitted)"},
 	{"statusLineSubagents", true, "Status line subagent counter (falls back to accent when omitted)"},
+
+	// The assistant reply's prose. Upstream has it as OPTIONAL_THEME_COLOR_RECORD's
+	// only member, so it is optional here too; unset keeps the terminal default.
+	{"assistantMessageText", true, "Assistant reply prose (unset keeps the terminal default foreground)"},
 }
 
 // ThemeColorToken is one token of the theme "colors" object: its description and whether a theme may omit it.

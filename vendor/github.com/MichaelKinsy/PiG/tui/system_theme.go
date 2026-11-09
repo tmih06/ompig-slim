@@ -146,6 +146,10 @@ var systemTokenFamilies = []struct{ token, family string }{
 	{"statusLineCost", "green"},
 	{"statusLineSubagents", "violet"},
 	{"pythonMode", "yellow"},
+	// The assistant reply's prose is generated like any other token, so a system
+	// theme paints it rather than leaving it to the terminal default. The family
+	// is neutral: prose is body text, not an accent.
+	{"assistantMessageText", "neutral"},
 }
 
 var systemTokenFamily = sync.OnceValue(func() map[string]string {
@@ -345,6 +349,7 @@ var systemRuleTable = [...]systemRule{
 	{"statusLineCost", systemOnBackground, "readable"},
 	{"statusLineSubagents", systemOnBackground, "readable"},
 	{"pythonMode", systemOnBackground, "readable"},
+	{"assistantMessageText", systemOnBackground, "text"},
 }
 
 func systemRules() []systemRule { return systemRuleTable[:] }

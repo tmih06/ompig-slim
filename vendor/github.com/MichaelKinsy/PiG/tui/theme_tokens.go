@@ -57,6 +57,11 @@ const (
 	ThemeColorThinkingMax        ThemeColor = "thinkingMax"
 	ThemeColorBashMode           ThemeColor = "bashMode"
 	ThemeColorPythonMode         ThemeColor = "pythonMode"
+	// ThemeColorAssistantMessageText colors the assistant reply's plain prose.
+	// Unset means the terminal default, which is what every theme did before the
+	// token existed; a theme sets it when it wants prose to carry its own body
+	// color instead of inheriting whatever the user's terminal shows.
+	ThemeColorAssistantMessageText ThemeColor = "assistantMessageText"
 
 	// Status line segments. Upstream defines them in the same color object as the
 	// tokens above; they are optional here, because a theme written for PiG omits

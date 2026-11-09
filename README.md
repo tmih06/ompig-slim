@@ -68,6 +68,9 @@ make install
   drops in unchanged, including its `terminal.ansi` palette.
 - Colorful Markdown drawn from the theme's palette: a distinct hue per heading
   depth, colored emphasis, inline code and table headers, as in oh-my-pi.
+- Reply prose, dialog descriptions, list rows and settings labels draw the
+  palette's own body color, so the interface stays colored on a terminal whose
+  default foreground is hard to tell from its background.
 - A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.

@@ -101,6 +101,9 @@ type Theme struct {
 	// ─── Misc ────────────────────────────────────────────────
 	BashMode   string // bash mode indicator
 	PythonMode string // python mode indicator
+	// AssistantMessageText colors the assistant reply's plain prose; empty when the
+	// theme leaves it to the terminal's default foreground.
+	AssistantMessageText string
 
 	// ─── Status line segment colors ─────────────────────────────
 	StatusLineSep       string
@@ -293,6 +296,78 @@ func (t *Theme) ANSIFg(slot int, text string) string {
 // HasANSIPalette reports whether the theme names its own terminal.ansi palette, so
 // callers can tell a themed palette from the terminal's fallback.
 func (t *Theme) HasANSIPalette() bool { return t != nil && t.ansiFg != nil }
+
+// ProseFg is the foreground assistant prose is drawn in, or "" for the terminal
+// default. It is assistantMessageText when the theme names one (an explicit
+// choice wins), else the theme's `text`, which adoptPaletteForeground has already
+// pointed at the palette's own body color when the theme left it unset.
+func (t *Theme) ProseFg() string {
+	if t == nil {
+		return ""
+	}
+	// The token's own escape, without the faint attribute GetFgAnsi adds for a dim
+	// token: prose is body text, and a theme that dims assistantMessageText has
+	// still asked for it explicitly, so the color stands and only the faintness is
+	// dropped.
+	if ansi, ok := t.fgAnsi[string(ThemeColorAssistantMessageText)]; ok && ansi != SGRFgReset {
+		return ansi
+	}
+	if t.fgAnsi["text"] != SGRFgReset {
+		return t.fgAnsi["text"]
+	}
+	return ""
+}
+
+// adoptPaletteForeground points `text` at the palette's own body color when the
+// theme left it at the terminal default.
+//
+// 96 of oh-my-pi's 100 palettes set `text` to "", meaning "the terminal's own
+// foreground", and record the color they were designed against in
+// `terminal.foreground` instead. Keeping "" there leaves every Fg("text", ...)
+// call site — dialog descriptions, list rows, login prompts, assistant prose —
+// inheriting whatever foreground the user's terminal happens to show, which on a
+// terminal whose default is close to its background is the "everything is white"
+// report. Adopting the palette's own foreground here fixes every call site at
+// once, and keeps the theme's appearance and its resolved colors in agreement.
+//
+// A theme with no terminal section keeps "" and still renders in the terminal's
+// own foreground, which is what it asked for.
+func (t *Theme) adoptPaletteForeground() {
+	if t.source == nil || t.source.Terminal == nil {
+		return
+	}
+	// Only an unset text token adopts the palette foreground; a theme that named a
+	// color, including an explicit "", keeps what it asked for.
+	if text, present := t.source.Colors["text"]; present && !(!text.IsIndex && text.Text == "") {
+		return
+	}
+	resolved, err := resolveVarRefs(t.source.Terminal.Foreground, t.source.Vars, nil)
+	if err != nil {
+		return
+	}
+	var color Color
+	switch {
+	case resolved.IsIndex:
+		color, err = NewIndexedColor(resolved.Index)
+	case resolved.Text != "" && resolved.Text != t.fgAnsi["text"]:
+		color, err = ParseColor(resolved.Text)
+	default:
+		return
+	}
+	if err != nil {
+		return
+	}
+	ansi := ForegroundAnsi(color, t.GetColorMode())
+	t.fgAnsi["text"] = ansi
+	t.Text = ansi
+	// A default-foreground token is tracked separately so Colors() can keep
+	// resolving it; the palette's foreground is a real color now.
+	t.defaultForegroundTokens = slices.DeleteFunc(t.defaultForegroundTokens, func(token string) bool { return token == "text" })
+	if t.concreteColors == nil {
+		t.concreteColors = map[string]Color{}
+	}
+	t.concreteColors["text"] = color
+}
 
 // ANSIPalette returns every resolved token as foreground and background ANSI
 // openings. It is used at process boundaries where theme helper functions
@@ -960,7 +1035,8 @@ func (t *Theme) populateFields() {
 		"thinkingText": &t.ThinkingText, "thinkingOff": &t.ThinkingOff, "thinkingMinimal": &t.ThinkingMinimal,
 		"thinkingLow": &t.ThinkingLow, "thinkingMedium": &t.ThinkingMedium, "thinkingHigh": &t.ThinkingHigh,
 		"thinkingXhigh": &t.ThinkingXhigh, "bashMode": &t.BashMode, "pythonMode": &t.PythonMode,
-		"statusLineSep": &t.StatusLineSep, "statusLineModel": &t.StatusLineModel, "statusLinePath": &t.StatusLinePath,
+		"assistantMessageText": &t.AssistantMessageText,
+		"statusLineSep":        &t.StatusLineSep, "statusLineModel": &t.StatusLineModel, "statusLinePath": &t.StatusLinePath,
 		"statusLineGitClean": &t.StatusLineGitClean, "statusLineGitDirty": &t.StatusLineGitDirty,
 		"statusLineContext": &t.StatusLineContext, "statusLineSpend": &t.StatusLineSpend,
 		"statusLineStaged": &t.StatusLineStaged, "statusLineDirty": &t.StatusLineDirty,
