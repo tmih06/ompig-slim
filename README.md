@@ -61,6 +61,7 @@ make install
   phase background on every card and grep/find results drawn as a file tree. Write and edit
   stream their content while the arguments arrive, with diffs, highlighting,
   and Ctrl+O expansion.
+- A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - Native Linux and macOS releases for x64 and arm64.
 

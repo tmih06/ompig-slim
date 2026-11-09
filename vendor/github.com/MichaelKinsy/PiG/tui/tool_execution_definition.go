@@ -40,9 +40,16 @@ type ToolRenderInput struct {
 // the definition has no such renderer or the renderer failed; the card then
 // draws upstream's fallback. Self is renderShell "self".
 type ToolDefinitionRenderers struct {
-	Self   bool
-	Call   func(ToolRenderInput) (Component, bool)
-	Result func(ToolRenderInput) (Component, bool)
+	Self bool
+	// Unframed draws the renderers' rows as the card's whole content: no border,
+	// no status bar, no lifecycle background. The rows are the tool's own, so a
+	// caller that wants a plain presentation of structured content opts in here
+	// rather than re-implementing the frame's absence in the renderer.
+	//
+	// pig additive: upstream has only "default" and "self".
+	Unframed bool
+	Call     func(ToolRenderInput) (Component, bool)
+	Result   func(ToolRenderInput) (Component, bool)
 	// CallReadsFields reports that Call reads a streaming call's arguments from ToolRenderInput.Fields: the card then
 	// hands it the decoded arguments and no text, so a frame does not encode arguments that grow with every delta.
 	CallReadsFields bool
@@ -202,7 +209,7 @@ func (c *ToolExecutionComponent) updateDefinition() {
 // fillDefinitionShell replaces the shell container's children with the current call and result regions (tool-execution.ts updateDisplay: clear, then addChild).
 func (c *ToolExecutionComponent) fillDefinitionShell() {
 	components := c.definitionComponents()
-	if c.definition.Self {
+	if c.definition.Self || c.definition.Unframed {
 		c.selfRenderContainer.SetChildren(components...)
 		return
 	}
@@ -251,7 +258,7 @@ func (c *ToolExecutionComponent) definitionComponents() []Component {
 	if c.definitionResultComponent != nil {
 		result = NewMouseRegion(c.definitionResultComponent, c.handleResultMouse)
 	}
-	if c.Rich {
+	if c.Rich && !c.definition.Unframed {
 		// The frame renders the result region itself after its full-width
 		// Output divider, so the shell holds only the call rows.
 		return []Component{call}
@@ -289,17 +296,21 @@ func (c *ToolExecutionComponent) definitionBg() func(string) string {
 }
 
 // renderSelfShell is upstream render for renderShell "self": the components after one blank row, or nothing when they draw nothing. Images follow.
+//
+// An unframed definition shares this shell but never enters the frame: its rows
+// are drawn at the full width, untinted, with no border or status bar.
 func (c *ToolExecutionComponent) renderSelfShell(width int) []string {
 	images := c.renderImages(width)
+	unframed := c.definition != nil && c.definition.Unframed
 	innerWidth := width
-	if c.Rich && width >= richMinWidth {
+	if c.Rich && !unframed && width >= richMinWidth {
 		// A self-framed renderer draws at the block's content width, the same
 		// width renderRichFrame pads out to its borders.
 		innerWidth = richContentWidth(width)
 	}
 	content := c.selfRenderContainer.Render(innerWidth)
 	c.mouseChild, c.mouseWidth, c.mouseHeight = c.selfRenderContainer, innerWidth, len(trimBlankEdges(content))
-	if c.Rich && width >= richMinWidth {
+	if c.Rich && !unframed && width >= richMinWidth {
 		content = c.renderRichFrame(width, trimBlankEdges(content), -1)
 		// One status bar above the body inside the frame, plus the leading
 		// spacer row the plain shell adds.

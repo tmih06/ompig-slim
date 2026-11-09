@@ -209,7 +209,7 @@ func (m *InteractiveMode) toolDefinitionRenderers(definition extension.ToolRende
 			Card:             cardID,
 		}
 	}
-	renderers := &tui.ToolDefinitionRenderers{Self: definition.RenderShell == extension.ToolRenderShellSelf, CallReadsFields: readsCallFields(definition.RenderCall)}
+	renderers := &tui.ToolDefinitionRenderers{Self: definition.RenderShell == extension.ToolRenderShellSelf, Unframed: definition.RenderShell == extension.ToolRenderShellUnframed, CallReadsFields: readsCallFields(definition.RenderCall)}
 	if definition.RenderCall != nil {
 		var last extension.Component
 		renderers.Call = func(input tui.ToolRenderInput) (tui.Component, bool) {

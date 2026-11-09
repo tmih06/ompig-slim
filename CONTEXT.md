@@ -13,6 +13,7 @@ Technical orientation and maintenance rulings for coding agents working in this 
 ## Repository map
 
 - `main.go`: executable entry point and library registrations.
+- `prompts/system.md`: this program's base system prompt, embedded into the binary at build time. Edit the Markdown, not Go source.
 - `vendor/github.com/MichaelKinsy/PiG/`: PiG runtime plus personal patches; inspect this tree for CLI, coding runtime, provider, and TUI behavior.
 - `scripts/`: Go checks, native builds, smoke tests, startup measurement, CLI benchmarking, release verification, and the user-facing curl installer.
 - `benchmarks/`: pinned OMP/Pi npm manifests and lockfiles plus retained local measurement evidence used by CI comparisons.
@@ -58,6 +59,18 @@ make test-self-update
 
 ## Feature behavior notes
 
+### The base system prompt
+
+The prompt's opening text lives in `prompts/system.md` at the repository root and is embedded into the binary with `go:embed`; nothing reads the file at runtime. Edit the Markdown, not Go source. `prompts.System()` returns it trimmed.
+
+The vendored runtime composes the rest and cannot be bypassed from the root: the prompt-building package is `internal/codingagent/prompts`, and Go forbids an external module from importing a vendored `internal` path. So the seam is an exported field, `cli.MainOptions.SystemPromptPreamble`, next to the existing `ExtensionFactories`. `main.go` passes `prompts.System()`; `cli.Main` assigns it to the package-level `prompts.Preamble` before any session builds a prompt.
+
+Only the preamble is replaceable this way. The tool list, rules, docs, project-context, and skills sections still compose around it, because they depend on runtime facts (selected tools, discovered skills, loaded context files) the root cannot supply. A replaced preamble therefore keeps the stock prompt's structure; it becomes the whole `<preamble>` section and nothing else moves.
+
+Two properties matter for keeping this honest. `prompts.Preamble` is read at render time by both `BuildDefaultPrompt` and `BuildSystemPromptSections`, so startup, resource reload, and per-session rebuild cannot disagree about it; `TestAllBuildersSeeOverride` pins that. An empty or whitespace-only value falls back to the stock paragraph, so a build that never sets the field is byte-identical to before, and clearing it cannot produce a prompt with no opening sentence.
+
+Do not grow this into a prompt file plus a `SYSTEM.md` override layered on top. The runtime already discovers a trusted project `SYSTEM.md` (and `APPEND_SYSTEM.md`) and switches `AppendMode` to `replace` when it exists; that is the user-facing override and it deliberately wins over this embedded default.
+
 ### Release distribution and the curl installer
 
 - `scripts/build-binaries.sh` produces four archives (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`), each containing `ompig-slim/ompig-slim` plus README, LICENSE, NOTICE, and vendored license texts, and a `.sha256` sidecar naming that archive.
@@ -95,10 +108,33 @@ make test-self-update
 - Imported accounts use the normal quota-aware account router and refresh-token rotation. Definitive refresh failures remove live secrets and routing blocks while retaining an OMP-compatible disabled row. Transport failures, cancellation, rate limits, server errors, and unclassified failures retain credentials. Cleanup is use-driven, not a background timer; browser-login Codex accounts are unaffected. See `vendor/github.com/MichaelKinsy/PiG/ai/omp_codex_json_storage.go` and the routing tests beside it.
 - Sessions using the built-in ModelRuntime stream must also route compaction summaries through it without pre-resolving credentials. Explicit credentials pin a single account and bypass model-plan eligibility and account rotation; caller-supplied Agent streams retain their own auth behavior. See `vendor/github.com/MichaelKinsy/PiG/coding/session_summarization_auth.go`.
 
+### Todo tool and its stop-time reminder
+
+`todo` is OMP's task list, ported as a program-composed extension in `internal/todotool` (registered from `main.go`) rather than as a vendored patch, so `go mod vendor` cannot drop it. `internal/todo` owns the data model and list semantics; the extension owns the tool definition and the settle-boundary handler.
+
+State lives only in each tool result's `details`. Every call re-reads the newest state-changing `todo` result on the session branch (`internal/todotool/snapshot.go`), so resume, rewind and fork need no persistence of their own, and the list can never disagree with the transcript. A `view` result and an errored result are both skipped as state: the first changed nothing, the second persisted nothing.
+
+`view` is also exempt from list normalization. `todo.Apply` runs `normalizeInProgress` for a mutating op to keep at most one task active, but that is a write: running it for a read-only op would return a copy the transcript never accepted, demoting a second `in_progress` task in the rendered list. `Op.readOnly` decides this, and `TestViewDoesNotNormalize`/`TestWriteOpsStillNormalize` pin both directions. The tool short-circuits a view before calling `Apply` at all, so the library-level guarantee backs a path the tool no longer takes.
+
+The harness behavior is the part that makes the tool matter. `SettleExtension` registers `OnAgentBeforeSettle` and returns `Continue` when the list still has open work, injecting a hidden `todo-reminder` custom message. The handler stays silent, deliberately, when: the run did not complete normally; no list exists; every open task is `blocked`; the agent's last message asks the user something; the list is unchanged since the previous reminder; or the per-run budget of 3 reminders is spent. A `blocked` task is open but never actionable, which is the sanctioned way for an agent to stop: it keeps the list honest while letting the turn end.
+
+`sequential` execution serializes the calls but does not make one call's result visible to the next, so two `todo` calls in one batch each read the same prior list and the later one wins. The tool description therefore instructs one op per call beside the next real action; do not treat batching as safe.
+
+The content is a line-for-line port of OMP's `todoToolRenderer` (`packages/tui/src/tools/todo.ts`) in `internal/todotool/render.go`: one `Todo N tasks` line, roman-numeral phase headers when there are several phases, `├─`/`└─` tree gutters, `☑`/`☐` checkboxes, dim `closed/total` progress per phase, and a collapsed walking viewport that leads with the last closed task and caps at 8 rows. The content is reproduced rather than approximated because it is the only place a user watches a plan advance; a layout that differs by a gutter or a windowing rule reads as a different tool.
+
+The content is drawn **unframed**: the tool sets `RenderShell: extension.ToolRenderShellUnframed`, so the rows are the card's whole presentation, with no border, no status bar and no lifecycle background. The list is already a structured block — a title line, phase headers and tree gutters — so the frame would only box it and repeat its title. `ToolRenderShellUnframed` is a pig addition to the `default`/`self` pair (`tool_execution_definition.go` `Unframed`, set from both renderer factories); the frame itself lives in `renderRichFrame`, which only `renderSelfShell` calls for `Rich` cards, so opting out is a routing change rather than a renderer concern. A frame-less card also skips the mouse inset `HandleMouse` applies inside a border.
+
+Two vendor limitations shape the renderer, both handled in it rather than by patching further. First, OMP's `mergeCallAndResult` has no counterpart here, and the card substitutes a name-and-args fallback when a call renderer returns nil, so `renderCall` draws the streaming header and then nothing once `IsPartial` clears. Without that, a settled card shows a stale `● Todo` line above the list. Second, the vendored `Theme` exposes foreground tokens but not OMP's symbol table, so checkbox, tree and tool glyphs are constants in `render.go` holding OMP's default-theme values. A pending todo matched to a live subagent renders dim rather than accent, because no subagent registry is wired into a renderer here.
+
+Because the frame's bottom bar is gone, it carries no `Ctrl+O: Expand` hint. The card is still click- or Ctrl+O-expandable — `definitionComponents` keeps the result region for an unframed card — so the disclosure works; only the footer that advertised it is gone, which `unframed_test.go` pins alongside the absence of border and background.
+
+See `internal/todo/state.go`, `internal/todotool/render.go`, `internal/todotool/settle.go`, and the tests beside them.
+
 ### Interactive tool cards
 
 - Interactive cards opt into `ToolExecutionOptions.Rich` and follow one of
-  OMP's two shapes (`packages/tui/src/tools/renderer.ts` `inline`):
+  OMP's two shapes (`packages/tui/src/tools/renderer.ts` `inline`), plus a third
+  shape this project adds for tools whose own rows are already structured:
   - **Framed** (`bash`, `codemode`, `web_search`, unregistered tools): OMP's
     `renderOutputBlock` — `╭─── … ───╮` bars, body rows padded one cell inside
     the borders, a labelled `├─── Output ───┤` section where the tool has one,
@@ -107,6 +143,11 @@ make test-self-update
     applied over the whole row, borders included, re-applied after embedded SGR
     resets. Every tool is filled, the shell included; this project keeps one
     filled card look instead of oh-my-pi's `applyBg: false` shell exception.
+  - **Unframed** (`todo`): `RenderShell: extension.ToolRenderShellUnframed`
+    draws the renderers' rows as the whole card — no bars, no status line, no
+    background tint — while the card stays `Rich` and expandable. A pig addition
+    (`ToolDefinitionRenderers.Unframed`); a tool opts in when its content is its
+    own layout, so the frame would only box it and repeat its title.
   - **Inline** (`read`, `grep`, `find`, `ls`): no frame at all. The collapsed
     card is the single status-line row — `✔ Read skills/optimize/SKILL.md:70-95`
     — and Ctrl+O discloses the body rows under it. `write` and `edit` return

@@ -792,7 +792,10 @@ func (c *ToolExecutionComponent) HandleMouse(event TuiMouseEvent) *TuiMouseDispa
 		c.Render(event.Width)
 	}
 	top := c.mouseTop
-	if c.Rich {
+	// An unframed card draws its rows at the full width with no border, so there
+	// is no inset to undo even though the card is Rich.
+	unframed := c.definition != nil && c.definition.Unframed
+	if c.Rich && !unframed {
 		// Inside the frame the body is inset by the border and its padding.
 		if event.X < 1 || event.X >= max(1, event.Width-1) {
 			return nil
@@ -862,7 +865,7 @@ func (c *ToolExecutionComponent) renderTool(width int) []string {
 		if c.definitionDirty.Load() || c.definitionCall == nil {
 			c.updateDefinition()
 		}
-		if c.definition.Self {
+		if c.definition.Self || c.definition.Unframed {
 			return c.renderSelfShell(width)
 		}
 	} else {
