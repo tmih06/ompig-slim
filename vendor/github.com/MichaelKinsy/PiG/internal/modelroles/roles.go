@@ -95,10 +95,43 @@ func (c Config) Merge(p Config) Config {
 	return c
 }
 
-// Order returns the configured quick-switch order, or OMP's built-in order.
+// Order returns a detached quick-switch order. Nil uses OMP's defaults; explicit
+// empty disables cycling. Removed custom roles are ignored. A nonempty order
+// containing only removed roles recovers to explicitly assigned chat roles, then
+// built-in defaults if none exist. Reads never rewrite authored settings.
 func (c Config) Order() []string {
-	if c.CycleOrder != nil {
-		return slices.Clone(c.CycleOrder)
+	defaults := []string{"smol", "default", "slow"}
+	if c.CycleOrder == nil {
+		return defaults
+	}
+	if len(c.CycleOrder) == 0 {
+		return []string{}
+	}
+	builtins := Builtins()
+	order := []string{}
+	for _, role := range c.CycleOrder {
+		_, assigned := c.ModelRoles[role]
+		_, tagged := c.ModelTags[role]
+		if slices.Contains(builtins, role) || assigned || tagged {
+			order = append(order, role)
+		}
+	}
+	if len(order) > 0 {
+		return order
+	}
+	// Old scoped-N entries can survive manual role removal or older migrations.
+	// Recover only an entirely dangling order, not valid-but-unavailable roles.
+	// Prefer explicit assignments so an unassigned Slow alias cannot make a
+	// Default/Smol cycle appear to stay on Default for an extra keypress.
+	roles := append(defaults, builtins...)
+	roles = append(roles, slices.Sorted(maps.Keys(c.ModelRoles))...)
+	for _, role := range roles {
+		if c.ModelRoles[role] != "" && !c.RoleInfo(role).Kind && !slices.Contains(order, role) {
+			order = append(order, role)
+		}
+	}
+	if len(order) > 0 {
+		return order
 	}
 	return []string{"smol", "default", "slow"}
 }

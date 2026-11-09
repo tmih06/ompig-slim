@@ -59,6 +59,14 @@ it can expose an inherited assignment. Project writes require a trusted project.
 Role assignment scope and `modelRoleStorage` do not change the global scope used
 by the manager's fallback-chain and cycle-order controls.
 
+Ctrl+P follows the configured role cycle. Removed custom-role names are ignored.
+If a nonempty saved cycle contains only removed roles (for example old
+`scoped-N` entries), it recovers to explicitly assigned chat roles, preferring
+Smol, Default, and Slow; if none are assigned it uses the built-in default cycle.
+An explicit empty `cycleOrder: []` still disables cycling, and a valid explicit
+cycle never gains other roles just because its models are unavailable. Recovery
+is read-only; toggling **c** in Roles saves the displayed effective order.
+
 ### Session picker
 
 The bottom-sheet picker changes the current session, not a persistent role.

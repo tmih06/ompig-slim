@@ -109,6 +109,43 @@ func TestRoleFallbackPolicy(t *testing.T) {
 	}
 }
 
+// TestRoleCycleRemovedScopes reproduces an old scoped-N cycle after its roles
+// were removed and Default/Smol reassigned. Both directions switch real models,
+// while intentional empty cycles remain disabled and reads never rewrite settings.
+func TestRoleCycleRemovedScopes(t *testing.T) {
+	s := roleTestSession(t, nil)
+	if err := s.SettingsManager().UpdateGlobal(func(settings *Settings) {
+		settings.ModelRoles = map[string]string{"default": "openai/gpt-4o:off", "smol": "openai/gpt-4o-mini:off"}
+		settings.CycleOrder = []string{"scoped-1", "scoped-2", "scoped-3", "scoped-4"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, direction := range []string{"forward", "backward"} {
+		for _, want := range []string{"smol", "default", "smol", "default"} {
+			result, err := s.CycleModel(direction)
+			if err != nil || result == nil || s.ActiveModelRole() != want {
+				t.Fatalf("%s: result=%v err=%v role=%s want=%s", direction, result, err, s.ActiveModelRole(), want)
+			}
+			id := "gpt-4o"
+			if want == "smol" {
+				id = "gpt-4o-mini"
+			}
+			if s.Model().ID != id || s.ThinkingLevel() != ai.ThinkingOff {
+				t.Fatalf("model=%s thinking=%s", s.Model().ID, s.ThinkingLevel())
+			}
+		}
+	}
+	if got := s.SettingsManager().Get().CycleOrder; len(got) != 4 || got[0] != "scoped-1" {
+		t.Fatal("cycling rewrote saved settings", got)
+	}
+	if err := s.SettingsManager().SetRoleCycleOrder([]string{}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := s.CycleModel("forward"); err != nil || result != nil {
+		t.Fatalf("disabled cycle switched: %v %v", result, err)
+	}
+}
+
 // TestRoleCycleSharedModel verifies role identity is not inferred from physical model equality.
 func TestRoleCycleSharedModel(t *testing.T) {
 	s := roleTestSession(t, nil)

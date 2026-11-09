@@ -15,7 +15,7 @@ import termios
 import time
 
 
-def measure(binary, metadata, legacy_scope, explicit_scope):
+def measure(binary, metadata, legacy_scope, explicit_scope, stale_cycle):
     """Return cold/reopen latencies; dummy auth never sends inference requests."""
     with tempfile.TemporaryDirectory(prefix="omp-model-latency-") as directory:
         root = Path(directory)
@@ -26,6 +26,9 @@ def measure(binary, metadata, legacy_scope, explicit_scope):
                     "cycleOrder": ["default", "review"]}
         if legacy_scope:
             settings["enabledModels"] = ["openai/gpt-6.1-sol"]
+        if stale_cycle:
+            settings["modelRoles"] = {"default": "openai/gpt-4o", "smol": "openai/gpt-4o-mini"}
+            settings["cycleOrder"] = ["scoped-1", "scoped-2", "scoped-3", "scoped-4"]
         (agent / "settings.json").write_text(json.dumps(settings))
         if metadata:
             (agent / "models-metadata.json").write_bytes(metadata.read_bytes())
@@ -38,7 +41,8 @@ def measure(binary, metadata, legacy_scope, explicit_scope):
             env[key] = str(agent)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-        command = [str(binary), "-ne", "--model", "test-faux/model", "--no-session"]
+        model = "openai/gpt-4o" if stale_cycle else "test-faux/model"
+        command = [str(binary), "-ne", "--model", model, "--no-session"]
         if explicit_scope:
             command += ["--models", "openai/gpt-6.1-sol"]
         process = subprocess.Popen(command,
@@ -46,10 +50,10 @@ def measure(binary, metadata, legacy_scope, explicit_scope):
                                    start_new_session=True)
         os.close(slave)
 
-        def wait_for(marker):
+        def wait_for(marker, timeout=60):
             """Answer terminal queries and wait for a literal first-frame marker."""
             received = bytearray()
-            deadline = time.monotonic() + 60
+            deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if select.select([master], [], [], 0.02)[0]:
                     chunk = os.read(master, 1048576)
@@ -67,6 +71,16 @@ def measure(binary, metadata, legacy_scope, explicit_scope):
 
         try:
             wait_for(b"interactive-ready")
+            if stale_cycle:
+                # Exercise the real Ctrl+P binding, not only Session.CycleModel.
+                # Dummy env auth permits switching but no prompt is ever sent.
+                for _ in range(2):
+                    os.write(master, b"\x10")
+                    wait_for(b"Switched to GPT-4o mini", timeout=15)
+                    os.write(master, b"\x10")
+                    frame = wait_for(b"Switched to GPT-4o", timeout=15)
+                    assert b"Switched to GPT-4o mini" not in frame, "Default was skipped"
+                assert json.loads((agent / "settings.json").read_text())["modelRoles"] == settings["modelRoles"], "cycling changed assignments"
             timings = []
             for _ in range(2):
                 # Drain pending startup/refresh output, outside the timed interval.
@@ -108,8 +122,11 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--legacy-scope", action="store_true")
     parser.add_argument("--explicit-scope", action="store_true")
+    parser.add_argument("--stale-cycle", action="store_true")
     args = parser.parse_args()
-    results = [measure(args.binary.resolve(), args.metadata, args.legacy_scope, args.explicit_scope) for _ in range(args.runs)]
+    if args.stale_cycle and (args.legacy_scope or args.explicit_scope):
+        parser.error("--stale-cycle cannot be combined with scope fixtures")
+    results = [measure(args.binary.resolve(), args.metadata, args.legacy_scope, args.explicit_scope, args.stale_cycle) for _ in range(args.runs)]
     print(json.dumps({"samples_ms": results, "cold_median_ms": statistics.median(r[0] for r in results),
                       "reopen_median_ms": statistics.median(r[1] for r in results)}, indent=2))
 
