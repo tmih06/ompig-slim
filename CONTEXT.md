@@ -110,7 +110,11 @@ Do not grow this into a prompt file plus a `SYSTEM.md` override layered on top. 
 
 ### Todo tool and its stop-time reminder
 
-`todo` is OMP's task list, ported as a program-composed extension in `internal/todotool` (registered from `main.go`) rather than as a vendored patch, so `go mod vendor` cannot drop it. `internal/todo` owns the data model and list semantics; the extension owns the tool definition and the settle-boundary handler.
+`todo` is OMP's task list, ported in `internal/todotool`. It is a **built-in tool**, not an extension: `Register` calls `coding.RegisterExtendedBuiltinTool`, the same path `codemode` and `web_search` take, so it is created with every session, stays available under `--no-extensions`, is dropped by `--no-builtin-tools`, and never appears in the startup Extensions list. `internal/todo` owns the data model and list semantics; `internal/todotool` owns the tool definition and the settle-boundary handler.
+
+The settle reminder is the one part that cannot be a built-in. `agent_before_settle` is reachable only through `extension.API` (`OnAgentBeforeSettle`); the public session hooks expose only `beforeToolCall`/`afterToolCall`. So `SettleExtension` stays the single extension factory `main.go` passes, and it is a named `extension.NamedInlineExtension` so the Extensions list reads `<inline:todo-reminder>` rather than `<inline:1>`. Do not pass a bare `extension.ExtensionFactory` there: an unnamed factory is labelled by its 1-based position (`extensionset.go:56-66`, porting `resource-loader.ts:1138-1141`), which is where `<inline:1>, <inline:2>` came from.
+
+Registration reaches the runtime through `coding.RegisterExtendedBuiltinTool` (`vendor/.../coding/extended_builtin_tools.go`), a pig addition. The registry lives in `internal/codingagent/tools`, which a program outside the module cannot import, so `coding` re-exports the register and lookup calls. `todo` is also listed in `defaultToolNames` (`internal/codingagent/settings_default_tools.go`) and in `DefaultToolSnippets` (`internal/codingagent/prompts/sections.go`); all three are vendored edits, so a `go mod vendor` must reapply them along with the rest of the personal runtime patches.
 
 State lives only in each tool result's `details`. Every call re-reads the newest state-changing `todo` result on the session branch (`internal/todotool/snapshot.go`), so resume, rewind and fork need no persistence of their own, and the list can never disagree with the transcript. A `view` result and an errored result are both skipped as state: the first changed nothing, the second persisted nothing.
 
@@ -127,6 +131,8 @@ The content is drawn **unframed**: the tool sets `RenderShell: extension.ToolRen
 Two vendor limitations shape the renderer, both handled in it rather than by patching further. First, OMP's `mergeCallAndResult` has no counterpart here, and the card substitutes a name-and-args fallback when a call renderer returns nil, so `renderCall` draws the streaming header and then nothing once `IsPartial` clears. Without that, a settled card shows a stale `● Todo` line above the list. Second, the vendored `Theme` exposes foreground tokens but not OMP's symbol table, so checkbox, tree and tool glyphs are constants in `render.go` holding OMP's default-theme values. A pending todo matched to a live subagent renders dim rather than accent, because no subagent registry is wired into a renderer here.
 
 Because the frame's bottom bar is gone, it carries no `Ctrl+O: Expand` hint. The card is still click- or Ctrl+O-expandable — `definitionComponents` keeps the result region for an unframed card — so the disclosure works; only the footer that advertised it is gone, which `unframed_test.go` pins alongside the absence of border and background.
+
+`builtin_test.go` pins the built-in contract: it asserts `coding.IsExtendedBuiltinTool("todo")`, that the registered definition has an `Execute` and keeps `Definition()`'s render shell, and that repeated `Register` calls replace rather than duplicate. Deleting the `init` registration fails that test. The behavior is verified end to end on the binary: with defaults the model reports the todo tool and its empty list; under `--no-builtin-tools` it reports `NO_TODO_TOOL`.
 
 See `internal/todo/state.go`, `internal/todotool/render.go`, `internal/todotool/settle.go`, and the tests beside them.
 

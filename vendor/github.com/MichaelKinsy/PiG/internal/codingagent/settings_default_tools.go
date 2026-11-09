@@ -9,7 +9,9 @@ import (
 // omp-slim enables bounded grep/find search by default instead of requiring shell searches.
 // Codemode and the free web tools are built-ins and remain available with --no-extensions.
 // ls and powershell remain opt-in.
-var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode", "web_search"}
+// omp-slim adds todo: the task list is part of the harness's own loop (internal/todotool), so it is a built-in like read
+// and bash, active at startup, and stays available with --no-extensions.
+var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode", "web_search", "todo"}
 
 // DefaultToolNames returns the tools enabled at startup when `defaultTools` does not change them.
 func DefaultToolNames() []string { return slices.Clone(defaultToolNames) }

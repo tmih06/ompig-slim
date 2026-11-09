@@ -1,6 +1,12 @@
-// Package todotool registers the `todo` built-in: OMP's todo tool, ported onto
-// the extension API so it ships as part of ompig-slim without patches to the
-// vendored runtime.
+// Package todotool registers the `todo` built-in: OMP's todo tool, ported as a
+// real built-in tool rather than as an extension.
+//
+// `todo` is a built-in, not an extension: it is created with every session, it
+// stays available under --no-extensions, --no-builtin-tools drops it, and it
+// never appears in the startup Extensions list. Registering it through
+// coding.RegisterExtendedBuiltinTool is what buys that, the same path codemode
+// and web_search take. (--help's Built-in Tool Names is a static upstream
+// document and does not list codemode or web_search either.)
 //
 // The tool keeps its whole state in the tool result's details, and re-reads it
 // from the session branch on every call, so the list survives resume, rewind and
@@ -13,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 
 	"ompig-slim/internal/todo"
@@ -66,14 +73,27 @@ func Definition() extension.ToolDefinition {
 	}
 }
 
-// Extension registers the tool. It is the factory cli.Main composes in, so the
-// tool exists in every session that loads the program's extensions.
-func Extension() extension.ExtensionFactory {
-	return func(api extension.API) error {
-		api.RegisterTool(Definition())
-		return nil
-	}
+// Register makes the todo tool a built-in of every session this binary builds.
+//
+// It registers a builder rather than a definition: a built-in is created per
+// session, and CreateAllTools calls this factory for each one. Registering
+// before a session exists is what makes `todo` a built-in instead of an
+// extension; the package's init does it, so linking this package is enough.
+//
+// Registration is idempotent — a repeated name replaces the earlier factory — so
+// calling it again, or from an embedder that supplies its own definition, is
+// harmless.
+func Register() {
+	coding.RegisterExtendedBuiltinTool(ToolName, func(coding.ExtendedBuiltinOptions) coding.ExtendedBuiltinTool {
+		return coding.ExtendedBuiltinTool{Definition: Definition()}
+	})
 }
+
+// init registers the built-in where the package is linked, as importing
+// upstream's core/tools gives a host its definitions (codemode's base_tool.go
+// does the same). A binary that links this package therefore has `todo` without
+// main having to remember to register it.
+func init() { Register() }
 
 // execute applies one op and reports the resulting list.
 //
