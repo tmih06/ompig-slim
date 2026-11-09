@@ -1,11 +1,9 @@
-package todotool
+package todo
 
 import (
 	"encoding/json"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
-
-	"ompig-slim/internal/todo"
 )
 
 // phasesOf decodes one session entry into a todo snapshot, reporting whether the
@@ -18,8 +16,8 @@ import (
 //
 // The details are decoded through JSON rather than a type assertion because the
 // branch's entries are read back from the session file, where details arrive as
-// decoded JSON values, not as the todo.Details the tool wrote.
-func phasesOf(entry extension.SessionEntry) ([]todo.Phase, bool) {
+// decoded JSON values, not as the Details the tool wrote.
+func phasesOf(entry extension.SessionEntry) ([]Phase, bool) {
 	if entry == nil {
 		return nil, false
 	}
@@ -33,8 +31,8 @@ func phasesOf(entry extension.SessionEntry) ([]todo.Phase, bool) {
 			ToolName string `json:"toolName"`
 			IsError  bool   `json:"isError"`
 			Details  *struct {
-				Op     todo.Op       `json:"op"`
-				Phases *[]todo.Phase `json:"phases"`
+				Op     Op       `json:"op"`
+				Phases *[]Phase `json:"phases"`
 			} `json:"details"`
 		} `json:"message"`
 	}
@@ -48,10 +46,10 @@ func phasesOf(entry extension.SessionEntry) ([]todo.Phase, bool) {
 	if message.Details == nil || message.Details.Phases == nil {
 		return nil, false
 	}
-	if message.Details.Op == todo.OpView {
+	if message.Details.Op == OpView {
 		return nil, false
 	}
-	return todo.ClonePhases(*message.Details.Phases), true
+	return ClonePhases(*message.Details.Phases), true
 }
 
 // latestPhases returns the newest todo snapshot on the branch that a stop-time
@@ -59,7 +57,7 @@ func phasesOf(entry extension.SessionEntry) ([]todo.Phase, bool) {
 //
 // The reminder and the tool share this reader so they can never disagree about
 // the list: the reminder enforces exactly what the model's next call will see.
-func latestPhases(entries []extension.SessionEntry) []todo.Phase {
+func latestPhases(entries []extension.SessionEntry) []Phase {
 	for i := len(entries) - 1; i >= 0; i-- {
 		if phases, ok := phasesOf(entries[i]); ok {
 			return phases

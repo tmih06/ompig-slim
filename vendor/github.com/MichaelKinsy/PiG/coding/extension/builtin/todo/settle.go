@@ -1,4 +1,4 @@
-package todotool
+package todo
 
 import (
 	"context"
@@ -7,8 +7,7 @@ import (
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
-
-	"ompig-slim/internal/todo"
+	"github.com/MichaelKinsy/PiG/internal/codingagent"
 )
 
 // reminderCustomType names the custom message the reminder appends, so a
@@ -37,57 +36,54 @@ type reminderState struct {
 	fingerprint string
 }
 
-// SettleExtensionName is the name the startup Extensions list shows for
-// [SettleExtension], as `<inline:todo-reminder>`.
-//
-// A name is required, not cosmetic: an unnamed factory is labelled by its 1-based
-// position among the program's non-built-in factories and the list reads
-// `<inline:1>`. `todo` itself is a built-in (see [Register]) and never appears
-// here; this reminder is the one half of the feature that must stay an extension,
-// because `agent_before_settle` is reachable only through the extension API.
-const SettleExtensionName = "todo-reminder"
+// reminderState is the budget of one run. Package-level, because the hook has no
+// per-extension object to hang it on: one process runs one session at a time here,
+// and the state guards against repeating an identical nudge within a run.
+var reminder reminderState
 
-// SettleExtension wires the stop-time reminder.
+// registerSettleHook wires the stop-time reminder.
 //
 // This is the behavior the todo tool exists for: without it, a tool that merely
 // records a list is a notebook, and the agent still ends a turn with open work.
-// The handler runs on the agent_before_settle boundary — the last point where the
-// harness can still turn a would-be stop into another turn — and returns
-// Continue when the list proves the agent is not done.
-func SettleExtension() extension.NamedInlineExtension {
-	return extension.NamedInlineExtension{
-		Name: SettleExtensionName,
-		Factory: func(api extension.API) error {
-			state := &reminderState{}
-			api.OnAgentBeforeSettle(func(ctx context.Context, evt *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
-				return state.check(ctx, api, evt)
-			})
-			return nil
-		},
-	}
+// The hook runs on the agent_before_settle boundary — the last point where the
+// harness can still turn a would-be stop into another turn — and reports whether to
+// continue when the list proves the agent is not done.
+//
+// It is a native hook, not an extension: the reminder is machinery the harness
+// needs, not a capability the user installed, so it never appears in the startup
+// Extensions list and is unaffected by --no-extensions.
+func registerSettleHook() {
+	codingagent.RegisterNativeSettleHook(func(ctx context.Context, state codingagent.NativeSettleState) bool {
+		return reminder.check(state)
+	})
 }
 
 // check decides whether to continue the run for unfinished todos.
 //
 // It is deliberately conservative. Every path that cannot justify another turn
-// returns without continuing, because a wrong continue is worse than a missed
-// one: it burns the user's tokens and can restart work they wanted stopped.
-func (s *reminderState) check(ctx context.Context, api extension.API, evt *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
+// returns false, because a wrong continue is worse than a missed one: it burns the
+// user's tokens and can restart work they wanted stopped.
+func (s *reminderState) check(state codingagent.NativeSettleState) bool {
 	// An aborted or failed run was not the agent deciding it was finished.
-	if evt == nil || evt.Outcome != extension.AgentActivityCompleted {
-		return extension.AgentBeforeSettleEventResult{}, nil
+	if state.Outcome != string(extension.AgentActivityCompleted) {
+		return false
 	}
-	extCtx := extension.FromContext(ctx)
-	if extCtx == nil {
-		return extension.AgentBeforeSettleEventResult{}, nil
-	}
-	phases := latestPhases(branchOf(extCtx))
+	phases := latestPhases(state.Branch)
 	if len(phases) == 0 {
 		// No todo list: this feature is opt-in by use, and an agent that never
 		// created one is judged by its own output, not by a list it never had.
-		return extension.AgentBeforeSettleEventResult{}, nil
+		return false
 	}
-	open := todo.OpenTasks(phases)
+	return s.remind(phases, state.LastAssistantText, state.Deliver)
+}
+
+// remind applies the reminder policy to one list and reports whether the run
+// should continue. It takes the list, the run's final assistant text and the
+// delivery function instead of a session state, so the policy is testable without
+// a live session: every guard here is a case where continuing would be wrong, and
+// each is cheap to regress silently.
+func (s *reminderState) remind(phases []Phase, lastAssistantText string, deliver func(customType, content string)) bool {
+	open := OpenTasks(phases)
 	if !s.shouldRemind(phases) {
 		if len(open) == 0 {
 			// Either everything settled, or the only open work is blocked. A blocked
@@ -96,32 +92,24 @@ func (s *reminderState) check(ctx context.Context, api extension.API, evt *exten
 			// hatch that keeps the reminder from fighting a legitimate stop.
 			s.reset()
 		}
-		return extension.AgentBeforeSettleEventResult{}, nil
+		return false
 	}
-	if answeredUser(ctx) {
+	if endsWithQuestion(lastAssistantText) {
 		// The agent asked the user something in its final message. A question is a
 		// legitimate stop even with work open: it is the mechanism the reminder
 		// itself directs the agent to use when it is stuck. Continuing here would
 		// talk over the user.
-		return extension.AgentBeforeSettleEventResult{}, nil
+		return false
+	}
+	if deliver == nil {
+		return false
 	}
 
 	s.recordSent(phases)
-
-	reminder := renderReminder(phases, open, s.sent)
-	// A custom message with display false: the model must see it, the user should
-	// not have the transcript filled with reminders.
-	api.SendMessage(extension.SendMessagePayload{
-		CustomType: reminderCustomType,
-		Content:    reminder,
-		Display:    false,
-	}, &extension.SendMessageOptions{
-		TriggerTurn: ptr(true),
-		DeliverAs:   extension.DeliverAsFollowUp,
-	})
-
-	cont := true
-	return extension.AgentBeforeSettleEventResult{Continue: &cont}, nil
+	// A hidden custom message: the model must see it, the user should not have the
+	// transcript filled with reminders.
+	deliver(reminderCustomType, renderReminder(phases, open, s.sent))
+	return true
 }
 
 // shouldRemind reports whether the run should continue for the given list, and
@@ -130,13 +118,13 @@ func (s *reminderState) check(ctx context.Context, api extension.API, evt *exten
 // It is separate from check so the policy can be tested without a live session:
 // each guard here is a case where continuing would be wrong, and each is cheap to
 // regress silently.
-func (s *reminderState) shouldRemind(phases []todo.Phase) bool {
+func (s *reminderState) shouldRemind(phases []Phase) bool {
 	if len(phases) == 0 {
 		// No todo list: this feature is opt-in by use, and an agent that never
 		// created one is judged by its own output, not by a list it never had.
 		return false
 	}
-	if len(todo.OpenTasks(phases)) == 0 {
+	if len(OpenTasks(phases)) == 0 {
 		// Everything settled, or the only open work is blocked. Blocked work waits on
 		// something the agent cannot supply, so continuing would spin.
 		return false
@@ -148,14 +136,14 @@ func (s *reminderState) shouldRemind(phases []todo.Phase) bool {
 	// A reminder already sent for this exact list would repeat itself. The agent
 	// either cannot see a way forward or is ignoring the list; either way another
 	// identical nudge only spends a turn.
-	return todo.Fingerprint(phases) != s.fingerprint
+	return Fingerprint(phases) != s.fingerprint
 }
 
 // recordSent spends one reminder on the given list, recording it so an unchanged
 // list is not nudged twice.
-func (s *reminderState) recordSent(phases []todo.Phase) {
+func (s *reminderState) recordSent(phases []Phase) {
 	s.sent++
-	s.fingerprint = todo.Fingerprint(phases)
+	s.fingerprint = Fingerprint(phases)
 }
 
 // reset clears the budget. It runs when the agent reaches a consistent state, so
@@ -172,13 +160,13 @@ func (s *reminderState) reset() {
 // tool description, and a reminder that argues costs the same tokens as the work
 // it is asking for. The count is included because a bare "keep going" is easy to
 // satisfy with a summary, while "3 open items" is falsifiable.
-func renderReminder(phases []todo.Phase, open []todo.Task, attempt int) string {
+func renderReminder(phases []Phase, open []Task, attempt int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<system-reminder>\nYou stopped with %d open todo item(s):\n", len(open))
 	for _, phase := range phases {
 		line := ""
 		for _, task := range phase.Tasks {
-			if task.Status.Settled() || task.Status == todo.StatusBlocked {
+			if task.Status.Settled() || task.Status == StatusBlocked {
 				continue
 			}
 			if line == "" {
@@ -194,28 +182,6 @@ func renderReminder(phases []todo.Phase, open []todo.Task, attempt int) string {
 	b.WriteString("Do not stop again while a task you can still work on is open.\n")
 	fmt.Fprintf(&b, "(Reminder %d/%d)\n</system-reminder>", attempt, maxReminders)
 	return b.String()
-}
-
-// answeredUser reports whether the agent's last message asked the user something.
-//
-// Only the tail of the message is inspected. A question anywhere in a long report
-// is usually rhetorical or already answered in the same message, whereas a final
-// question is the agent handing control back on purpose. The check is on the last
-// non-empty line, which is where a model puts a closing question.
-func answeredUser(ctx context.Context) bool {
-	extCtx := extension.FromContext(ctx)
-	if extCtx == nil {
-		return false
-	}
-	branch := branchOf(extCtx)
-	for i := len(branch) - 1; i >= 0; i-- {
-		text, ok := lastAssistantText(branch[i])
-		if !ok {
-			continue
-		}
-		return endsWithQuestion(text)
-	}
-	return false
 }
 
 // endsWithQuestion reports whether text ends by handing control back to the user.
@@ -318,14 +284,3 @@ func lastAssistantText(entry extension.SessionEntry) (string, bool) {
 }
 
 // branchOf reads the session branch the reminder judges.
-func branchOf(extCtx *extension.Context) []extension.SessionEntry {
-	manager, err := extCtx.SessionManager()
-	if err != nil || manager == nil {
-		return nil
-	}
-	return manager.GetBranch()
-}
-
-// ptr returns a pointer to v, for the optional members of the API's option
-// structs where the presence of the value carries meaning.
-func ptr[T any](v T) *T { return &v }

@@ -1,4 +1,4 @@
-package todotool
+package todo
 
 import (
 	"strings"
@@ -7,8 +7,6 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/tui"
-
-	"ompig-slim/internal/todo"
 )
 
 // plain strips SGR escapes so an assertion can talk about layout rather than
@@ -72,13 +70,13 @@ func renderCard(t *testing.T, details todoDetails, expanded bool) []string {
 // `Todo N tasks` line, roman-numeral phase headers when there are several phases,
 // and `├─`/`└─` tree gutters on task rows.
 func TestRenderCardLayout(t *testing.T) {
-	d := todoDetails{phases: []todo.Phase{
-		{Name: "Foundation", Tasks: []todo.Task{
-			{Content: "port the model", Status: todo.StatusCompleted},
-			{Content: "port the reminder", Status: todo.StatusInProgress},
+	d := todoDetails{phases: []Phase{
+		{Name: "Foundation", Tasks: []Task{
+			{Content: "port the model", Status: StatusCompleted},
+			{Content: "port the reminder", Status: StatusInProgress},
 		}},
-		{Name: "Verify", Tasks: []todo.Task{
-			{Content: "run tests", Status: todo.StatusPending},
+		{Name: "Verify", Tasks: []Task{
+			{Content: "run tests", Status: StatusPending},
 		}},
 	}}
 	rows := renderCard(t, d, true)
@@ -107,16 +105,16 @@ func TestRenderCardLayout(t *testing.T) {
 // instead of redrawing every task.
 func TestRenderCardCollapsesUntouchedPhases(t *testing.T) {
 	d := todoDetails{
-		phases: []todo.Phase{
-			{Name: "Foundation", Tasks: []todo.Task{
-				{Content: "active work", Status: todo.StatusInProgress},
+		phases: []Phase{
+			{Name: "Foundation", Tasks: []Task{
+				{Content: "active work", Status: StatusInProgress},
 			}},
-			{Name: "Verify", Tasks: []todo.Task{
-				{Content: "run tests", Status: todo.StatusPending},
-				{Content: "check output", Status: todo.StatusPending},
+			{Name: "Verify", Tasks: []Task{
+				{Content: "run tests", Status: StatusPending},
+				{Content: "check output", Status: StatusPending},
 			}},
 		},
-		op: todo.OpDone,
+		op: OpDone,
 	}
 	rows := renderCard(t, d, false)
 	joined := strings.Join(rows, "\n")
@@ -137,12 +135,12 @@ func TestRenderCardCollapsesUntouchedPhases(t *testing.T) {
 // TestRenderCardStatusMarkers checks that each status is visually distinct: a
 // dropped task must not look finished, and a blocked task must carry its reason.
 func TestRenderCardStatusMarkers(t *testing.T) {
-	d := todoDetails{phases: []todo.Phase{{Name: "Tasks", Tasks: []todo.Task{
-		{Content: "did it", Status: todo.StatusCompleted},
-		{Content: "doing it", Status: todo.StatusInProgress},
-		{Content: "waiting", Status: todo.StatusBlocked, Blocker: "needs a decision"},
-		{Content: "gave up", Status: todo.StatusAbandoned},
-		{Content: "todo", Status: todo.StatusPending},
+	d := todoDetails{phases: []Phase{{Name: "Tasks", Tasks: []Task{
+		{Content: "did it", Status: StatusCompleted},
+		{Content: "doing it", Status: StatusInProgress},
+		{Content: "waiting", Status: StatusBlocked, Blocker: "needs a decision"},
+		{Content: "gave up", Status: StatusAbandoned},
+		{Content: "todo", Status: StatusPending},
 	}}}}
 	rows := renderCard(t, d, true)
 	joined := strings.Join(rows, "\n")
@@ -213,16 +211,16 @@ func TestRomanNumeral(t *testing.T) {
 // leads as context, the active task always survives, and the summary counts what
 // did not fit.
 func TestSelectCollapsedTodos(t *testing.T) {
-	many := make([]todo.Task, 0, 12)
+	many := make([]Task, 0, 12)
 	for i := 0; i < 12; i++ {
-		status := todo.StatusPending
+		status := StatusPending
 		if i == 0 {
-			status = todo.StatusCompleted
+			status = StatusCompleted
 		}
 		if i == 1 {
-			status = todo.StatusInProgress
+			status = StatusInProgress
 		}
-		many = append(many, todo.Task{Content: string(rune('a' + i)), Status: status})
+		many = append(many, Task{Content: string(rune('a' + i)), Status: status})
 	}
 	selection := selectCollapsedTodos(many, collapsedItems)
 	if len(selection.items) == 0 {
@@ -231,7 +229,7 @@ func TestSelectCollapsedTodos(t *testing.T) {
 	// The active task must survive any window.
 	found := false
 	for _, task := range selection.items {
-		if task.Status == todo.StatusInProgress {
+		if task.Status == StatusInProgress {
 			found = true
 		}
 	}
@@ -239,7 +237,7 @@ func TestSelectCollapsedTodos(t *testing.T) {
 		t.Fatal("the in-progress task must never be dropped from the collapsed view")
 	}
 	// The closed lead is context, so the completed task leads the rows.
-	if selection.items[0].Status != todo.StatusCompleted {
+	if selection.items[0].Status != StatusCompleted {
 		t.Fatalf("expected the last closed task to lead, got %q", selection.items[0].Status)
 	}
 	if selection.summary == "" {
@@ -250,11 +248,11 @@ func TestSelectCollapsedTodos(t *testing.T) {
 // TestFormatTodoLineBlockedNote checks the blocked row's note, which is the one
 // place a task explains why it stopped.
 func TestFormatTodoLineBlockedNote(t *testing.T) {
-	withReason := formatTodoLine(todo.Task{Content: "wait", Status: todo.StatusBlocked, Blocker: "needs a decision"})
+	withReason := formatTodoLine(Task{Content: "wait", Status: StatusBlocked, Blocker: "needs a decision"})
 	if !strings.Contains(plain(withReason), "(blocked: needs a decision)") {
 		t.Fatalf("blocked row should carry its reason, got %q", plain(withReason))
 	}
-	withoutReason := formatTodoLine(todo.Task{Content: "wait", Status: todo.StatusBlocked})
+	withoutReason := formatTodoLine(Task{Content: "wait", Status: StatusBlocked})
 	if !strings.Contains(plain(withoutReason), "(blocked)") {
 		t.Fatalf("blocked row without a reason should still say blocked, got %q", plain(withoutReason))
 	}

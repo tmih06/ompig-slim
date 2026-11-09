@@ -11,7 +11,7 @@
 // The tool keeps its whole state in the tool result's details, and re-reads it
 // from the session branch on every call, so the list survives resume, rewind and
 // fork with no persistence of its own.
-package todotool
+package todo
 
 import (
 	"context"
@@ -19,14 +19,8 @@ import (
 	"fmt"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/coding/extension"
-
-	"ompig-slim/internal/todo"
 )
-
-// ToolName is the name the model calls.
-const ToolName = "todo"
 
 // description is the model-facing prompt. It carries only the rules a model
 // gets wrong without them: one op per call, riding along with the next real
@@ -40,7 +34,7 @@ const description = "Track multi-step work in a session todo list. One op per ca
 	"id. Mark each task done the moment it is done. When work waits on the user, an agent or a service, " +
 	"`block` it with a reason instead of stopping."
 
-// params is the JSON schema the model sees. It mirrors todo.Params: every
+// params is the JSON schema the model sees. It mirrors Params: every
 // member but `op` is optional, and a member an op ignores is not an error.
 const params = `{"type":"object","required":["op"],"properties":{
 "op":{"type":"string","enum":["init","start","done","drop","block","unblock","rm","append","view"],"description":"Operation to apply."},
@@ -73,28 +67,6 @@ func Definition() extension.ToolDefinition {
 	}
 }
 
-// Register makes the todo tool a built-in of every session this binary builds.
-//
-// It registers a builder rather than a definition: a built-in is created per
-// session, and CreateAllTools calls this factory for each one. Registering
-// before a session exists is what makes `todo` a built-in instead of an
-// extension; the package's init does it, so linking this package is enough.
-//
-// Registration is idempotent — a repeated name replaces the earlier factory — so
-// calling it again, or from an embedder that supplies its own definition, is
-// harmless.
-func Register() {
-	coding.RegisterExtendedBuiltinTool(ToolName, func(coding.ExtendedBuiltinOptions) coding.ExtendedBuiltinTool {
-		return coding.ExtendedBuiltinTool{Definition: Definition()}
-	})
-}
-
-// init registers the built-in where the package is linked, as importing
-// upstream's core/tools gives a host its definitions (codemode's base_tool.go
-// does the same). A binary that links this package therefore has `todo` without
-// main having to remember to register it.
-func init() { Register() }
-
 // execute applies one op and reports the resulting list.
 //
 // The previous list is read from the session branch rather than a cache: the
@@ -103,7 +75,7 @@ func init() { Register() }
 func execute(ctx context.Context, _ string, raw json.RawMessage, _ extension.AgentToolUpdateCallback) (extension.AgentToolResult, error) {
 	current := currentPhases(ctx)
 
-	var p todo.Params
+	var p Params
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return failure(current, fmt.Sprintf("Invalid todo arguments: %s", err)), nil
 	}
@@ -112,37 +84,37 @@ func execute(ctx context.Context, _ string, raw json.RawMessage, _ extension.Age
 	}
 
 	// A view is a read: it must not normalize, rewrite, or report transitions.
-	if p.Op == todo.OpView {
+	if p.Op == OpView {
 		return extension.AgentToolResult{
-			Content: []ai.ToolResultMessageContent{textContent(todo.Summary(current, nil, true))},
-			Details: todo.Details{Op: todo.OpView, Phases: current},
+			Content: []ai.ToolResultMessageContent{textContent(Summary(current, nil, true))},
+			Details: Details{Op: OpView, Phases: current},
 		}, nil
 	}
 
-	next, problems := todo.Apply(todo.ClonePhases(current), p)
+	next, problems := Apply(ClonePhases(current), p)
 	if len(problems) > 0 {
 		// Nothing is persisted: the result reports the list as it still is, so a
 		// retry cannot collide with a half-applied batch.
-		return failure(current, todo.Summary(current, problems, false)), nil
+		return failure(current, Summary(current, problems, false)), nil
 	}
 
-	details := todo.Details{
+	details := Details{
 		Op:             p.Op,
 		Phases:         next,
-		CompletedTasks: todo.CompletedTransitions(current, next),
+		CompletedTasks: CompletedTransitions(current, next),
 	}
 	return extension.AgentToolResult{
-		Content: []ai.ToolResultMessageContent{textContent(todo.Summary(next, nil, false))},
+		Content: []ai.ToolResultMessageContent{textContent(Summary(next, nil, false))},
 		Details: details,
 	}, nil
 }
 
 // failure is a rejected call: it keeps the previous phases in details so the
 // next call still reads the truth, and reports the problems as the text.
-func failure(current []todo.Phase, message string) extension.AgentToolResult {
+func failure(current []Phase, message string) extension.AgentToolResult {
 	return extension.AgentToolResult{
 		Content: []ai.ToolResultMessageContent{textContent(message)},
-		Details: todo.Details{Phases: current},
+		Details: Details{Phases: current},
 		IsError: true,
 	}
 }
@@ -153,7 +125,7 @@ func failure(current []todo.Phase, message string) extension.AgentToolResult {
 // that costs a whole round trip to fix a shape the arguments already determine,
 // so the unambiguous cases are repaired here and everything else is left to the
 // normal validation error.
-func inferOp(raw json.RawMessage, p todo.Params, hasExisting bool) (todo.Params, bool) {
+func inferOp(raw json.RawMessage, p Params, hasExisting bool) (Params, bool) {
 	if p.Op != "" {
 		return p, false
 	}
@@ -167,12 +139,12 @@ func inferOp(raw json.RawMessage, p todo.Params, hasExisting bool) (todo.Params,
 	}
 	switch {
 	case hasList(probe.List):
-		p.Op = todo.OpInit
+		p.Op = OpInit
 	case hasList(probe.Items) && probe.Phase != "":
-		p.Op = todo.OpAppend
+		p.Op = OpAppend
 	case hasList(probe.Items) && !hasExisting:
 		// Nothing to overwrite, so a bare items list can only be an init.
-		p.Op = todo.OpInit
+		p.Op = OpInit
 	default:
 		return p, false
 	}
@@ -195,7 +167,7 @@ func hasList(raw json.RawMessage) bool {
 //
 // Returns an empty list outside a session (a direct unit call), which behaves as
 // "no todos yet".
-func currentPhases(ctx context.Context) []todo.Phase {
+func currentPhases(ctx context.Context) []Phase {
 	tc := extension.ToolContextFromContext(ctx)
 	if tc == nil {
 		return nil

@@ -22,6 +22,7 @@ github.com/MichaelKinsy/PiG/coding/cli
 github.com/MichaelKinsy/PiG/coding/extension
 github.com/MichaelKinsy/PiG/coding/extension/builtin
 github.com/MichaelKinsy/PiG/coding/extension/builtin/codemode
+github.com/MichaelKinsy/PiG/coding/extension/builtin/todo
 github.com/MichaelKinsy/PiG/coding/extension/builtin/toolsearch
 github.com/MichaelKinsy/PiG/coding/extension/builtin/webfetch
 github.com/MichaelKinsy/PiG/coding/extension/builtin/websearch

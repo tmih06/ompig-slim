@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -159,7 +161,10 @@ func (s *Session) dispatchTurnEndBoundary(ctx context.Context, event agent.TurnE
 
 func (s *Session) runBeforeSettleBoundary(ctx context.Context) (bool, error) {
 	runner := s.currentRunner()
-	if runner == nil || !runner.HasHandlers(icodingagent.EventAgentBeforeSettle) {
+	// A native hook (a built-in's, not an extension's) runs at this same boundary, so the
+	// pass is skipped only when neither kind is registered.
+	hasExtensionHandlers := runner != nil && runner.HasHandlers(icodingagent.EventAgentBeforeSettle)
+	if !hasExtensionHandlers && !icodingagent.HasNativeSettleHooks() {
 		return s.agent.HasQueuedMessages(), nil
 	}
 	s.runState.mu.Lock()
@@ -170,36 +175,121 @@ func (s *Session) runBeforeSettleBoundary(ctx context.Context) (bool, error) {
 	s.runState.isBeforeSettle = true
 	s.runState.mu.Unlock()
 	defer func() { s.runState.mu.Lock(); s.runState.isBeforeSettle = false; s.runState.mu.Unlock() }()
-	base := &extension.AgentBeforeSettleEvent{Type: icodingagent.EventAgentBeforeSettle, BoundaryState: extension.BoundaryState{Outcome: s.lastActivityOutcome}}
-	dispatchCtx, wire := boundarywire.WithSessionCache(ctx, &s.boundaryEncodings)
-	result, err := runner.EmitBoundary(dispatchCtx, base, func(drafts []extension.SessionBoundaryDraft) (extension.BoundaryContextPreview, error) {
-		return s.recordedBoundaryContext(wire, drafts, icodingagent.EventAgentBeforeSettle)
-	})
-	if err != nil {
-		return false, err
+	extensionContinue := false
+	// The preview the post-handler check reads. Without extension handlers nothing
+	// rewrites the branch, so the session's own projection is used.
+	var final extension.BoundaryContextPreview
+	if hasExtensionHandlers {
+		base := &extension.AgentBeforeSettleEvent{Type: icodingagent.EventAgentBeforeSettle, BoundaryState: extension.BoundaryState{Outcome: s.lastActivityOutcome}}
+		dispatchCtx, wire := boundarywire.WithSessionCache(ctx, &s.boundaryEncodings)
+		result, err := runner.EmitBoundary(dispatchCtx, base, func(drafts []extension.SessionBoundaryDraft) (extension.BoundaryContextPreview, error) {
+			return s.recordedBoundaryContext(wire, drafts, icodingagent.EventAgentBeforeSettle)
+		})
+		if err != nil {
+			return false, err
+		}
+		if err := s.commitBoundaryDrafts(result.Entries); err != nil {
+			return false, err
+		}
+		extensionContinue = result.Continue
+		// The check after the handlers reuses the last preview's projection while the session is as that preview found it.
+		preview, err := s.recordedBoundaryContext(wire, nil, icodingagent.EventAgentBeforeSettle)
+		if err != nil {
+			return false, err
+		}
+		final = preview
 	}
-	if err := s.commitBoundaryDrafts(result.Entries); err != nil {
+	nativeContinue, err := s.runNativeSettleHooks(ctx)
+	if err != nil {
 		return false, err
 	}
 	if err := s.flushPendingCustomMessages(); err != nil {
 		return false, err
 	}
-	// The check after the handlers reuses the last preview's projection while the session is as that preview found it.
-	final, err := s.recordedBoundaryContext(wire, nil, icodingagent.EventAgentBeforeSettle)
-	if err != nil {
-		return false, err
-	}
 	if s.runState.abortRequested.Load() {
 		return false, nil
 	}
-	shouldContinue := result.Continue || s.agent.HasQueuedMessages()
-	if shouldContinue && !final.CanContinue {
-		if result.Continue {
-			s.reportInvalidBoundaryContinuation(icodingagent.EventAgentBeforeSettle)
+	shouldContinue := extensionContinue || nativeContinue || s.agent.HasQueuedMessages()
+	if shouldContinue && !final.CanContinue && (hasExtensionHandlers || nativeContinue) {
+		// Without extension handlers no preview was built; recompute it now that the
+		// native hooks may have changed what can run.
+		_, checkWire := boundarywire.WithSessionCache(ctx, &s.boundaryEncodings)
+		checked, err := s.recordedBoundaryContext(checkWire, nil, icodingagent.EventAgentBeforeSettle)
+		if err != nil {
+			return false, err
 		}
-		return false, nil
+		if !checked.CanContinue {
+			if extensionContinue || nativeContinue {
+				s.reportInvalidBoundaryContinuation(icodingagent.EventAgentBeforeSettle)
+			}
+			return false, nil
+		}
 	}
 	return shouldContinue, nil
+}
+
+// runNativeSettleHooks runs the native before-settle hooks, in registration order,
+// and reports whether any of them asked the run to continue.
+//
+// A hook is part of a built-in (the todo reminder), not an extension, so it needs no
+// runner and is unaffected by --no-extensions. Each hook reads the branch and the
+// run's outcome, and may append a hidden custom message through state.Deliver; the
+// same flushPendingCustomMessages call that carries an extension's message to the
+// model carries a hook's.
+func (s *Session) runNativeSettleHooks(ctx context.Context) (bool, error) {
+	hooks := icodingagent.NativeSettleHooks()
+	if len(hooks) == 0 {
+		return false, nil
+	}
+	var branch []icodingagent.SessionEntry
+	if leaf := s.inner.GetLeafID(); leaf != nil {
+		branch = s.inner.GetBranch(*leaf)
+	}
+	state := icodingagent.NativeSettleState{
+		Outcome:           string(s.lastActivityOutcome),
+		Branch:            branch,
+		LastAssistantText: s.lastAssistantTextForSettle(),
+		Deliver: func(customType, content string) {
+			s.runState.mu.Lock()
+			s.runState.pendingCustom = append(s.runState.pendingCustom, agent.AgentMessage{Custom: map[string]any{
+				"role":       agent.RoleCustom,
+				"customType": customType,
+				"content":    content,
+				"display":    false,
+				"timestamp":  time.Now().UnixMilli(),
+			}})
+			s.runState.mu.Unlock()
+		},
+	}
+	continueRun := false
+	for _, hook := range hooks {
+		if s.runState.abortRequested.Load() {
+			return false, nil
+		}
+		if hook(ctx, state) {
+			continueRun = true
+		}
+	}
+	return continueRun, nil
+}
+
+// lastAssistantTextForSettle is the final assistant message's text on the branch, or
+// "" when the run produced none. It is what a reminder reads to avoid talking over a
+// hand-off to the user.
+func (s *Session) lastAssistantTextForSettle() string {
+	for _, message := range slices.Backward(s.agent.MessagesSnapshot()) {
+		if message.Assistant == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, block := range message.Assistant.Content {
+			if text, ok := block.(ai.TextContent); ok {
+				b.WriteString(text.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
 }
 
 func (s *Session) reportInvalidBoundaryContinuation(event string) {
