@@ -82,7 +82,6 @@ type Session struct {
 	modelRegistry    *ModelRegistry
 	sessionDir       string
 	noSession        bool
-	scopedModels     sessionScopedModels
 	runnerMu         sync.RWMutex
 	runner           *inproc.Runner // extension runner for event dispatch
 	// sharedRunner is the Runtime- or Clone-source-owned runner this Session borrowed; its owner invalidates it.
@@ -284,9 +283,6 @@ type SessionOptions struct {
 
 	// ThinkingLevel overrides restored and configured preferences before model clamping. Empty uses the Session or settings preference.
 	ThinkingLevel ai.ModelThinkingLevel
-
-	// ScopedModels selects the ordered models and optional thinking preferences for cycling.
-	ScopedModels []ScopedModel
 
 	// SystemPrompt supplies an explicit full-text baseline, retained as one preamble section.
 	// When omitted, the Session builds the default coding prompt.
@@ -808,7 +804,6 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 	}
 	sess.autoThinking.Store(initialAutoThinking)
 	sess.resourceLoader.Store(resourceLoader)
-	sess.SetScopedModels(opts.ScopedModels)
 	if opts.ModelRole != "" && opts.Model != nil {
 		if configured, err := svcs.SettingsManager().ResolveModelRole("@" + opts.ModelRole); err == nil {
 			base, _ := modelroles.Split(configured)
@@ -1475,7 +1470,6 @@ func (s *Session) beginModelChangeState(ctx context.Context, m *ai.Model, source
 		// model change goes on.
 		// upstream: packages/coding-agent/src/core/settings-manager.ts:enqueueWrite
 		_ = s.SettingsManager().SetDefaultModelAndProvider(providerID(m), m.ID)
-		s.addPersistedDefaultToNonEmptyScope(m)
 	}
 	notifyThinking, err := s.setThinkingLevelState(thinkingLevel)
 	if err != nil {

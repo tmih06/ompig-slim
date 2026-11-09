@@ -1229,8 +1229,6 @@ func Main(args []string, options *MainOptions) {
 		exitProcess(1)
 	}
 	buildInput.Manager = startupSession.manager
-	// Pi main.ts:822-828: an existing session is one with messages, so a new or empty Session at a --session path still takes --models.
-	buildInput.Continuing = startupSession.manager != nil && len(startupSession.manager.BuildSessionContext().Messages) > 0
 	timings.Time("createRuntime")
 	if err := builder.buildSession(ctx, build, buildInput); err != nil {
 		reportCLIStartupFailure(err)
@@ -1239,11 +1237,6 @@ func Main(args []string, options *MainOptions) {
 	timings.Time("createAgentSessionRuntime")
 	flags = build.Flags
 	selected, modelErr := build.Selected, build.ModelErr
-	// resolveModelScope reports immediately; buildSessionOptions diagnostics follow extension errors in the runtime's report.
-	for _, warning := range selected.ScopeWarnings {
-		printModelDiagnostic(warning)
-	}
-	timings.Time("resolveModelScope")
 	for _, warning := range selected.Warnings {
 		startupDiagnostics = append(startupDiagnostics, codingagent.AgentSessionRuntimeDiagnostic{Type: "warning", Message: warning})
 	}
@@ -1487,7 +1480,6 @@ func Main(args []string, options *MainOptions) {
 	}
 	interactiveRegistryAllowed, _ := toolRegistryFilters(flags)
 	iopts := codingagent.InteractiveModeOptions{
-		ModelScopeExplicit: flags.Models != nil,
 		ContextUsage: func() (*int, int) {
 			usage := rt.Session().ContextUsage()
 			if usage == nil {

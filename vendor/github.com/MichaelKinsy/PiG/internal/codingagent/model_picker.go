@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
@@ -26,28 +25,6 @@ func (m *InteractiveMode) availableModelItems() []tui.ModelSelectorItem {
 		items = append(items, tui.ModelSelectorItem{Provider: model.ProviderMeta.ProviderID, ID: model.ID, Name: model.DisplayName, Model: model})
 	}
 	return items
-}
-
-// scopeBrowserModels restricts chat rows to the Session's explicit scope. Typed
-// runners remain available because OMP's --models scope applies only to chat.
-func (m *InteractiveMode) scopeBrowserModels(items []tui.ModelSelectorItem) []tui.ModelSelectorItem {
-	handle := m.opts.SessionHandle
-	if handle == nil || len(handle.ScopedModels()) == 0 {
-		return items
-	}
-	scoped := map[string]bool{}
-	for _, entry := range handle.ScopedModels() {
-		if entry.Model != nil {
-			scoped[modelSpec(entry.Model)] = true
-		}
-	}
-	out := make([]tui.ModelSelectorItem, 0, len(items))
-	for _, item := range items {
-		if tui.ModelItemKind(item) != "chat" || scoped[item.FQ()] {
-			out = append(out, item)
-		}
-	}
-	return out
 }
 
 // modelRegistryOrDefault is the mode's model registry, or the fallback registry over the agent
@@ -104,29 +81,14 @@ func (m *InteractiveMode) closeFallbackRegistry() {
 	}
 }
 
-// persistDefaultModel saves the explicit default and adds it to a nonempty model scope.
+// persistDefaultModel saves the explicit physical default without changing roles
+// or the role cycle.
 func (m *InteractiveMode) persistDefaultModel(model *ai.Model) error {
 	spec := modelSpec(model)
 	provider, _, _ := strings.Cut(spec, "/")
 	if sm := m.opts.SettingsManager; sm != nil {
 		if err := sm.SetDefaultModelAndProvider(provider, model.ID); err != nil {
 			return err
-		}
-	}
-	return m.addPersistedDefaultToNonEmptyScope(model)
-}
-
-func (m *InteractiveMode) addPersistedDefaultToNonEmptyScope(model *ai.Model) error {
-	spec := modelSpec(model)
-	if len(m.scopedModelIDs) == 0 || slices.Contains(m.scopedModelIDs, spec) || slices.Contains(m.scopedModelIDs, model.ID) {
-		return nil
-	}
-	m.scopedModelIDs = append(m.scopedModelIDs, spec)
-	if sm := m.opts.SettingsManager; sm != nil {
-		enabled := sm.GetEnabledModels()
-		if len(enabled) > 0 && !slices.ContainsFunc(enabled, func(pattern string) bool { return jsstring.ToLower(pattern) == jsstring.ToLower(spec) }) {
-			enabled = append(enabled, spec)
-			return sm.UpdateGlobal(func(settings *Settings) { settings.EnabledModels = enabled })
 		}
 	}
 	return nil

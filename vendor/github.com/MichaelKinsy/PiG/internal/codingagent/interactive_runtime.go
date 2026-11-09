@@ -228,7 +228,6 @@ func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r I
 	m.applyRuntimeSettings()
 	m.rebuildToolSystemPrompt()
 	m.initThinkingLevel()
-	m.initScopedModels()
 }
 
 // attachSubprocess wires the current build's extension host and UI bridge to the live TUI.

@@ -380,7 +380,6 @@ type settingsWire struct {
 	EnableSkillCommands    *bool                    `json:"enableSkillCommands,omitempty"`
 	Terminal               *terminalSettingsWire    `json:"terminal,omitempty"`
 	Images                 *imageSettingsWire       `json:"images,omitempty"`
-	EnabledModels          []string                 `json:"enabledModels,omitzero"`
 	DefaultTools           []string                 `json:"defaultTools,omitzero"`
 	ModelThinkingLevels    map[string]string        `json:"modelThinkingLevels,omitempty"`
 	DoubleEscapeAction     string                   `json:"doubleEscapeAction,omitempty"`
@@ -562,8 +561,7 @@ type Settings struct {
 	WebSocketConnectTimeoutMs      *int            `json:"websocketConnectTimeoutMs,omitempty"`
 	webSocketConnectTimeoutInvalid any
 	webSocketConnectTimeoutNull    bool
-	HTTPIdleTimeoutMs              *int     `json:"httpIdleTimeoutMs,omitempty"`
-	EnabledModels                  []string `json:"enabledModels,omitempty"`
+	HTTPIdleTimeoutMs              *int `json:"httpIdleTimeoutMs,omitempty"`
 	// DefaultTools is the initial built-in tool selection; nil means the
 	// upstream default read, bash, edit and write.
 	DefaultTools []string `json:"defaultTools,omitempty"`
@@ -1033,7 +1031,6 @@ func cloneSettings(s Settings) Settings {
 		httpIdleTimeoutInvalid:         s.httpIdleTimeoutInvalid,
 		httpIdleTimeoutNull:            s.httpIdleTimeoutNull,
 		CacheWarming:                   s.CacheWarming,
-		EnabledModels:                  slices.Clone(s.EnabledModels),
 		DefaultTools:                   slices.Clone(s.DefaultTools),
 		ModelThinkingLevels:            maps.Clone(s.ModelThinkingLevels),
 		LastChangelogVersion:           s.LastChangelogVersion,
@@ -1135,7 +1132,6 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 		Prompts:                     s.Prompts,
 		Themes:                      s.Themes,
 		EnableSkillCommands:         s.EnableSkillCommands,
-		EnabledModels:               s.EnabledModels,
 		DefaultTools:                s.DefaultTools,
 		ModelThinkingLevels:         s.ModelThinkingLevels,
 		ExtensionChangelogVersions:  s.ExtensionChangelogVersions,
@@ -1349,7 +1345,6 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 			s.blockImagesSet = true
 		}
 	}
-	s.EnabledModels = w.EnabledModels
 	s.DefaultTools = w.DefaultTools
 	s.ModelThinkingLevels = w.ModelThinkingLevels
 	s.ExtensionChangelogVersions = w.ExtensionChangelogVersions
@@ -2985,11 +2980,6 @@ func (sm *SettingsManager) RemoveModelThinkingLevel(provider, modelID string) er
 	})
 }
 
-// GetEnabledModels returns the list of enabled models for Ctrl+P cycling, or nil.
-func (sm *SettingsManager) GetEnabledModels() []string {
-	return readMerged(sm, func(s *Settings) []string { return slices.Clone(s.EnabledModels) })
-}
-
 // GetShowHardwareCursor returns whether the hardware cursor is shown.
 func (sm *SettingsManager) GetShowHardwareCursor() bool {
 	return readMerged(sm, (*Settings).GetShowHardwareCursor)
@@ -3250,11 +3240,6 @@ func (sm *SettingsManager) SetBlockImages(blocked bool) error {
 		s.BlockImages = blocked
 		s.blockImagesSet = true
 	})
-}
-
-// SetEnabledModels sets the list of enabled models for Ctrl+P cycling.
-func (sm *SettingsManager) SetEnabledModels(patterns []string) error {
-	return sm.UpdateGlobal(func(s *Settings) { s.EnabledModels = patterns })
 }
 
 // GetExtensionsTypescriptRuntime returns the global extensionsTypescriptRuntime setting, or "" when it is unset. A project file cannot set it.
@@ -3973,9 +3958,6 @@ func mergeSettings(global, project Settings) Settings {
 		}
 		maps.Copy(merged, project.ExtensionChangelogVersions)
 		m.ExtensionChangelogVersions = merged
-	}
-	if project.EnabledModels != nil {
-		m.EnabledModels = append([]string{}, project.EnabledModels...)
 	}
 	if project.NpmCommand != nil {
 		m.NpmCommand = append([]string{}, project.NpmCommand...)

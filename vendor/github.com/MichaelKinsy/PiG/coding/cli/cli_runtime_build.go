@@ -90,8 +90,6 @@ type cliBuildInput struct {
 	CWD string
 	// Manager is the Session log the runtime will wrap. Model selection restores from it.
 	Manager *coding.SessionManager
-	// Continuing reports a resumed, continued or forked Session at startup.
-	Continuing bool
 	// Startup is true for the process's first build. Replacements never prompt for trust and reuse no preloaded host.
 	Startup bool
 	// StartupExtensions owns the pre-trust host that the final extension load reuses.
@@ -361,11 +359,6 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	}
 	build.StartupDiagnostics = codingagent.DeduplicateDiagnostics(append(slices.Clone(b.settingsDiagnostics), codingagent.CollectSettingsDiagnostics(services.SettingsManager())...))
 
-	// upstream: main.ts:810 `parsed.models ?? settingsManager.getEnabledModels()`: an explicit empty --models list replaces the setting.
-	if flags.Models != nil {
-		settings.EnabledModels = flags.Models
-	}
-
 	trace.Mark("packages-reinstall-start")
 	// package-manager.ts:912-926 dedupes package identities before installing any missing package.
 	if err := validateConfiguredPackageSources(services.SettingsManager(), projectTrusted); err != nil {
@@ -586,38 +579,8 @@ func (b *cliRuntimeBuilder) buildSession(ctx context.Context, build *cliBuild, i
 		CLIProvider:    flags.Provider,
 		CLIModel:       modelFlag,
 		CLIThinking:    flags.Thinking,
-		ScopePatterns:  settings.EnabledModels,
-		Continuing:     in.Continuing,
 		APIKey:         flags.APIKey,
 	}, settings, services)
-	// Fold saved legacy scopes into roles before constructing any runtime mode.
-	// CLI --models remains a process-only filter and is never copied to settings.
-	saved := services.SettingsManager().Get()
-	if len(saved.EnabledModels) > 0 {
-		models := []codingagent.RuntimeModel{}
-		for _, model := range services.ModelRuntime().GetAvailableSnapshot() {
-			models = append(models, *runtimeModelOf(model))
-		}
-		choices := codingagent.ResolveModelScopeFromModels(saved.EnabledModels, models).ScopedModels
-		if migrated, err := services.SettingsManager().ImportLegacyModelScope(choices); err != nil {
-			selected.Warnings = append(selected.Warnings, "Could not migrate model scope: "+err.Error())
-		} else if migrated {
-			updated := services.SettingsManager().Get()
-			settings.Config = updated.Config
-			if flags.Models == nil {
-				settings.EnabledModels = updated.EnabledModels
-			}
-			build.Settings = settings
-			if selected.Role == "" && flags.Model == "" && selected.Model != nil {
-				for _, role := range settings.Config.Order() {
-					if value := settings.ModelRoles[role]; value == selected.Model.ProviderID()+"/"+selected.Model.ID || strings.HasPrefix(value, selected.Model.ProviderID()+"/"+selected.Model.ID+":") {
-						selected.Role = role
-						break
-					}
-				}
-			}
-		}
-	}
 	build.Selected, build.ModelErr = selected, modelErr
 	build.Model = selected.Model
 	build.ModelFallbackMessage = selected.ModelFallbackMessage

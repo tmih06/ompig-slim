@@ -172,23 +172,7 @@ func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) 
 		if err != nil {
 			return nil, err
 		}
-		if s.subagents.Settings().ScopeModels && inv.Config.Model == "" {
-			patterns := s.services.SettingsManager().GetEnabledModels()
-			if len(patterns) > 0 {
-				allowed := false
-				key := model.ProviderMeta.ProviderID + "/" + model.ID
-				for _, p := range patterns {
-					match := extension.ToolNameMatcher(map[string]struct{}{p: {}})
-					if match(key) || match(model.ID) {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					return nil, fmt.Errorf("model %s is outside enabledModels", key)
-				}
-			}
-		}
+
 	}
 	if model == nil {
 		return nil, fmt.Errorf("select a model before starting subagents")

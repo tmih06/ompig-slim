@@ -118,18 +118,17 @@ remain intact. Cost: available/all slice storage lives until overlay closure;
 discovery and login invalidate both lists together. No cross-overlay cache or
 background prewarming was added (*hypothesis*, deferred invalidation complexity).
 
-The same fix migrates stale `enabledModels` even when `cycleOrder` exists. A real
-PTY regression fails against the baseline and passes after the fix, verifies
-persisted filter removal, and separately proves CLI `--models` stays scoped.
-Both scope scenarios now run under `make smoke`. Existing roles and cycle order
-are preserved, including an explicit empty cycle that disables cycling.
+That revision also repaired legacy filtering through migration. The obsolete
+scoped-model implementation and migration have since been deleted entirely;
+these samples retain the historical measured revision, not a claim that scopes
+still ship. Current smoke tests verify obsolete settings cannot filter the
+catalog or create roles, and Ctrl+P uses only the current role cycle.
 
 ```sh
 python3 scripts/measure-model-menu.py ./bin/ompig-slim --runs 3 \
   --metadata /path/to/models-metadata.json
-python3 scripts/measure-model-menu.py ./bin/ompig-slim --legacy-scope --runs 1
-python3 scripts/measure-model-menu.py ./bin/ompig-slim \
-  --legacy-scope --explicit-scope --runs 1
+python3 scripts/measure-model-menu.py ./bin/ompig-slim --legacy-settings --runs 1
+python3 scripts/measure-model-menu.py ./bin/ompig-slim --stale-cycle --runs 1
 ```
 
 ## Reproduce

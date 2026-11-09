@@ -37,17 +37,12 @@ type rpcStartup struct {
 
 // rpcInputs builds RPC mode's Session inputs from a build; owner is the process context its reloaded extension processes live under. Replacement Sessions rebuild through the same builder for their destination cwd. The factory keeps no RPC state for a Session: RPC mode reads the Session and its resource loader.
 func (b *cliRuntimeBuilder) rpcInputs(owner context.Context, build *cliBuild, startup *rpcStartup) cliSessionInputs {
-	flags, settings := build.Flags, build.Settings
+	flags := build.Flags
 	resources := b.buildResourceLoader(owner, build)
-	scopePatterns := flags.Models
-	if scopePatterns == nil {
-		scopePatterns = settings.EnabledModels
-	}
 	start := coding.SessionStartOptions{
 		// The Session builds its default system prompt from this loader, as AgentSession._rebuildSystemPrompt does.
 		BuiltinEventBuses: build.builtinEventBuses(),
 		ResourceLoader:    resources,
-		ScopedModels:      extensionScopedModels(build.Services, scopePatterns),
 		Model:             build.Model,
 		ModelRole:         build.Selected.Role,
 		ThinkingLevel:     ai.ModelThinkingLevel(flags.Thinking),

@@ -185,7 +185,6 @@ func settingsSchema() *Schema {
 		Optional("enableSkillCommands", Boolean(D("Register skills as /skill:name commands."), Default(d.enableSkillCommands))),
 		Optional("terminal", terminal),
 		Optional("images", images),
-		Optional("enabledModels", stringArray(D("Model patterns for cycling, in the same format as the --models CLI flag."))),
 		Optional("defaultTools", stringArray(D("Initial tool selection. Plain names replace the inherited selection; +name and -name entries add or remove tools."))),
 		Optional("doubleEscapeAction", Union(literals("fork", "tree", "none"), D("Action for double-escape with an empty editor."), Default(d.doubleEscapeAction))),
 		Optional("treeFilterMode", Union(literals("default", "no-tools", "user-only", "labeled-only", "all"), D("Default filter when opening /tree."), Default(d.treeFilterMode))),

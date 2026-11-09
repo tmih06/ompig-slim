@@ -16,7 +16,6 @@ type ModelHubConfig struct {
 	Models            []ModelSelectorItem
 	AllModels         []ModelSelectorItem
 	Providers         []string
-	Scoped            bool
 	Current           string
 	Height            func() int
 	Snapshot          func() (modelroles.Config, map[string][]string)
@@ -181,7 +180,7 @@ func (h *ModelHub) reload() {
 		sectionAdded := false
 		for _, provider := range providers {
 			isLocked := available[provider] == 0
-			if isLocked != locked || (h.cfg.Scoped && isLocked) {
+			if isLocked != locked {
 				continue
 			}
 			if !sectionAdded {
@@ -456,7 +455,7 @@ func (h *ModelHub) setSide(index int) {
 // refresh forwards online discovery; the host deduplicates/debounces I/O and owns
 // cancellation. F5 requests credential refresh even during an earlier catalog load.
 func (h *ModelHub) refresh(provider string, force bool) {
-	if h.cfg.Scoped || h.cfg.Refresh == nil {
+	if h.cfg.Refresh == nil {
 		return
 	}
 	h.refreshing[provider] = true
@@ -1560,9 +1559,6 @@ func (h *ModelHub) Render(width int) []string {
 			status = "Recently used models"
 		default:
 			status = fmt.Sprintf("%s · %d models", entry.label, entry.count)
-		}
-		if h.cfg.Scoped {
-			status += " · --models scope"
 		}
 		statusColor := th.Muted
 		if h.target != nil {

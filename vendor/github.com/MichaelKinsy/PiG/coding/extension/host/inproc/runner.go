@@ -472,9 +472,6 @@ func (r *Runner) BindCore(
 	if contextActions.AppendEntry == nil && actions.AppendEntry != nil {
 		contextActions.AppendEntry = func(customType string, data any) error { return runtime.AppendEntry(customType, data) }
 	}
-	if contextActions.GetScopedModels == nil {
-		contextActions.GetScopedModels = r.contextActions.GetScopedModels
-	}
 	// upstream: runner.ts:914 (ctx.thinkingLevel reads the runtime's getThinkingLevel, which bindCore copies from the ExtensionActions)
 	if contextActions.GetThinkingLevel == nil {
 		contextActions.GetThinkingLevel = actions.GetThinkingLevel

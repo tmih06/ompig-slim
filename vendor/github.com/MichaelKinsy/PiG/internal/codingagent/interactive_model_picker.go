@@ -29,7 +29,6 @@ func (m *InteractiveMode) pickModel(ctx context.Context) (string, bool, func()) 
 			items = append(items, tui.ModelSelectorItem{Provider: provider, ID: id, Name: current.DisplayName, Model: current})
 		}
 	}
-	items = m.scopeBrowserModels(items)
 	var roles []tui.ModelSelectorItem
 	roleConfig := modelroles.Config{}
 	resolvedRoles := map[string]string{}

@@ -17,7 +17,8 @@ python3 scripts/compare-model-tuis.py \
 ```
 
 The script creates isolated profiles, registers two identical loopback-only
-fixture models, and disables OMP-only local/web catalogs. It sends menu keys,
+fixture models, and disables unrelated providers in both runtimes. Model scopes
+are not used; the host supports only role-based selection. It sends menu keys,
 never model prompts. It requires the optional Python `pyte` package; ordinary
 Go tests and `make smoke` do not.
 

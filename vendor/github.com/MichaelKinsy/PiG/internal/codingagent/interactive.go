@@ -651,11 +651,6 @@ type InteractiveMode struct {
 	// and input-error exit paths. Mirrors upstream's single stopInteractiveTui().
 	tuiTornDown bool
 
-	// Scoped model IDs for Ctrl+P cycling.
-	// nil = all models enabled (no filter).
-	// Populated from settings on startup; legacy saved scopes migrate into roles.
-	scopedModelIDs []string
-
 	// managedToolStatusStarted mirrors upstream managedToolStatusStarted:
 	// the first managed-tool status report is preceded by a spacer.
 	managedToolStatusStarted bool
@@ -1003,13 +998,10 @@ func (m *InteractiveMode) routeReadEnd(ctx context.Context, readCh chan<- inputC
 
 // InteractiveModeOptions configures the interactive mode.
 type InteractiveModeOptions struct {
-	// ModelScopeExplicit distinguishes --models from a migrated saved scope; the
-	// former stays session-only and continues to restrict chat-model browsing.
-	ModelScopeExplicit bool
-	CWD                string
-	AgentDir           string
-	Model              *ai.Model
-	Settings           Settings
+	CWD      string
+	AgentDir string
+	Model    *ai.Model
+	Settings Settings
 	// InitialThemeSetting selects a theme for this run without changing the SettingsManager. A non-nil empty name is a selection that fails and falls back to dark. Explicit selections replace it; absent selections follow the current manager.
 	InitialThemeSetting *string
 	// TuiMode selects "regular" or "fullscreen" for this run without changing the SettingsManager. Empty captures Settings.TuiMode at construction; only a live mode switch changes it afterwards.
@@ -1608,13 +1600,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	mark := m.startupMark()
 	m.initStartupTheme()
 	mark("theme-detected")
-	// Fullscreen renders on the alternate screen, so stdout text would stay in the shell after exit; its header shows the notice.
-	if m.opts.TuiMode != "fullscreen" {
-		if notice := m.getModelScopeNotice(); notice != "" {
-			tui.WriteToTerminal(os.Stdout, notice+"\n")
-		}
-	}
-
 	// Set up TUI. Fullscreen mode uses the alternate-screen renderer; both
 	// satisfy tui.Renderer so the rest of the driver is renderer-agnostic.
 	// createInteractiveTui owns renderer construction plus the owner-loop-scoped
@@ -1850,8 +1835,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 
 	// Bind thinking presentation to the Session's effective startup state.
 	m.initThinkingLevel()
-
-	m.initScopedModels()
 
 	// Dispatch session_start through the extension runner. The bridge performs
 	// the typed event conversion.

@@ -93,9 +93,18 @@ def main():
         (root / ".pi").mkdir()
         (root / ".pi" / "subagents.json").write_text(json.dumps({"enabled": True}))
         extension = root / "rpc-proof.ts"
-        extension.write_text("""export default function(pi) {
+        extension.write_text("""import * as sdk from "@earendil-works/pi-coding-agent";
+        export default function(pi) {
+          let roleOnlyContext = false;
+          pi.on("session_start", (_event, ctx) => { roleOnlyContext = !("scopedModels" in ctx); });
           pi.registerTool({name:'subagent_rpc_proof',label:'RPC proof',description:'Verify built-in RPC bridge',parameters:{type:'object',properties:{}},
             async execute() {
+              if (!roleOnlyContext || typeof sdk.resolveCliModel !== 'function' ||
+                  'resolveModelScopeWithDiagnostics' in sdk ||
+                  typeof sdk.SettingsManager.prototype.getEnabledModels === 'function' ||
+                  typeof sdk.AgentSession.prototype.setScopedModels === 'function') {
+                throw new Error('obsolete scoped-model SDK surface remains');
+              }
               const result = await new Promise((resolve,reject)=> {
                 const off=pi.events.on('subagents:rpc:ping:reply:smoke', reply=> {
                   clearTimeout(timer); off(); resolve(reply);

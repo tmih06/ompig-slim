@@ -14,7 +14,7 @@ python3 scripts/compare-model-tuis.py \
   --metadata-cache scripts/testdata/omp-openai-public-metadata.json
 ```
 
-No provider is disabled and no `--models` filter is set. All seven screens are
+No provider is disabled and the model roster is unfiltered. All seven screens are
 compared cell-for-cell, including intelligence and throughput values. The
 snapshot also contains base luna/terra scores so tests expose an incorrect
 attempt to apply them to distinct `pro` variants. The catalog remains the full

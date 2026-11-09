@@ -88,7 +88,7 @@ func TestModelHubMatchesOMPCapture(t *testing.T) {
 			t.Run(fmt.Sprintf("%dx%d/%s", width, height, view), func(t *testing.T) {
 				items, config := modelReferenceFixture()
 				pool := []modelroles.Candidate{{Provider: "fixture", ID: "alpha"}, {Provider: "fixture", ID: "beta"}}
-				h := NewModelHub(ModelHubConfig{Models: items, Scoped: true, Current: "fixture/alpha", Height: func() int { return height }, DefaultThinking: func() string { return "high" }, Snapshot: func() (modelroles.Config, map[string][]string) { return config, nil }, Resolve: func(selector string) (string, error) { return config.ResolveAvailable(selector, "fixture/alpha", pool) }})
+				h := NewModelHub(ModelHubConfig{Models: items, Current: "fixture/alpha", Height: func() int { return height }, DefaultThinking: func() string { return "high" }, Snapshot: func() (modelroles.Config, map[string][]string) { return config, nil }, Resolve: func(selector string) (string, error) { return config.ResolveAvailable(selector, "fixture/alpha", pool) }})
 				switch view {
 				case "provider":
 					h.HandleInput("\x1b[B")

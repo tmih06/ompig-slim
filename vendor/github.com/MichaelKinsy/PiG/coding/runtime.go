@@ -61,9 +61,6 @@ type SessionStartOptions struct {
 	// SessionManager selects the actual log to wrap, ahead of file loading or creation.
 	SessionManager *SessionManager
 
-	// ScopedModels supplies the read-only cycling scope, including optional per-model thinking levels.
-	ScopedModels []extension.ScopedModel
-
 	// Model is the LLM the agent calls. Required.
 	Model *ai.Model
 	// ModelRole retains logical fallback ownership independently of the physical model.
@@ -310,7 +307,6 @@ func (rt *Runtime) startSessionWithFactory(opts SessionStartOptions, create func
 	return create(rt.Services(), SessionOptions{
 		resumed:                resumed,
 		SessionManager:         opts.SessionManager,
-		ScopedModels:           opts.ScopedModels,
 		Model:                  opts.Model,
 		ModelRole:              opts.ModelRole,
 		ThinkingLevel:          opts.ThinkingLevel,

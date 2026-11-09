@@ -15,7 +15,7 @@ import termios
 import time
 
 
-def measure(binary, metadata, legacy_scope, explicit_scope, stale_cycle):
+def measure(binary, metadata, legacy_settings, stale_cycle):
     """Return cold/reopen latencies; dummy auth never sends inference requests."""
     with tempfile.TemporaryDirectory(prefix="omp-model-latency-") as directory:
         root = Path(directory)
@@ -24,7 +24,7 @@ def measure(binary, metadata, legacy_scope, explicit_scope, stale_cycle):
         settings = {"quietStartup": True, "tuiMode": "regular",
                     "modelRoles": {"default": "test-faux/model", "review": "test-faux/model"},
                     "cycleOrder": ["default", "review"]}
-        if legacy_scope:
+        if legacy_settings:
             settings["enabledModels"] = ["openai/gpt-6.1-sol"]
         if stale_cycle:
             settings["modelRoles"] = {"default": "openai/gpt-4o", "smol": "openai/gpt-4o-mini"}
@@ -39,12 +39,15 @@ def measure(binary, metadata, legacy_scope, explicit_scope, stale_cycle):
                "GOOGLE_API_KEY": "offline-fixture", "OPENROUTER_API_KEY": "offline-fixture"}
         for key in ("PIG_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR"):
             env[key] = str(agent)
+        if legacy_settings:
+            retired = subprocess.run([str(binary), "--models", "openai/*", "--no-extensions",
+                                      "--mode", "json", "--no-session"], cwd=root, env=env,
+                                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20)
+            assert retired.returncode != 0 and "Unknown option: --models" in retired.stderr, "retired CLI selection flag still accepted"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
         model = "openai/gpt-4o" if stale_cycle else "test-faux/model"
         command = [str(binary), "-ne", "--model", model, "--no-session"]
-        if explicit_scope:
-            command += ["--models", "openai/gpt-6.1-sol"]
         process = subprocess.Popen(command,
                                    cwd=root, env=env, stdin=slave, stdout=slave, stderr=slave,
                                    start_new_session=True)
@@ -92,15 +95,10 @@ def measure(binary, metadata, legacy_scope, explicit_scope, stale_cycle):
                 os.write(master, b"/model\r")
                 frame = wait_for(b"All available models")
                 timings.append((time.monotonic() - started) * 1000)
-                if legacy_scope:
-                    saved = json.loads((agent / "settings.json").read_text())
-                    assert saved.get("enabledModels") == [], f"legacy scope still hides models: {saved}"
-                    assert saved["modelRoles"]["default"] == "test-faux/model", "role overwritten"
-                if explicit_scope:
-                    assert b"--models scope" in frame, "explicit CLI scope lost"
-                else:
-                    assert b"--models scope" not in frame, "unexpected persisted scope"
-                    assert b"openai" in frame, "authenticated provider missing"
+                saved = json.loads((agent / "settings.json").read_text())
+                assert saved["modelRoles"] == settings["modelRoles"], "obsolete settings created or changed roles"
+                assert b"--models scope" not in frame, "obsolete model filter still active"
+                assert b"openai" in frame, "authenticated provider missing"
                 os.write(master, b"\x1b")
                 wait_for(b"\x1b[?1049l")
             return timings
@@ -120,13 +118,10 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("--metadata", type=Path)
     parser.add_argument("--runs", type=int, default=3)
-    parser.add_argument("--legacy-scope", action="store_true")
-    parser.add_argument("--explicit-scope", action="store_true")
+    parser.add_argument("--legacy-settings", action="store_true", help="Assert obsolete settings are ignored, never migrated into roles")
     parser.add_argument("--stale-cycle", action="store_true")
     args = parser.parse_args()
-    if args.stale_cycle and (args.legacy_scope or args.explicit_scope):
-        parser.error("--stale-cycle cannot be combined with scope fixtures")
-    results = [measure(args.binary.resolve(), args.metadata, args.legacy_scope, args.explicit_scope, args.stale_cycle) for _ in range(args.runs)]
+    results = [measure(args.binary.resolve(), args.metadata, args.legacy_settings, args.stale_cycle) for _ in range(args.runs)]
     print(json.dumps({"samples_ms": results, "cold_median_ms": statistics.median(r[0] for r in results),
                       "reopen_median_ms": statistics.median(r[1] for r in results)}, indent=2))
 

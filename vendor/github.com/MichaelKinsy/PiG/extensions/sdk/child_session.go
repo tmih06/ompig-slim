@@ -52,8 +52,6 @@ type CreateAgentSessionOptions struct {
 	SettingsManager *SettingsManager
 	ResourceLoader  *DefaultResourceLoader
 	ModelRuntime    *ModelRuntime
-	// ScopedModels is Pi's `scopedModels`: the models the session cycles through, each a model object with an optional thinking level.
-	ScopedModels []ScopedModel
 	// SessionStartEvent is Pi's `sessionStartEvent`: the session_start event the session's extensions receive when they bind. Nil is Pi's default, reason "startup".
 	SessionStartEvent *SessionStartEvent
 }
@@ -158,7 +156,6 @@ type childSessionCreateMsg struct {
 	SettingsManager string                 `json:"settingsManager,omitempty"`
 	ResourceLoader  string                 `json:"resourceLoader,omitempty"`
 	ModelRuntime    string                 `json:"modelRuntime,omitempty"`
-	ScopedModels    []ScopedModel          `json:"scopedModels,omitempty"`
 	// SessionStartEvent is the option of that name.
 	SessionStartEvent *SessionStartEvent `json:"sessionStartEvent,omitempty"`
 }
@@ -413,7 +410,6 @@ func (c Context) CreateAgentSession(options CreateAgentSessionOptions) (*AgentSe
 	if options.ModelRuntime != nil {
 		create.ModelRuntime = options.ModelRuntime.Handle()
 	}
-	create.ScopedModels = options.ScopedModels
 	create.SessionStartEvent = options.SessionStartEvent
 	session := &AgentSession{ext: e, conn: conn, id: create.ID, tools: map[string]ToolFunc{}, prepares: map[string]ToolPrepareArgumentsFunc{}}
 	session.cond = sync.NewCond(&session.mu)

@@ -109,8 +109,7 @@ func (sm *SettingsManager) SetFallbackChain(key string, chain []string, scope st
 }
 
 // SetRoleCycleOrder persists role-based cycling, including an explicit empty
-// order to disable it. Startup/manager migration absorbs any legacy enabledModels
-// into roles independently; an existing cycle must not preserve a stale filter.
+// order to disable it. Role order is the sole source of Ctrl+P membership.
 func (sm *SettingsManager) SetRoleCycleOrder(order []string, scope string) error {
 	update := func(s *Settings) { s.CycleOrder = append([]string{}, order...) }
 	if scope == "project" {
@@ -119,13 +118,10 @@ func (sm *SettingsManager) SetRoleCycleOrder(order []string, scope string) error
 	return sm.UpdateGlobal(update)
 }
 
-// ModelRoleCycle merges legacy model scope with the role system without rewriting
-// settings during reads. Explicit cycle order wins; duplicate models remain distinct roles.
+// ModelRoleCycle returns the effective role cycle without rewriting settings.
+// Duplicate models remain distinct logical roles.
 func (sm *SettingsManager) ModelRoleCycle() []string {
 	s := sm.Get()
-	if s.CycleOrder == nil && len(s.ModelRoles) == 0 && len(s.EnabledModels) > 0 {
-		return nil
-	}
 	return slices.Clone(s.Config.Order())
 }
 

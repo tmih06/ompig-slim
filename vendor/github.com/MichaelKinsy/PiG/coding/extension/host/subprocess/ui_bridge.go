@@ -343,9 +343,6 @@ type HostCallbacks struct {
 	// GetModelKey returns the identity of the model GetModelInfo describes: the metadata is a pure function of an immutable model value, so a state push re-encodes it only when the key changes. Nil means every push encodes it.
 	GetModelKey func() any
 
-	// GetScopedModels returns the Session's resolved model scope in selection order.
-	GetScopedModels func() []extension.ScopedModel
-
 	// GetModel resolves a model object (extension.ModelObject) by provider and model ID through the Session-owned runtime registry; nil when none matches.
 	GetModel  func(providerID, modelID string) json.RawMessage
 	GetModels func() []json.RawMessage
@@ -565,7 +562,7 @@ func (b *UIBridge) Snapshot(flagNames []string, cursor int, wantSessionLog bool)
 
 	// Upstream runner.ts:578-580 reports UI availability from the bound context.
 	// A catalog the host has no source for stays the explicit null the wire always carried, which the runtime reads as an empty list.
-	state := &StatePayload{Commands: json.RawMessage("null"), IsIdle: true, HasUI: uiCtx != nil && uiCtx != extension.NoopUIContext, Frontend: frontend, ProjectTrusted: true, ScopedModels: []scopedModelSnapshot{}, McpServers: []extension.RegisteredMcpServer{}}
+	state := &StatePayload{Commands: json.RawMessage("null"), IsIdle: true, HasUI: uiCtx != nil && uiCtx != extension.NoopUIContext, Frontend: frontend, ProjectTrusted: true, McpServers: []extension.RegisteredMcpServer{}}
 	// pi.getMcpServers() is synchronous upstream (types.ts:1839), so the SDKs answer it from state.
 	if mcpServers != nil {
 		state.McpServers = mcpServers()
@@ -628,9 +625,6 @@ func (b *UIBridge) Snapshot(flagNames []string, cursor int, wantSessionLog bool)
 	}
 	if actions.GetModelInfo != nil {
 		state.Model = b.modelWire(actions)
-	}
-	if actions.GetScopedModels != nil {
-		state.ScopedModels = snapshotScopedModels(actions.GetScopedModels())
 	}
 	if actions.GetSessionID != nil || actions.GetSessionName != nil || actions.GetSessionFile != nil || actions.GetLeafID != nil || actions.GetEntriesPage != nil || actions.SessionRead != nil {
 		state.Session = &SessionStatePayload{}
@@ -1227,8 +1221,6 @@ func (b *UIBridge) SetHostAction(key string, fn any) {
 		b.actions.SwitchSession = fn.(func(context.Context, string, *extension.SwitchSessionOptions) (extension.CancelledResult, error))
 	case "reload":
 		b.actions.Reload = fn.(func(context.Context) error)
-	case "getScopedModels":
-		b.actions.GetScopedModels = fn.(func() []extension.ScopedModel)
 	case "getModelInfo":
 		b.actions.GetModelInfo = fn.(func() json.RawMessage)
 		b.modelCache.valid = false
@@ -1536,13 +1528,6 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn, 
 		return renderSystemPromptCall(call.Args)
 	case "getSystemPromptOptions":
 		return b.handleGetSystemPromptOptions(actions)
-	case "getScopedModels":
-		var models []extension.ScopedModel
-		if actions != nil && actions.GetScopedModels != nil {
-			models = actions.GetScopedModels()
-		}
-		data, err := json.Marshal(snapshotScopedModels(models))
-		return &CallResultPayload{Result: data}, err
 	case "getModelInfo":
 		return b.handleGetModelInfo(actions)
 	case "getModel":

@@ -135,9 +135,6 @@ type Args struct {
 	// FileArgs holds @file arguments (files included in prompt).
 	// Mirrors upstream args.fileArgs (args.ts:160).
 	FileArgs []string
-	// Models comma-separated model patterns for Ctrl+P cycling.
-	// Mirrors upstream --models (args.ts:96).
-	Models []string
 	// UnknownFlags preserves flags not claimed by the core parser so
 	// extensions can consume them later.
 	UnknownFlags map[string]any
@@ -314,10 +311,6 @@ func parseArgs(args []string) Args {
 		case (arg == "--exclude-tools" || arg == "-xt") && i+1 < len(args):
 			i++
 			flags.ExcludeTools = parseToolList(args[i])
-		case arg == "--models" && i+1 < len(args):
-			i++
-			// upstream: args.ts `result.models = args[++i].split(",")...`: a later --models replaces an earlier one, and an empty value is an explicit empty list.
-			flags.Models = parseToolList(args[i])
 		case (arg == "--extension" || arg == "-e") && i+1 < len(args):
 			i++
 			flags.Extensions = append(flags.Extensions, args[i])

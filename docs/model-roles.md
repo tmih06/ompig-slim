@@ -75,16 +75,18 @@ target changes the task override without switching the main model. Choices that
 cannot fit the existing context are marked before selection. Closing/cancelling
 the picker restores the editor and does not write an assignment.
 
-### Legacy scopes
+### Roles are the only model-selection system
 
-Saved `enabledModels` selections migrate at startup (or when opening the manager)
-into collision-safe `scoped-N` roles and cycle order, preserving effort and
-settings-layer ownership. Existing roles and cycle order are retained; remaining
-legacy selections are appended without overwriting roles (an explicit empty
-cycle order still disables cycling). Migration clears the
-saved filter even when `cycleOrder` already exists, so it cannot silently hide
-models from the manager. A command-line `--models` scope stays
-session-only and filters chat choices/cycling without hiding typed model kinds.
+The legacy scoped-model feature is removed, not migrated. `enabledModels` in old
+settings is ignored; opening the app or manager never creates `scoped-N` roles.
+The old CLI `--models` selection flag and SDK/session scope APIs are removed.
+Use `--model @role`, `modelRoles`, and `cycleOrder` instead. Already-created
+custom roles remain ordinary roles and can be deleted with Shift+D.
+
+Extensions must remove calls to `getScopedModels`/`ScopedModels` and old
+`scopedModels` session options. RPC cycle results no longer include `isScoped`.
+Read the runtime catalog for model availability; choose a model or role explicitly. `ompig-slim update --models` is unrelated and
+still refreshes catalogs.
 
 ## Configuration
 
@@ -228,7 +230,7 @@ refresh; it does not prevent the cached catalog from being used.
 ## Validation
 
 `make check` covers the vendored runtime as well as the entry point. Tests include
-layered settings, scopes, hub/picker state transitions, auto-thinking,
+layered role settings, retired-option rejection, hub/picker state transitions, auto-thinking,
 missing-auth and signed-thinking recovery, an actual local SSE quota fallback
 chain with primary restoration, and routed request/resume behavior.
 `make smoke` includes a real PTY menu flow in
@@ -239,7 +241,8 @@ Catalog tests additionally traverse every imported provider and assert that the
 composed browser retains all 5,949 provider/model/kind identities, including the
 61 OpenAI chat models. Display ordering follows OMP's built-in role rank, MRU,
 provider priority, version, and revision rules. The reference comparator accepts
-`--unfiltered` to keep the real local/web/provider catalogs and omit `--models`.
+`--unfiltered` to keep all native local/web/provider catalogs. The small golden
+fixture instead disables unrelated providers in both actual runtimes.
 Provider intelligence/performance metadata may refresh independently of the
 pinned bundled roster. The comparator can seed both profiles with the same public
 `--metadata-cache scripts/testdata/omp-openai-public-metadata.json` snapshot

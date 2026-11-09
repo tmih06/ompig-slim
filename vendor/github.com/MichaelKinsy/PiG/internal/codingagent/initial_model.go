@@ -11,8 +11,6 @@ type InitialModelRuntime interface {
 
 // FindInitialModelOptions carries selection inputs without owning a Model Runtime, refreshing its snapshots, or resolving credentials. Empty optional thinking strings represent no selection.
 type FindInitialModelOptions struct {
-	ScopedModels         []ScopedModel
-	IsContinuing         bool
 	DefaultProvider      string
 	DefaultModelId       string
 	DefaultThinkingLevel string
@@ -27,23 +25,9 @@ type InitialModelResult struct {
 	FallbackMessage string
 }
 
-// FindInitialModel selects new-session scope, authenticated saved default, or an available fallback in that order.
+// FindInitialModel selects an authenticated saved default or an available fallback.
 func FindInitialModel(options FindInitialModelOptions) (InitialModelResult, error) {
 	runtime := options.ModelRuntime
-	if len(options.ScopedModels) > 0 && !options.IsContinuing {
-		scoped := &options.ScopedModels[0]
-		level := scoped.ThinkingLevel
-		if level == "" {
-			level = options.ModelThinkingLevels[modelRef(scoped.Model)]
-		}
-		if level == "" {
-			level = options.DefaultThinkingLevel
-		}
-		if level == "" {
-			level = DefaultThinkingLevel
-		}
-		return InitialModelResult{Model: &scoped.Model, ThinkingLevel: level}, nil
-	}
 	if options.DefaultProvider != "" && options.DefaultModelId != "" {
 		found := runtime.GetModel(options.DefaultProvider, options.DefaultModelId)
 		if found != nil && runtime.HasConfiguredAuth(found.Provider) {

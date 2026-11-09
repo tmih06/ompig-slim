@@ -135,7 +135,6 @@ func (s *Session) Clone() (*Session, error) {
 	// caller hooks, thinking budgets, model runtime and event buffer as any
 	// other Session; its agent state is the cloned path-to-leaf.
 	opts := SessionOptions{
-		ScopedModels:             s.ScopedModels(),
 		Model:                    s.Model(),
 		Tools:                    s.tools,
 		AllowedTools:             s.toolRegistry.allowed,

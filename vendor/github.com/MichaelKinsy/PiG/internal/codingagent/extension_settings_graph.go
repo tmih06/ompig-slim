@@ -613,12 +613,8 @@ func (g *GraphSettingsManager) Call(_ context.Context, method string, raw json.R
 		return sm.GetBlockImages(), nil
 	case "setBlockImages":
 		return nil, setBool(args, 0, sm.SetBlockImages)
-	case "getEnabledModels":
-		return sm.GetEnabledModels(), nil
 	case "getDefaultTools":
 		return sm.GetDefaultTools(), nil
-	case "setEnabledModels":
-		return nil, setStrings(args, 0, sm.SetEnabledModels)
 	case "getDoubleEscapeAction":
 		return sm.GetDoubleEscapeAction(), nil
 	case "setDoubleEscapeAction":

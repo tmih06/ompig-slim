@@ -36,6 +36,10 @@ func branchModelRole(branch []icodingagent.SessionEntry, model *ai.Model) string
 	return ""
 }
 
+// AvailableModelSnapshot returns authenticated runtime models bound to their
+// backends. Model roles, the picker and subagents share this unfiltered catalog.
+func (s *Session) AvailableModelSnapshot() []*ai.Model { return s.modelRuntime.GetAvailableSnapshot() }
+
 // ActiveModelRole reports the logical selection, not the provider reached by fallback.
 func (s *Session) ActiveModelRole() string {
 	if role := s.activeModelRole.Load(); role != nil {
@@ -54,14 +58,6 @@ func (s *Session) beginRoleCycle(ctx context.Context, direction string, deferThi
 	}
 	var candidates []candidate
 	available := s.AvailableModelSnapshot()
-	if scoped := s.ScopedModels(); len(scoped) > 0 {
-		available = nil
-		for _, entry := range scoped {
-			if entry.Model != nil {
-				available = append(available, entry.Model)
-			}
-		}
-	}
 	pool := make([]modelroles.Candidate, 0, len(available))
 	for _, model := range available {
 		pool = append(pool, modelroles.Candidate{Provider: providerID(model), ID: model.ID})
@@ -116,7 +112,7 @@ func (s *Session) beginRoleCycle(ctx context.Context, direction string, deferThi
 	if err != nil {
 		return nil, nil, err
 	}
-	return &ModelCycleResult{Model: next.model, ThinkingLevel: s.ThinkingLevel(), IsScoped: true}, complete, nil
+	return &ModelCycleResult{Model: next.model, ThinkingLevel: s.ThinkingLevel()}, complete, nil
 }
 
 // stringsCutModel accepts provider-qualified identities, including IDs with slashes.

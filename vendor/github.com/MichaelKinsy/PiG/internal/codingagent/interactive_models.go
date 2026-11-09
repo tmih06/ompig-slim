@@ -12,28 +12,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
-	"github.com/MichaelKinsy/PiG/tui"
 )
-
-func (m *InteractiveMode) scopedModelItems(items []tui.ModelSelectorItem) []tui.ModelSelectorItem {
-	// Scoped rows retain session order; only the all-models list is sorted.
-	itemsByID := make(map[string][]int, len(items)*2)
-	for i, item := range items {
-		itemsByID[item.FQ()] = append(itemsByID[item.FQ()], i)
-		itemsByID[item.ID] = append(itemsByID[item.ID], i)
-	}
-	seen := make([]bool, len(items))
-	var scoped []tui.ModelSelectorItem
-	for _, id := range m.scopedModelIDs {
-		for _, i := range itemsByID[id] {
-			if !seen[i] {
-				scoped = append(scoped, items[i])
-				seen[i] = true
-			}
-		}
-	}
-	return scoped
-}
 
 // switchModel applies the model spec names and calls finish with the result on the owner loop once the change settles; it does not wait for that. With a Session, Pi's setModel checks auth, applies the model synchronously and then awaits model_select (agent-session.ts:2430-2449): SetModelOnMain checks auth and awaits the handlers off the loop and dispatches the state change to the loop, where the mode shows the model at once unless the Session was replaced meanwhile.
 // The Session emits model_select once, for a changed selection (agent-session.ts:2372-2384, 2411).
@@ -114,7 +93,6 @@ func (m *InteractiveMode) switchModelForRole(ctx context.Context, spec, roleOver
 			// A handler may have changed the thinking level.
 			m.refreshThinkingLevel()
 			if persist {
-				m.initScopedModels()
 			}
 			m.tuiInst.Render()
 		}
@@ -232,9 +210,6 @@ func (m *InteractiveMode) cycleModel(forward bool) {
 	}
 	if result == nil {
 		message := "Only one model available"
-		if len(handle.ScopedModels()) > 0 {
-			message = "Only one model in scope"
-		}
 		m.showStatus(message)
 		return
 	}

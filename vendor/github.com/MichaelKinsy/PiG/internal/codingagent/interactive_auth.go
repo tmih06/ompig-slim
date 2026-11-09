@@ -792,15 +792,13 @@ func (m *InteractiveMode) applyEditorMaxVisible() {
 	m.editor.SetMaxVisibleLines(cap)
 }
 
-// updateProviderInfo updates the footer from the available model snapshot or the active scope, including dynamically registered providers such as Radius. It does not refresh catalogs.
+// updateProviderInfo counts the available runtime catalog's providers, including
+// dynamic providers such as Radius, without refreshing catalogs.
 func (m *InteractiveMode) updateProviderInfo() {
 	if m.statusLine == nil {
 		return
 	}
 	items := m.availableModelItems()
-	if scoped := m.scopedModelItems(items); len(scoped) > 0 {
-		items = scoped
-	}
 	providers := make(map[string]struct{})
 	for _, item := range items {
 		providers[item.Provider] = struct{}{}

@@ -37,6 +37,13 @@ def capture(binary, name, output, columns, rows, unfiltered=False, openai=False,
     # JSON is also valid YAML: give each CLI its own native config entry point.
     if unfiltered:
         settings["disabledProviders"] = []
+    else:
+        # Limit the fixture through provider visibility, never the removed
+        # scoped-model option. Both actual runtimes receive the same settings.
+        manifest = Path(__file__).resolve().parents[1] / "vendor/github.com/MichaelKinsy/PiG/ai/omp_catalog_data/manifest.json"
+        providers = json.loads(manifest.read_text())["providers"]
+        settings["disabledProviders"] = [provider for provider in providers
+                                         if not (openai and provider == "openai")]
     for filename in ("settings.json", "config.yml"):
         (agent / filename).write_text(json.dumps(settings))
     models = {"providers": {"fixture": {
@@ -61,8 +68,6 @@ def capture(binary, name, output, columns, rows, unfiltered=False, openai=False,
     if openai:
         env["OPENAI_API_KEY"] = "offline-fixture"
     args = [str(binary), "--model", "fixture/alpha", "--no-session", "--no-extensions"]
-    if not unfiltered:
-        args += ["--models", "fixture/*"]
     if name == "omp":
         args += ["--no-title", "--no-skills", "--no-rules", "--no-lsp", "--no-context-files"]
     master, slave = pty.openpty()
@@ -216,7 +221,7 @@ def main():
     parser.add_argument("--catalog-identities", action="store_true", help="Compare real list IDs/order/counts separately from independently refreshed metric values")
     parser.add_argument("--metadata-cache", type=Path, help="Seed both isolated profiles with the same public OMP metadata snapshot")
     parser.add_argument("--openai", action="store_true", help="Enable bundled OpenAI models using a dummy offline key")
-    parser.add_argument("--unfiltered", action="store_true", help="Keep native local/web catalogs; do not set --models or disable providers")
+    parser.add_argument("--unfiltered", action="store_true", help="Keep native local/web catalogs; do not disable providers")
     args = parser.parse_args()
     if args.columns < 40 or args.rows < 16:
         parser.error("comparison requires at least 40 columns and 16 rows")

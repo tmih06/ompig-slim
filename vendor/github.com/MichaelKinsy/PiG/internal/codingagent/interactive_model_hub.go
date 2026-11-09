@@ -41,25 +41,6 @@ func (m *InteractiveMode) showModelHub() {
 		m.showError("Model settings unavailable")
 		return
 	}
-	// Import the old saved scope once, preserving resolved order and thinking. CLI-only
-	// scopes are not persisted; subsequent role edits use the unified manager.
-	settings := sm.Get()
-	if len(settings.EnabledModels) > 0 {
-		var models []RuntimeModel
-		for _, item := range m.availableModelItems() {
-			models = append(models, RuntimeModel{Provider: item.Provider, ID: item.ID, Name: item.Name})
-		}
-		items := ResolveModelScopeFromModels(settings.EnabledModels, models).ScopedModels
-		migrated, err := sm.ImportLegacyModelScope(items)
-		if err != nil {
-			m.showError(err.Error())
-			return
-		}
-		if migrated && !m.opts.ModelScopeExplicit && m.opts.SessionHandle != nil {
-			m.opts.SessionHandle.SetScopedModels(nil)
-			m.initScopedModels()
-		}
-	}
 	life, cancel := context.WithCancel(m.runCtx)
 	defer cancel()
 	registry := m.modelRegistryOrDefault()
@@ -74,12 +55,12 @@ func (m *InteractiveMode) showModelHub() {
 	}
 	availableItems := func() []tui.ModelSelectorItem {
 		allItems()
-		return m.scopeBrowserModels(availableSnapshot)
+		return availableSnapshot
 	}
 	refreshes := newHubRefreshQueue(m, life, registry, availableItems, func() []tui.ModelSelectorItem { allSnapshot = nil; return allItems() })
 	var hub *tui.ModelHub
 	hub = tui.NewModelHub(tui.ModelHubConfig{
-		Models: availableItems(), AllModels: allItems(), Providers: registry.BrowserProviderIDs(), Scoped: m.opts.SessionHandle != nil && len(m.opts.SessionHandle.ScopedModels()) > 0, Current: modelSpec(m.opts.Model), Height: func() int { return m.tuiInst.Height() },
+		Models: availableItems(), AllModels: allItems(), Providers: registry.BrowserProviderIDs(), Current: modelSpec(m.opts.Model), Height: func() int { return m.tuiInst.Height() },
 		ScopedConfig: func(scope string) modelroles.Config {
 			if scope == "project" {
 				return sm.GetProjectSettings().Config
