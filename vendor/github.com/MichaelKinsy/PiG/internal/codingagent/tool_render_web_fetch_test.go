@@ -7,10 +7,11 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-// webFetchBody is a fetch result as the tool returns it: a header line, a
+// webFetchBody is a URL read result as `read` returns it: a header line, a
 // title line, and body lines, the whole rendering the model sees.
 func webFetchBody(lines int) string {
 	var builder strings.Builder
@@ -26,13 +27,18 @@ func webFetchBody(lines int) string {
 	return builder.String()
 }
 
-// webFetchCard returns a completed web_fetch card for body, wired the way
+// webFetchCard returns a completed URL-read card for body, wired the way
 // InteractiveMode wires one: the per-tool body renderer, then the result.
+// `read` owns URL fetching, so the card is a read card whose details mark the
+// source as a URL.
 func webFetchCard(t *testing.T, body string) *tui.ToolExecutionComponent {
 	t.Helper()
-	result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: body}}}
-	call := ai.ToolCall{Name: "web_fetch", Arguments: map[string]any{"url": "https://example.com/page"}}
-	comp := tui.NewToolExecutionComponent("web_fetch", "call_1", json.RawMessage(`{"url":"https://example.com/page"}`), tui.ToolExecutionOptions{}, nil, nil, "")
+	result := agent.AgentToolResult{
+		Content: []ai.ToolResultMessageContent{ai.TextContent{Text: body}},
+		Details: &tools.ReadURLDetails{Kind: "url", URL: "https://example.com/page"},
+	}
+	call := ai.ToolCall{Name: "read", Arguments: map[string]any{"path": "https://example.com/page"}}
+	comp := tui.NewToolExecutionComponent("read", "call_1", json.RawMessage(`{"path":"https://example.com/page"}`), tui.ToolExecutionOptions{}, nil, nil, "")
 	comp.BodyRenderer = toolBodyRendererForCall(call, result, nil)
 	comp.UpdateResult(tui.ToolResultUpdate{
 		Content: []tui.ToolResultContent{{Type: "text", Text: body}},
@@ -48,7 +54,7 @@ func webFetchCard(t *testing.T, body string) *tui.ToolExecutionComponent {
 func TestWebFetchCardStartsCollapsed(t *testing.T) {
 	comp := webFetchCard(t, webFetchBody(200))
 	if !comp.Collapsed {
-		t.Fatal("a long web_fetch card started expanded")
+		t.Fatal("a long URL-read card started expanded")
 	}
 	const width = 80
 	if rows := len(comp.Render(width)); rows > 20 {

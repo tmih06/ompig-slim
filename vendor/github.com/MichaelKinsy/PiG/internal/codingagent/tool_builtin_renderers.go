@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"maps"
 	"reflect"
@@ -22,10 +23,21 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 const (
-	builtInPreviewLines   = 10          // upstream: packages/coding-agent/src/core/tools/renderers/read.ts:formatReadResult
+	builtInPreviewLines = 10 // upstream: packages/coding-agent/src/core/tools/renderers/read.ts:formatReadResult
+	// drawPreviewLines is render-utils.ts PREVIEW_LIMITS.EXPANDED_LINES: the tail
+	// window write.ts formatStreamingContent keeps while a file streams in.
+	drawPreviewLines = 12
+	// writeGutterMinWidth is write.ts WRITE_GUTTER_MIN_WIDTH.
+	writeGutterMinWidth = 3
+	// editCallPreviewLines is edit.ts CALL_TEXT_PREVIEW_LINES.
+	editCallPreviewLines = 6
+	// writePreviewLines is write.ts WRITE_PREVIEW_LINES: the head a settled
+	// write preview shows.
+	writePreviewLines     = 6
 	shellElapsedTickEvery = time.Second // upstream: packages/coding-agent/src/core/tools/renderers/bash.ts:createShellRenderers
 	builtInRenderStateKey = "\x00pig-builtin-render-state"
 )
@@ -66,13 +78,15 @@ func (linesComponent) Invalidate()                 {}
 // renderers keep. The shell ticker and the edit preview update it off the UI
 // loop, so it has its own lock.
 type builtInRenderState struct {
-	mu        sync.Mutex
-	lifetime  context.Context
-	closed    bool
-	tasks     sync.WaitGroup
-	startedAt time.Time
-	endedAt   time.Time
-	stopTick  chan struct{}
+	mu       sync.Mutex
+	lifetime context.Context
+	closed   bool
+	tasks    sync.WaitGroup
+	// headerOwnsTiming suppresses result timers when the rich card owns the clock.
+	headerOwnsTiming bool
+	startedAt        time.Time
+	endedAt          time.Time
+	stopTick         chan struct{}
 	// shellView* is the shell result view the last result render built, reused while its inputs are unchanged.
 	shellViewKey   shellViewKey
 	shellViewValue shellResultView
@@ -98,6 +112,16 @@ type builtInRenderState struct {
 	// editCall reports that the built-in edit renderCall drew this card, so
 	// its box holds the preview (upstream state.callComponent).
 	editCall bool
+}
+
+// richCard reports whether the card being rendered opted into the rich frame.
+// The built-in render state records it, because extension render contexts keep
+// upstream's field set and gain no presentation flag of their own.
+func richCard(context extension.ToolRenderContext) bool {
+	state := builtInState(context)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.headerOwnsTiming
 }
 
 func builtInState(context extension.ToolRenderContext) *builtInRenderState {
@@ -142,6 +166,10 @@ func builtInToolRenderers(name string) (extension.ToolRenderCallFunc, extension.
 
 func headerRenderCall(header func(json.RawMessage, string) string) extension.ToolRenderCallFunc {
 	return func(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
+		if richCard(context) {
+			// The framed top bar already names the pattern and path.
+			return richEmptyBody()
+		}
 		return tui.NewPaddedText(header(args, context.Cwd), 0, 0, nil)
 	}
 }
@@ -281,6 +309,10 @@ func startToolTimer(context extension.ToolRenderContext) {
 func toolTimerText(context extension.ToolRenderContext, isPartial bool) (string, bool) {
 	state := builtInState(context)
 	state.mu.Lock()
+	if state.headerOwnsTiming {
+		state.mu.Unlock()
+		return "", false // The shared header already renders live and final timing.
+	}
 	if !state.closed && !state.startedAt.IsZero() && isPartial && state.stopTick == nil {
 		stop := make(chan struct{})
 		state.stopTick = stop
@@ -410,6 +442,19 @@ func moreLinesHint(text string) string {
 // readRenderCall is upstream read.ts renderCall: the compact label for a
 // skill, docs or context file while collapsed, else the path and range.
 func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
+	if rawPath, _ := stringArg(args, "file_path", "path"); tui.IsReadableURLPath(rawPath) {
+		// read.ts isReadableUrlPath -> renderReadUrlCall: a URL read is titled
+		// `Read` with the domain and path of the target.
+		if richCard(context) {
+			return richEmptyBody() // The status line names it.
+		}
+		return tui.NewPaddedText(tui.FormatReadURLHeader(args, context.Cwd), 0, 0, nil)
+	}
+	if richCard(context) {
+		// The framed top bar already names the file and its line range, so a
+		// read card has no separate input row to repeat them.
+		return richEmptyBody()
+	}
 	if !context.Expanded {
 		if header := tui.FormatCompactReadHeader(args, context.Cwd); header != "" {
 			return tui.NewPaddedText(header, 0, 0, nil)
@@ -423,8 +468,15 @@ func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 // file's language, the first ten lines while collapsed, and the truncation
 // warning.
 func readRenderResult(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
-	if !options.Expanded && !context.IsError {
-		return tui.NewPaddedText("", 0, 0, nil)
+	if _, isURL := tools.ReadURLDetailsOf(renderResultValue(result).Details); isURL {
+		// fetch.ts renderReadUrlResult keeps a bounded head of the document in
+		// view while collapsed and the whole rendering when expanded.
+		value := renderResultValue(result)
+		render := makeWebFetchBodyRenderer(value.Text())
+		return linesComponent{render: func(width int) []string { return render(width, options.Expanded) }}
+	}
+	if !options.Expanded && !context.IsError && !richCard(context) {
+		return richEmptyBody()
 	}
 	theme := tui.ActiveTheme()
 	value := renderResultValue(result)
@@ -432,7 +484,10 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	output := toolResultTextOutput(value, context.ShowImages)
 	lang := ""
 	if !context.IsError && rawPath != "" {
-		lang = tui.LanguageFromPath(rawPath)
+		// read.ts reads a directory listing as plain text, never as code.
+		if details, ok := detailsObject(value.Details).(*tools.ReadDetails); !ok || !details.IsDirectory {
+			lang = tui.LanguageFromPath(rawPath)
+		}
 	}
 	var rendered []string
 	if lang != "" {
@@ -442,6 +497,11 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	}
 	lines := trimTrailingEmptyLines(rendered)
 	display := lines
+	// read.ts describeResult draws an inline card: while collapsed the row is
+	// only `Read <path>:<range>`, and the content is disclosed on Ctrl+O.
+	if richCard(context) && !options.Expanded && !context.IsError {
+		return richEmptyBody()
+	}
 	if !options.Expanded && len(lines) > builtInPreviewLines {
 		display = lines[:builtInPreviewLines]
 	}
@@ -505,10 +565,21 @@ func readTruncation(details any) *tools.TruncationResult {
 	return nil
 }
 
-// listRenderResult is upstream grep.ts, find.ts and ls.ts renderResult.
+// richEmptyBody is the body of a rich card whose renderer drew nothing: the
+// frame then contributes no body rows at all.
+func richEmptyBody() extension.Component {
+	return linesComponent{render: func(int) []string { return nil }}
+}
+
+// listRenderResult is upstream grep.ts, find.ts and ls.ts renderResult. In a
+// rich card grep and find draw oh-my-pi's grouped tree instead of a flat list.
 func listRenderResult(name string) extension.ToolRenderResultFunc {
 	return func(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 		value := renderResultValue(result)
+		if richCard(context) && (name == "grep" || name == "find") {
+			// The card draws the grouped tree itself (SetSearchOutput).
+			return richEmptyBody()
+		}
 		body := makeListBodyRenderer(name, toolResultTextOutput(value, context.ShowImages), value.Details)
 		return linesComponent{render: func(width int) []string {
 			lines := body(width, options.Expanded)
@@ -520,17 +591,106 @@ func listRenderResult(name string) extension.ToolRenderResultFunc {
 	}
 }
 
+// pluralLines is write.ts's `line${n === 1 ? "" : "s"}`.
+func pluralLines(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// writeGutterPrefix is one preview row's line-number gutter, the format
+// write.ts formatStreamingContent emits: a dim right-aligned number and a space.
+func writeGutterPrefix(number, width int) string {
+	return themeFg(tui.ActiveTheme().Dim, fmt.Sprintf("%*d ", width, number))
+}
+
+// writeStreamingRows is write.ts's content preview, numbered and highlighted by
+// the file's language. While the content argument still streams it is
+// formatStreamingContent: a tail window of the newest PREVIEW_LIMITS.EXPANDED_LINES
+// rows that follows the live edge. Once argsComplete finalizes the content it is
+// renderContentPreview: the head of the file, capped to WRITE_PREVIEW_LINES.
+// Expanded shows every row. The rows are re-laid per width, so a resize
+// recomputes the gutter.
+func writeStreamingRows(content, path string, expanded, argsComplete bool) func(width int) []string {
+	return func(width int) []string {
+		content = strings.ReplaceAll(strings.ReplaceAll(content, "\r", ""), "\t", "   ")
+		if content == "" {
+			return nil
+		}
+		lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+		total := len(lines)
+		start, lines := 0, lines
+		switch {
+		case expanded:
+		case !argsComplete:
+			// The live edge: the newest rows stay visible as the file grows.
+			if total > drawPreviewLines {
+				start = total - drawPreviewLines
+				lines = lines[start:]
+			}
+		default:
+			// A settled write reads from the top, as renderContentPreview does.
+			if total > writePreviewLines {
+				lines = lines[:writePreviewLines]
+			}
+		}
+		visible := lines
+		styled := visible
+		if lang := tui.LanguageFromPath(path); lang != "" {
+			if highlighted := tui.HighlightCode(strings.Join(visible, "\n"), lang); len(highlighted) == len(visible) {
+				styled = highlighted
+			}
+		}
+		gutterWidth := max(writeGutterMinWidth, len(strconv.Itoa(total)))
+		out := make([]string, 0, len(styled)+1)
+		if start > 0 {
+			out = append(out, tui.ActiveTheme().Fg("dim", fmt.Sprintf("… (%d earlier line%s)", start, pluralLines(start))))
+		}
+		for i, line := range styled {
+			prefix := writeGutterPrefix(start+i+1, gutterWidth)
+			out = append(out, hangingWrap(prefix, strings.Repeat(" ", gutterWidth), line, width)...)
+		}
+		return out
+	}
+}
+
+// hangingWrap wraps a prefixed row so continuation lines align under the
+// content rather than under the gutter (render/hanging-wrap.ts).
+func hangingWrap(prefix, indent, line string, width int) []string {
+	available := max(1, width-widthx.VisibleWidth(prefix))
+	wrapped := widthx.WrapTextWithAnsi(line, available)
+	if len(wrapped) <= 1 {
+		return []string{prefix + line}
+	}
+	out := make([]string, 0, len(wrapped))
+	out = append(out, prefix+wrapped[0])
+	for _, rest := range wrapped[1:] {
+		out = append(out, indent+rest)
+	}
+	return out
+}
+
 // writeRenderCall is upstream write.ts renderCall: the path, then the content
-// being written, highlighted by the file's language, ten lines while
-// collapsed. A frame reads the lines it draws and the line count: while the
-// content streams in, the card state extends both from the previous frame, and
-// a complete call reuses the row's highlighting of its whole file.
+// being written, highlighted by the file's language, numbered, and following
+// the newest rows while it streams. A frame reads the lines it draws and the
+// line count: while the content streams in, the card state extends both from
+// the previous frame, and a complete call reuses the row's highlighting of its
+// whole file.
 func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 	theme := tui.ActiveTheme()
 	fields := callFields(args, context)
-	text := tui.FormatWriteHeaderArgs(writeHeaderFields(fields), context.Cwd)
 	rawPath, _ := stringField(fields, "file_path", "path")
 	content, ok := stringField(fields, "content")
+	if richCard(context) {
+		// write.ts renderCall: the frame's status line names the file, and the
+		// body is the content arriving, numbered and following the newest rows.
+		if !ok {
+			return tui.NewPaddedText(themeFg(theme.Error, "[invalid content arg - expected string]"), 0, 0, nil)
+		}
+		return linesComponent{render: writeStreamingRows(content, rawPath, context.Expanded, context.ArgsComplete)}
+	}
+	text := tui.FormatWriteHeaderArgs(writeHeaderFields(fields), context.Cwd)
 	lang := ""
 	if rawPath != "" {
 		lang = tui.LanguageFromPath(rawPath)
@@ -558,7 +718,7 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 	}
 	switch {
 	case !ok:
-		text += "\n\n" + themeFg(theme.Error, "[invalid content arg - expected string]")
+		text += sep(text) + themeFg(theme.Error, "[invalid content arg - expected string]")
 	case content != "":
 		// A path with a language draws the cache's highlighted lines while the content streams in and the highlighter's
 		// lines of the whole file once it is complete, any other path the content's lines (upstream formatWriteCall:
@@ -593,7 +753,7 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 				styled = append(styled, themeFg(theme.ToolOutput, normalizeWriteText(line)))
 			}
 		}
-		text += "\n\n" + strings.Join(styled, "\n")
+		text += sep(text) + strings.Join(styled, "\n")
 		if remaining := total - shown; remaining > 0 {
 			text += moreLinesHint("\n... (" + strconv.Itoa(remaining) + " more lines, " + strconv.Itoa(total) + " total,")
 		}
@@ -603,6 +763,15 @@ func writeRenderCall(args json.RawMessage, _ extension.Theme, context extension.
 	component := reusableText(context.LastComponent)
 	component.SetText(text)
 	return component
+}
+
+// sep is the blank separator before a body row, omitted when the card has no
+// header text of its own (a rich frame's top bar already separates them).
+func sep(text string) string {
+	if text == "" {
+		return ""
+	}
+	return "\n\n"
 }
 
 // reusableText is the card's reusable Text: the last component of the renderer, or a new empty one.
@@ -676,6 +845,50 @@ func (plain *writePlainLines) lines(n int) iter.Seq[string] {
 			}
 			rest = after
 		}
+	}
+}
+
+// editStreamingRows is edit.ts renderStreamingFallback: until the computed diff
+// preview lands, a replace-mode edit shows the replacement text being written,
+// capped to a head window with a `… N more lines` marker. It needs no
+// filesystem read, so it tracks the arguments as they stream.
+func editStreamingRows(fields map[string]any) func(width int) []string {
+	return func(width int) []string {
+		var replacements []string
+		if newText, ok := stringField(fields, "newText"); ok && newText != "" {
+			replacements = append(replacements, newText)
+		}
+		// A structured edits[] call streams one replacement per entry.
+		if edits, ok := fields["edits"].([]any); ok {
+			for _, entry := range edits {
+				edit, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				if newText, ok := stringField(edit, "newText"); ok && newText != "" {
+					replacements = append(replacements, newText)
+				}
+			}
+		}
+		theme := tui.ActiveTheme()
+		var out []string
+		for _, replacement := range replacements {
+			// A replacement is an addition to the file: mark it as such so the
+			// preview reads as a change rather than as plain text.
+			lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(replacement, "\r", ""), "\n"), "\n")
+			hidden := 0
+			if len(lines) > editCallPreviewLines {
+				hidden = len(lines) - editCallPreviewLines
+				lines = lines[:editCallPreviewLines]
+			}
+			for _, line := range lines {
+				out = append(out, tui.ToolDiffRows("+", line, width)...)
+			}
+			if hidden > 0 {
+				out = append(out, theme.Fg("dim", fmt.Sprintf("… %d more line%s", hidden, pluralLines(hidden))))
+			}
+		}
+		return out
 	}
 }
 
@@ -773,6 +986,9 @@ func (state *builtInRenderState) editRenderInput(args any) *editRenderArgs {
 // error show in it as they do in upstream's shared call component.
 func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
 	state := builtInState(context)
+	// richCard reads the same state under its own lock, so it is asked before
+	// this renderer takes it.
+	rich := richCard(context)
 	state.mu.Lock()
 	input := state.editRenderInput(args)
 	path, edits, ok := input.path, input.edits, input.ok
@@ -806,9 +1022,18 @@ func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 			}
 		})
 	}
+	if rich && !context.ArgsComplete {
+		state.mu.Unlock()
+		// edit.ts renderStreamingFallback until the diff lands: the replacement
+		// text itself, so the card shows the edit arriving instead of nothing.
+		return linesComponent{render: editStreamingRows(decodeRenderArgs(args))}
+	}
 	headerArgs := input.header
 	state.mu.Unlock()
 	header := tui.FormatEditHeader(headerArgs, context.Cwd)
+	if richCard(context) {
+		header = ""
+	}
 	// The box is built once per preview, settled state and theme, and its rows are kept per width: the card draws on
 	// every frame it is dirty, and drawing the diff again each time cost a pass over all of it.
 	type boxKey struct {
@@ -828,6 +1053,9 @@ func editRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 		}
 		if box == nil || key != built {
 			box, built = newEditCallBox(header, key.preview, key.settledError, key.theme, context.OutputPad), key
+			if state.headerOwnsTiming {
+				box.PaddingY = 0
+			}
 		}
 		cached, cachedWidth = box.Render(width), width
 		return cached

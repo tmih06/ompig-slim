@@ -9,7 +9,7 @@ import (
 // omp-slim enables bounded grep/find search by default instead of requiring shell searches.
 // Codemode and the free web tools are built-ins and remain available with --no-extensions.
 // ls and powershell remain opt-in.
-var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode", "web_search", "web_fetch"}
+var defaultToolNames = []string{"read", "bash", "edit", "write", "grep", "find", "codemode", "web_search"}
 
 // DefaultToolNames returns the tools enabled at startup when `defaultTools` does not change them.
 func DefaultToolNames() []string { return slices.Clone(defaultToolNames) }
