@@ -463,7 +463,6 @@ func (m *InteractiveMode) subagentSettings(ctx context.Context, manager *subagen
 			{"workflowsEnabled", "Workflows", "Deterministic scripted workflow orchestration", nil},
 			{"packageAgents", "Package agents", "Load agents declared by installed packages; local agents override them", nil},
 			{"packageWorkflows", "Package workflows", "Load workflows declared by installed packages", nil},
-			{"scopeModels", "Scope models", "Require caller-selected models to match enabledModels", nil},
 			{"strictAgentFiles", "Strict agent files", "Refuse activation when a local agent file is invalid", nil},
 			{"disableDefaultAgents", "Disable default agents", "Hide embedded agents; your custom files remain available", nil},
 			{"agentMentions", "Agent mentions", "direct = start immediately without an orchestration model call; off = file mentions only", []string{"direct", "off"}},

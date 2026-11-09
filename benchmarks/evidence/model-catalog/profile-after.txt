@@ -1,0 +1,89 @@
+CATALOG CPU
+File: codingagent.test
+Build ID: d052bfa295ed209ae4f345c6268cfd8b4102a21a
+Type: cpu
+Time: 2026-11-08 19:58:37 UTC
+Duration: 4.40s, Total samples = 5120ms (116.46%)
+Showing nodes accounting for 2290ms, 44.73% of 5120ms total
+Dropped 165 nodes (cum <= 25.60ms)
+Showing top 12 nodes out of 174
+      flat  flat%   sum%        cum   cum%
+     710ms 13.87% 13.87%     3030ms 59.18%  github.com/MichaelKinsy/PiG/ai.cloneScalarCompat
+     240ms  4.69% 18.55%      290ms  5.66%  internal/runtime/maps.(*Iter).Next
+     220ms  4.30% 22.85%      370ms  7.23%  runtime.mapassign_faststr
+     190ms  3.71% 26.56%      350ms  6.84%  runtime.tryDeferToSpanScan
+     150ms  2.93% 29.49%      150ms  2.93%  bytes.TrimSpace
+     120ms  2.34% 31.84%      120ms  2.34%  encoding/json/internal/jsonwire.ConsumeSimpleString (inline)
+     120ms  2.34% 34.18%      400ms  7.81%  runtime.growslice
+     120ms  2.34% 36.52%      230ms  4.49%  runtime.scanObjectsSmall
+     110ms  2.15% 38.67%      130ms  2.54%  reflect.Value.assignTo
+     110ms  2.15% 40.82%      190ms  3.71%  runtime.mapaccess2_fast64
+     100ms  1.95% 42.77%      150ms  2.93%  internal/runtime/maps.(*Map).getWithoutKeySmallFastStr
+     100ms  1.95% 44.73%      170ms  3.32%  runtime.mallocgcTinySC2
+
+CATALOG ALLOCATIONS
+File: codingagent.test
+Build ID: d052bfa295ed209ae4f345c6268cfd8b4102a21a
+Type: alloc_space
+Time: 2026-11-08 19:58:42 UTC
+Showing nodes accounting for 1160.13MB, 96.30% of 1204.65MB total
+Dropped 100 nodes (cum <= 6.02MB)
+Showing top 12 nodes out of 50
+      flat  flat%   sum%        cum   cum%
+  681.85MB 56.60% 56.60%   785.87MB 65.24%  github.com/MichaelKinsy/PiG/ai.cloneScalarCompat
+   92.53MB  7.68% 64.28%    92.53MB  7.68%  github.com/MichaelKinsy/PiG/ai.(*GeneratedModel).catalogView
+   79.52MB  6.60% 70.88%    79.52MB  6.60%  bytes.Clone (inline)
+   75.03MB  6.23% 77.11%    76.53MB  6.35%  github.com/MichaelKinsy/PiG/ai.OMPCatalogModel
+   63.01MB  5.23% 82.34%    63.01MB  5.23%  github.com/MichaelKinsy/PiG/ai.cloneThinkingLevelMap
+   31.40MB  2.61% 84.95%   133.72MB 11.10%  github.com/MichaelKinsy/PiG/ai.loadOMPCatalog.func1
+   30.05MB  2.49% 87.44%    56.10MB  4.66%  github.com/MichaelKinsy/PiG/ai.(*OpenAICompat).UnmarshalJSON
+   27.67MB  2.30% 89.74%    27.67MB  2.30%  io.ReadAll
+      26MB  2.16% 91.90%       26MB  2.16%  reflect.unsafe_New
+   22.05MB  1.83% 93.73%    22.05MB  1.83%  reflect.mapassign_faststr0
+   17.50MB  1.45% 95.18%    93.58MB  7.77%  github.com/MichaelKinsy/PiG/ai.projectOMPModelMetrics
+   13.53MB  1.12% 96.30%    13.53MB  1.12%  encoding/json/jsontext.(*Value).UnmarshalJSON
+
+BROWSER CPU
+File: tui.test
+Build ID: bbde0d8ea5c94a8fe55addfa18b0262c837cbc53
+Type: cpu
+Time: 2026-11-08 19:38:15 UTC
+Duration: 4.15s, Total samples = 4090ms (98.45%)
+Showing nodes accounting for 1970ms, 48.17% of 4090ms total
+Dropped 156 nodes (cum <= 20.45ms)
+Showing top 12 nodes out of 130
+      flat  flat%   sum%        cum   cum%
+     500ms 12.22% 12.22%     1230ms 30.07%  regexp.(*Regexp).tryBacktrack
+     230ms  5.62% 17.85%      230ms  5.62%  regexp.(*bitState).shouldVisit (inline)
+     170ms  4.16% 22.00%     2960ms 72.37%  github.com/MichaelKinsy/PiG/tui.(*ModelBrowser).rankBrowserItems
+     170ms  4.16% 26.16%      170ms  4.16%  regexp/syntax.(*Inst).MatchRunePos
+     170ms  4.16% 30.32%      270ms  6.60%  runtime.tryDeferToSpanScan
+     130ms  3.18% 33.50%      130ms  3.18%  runtime.memmove
+     120ms  2.93% 36.43%      120ms  2.93%  unicode/utf8.DecodeRuneInString (inline)
+     110ms  2.69% 39.12%      160ms  3.91%  regexp.(*bitState).push (inline)
+     100ms  2.44% 41.56%      100ms  2.44%  runtime.spanClass.sizeclass (inline)
+     100ms  2.44% 44.01%      100ms  2.44%  slices.swapRangeCmpFunc[go.shape.struct { github.com/MichaelKinsy/PiG/tui.item github.com/MichaelKinsy/PiG/tui.ModelSelectorItem; github.com/MichaelKinsy/PiG/tui.fq string; github.com/MichaelKinsy/PiG/tui.roleRank int; github.com/MichaelKinsy/PiG/tui.recentRank int; github.com/MichaelKinsy/PiG/tui.priority float64; github.com/MichaelKinsy/PiG/tui.version float64; github.com/MichaelKinsy/PiG/tui.latest bool; github.com/MichaelKinsy/PiG/tui.date string }] (inline)
+      90ms  2.20% 46.21%      110ms  2.69%  golang.org/x/text/internal/colltab.(*source).lookup
+      80ms  1.96% 48.17%      420ms 10.27%  slices.symMergeCmpFunc[go.shape.struct { github.com/MichaelKinsy/PiG/tui.item github.com/MichaelKinsy/PiG/tui.ModelSelectorItem; github.com/MichaelKinsy/PiG/tui.fq string; github.com/MichaelKinsy/PiG/tui.roleRank int; github.com/MichaelKinsy/PiG/tui.recentRank int; github.com/MichaelKinsy/PiG/tui.priority float64; github.com/MichaelKinsy/PiG/tui.version float64; github.com/MichaelKinsy/PiG/tui.latest bool; github.com/MichaelKinsy/PiG/tui.date string }]
+
+BROWSER ALLOCATIONS
+File: tui.test
+Build ID: bbde0d8ea5c94a8fe55addfa18b0262c837cbc53
+Type: alloc_space
+Time: 2026-11-08 19:38:19 UTC
+Showing nodes accounting for 414.27MB, 88.43% of 468.50MB total
+Dropped 62 nodes (cum <= 2.34MB)
+Showing top 12 nodes out of 80
+      flat  flat%   sum%        cum   cum%
+   89.89MB 19.19% 19.19%   204.92MB 43.74%  github.com/MichaelKinsy/PiG/tui.(*ModelBrowser).rankBrowserItems
+   78.51MB 16.76% 35.95%    78.51MB 16.76%  golang.org/x/text/internal/colltab.(*Table).matchContractionString
+   53.79MB 11.48% 47.43%    53.79MB 11.48%  slices.Clone[go.shape.[]github.com/MichaelKinsy/PiG/tui.ModelSelectorItem,go.shape.struct { Kind string; Role string; Provider string; ID string; Name string; Model *github.com/MichaelKinsy/PiG/ai.Model }]
+   38.16MB  8.15% 55.57%   143.62MB 30.65%  github.com/MichaelKinsy/PiG/ai.loadOMPCatalog.func1
+   26.26MB  5.60% 61.18%    26.76MB  5.71%  io.ReadAll
+   25.55MB  5.45% 66.63%    25.55MB  5.45%  reflect.mapassign_faststr0
+   21.03MB  4.49% 71.12%    55.59MB 11.86%  github.com/MichaelKinsy/PiG/ai.(*OpenAICompat).UnmarshalJSON
+   20.53MB  4.38% 75.50%    34.03MB  7.26%  github.com/MichaelKinsy/PiG/ai.cloneScalarCompat
+   18.54MB  3.96% 79.46%    18.54MB  3.96%  encoding/json/jsontext.(*Value).UnmarshalJSON
+      18MB  3.84% 83.30%       18MB  3.84%  github.com/MichaelKinsy/PiG/tui.ModelSelectorItem.FQ (inline)
+      14MB  2.99% 86.29%    18.52MB  3.95%  regexp.(*Regexp).FindStringSubmatch
+      10MB  2.13% 88.43%       10MB  2.13%  reflect.unsafe_New

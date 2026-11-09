@@ -74,6 +74,7 @@ type ModelEntry struct {
 	// (types.ts BaseModel.int/tps/description). Int and TPS stay nil when no source publishes them;
 	// Catalog records which metadata source filled them.
 	Int         *float64
+	Priority    *float64
 	TPS         *float64
 	Description string
 	Catalog     *ai.ModelCatalogProvenance
@@ -380,6 +381,9 @@ type ModelRegistry struct {
 	// enricher memoizes catalog enrichment per base model object and per source list, keyed by the
 	// catalog generation (model-metadata-provider.ts withModelMetadata).
 	enricher metadataEnricher
+	// publicCatalog is the generation-keyed shared-source projection; the durable
+	// metadata service owns refresh/persistence so list paths never do network I/O.
+	publicCatalog publicModelCatalog
 
 	// availabilityRefresh reconciles the Services-owned snapshot before catalog/auth changes notify consumers.
 	availabilityRefresh func(context.Context, []string) ai.ModelsRefreshResult
@@ -1488,7 +1492,7 @@ func (r *ModelRegistry) GetAvailableModelData() []*ai.Model {
 			if len(builtinChatCatalog(provider.id)) == 0 || !r.providerAvailable(configured, filters, provider.id) {
 				continue
 			}
-			plain := ai.OfferedGeneratedModels(builtinChatCatalogListed(provider.id))
+			plain := ai.OfferedGeneratedModels(builtinChatCatalog(provider.id))
 			accepted := make([]*ai.GeneratedModel, 0, len(plain))
 			for _, entry := range plain {
 				if accept(entry.Provider, entry.ID) {

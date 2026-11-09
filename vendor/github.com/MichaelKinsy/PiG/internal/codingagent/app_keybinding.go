@@ -36,12 +36,6 @@ const (
 	AppSessionRename            AppKeybinding = "app.session.rename"
 	AppSessionDelete            AppKeybinding = "app.session.delete"
 	AppSessionDeleteNoninvasive AppKeybinding = "app.session.deleteNoninvasive"
-	AppModelsSave               AppKeybinding = "app.models.save"
-	AppModelsEnableAll          AppKeybinding = "app.models.enableAll"
-	AppModelsClearAll           AppKeybinding = "app.models.clearAll"
-	AppModelsToggleProvider     AppKeybinding = "app.models.toggleProvider"
-	AppModelsReorderUp          AppKeybinding = "app.models.reorderUp"
-	AppModelsReorderDown        AppKeybinding = "app.models.reorderDown"
 	AppTreeFilterDefault        AppKeybinding = "app.tree.filter.default"
 	AppTreeFilterNoTools        AppKeybinding = "app.tree.filter.noTools"
 	AppTreeFilterUserOnly       AppKeybinding = "app.tree.filter.userOnly"
@@ -85,12 +79,6 @@ var appKeybindingIDs = []AppKeybinding{
 	AppSessionRename,
 	AppSessionDelete,
 	AppSessionDeleteNoninvasive,
-	AppModelsSave,
-	AppModelsEnableAll,
-	AppModelsClearAll,
-	AppModelsToggleProvider,
-	AppModelsReorderUp,
-	AppModelsReorderDown,
 	AppTreeFilterDefault,
 	AppTreeFilterNoTools,
 	AppTreeFilterUserOnly,

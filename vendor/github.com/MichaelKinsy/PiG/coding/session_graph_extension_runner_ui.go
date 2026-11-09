@@ -57,20 +57,6 @@ func (g *GraphExtensionRunner) callContext(ctx context.Context, args icodingagen
 			return nil, err
 		}
 		return extension.ModelObject(model)
-	case "scopedModels":
-		scoped, err := base.ScopedModels()
-		if err != nil {
-			return nil, err
-		}
-		out := make([]map[string]any, 0, len(scoped))
-		for _, entry := range scoped {
-			model, err := extension.ModelObject(entry.Model)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, map[string]any{"model": model, "thinkingLevel": entry.ThinkingLevel})
-		}
-		return out, nil
 	case "thinkingLevel":
 		return base.ThinkingLevel()
 	case "isIdle":

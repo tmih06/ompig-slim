@@ -106,7 +106,7 @@ func (s *Session) bindExtensionCore(runner *inproc.Runner) {
 		Abort:            s.extensionAbort, Shutdown: s.extensionShutdown(), GetSystemPrompt: s.systemPrompt,
 		GetSystemPromptOptions: s.GetSystemPromptOptions,
 		GetAllTools:            s.GetAllTools, GetActiveTools: s.ActiveToolNames,
-		SetActiveTools: s.SetActiveToolsByName, RefreshTools: s.RefreshTools, GetScopedModels: s.ScopedModels,
+		SetActiveTools: s.SetActiveToolsByName, RefreshTools: s.RefreshTools,
 		GetThinkingLevel: func() extension.ThinkingLevel { return s.ThinkingLevel() },
 		ToolActions:      s.ToolActions(),
 	}, nil)

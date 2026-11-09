@@ -62,8 +62,8 @@ func (r interactiveRuntime) SetRebindSession(rebind func(context.Context, coding
 // interactiveStart is the Session start options of an interactive build.
 func interactiveStart(build *cliBuild) coding.SessionStartOptions {
 	return coding.SessionStartOptions{
-		ScopedModels:           extensionScopedModels(build.Services, build.Settings.EnabledModels),
 		Model:                  build.Model,
+		ModelRole:              build.Selected.Role,
 		ThinkingLevel:          ai.ModelThinkingLevel(build.Flags.Thinking),
 		SystemPrompt:           build.SystemPrompt,
 		SystemPromptSections:   build.SystemPromptSections,

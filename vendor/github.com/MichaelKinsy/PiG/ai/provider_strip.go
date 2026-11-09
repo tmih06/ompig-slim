@@ -19,7 +19,7 @@ func strippedAPIs() []API {
 	return apis
 }
 
-// OfferedModels returns models without the chat models of a stripped API. The generated catalog listing (ListModels) and every Models collection read pass their models through it, so a stripped API's models are offered nowhere: not by --list-models, /model, the --models scope, startup's default model, RPC or the extension model registry. An exact catalog lookup (LookupModel, LookupModelExact) still finds such a model, so that using one reports the strip.
+// OfferedModels returns models without the chat models of a stripped API. The generated catalog listing (ListModels) and every Models collection read pass their models through it, so a stripped API's models are offered nowhere: not by --list-models, /model, startup's default model, RPC or the extension model registry. An exact catalog lookup (LookupModel, LookupModelExact) still finds such a model, so that using one reports the strip.
 // pig additive (D92): Stock PiG strips no API and returns models unchanged.
 func OfferedModels[T AnyModel](models []T) []T {
 	stripped := strippedAPIs()

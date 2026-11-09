@@ -34,7 +34,6 @@ var knownIDs = map[string][]string{
 		"/quit",
 		"/reload",
 		"/resume",
-		"/scoped-models",
 		"/session",
 		"/settings",
 		"/share",

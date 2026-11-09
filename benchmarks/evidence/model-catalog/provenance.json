@@ -1,0 +1,17 @@
+{
+  "beforeCommit": "342fa69",
+  "afterBaseCommit": "342fa69",
+  "toolchain": "go1.27.3 linux/arm64",
+  "gomaxprocs": 4,
+  "reportedCPUs": 4,
+  "runs": 5,
+  "benchtime": "500ms",
+  "order": "before then after, interleaved per repetition",
+  "cliStartupWarmups": 1,
+  "cliStartupRuns": 5,
+  "cliStartupFixture": "isolated offline HOME and agent dir; one loopback model; no inference prompts; no real credentials",
+  "binarySha256": {
+    "before": "3e9f70673a9160cec5556e3340b968c8a4e5864799218fd23fd555c11070b58c",
+    "after": "dc393fc1d7a465f0e3e60f56752be2666a47304b3838a41473851d1165b83b04"
+  }
+}

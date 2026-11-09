@@ -386,7 +386,6 @@ type RPCForkResult struct {
 type RPCModelCycleResult struct {
 	Model         *RPCModel             `json:"model"`
 	ThinkingLevel ai.ModelThinkingLevel `json:"thinkingLevel"`
-	IsScoped      bool                  `json:"isScoped"`
 }
 
 // RPCGetExtensionsData lists the resolved paths of the loaded extensions in load order, hidden ones included.

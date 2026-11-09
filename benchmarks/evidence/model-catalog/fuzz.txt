@@ -1,0 +1,6 @@
+fuzz: elapsed: 0s, gathering baseline coverage: 0/8 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 8/8 completed, now fuzzing with 2 workers
+fuzz: elapsed: 3s, execs: 6590 (2196/sec), new interesting: 29 (total: 37)
+fuzz: elapsed: 5s, execs: 10272 (1765/sec), new interesting: 52 (total: 60)
+PASS
+ok  	github.com/MichaelKinsy/PiG/ai	5.311s

@@ -1,0 +1,89 @@
+CATALOG CPU
+File: codingagent.test
+Build ID: f4f30be170c5c6262f3188afa9bd830dee7e9906
+Type: cpu
+Time: 2026-11-08 19:19:49 UTC
+Duration: 8.03s, Total samples = 5410ms (67.37%)
+Showing nodes accounting for 2120ms, 39.19% of 5410ms total
+Dropped 205 nodes (cum <= 27.05ms)
+Showing top 12 nodes out of 197
+      flat  flat%   sum%        cum   cum%
+     520ms  9.61%  9.61%      560ms 10.35%  encoding/json/internal/jsonwire.ConsumeSimpleString (inline)
+     300ms  5.55% 15.16%      430ms  7.95%  runtime.tryDeferToSpanScan
+     220ms  4.07% 19.22%      220ms  4.07%  runtime.memmove
+     200ms  3.70% 22.92%      200ms  3.70%  encoding/json/internal/jsonwire.ConsumeWhitespace (inline)
+     170ms  3.14% 26.06%      850ms 15.71%  encoding/json/jsontext.(*decoderState).consumeValue
+     130ms  2.40% 28.47%      140ms  2.59%  encoding/json/v2.appendFoldedName
+     130ms  2.40% 30.87%      130ms  2.40%  runtime.asyncPreempt
+     120ms  2.22% 33.09%      330ms  6.10%  runtime.mapaccess2_faststr
+     100ms  1.85% 34.94%      100ms  1.85%  internal/runtime/maps.memHashAES
+      80ms  1.48% 36.41%      480ms  8.87%  runtime.scanObject
+      80ms  1.48% 37.89%       80ms  1.48%  runtime.spanClass.sizeclass (inline)
+      70ms  1.29% 39.19%       80ms  1.48%  encoding/json/internal/jsonwire.AppendQuote
+
+CATALOG ALLOCATIONS
+File: codingagent.test
+Build ID: f4f30be170c5c6262f3188afa9bd830dee7e9906
+Type: alloc_space
+Time: 2026-11-08 19:19:57 UTC
+Showing nodes accounting for 941.32MB, 90.41% of 1041.18MB total
+Dropped 89 nodes (cum <= 5.21MB)
+Showing top 12 nodes out of 61
+      flat  flat%   sum%        cum   cum%
+  217.98MB 20.94% 20.94%   217.98MB 20.94%  reflect.mapassign_faststr0
+  173.27MB 16.64% 37.58%   313.33MB 30.09%  github.com/MichaelKinsy/PiG/internal/orderedjson.AppendMembers
+  165.28MB 15.87% 53.45%   433.77MB 41.66%  github.com/MichaelKinsy/PiG/ai.(*OpenAICompat).UnmarshalJSON
+  121.63MB 11.68% 65.13%   121.63MB 11.68%  bytes.Clone (inline)
+   69.05MB  6.63% 71.77%    69.05MB  6.63%  slices.AppendSeq[go.shape.[]go.shape.string,go.shape.string]-range1
+   41.51MB  3.99% 75.75%    41.51MB  3.99%  reflect.unsafe_New
+   32.25MB  3.10% 78.85%   133.19MB 12.79%  github.com/MichaelKinsy/PiG/ai.loadOMPCatalog.func1
+   32.03MB  3.08% 81.93%    32.03MB  3.08%  encoding/json/jsontext.(*Value).UnmarshalJSON
+   31.51MB  3.03% 84.95%   368.86MB 35.43%  github.com/MichaelKinsy/PiG/ai.OpenAICompat.MarshalJSON
+   27.30MB  2.62% 87.57%    27.30MB  2.62%  io.ReadAll
+   15.50MB  1.49% 89.06%    15.50MB  1.49%  encoding/json/v2.makeString
+   14.01MB  1.35% 90.41%    14.01MB  1.35%  github.com/MichaelKinsy/PiG/ai.cloneScalarCompat
+
+BROWSER CPU
+File: tui.test
+Build ID: 8f3c00267272ba2cc74bac967053f018161db90a
+Type: cpu
+Time: 2026-11-08 19:20:01 UTC
+Duration: 15.10s, Total samples = 9070ms (60.07%)
+Showing nodes accounting for 5100ms, 56.23% of 9070ms total
+Dropped 216 nodes (cum <= 45.35ms)
+Showing top 12 nodes out of 150
+      flat  flat%   sum%        cum   cum%
+    1410ms 15.55% 15.55%     3110ms 34.29%  regexp.(*Regexp).tryBacktrack
+     620ms  6.84% 22.38%     1280ms 14.11%  runtime.concatstrings
+     610ms  6.73% 29.11%      620ms  6.84%  regexp.(*bitState).shouldVisit (inline)
+     350ms  3.86% 32.97%      370ms  4.08%  regexp/syntax.(*Inst).MatchRunePos
+     340ms  3.75% 36.71%      470ms  5.18%  internal/runtime/maps.(*Map).getWithoutKeySmallFastStr
+     340ms  3.75% 40.46%     3840ms 42.34%  regexp.(*Regexp).backtrack
+     330ms  3.64% 44.10%      330ms  3.64%  runtime.memmove
+     310ms  3.42% 47.52%      410ms  4.52%  runtime.tryDeferToSpanScan
+     250ms  2.76% 50.28%      270ms  2.98%  unicode/utf8.DecodeRuneInString (inline)
+     190ms  2.09% 52.37%      430ms  4.74%  regexp.(*bitState).push (inline)
+     180ms  1.98% 54.36%      180ms  1.98%  runtime.asyncPreempt
+     170ms  1.87% 56.23%      300ms  3.31%  regexp.(*inputString).step
+
+BROWSER ALLOCATIONS
+File: tui.test
+Build ID: 8f3c00267272ba2cc74bac967053f018161db90a
+Type: alloc_space
+Time: 2026-11-08 19:20:17 UTC
+Showing nodes accounting for 912.45MB, 92.85% of 982.74MB total
+Dropped 65 nodes (cum <= 4.91MB)
+Showing top 12 nodes out of 75
+      flat  flat%   sum%        cum   cum%
+  526.03MB 53.53% 53.53%   526.03MB 53.53%  github.com/MichaelKinsy/PiG/tui.ModelSelectorItem.FQ
+   82.51MB  8.40% 61.92%    82.51MB  8.40%  golang.org/x/text/internal/colltab.(*Table).matchContractionString
+   57.64MB  5.86% 67.79%    57.64MB  5.86%  reflect.mapassign_faststr0
+   45.55MB  4.63% 72.42%   149.87MB 15.25%  github.com/MichaelKinsy/PiG/ai.loadOMPCatalog.func1
+   40.07MB  4.08% 76.50%   117.71MB 11.98%  github.com/MichaelKinsy/PiG/ai.(*OpenAICompat).UnmarshalJSON
+      39MB  3.97% 80.47%    44.50MB  4.53%  regexp.(*Regexp).FindStringSubmatch
+      34MB  3.46% 83.93%       34MB  3.46%  github.com/MichaelKinsy/PiG/tui.(*ModelBrowser).compareBrowserItems.func2
+   25.08MB  2.55% 86.48%    25.08MB  2.55%  io.ReadAll
+   21.53MB  2.19% 88.67%    39.54MB  4.02%  github.com/MichaelKinsy/PiG/internal/orderedjson.AppendMembers
+   19.53MB  1.99% 90.66%    19.53MB  1.99%  encoding/json/jsontext.(*Value).UnmarshalJSON
+   11.51MB  1.17% 91.83%    11.51MB  1.17%  bytes.Clone (inline)
+      10MB  1.02% 92.85%       10MB  1.02%  reflect.unsafe_New

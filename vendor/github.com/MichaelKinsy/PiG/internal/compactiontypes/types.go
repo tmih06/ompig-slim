@@ -15,6 +15,9 @@ import (
 // CompactionSettings controls when and how compaction runs.
 // Mirrors upstream CompactionSettings (compaction.ts:115).
 type CompactionSettings struct {
+	// TriggerTokens is the resolved OMP model/global compaction point; zero
+	// preserves Pi's legacy contextWindow-reserveTokens policy.
+	TriggerTokens    int  `json:"triggerTokens,omitempty"`
 	Enabled          bool `json:"enabled"`
 	ReserveTokens    int  `json:"reserveTokens"`    // tokens reserved for response; default 16384
 	KeepRecentTokens int  `json:"keepRecentTokens"` // tokens to keep from recent history; default 20000

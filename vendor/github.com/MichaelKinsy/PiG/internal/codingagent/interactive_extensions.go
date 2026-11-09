@@ -175,7 +175,6 @@ func (m *InteractiveMode) wireInprocContextActions() {
 	}
 
 	actions := extension.ContextActions{
-		GetScopedModels: m.extensionScopedModels,
 		GetAllTools: func() []extension.ToolInfo {
 			// upstream: agent-session.ts:3353 (getAllTools): the Session's registry, with each tool's source, exposure and namespace.
 			if session, ok := m.opts.SessionHandle.(interface{ GetAllTools() []extension.ToolInfo }); ok {
@@ -601,7 +600,6 @@ func (m *InteractiveMode) wireSubprocessHostCallbacks() func() {
 		}
 		_ = m.waitForIdle(m.runCtx)
 	})
-	b.SetHostAction("getScopedModels", m.extensionScopedModels)
 	b.SetHostAction("hasPendingMessages", m.extensionHasPendingMessages)
 	b.SetHostAction("shutdown", m.requestExtensionShutdown)
 	b.SetHostAction("waitForIdle", func(ctx context.Context) error {

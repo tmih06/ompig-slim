@@ -74,7 +74,7 @@ func writeDiagnoseDefaultModel(w io.Writer, cwd, agentDir string, trust projectT
 	if spec := pigletModelSpec(activePigletOf(active)); spec != "" {
 		_, _ = fmt.Fprintf(w, "  active Piglet:  %s sets model %s, which replaces this default for its session\n", active.Name, spec)
 	}
-	_, _ = fmt.Fprintln(w, "  A --model flag, an enabledModels scope or a resumed session can replace this default.")
+	_, _ = fmt.Fprintln(w, "  An explicit model/role or a resumed session can replace this default.")
 }
 
 // activePigletOf returns the loaded Piglet of active, or nil.

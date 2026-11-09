@@ -157,23 +157,6 @@ func (g *GraphExtensionRunner) contextActions(ids callbackIDs) extension.Context
 			return model
 		}
 	}
-	if has("getScopedModels") {
-		actions.GetScopedModels = func() []extension.ScopedModel {
-			entries, err := runDecoded[[]graphScopedModel](g, bg(), ids, "getScopedModels")
-			if err != nil {
-				return []extension.ScopedModel{}
-			}
-			out := make([]extension.ScopedModel, 0, len(entries))
-			for _, entry := range entries {
-				model, err := graphModelOf(entry.Model)
-				if err != nil || model == nil {
-					continue
-				}
-				out = append(out, extension.ScopedModel{Model: model, ThinkingLevel: extension.ThinkingLevel(entry.ThinkingLevel)})
-			}
-			return out
-		}
-	}
 	if has("isIdle") {
 		actions.IsIdle = func() bool {
 			idle, _ := runDecoded[bool](g, bg(), ids, "isIdle")
@@ -497,9 +480,6 @@ func (g *GraphExtensionRunner) bindBridges(actionIDs, contextIDs callbackIDs) {
 				}
 				return raw
 			})
-		}
-		if contextActions.GetScopedModels != nil {
-			bridge.SetHostAction("getScopedModels", contextActions.GetScopedModels)
 		}
 		if contextActions.IsIdle != nil {
 			bridge.SetHostAction("isIdle", contextActions.IsIdle)

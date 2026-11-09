@@ -77,12 +77,6 @@ func ExtensionHostSessionActions(current func() *Session, stage func() *Extensio
 		}
 	}
 	contextActions := extension.ContextActions{
-		GetScopedModels: func() []extension.ScopedModel {
-			if sess := current(); sess != nil {
-				return sess.ScopedModels()
-			}
-			return []extension.ScopedModel{}
-		},
 		GetSystemPrompt: func() string {
 			if sess := current(); sess != nil {
 				return sess.SystemPrompt()
@@ -215,7 +209,6 @@ func BindSessionExtensionActions(runner *inproc.Runner, bridge *subprocess.UIBri
 		contextActions.GetSignal = sessionContext.GetSignal
 		contextActions.Abort = sessionContext.Abort
 		contextActions.HasPendingMessages = sessionContext.HasPendingMessages
-		contextActions.GetScopedModels = sessionContext.GetScopedModels
 		contextActions.GetContextUsage = sessionContext.GetContextUsage
 		contextActions.GetSystemPromptOptions = sessionContext.GetSystemPromptOptions
 		runner.BindCore(actions, contextActions, nil)
@@ -262,7 +255,6 @@ func BindSessionExtensionActions(runner *inproc.Runner, bridge *subprocess.UIBri
 		}
 		return nil
 	})
-	bridge.SetHostAction("getScopedModels", sessionContext.GetScopedModels)
 	// Headless Pi binds the Session's own thinking level, context usage and base prompt options (agent-session.ts:3125); the host's unbound defaults would be fabricated values.
 	bridge.SetHostAction("getThinkingLevel", func() string {
 		if sess := current(); sess != nil {

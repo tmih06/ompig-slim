@@ -180,6 +180,17 @@ type usageSnapshotLabel struct {
 // published immediately without network when force is false. The caller owns
 // push and receives no calls after this method returns.
 func (service *UsageService) FetchSnapshotProgress(ctx context.Context, force bool, push func(ai.UsageSnapshot)) (ai.UsageSnapshot, error) {
+	return service.fetchSnapshot(ctx, force, push, "")
+}
+
+// FetchProviderSnapshot shares the dashboard cache and account probe logic but
+// never contacts unrelated providers during a model's usage-aware preflight.
+func (service *UsageService) FetchProviderSnapshot(ctx context.Context, provider string, force bool) (ai.UsageSnapshot, error) {
+	return service.fetchSnapshot(ctx, force, nil, provider)
+}
+
+// fetchSnapshot owns cancellation, parallel account probes and ordered reporting.
+func (service *UsageService) fetchSnapshot(ctx context.Context, force bool, push func(ai.UsageSnapshot), provider string) (ai.UsageSnapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -192,6 +203,9 @@ func (service *UsageService) FetchSnapshotProgress(ctx context.Context, force bo
 	}
 	var labels []usageSnapshotLabel
 	for _, probe := range probes {
+		if provider != "" && probe.provider != provider {
+			continue
+		}
 		if len(probe.accounts) == 0 {
 			labels = append(labels, usageSnapshotLabel{probe: probe})
 			continue

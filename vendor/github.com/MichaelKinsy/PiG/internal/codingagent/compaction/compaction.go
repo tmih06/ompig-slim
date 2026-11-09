@@ -217,7 +217,11 @@ func ShouldCompact(contextTokens, contextWindow int, s CompactionSettings) bool 
 	if !s.Enabled {
 		return false
 	}
-	return contextTokens > contextWindow-s.ReserveTokens
+	threshold := contextWindow - s.ReserveTokens
+	if s.TriggerTokens > 0 {
+		threshold = s.TriggerTokens
+	}
+	return contextTokens > threshold
 }
 
 // ─── Cut Point Detection ──────────────────────────────────────────────────────

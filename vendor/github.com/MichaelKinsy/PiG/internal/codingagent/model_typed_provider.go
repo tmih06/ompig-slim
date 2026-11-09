@@ -51,13 +51,13 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 	chat := builtinChatCatalog(id)
 	images := builtinImageModelsOf(id)
 	classifiers := builtinClassifierModelsOf(id)
-	if len(chat) == 0 && len(images) == 0 && len(classifiers) == 0 {
+	if len(chat) == 0 && len(images) == 0 && len(classifiers) == 0 && !ai.HasOMPCatalog(id) {
 		return nil
 	}
 	auth, _ := ai.BuiltinProviderAuth(id)
 	chatModels := func() []*ai.Model {
 		// The models are read when the provider is listed, so OpenRouter's routing variants (D199) are derived then and not at startup.
-		listed := builtinChatCatalogListed(id)
+		listed := builtinChatCatalog(id)
 		models := make([]*ai.Model, 0, len(listed))
 		for _, generated := range listed {
 			model := generated.ToModel()
@@ -69,11 +69,28 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 	base := &ai.ModelsProvider{ID: id, Name: ai.ProviderDisplayName(id), BaseURL: ai.ProviderBaseURL(id), Auth: auth, GetModels: func() ([]*ai.Model, error) { return chatModels(), nil }, Stream: fallback, StreamSimple: fallback}
 	base.GetAllModels = func() ([]ai.AnyModel, error) {
 		all := ai.AnyModels(chatModels())
+		all = append(all, ai.OMPOtherCatalog(id)...)
+		// Native typed implementations replace catalog-only descriptors by identity.
+		replace := func(model ai.AnyModel) {
+			if ai.HasOMPCatalog(id) {
+				source := ai.OMPCatalogModel(id, model.ModelID())
+				if source == nil || source.ModelType() == ai.ModelTypeChat {
+					return
+				}
+			}
+			for i, old := range all {
+				if old.ModelID() == model.ModelID() {
+					all[i] = model
+					return
+				}
+			}
+			all = append(all, model)
+		}
 		for _, image := range images {
-			all = append(all, image)
+			replace(image)
 		}
 		for _, classifier := range classifiers {
-			all = append(all, classifier)
+			replace(classifier)
 		}
 		return all, nil
 	}
@@ -242,8 +259,6 @@ func (r *ModelRegistry) availableProviderAllModels(ctx context.Context, id strin
 		return ai.IsModelType(model, ai.ModelTypeChat) && !filter(model.ModelID())
 	}), nil
 }
-
-
 
 // ResolveRegistryTypedModelAuth resolves request auth for an image or classifier model: provider auth plus the model's own headers and the configured headers of its definition.
 func (r *ModelRegistry) ResolveRegistryTypedModelAuth(ctx context.Context, model ai.AnyModel, overrides ...ai.AuthResolutionOverrides) (*ai.AuthResult, error) {

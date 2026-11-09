@@ -188,7 +188,7 @@ export AZURE_OPENAI_RESOURCE_NAME=your-resource
 
 The `azure` provider serves the OpenAI Responses API and, for Foundry deployments, Chat Completions. The built-in `azure/deepseek-v4-pro` uses Chat Completions. Add other Foundry models to the `azure` provider in `models.json` with `"api": "openai-completions"` and a `"baseUrl"` on the provider or the model, because the built-in Azure models have none. Without one, the `azure` entry of `models.json` is rejected with `"baseUrl" is required when defining custom models.`
 
-The provider ID was `azure-openai-responses` in Pi before 1.0.3. The API ID and the `AZURE_OPENAI_*` variables are unchanged. PiG does not migrate old entries. Rename the provider key in `auth.json` (or run `/login` again), in `models.json`, and in `settings.json` (`defaultProvider`, `enabledModels` patterns, and `modelThinkingLevels` keys). A session that used the old provider falls back to another model when resumed, and its prompt cache is not reused.
+The provider ID was `azure-openai-responses` in Pi before 1.0.3. The API ID and the `AZURE_OPENAI_*` variables are unchanged. PiG does not migrate old entries. Rename the provider key in `auth.json` (or run `/login` again), in `models.json`, and in `settings.json` (`defaultProvider`, `modelRoles` assignments, and `modelThinkingLevels` keys). A session that used the old provider falls back to another model when resumed, and its prompt cache is not reused.
 
 ### Amazon Bedrock
 

@@ -77,10 +77,6 @@ type ContextActions struct {
 	// upstream: types.ts:305 (Model<any> | undefined)
 	GetModel func() Model
 
-	// GetScopedModels returns the current read-only model scope. Context creation captures this callback, not its result.
-	// upstream: packages/coding-agent/src/core/extensions/runner.ts:createContext
-	GetScopedModels func() []ScopedModel
-
 	// GetThinkingLevel backs Context.ThinkingLevel(): the level the session runtime provides, read each time.
 	// upstream: packages/coding-agent/src/core/extensions/runner.ts:914 (`runner.runtime.getThinkingLevel()`)
 	GetThinkingLevel func() ThinkingLevel

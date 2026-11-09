@@ -95,21 +95,35 @@ func groupGeneratedModels(generated []GeneratedModel, distinct int, key func(*Ge
 // alphabetical-provider order wins. Callers wanting deterministic
 // resolution should pass the full "<provider>/<model-id>" form.
 func LookupModel(spec string) (*GeneratedModel, bool) {
-	registryFQOnce.Do(initRegistryFQ)
-	if spec == "" {
-		return nil, false
+	if strings.Contains(spec, "/") {
+		if model, ok := LookupModelExact(spec); ok {
+			return model, true
+		}
 	}
-	if m, ok := registryByFQ[spec]; ok {
-		return m, true
-	}
-	// Try bare id.
-	registryIDOnce.Do(initRegistryID)
 	id := spec
 	if _, after, ok := strings.Cut(spec, "/"); ok {
 		id = after
 	}
-	if entries := registryByID[id]; len(entries) > 0 {
-		return entries[0], true
+	if model, ok := LookupOMPChatModelByID(id); ok {
+		return &model, true
+	}
+	registryFQOnce.Do(initRegistryFQ)
+	if spec == "" {
+		return nil, false
+	}
+	if m, ok := registryByFQ[spec]; ok && !HasOMPCatalog(m.Provider) {
+		return m, true
+	}
+	// Try bare id.
+	registryIDOnce.Do(initRegistryID)
+	id = spec
+	if _, after, ok := strings.Cut(spec, "/"); ok {
+		id = after
+	}
+	for _, entry := range registryByID[id] {
+		if !HasOMPCatalog(entry.Provider) {
+			return entry, true
+		}
 	}
 	// pig divergence (D199): an OpenRouter routing variant is derived from its base entry; the catalog stores none.
 	return lookupOpenRouterVariant(spec, func(base string) (*GeneratedModel, bool) {
@@ -127,6 +141,15 @@ func LookupModel(spec string) (*GeneratedModel, bool) {
 // borrowing openai's gpt-4o capabilities. Mirrors upstream resolveCliModel,
 // which filters candidate models by provider before matching the id.
 func LookupModelExact(spec string) (*GeneratedModel, bool) {
+	if provider, id, ok := strings.Cut(spec, "/"); ok {
+		if model, found := LookupOMPChatModel(provider, id); found {
+			return &model, true
+		}
+		if HasOMPCatalog(provider) {
+			return lookupOpenRouterVariant(spec, LookupModelExact)
+		}
+	}
+
 	if spec == "" {
 		return nil, false
 	}
@@ -215,7 +238,7 @@ func (m *GeneratedModel) ToModel() *Model {
 	model.InputLimits = model.InputLimits.Clone()
 	model.ProviderMeta.Headers = cloneStringMap(model.ProviderMeta.Headers)
 	model.ProviderMeta.Compat = cloneCompat(model.ProviderMeta.Compat)
-	return model
+	return projectOMPModelMetrics(model)
 }
 
 // catalogView is ToModel without its copies: the model's slices, maps and pointers are the catalog's own. A caller that keeps the model or hands it out must copy them first.
@@ -248,18 +271,33 @@ func (m *GeneratedModel) catalogView() *Model {
 // of a stripped API (OfferedModels); LookupModel and LookupModelExact
 // still find them.
 //
-// pig divergence (D199): the list of OpenRouter, or of every provider, also holds each OpenRouter model's routing variants
-// (WithOpenRouterRoutingVariants), derived for the list and not stored in the catalog.
+// OMP-owned providers replace legacy rows. Explicit OpenRouter routing suffixes
+// remain resolvable, but synthetic routing variants never appear in the list.
 func ListModels(provider string) []GeneratedModel {
+	if provider != "" {
+		if rows, owned := OMPChatCatalog(provider); owned {
+			offered := OfferedGeneratedModels(rows)
+			out := make([]GeneratedModel, 0, len(offered))
+			for _, model := range offered {
+				out = append(out, *model)
+			}
+			return out
+		}
+	}
+
 	stripped := strippedAPIs()
 	if provider == "" {
 		out := make([]GeneratedModel, 0, len(GeneratedModels))
-		for _, model := range GeneratedModels {
-			if !slices.Contains(stripped, model.API) {
-				out = append(out, model)
+		ids := ListProviders()
+		for _, provider := range OMPCatalogProviders() {
+			if !slices.Contains(ids, provider) {
+				ids = append(ids, provider)
 			}
 		}
-		return WithOpenRouterRoutingVariants(out)
+		for _, id := range ids {
+			out = append(out, ListModels(id)...)
+		}
+		return out
 	}
 	registryProviderOnce.Do(initRegistryProvider)
 	models := registryByProvider[provider]
@@ -268,9 +306,6 @@ func ListModels(provider string) []GeneratedModel {
 		if !slices.Contains(stripped, model.API) {
 			out = append(out, *model)
 		}
-	}
-	if provider == "openrouter" { //portlint:allow providerliteral the variants are OpenRouter's own routing suffixes
-		return WithOpenRouterRoutingVariants(out)
 	}
 	return out
 }

@@ -140,13 +140,6 @@ func createChildSession(ctx context.Context, services *coding.AgentSessionServic
 		}
 		create.Model = model
 	}
-	for _, scoped := range request.ScopedModels {
-		model, err := resolveChildModel(runtime, scoped.Model)
-		if err != nil {
-			return nil, fmt.Errorf("option scopedModels: %w", err)
-		}
-		create.ScopedModels = append(create.ScopedModels, coding.ScopedModel{Model: model, ThinkingLevel: agent.ThinkingLevel(scoped.ThinkingLevel)})
-	}
 	result, err := coding.CreateAgentSessionFromServices(create)
 	if err != nil {
 		return nil, err

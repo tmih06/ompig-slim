@@ -90,8 +90,6 @@ type cliBuildInput struct {
 	CWD string
 	// Manager is the Session log the runtime will wrap. Model selection restores from it.
 	Manager *coding.SessionManager
-	// Continuing reports a resumed, continued or forked Session at startup.
-	Continuing bool
 	// Startup is true for the process's first build. Replacements never prompt for trust and reuse no preloaded host.
 	Startup bool
 	// StartupExtensions owns the pre-trust host that the final extension load reuses.
@@ -361,11 +359,6 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	}
 	build.StartupDiagnostics = codingagent.DeduplicateDiagnostics(append(slices.Clone(b.settingsDiagnostics), codingagent.CollectSettingsDiagnostics(services.SettingsManager())...))
 
-	// upstream: main.ts:810 `parsed.models ?? settingsManager.getEnabledModels()`: an explicit empty --models list replaces the setting.
-	if flags.Models != nil {
-		settings.EnabledModels = flags.Models
-	}
-
 	trace.Mark("packages-reinstall-start")
 	// package-manager.ts:912-926 dedupes package identities before installing any missing package.
 	if err := validateConfiguredPackageSources(services.SettingsManager(), projectTrusted); err != nil {
@@ -586,8 +579,6 @@ func (b *cliRuntimeBuilder) buildSession(ctx context.Context, build *cliBuild, i
 		CLIProvider:    flags.Provider,
 		CLIModel:       modelFlag,
 		CLIThinking:    flags.Thinking,
-		ScopePatterns:  settings.EnabledModels,
-		Continuing:     in.Continuing,
 		APIKey:         flags.APIKey,
 	}, settings, services)
 	build.Selected, build.ModelErr = selected, modelErr
