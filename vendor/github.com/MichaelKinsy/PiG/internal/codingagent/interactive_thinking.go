@@ -12,16 +12,19 @@ import (
 
 // ─── Thinking level helpers ──────────────────────────────────────
 
-// levelsForModel returns the supported thinking levels for the model,
-// mirroring upstream models.ts:getSupportedThinkingLevels. The returned
+// levelsForModel returns OMP's UI selector order, including auto after the
+// first supported effort for a reasoning-capable model. The returned
 // slice excludes levels explicitly mapped to null in the model's
 // ThinkingLevelMap (e.g. gpt-5-mini maps "off" → null, so the user
 // cannot disable thinking for that model).
 func levelsForModel(model *ai.Model) []string {
 	levels := ai.GetSupportedThinkingLevels(model)
-	out := make([]string, len(levels))
-	for i, l := range levels {
-		out[i] = string(l)
+	out := make([]string, 0, len(levels)+1)
+	for i, level := range levels {
+		out = append(out, string(level))
+		if i == 0 && len(levels) > 1 {
+			out = append(out, "auto")
+		}
 	}
 	return out
 }
@@ -30,6 +33,9 @@ func levelsForModel(model *ai.Model) []string {
 // session.state.thinkingLevel on every render (footer.ts:236, interactive-mode.ts:2351), so the first frame, painted by ui.start() before the extension bind,
 // already shows it; the footer and the editor are seeded with this level when they are built, as the render-time read would give.
 func (m *InteractiveMode) sessionThinkingLevel() string {
+	if handle, ok := m.opts.SessionHandle.(interface{ ConfiguredThinkingLevel() ai.ModelThinkingLevel }); ok && handle.ConfiguredThinkingLevel() == "auto" {
+		return "auto"
+	}
 	a := m.agent
 	if a == nil && m.opts.SessionHandle != nil {
 		a = m.opts.SessionHandle.Agent()
@@ -45,7 +51,7 @@ func (m *InteractiveMode) refreshThinkingLevel() {
 	if m.agent == nil {
 		return
 	}
-	level := string(m.agent.ThinkingLevel())
+	level := m.sessionThinkingLevel()
 	if level == "" {
 		level = string(ai.ThinkingOff)
 	}
@@ -61,17 +67,14 @@ func (m *InteractiveMode) refreshThinkingLevel() {
 
 // maxThinkingIndex returns the highest index in the model's level slice that
 // the model supports. 0 means no thinking support (level is always "off").
-// Uses slices.Index so adding new levels never requires updating this function.
+// It derives the last selector from the model's advertised ladder, not a
+// hard-coded maximum, so sparse/max-capable models keep every supported option.
 func maxThinkingIndex(model *ai.Model) int {
 	if model == nil {
 		return 0
 	}
 	levels := levelsForModel(model)
-	idx := slices.Index(levels, string(model.Capabilities.MaxThinking))
-	if idx < 0 {
-		return 0
-	}
-	return idx
+	return max(0, len(levels)-1)
 }
 
 // initThinkingLevel binds the UI to the Session's already selected and clamped level, including restored session state.
@@ -93,7 +96,7 @@ func (m *InteractiveMode) cycleThinkingLevel() {
 	// Pi's session.cycleThinkingLevel reads the Session's level when it runs, so a cycle made before an earlier one settles advances from the
 	// level that one set.
 	m.requestThinkingLevel(func() string {
-		cur := max(slices.Index(levels, string(m.agent.ThinkingLevel())), 0)
+		cur := max(slices.Index(levels, m.sessionThinkingLevel()), 0)
 		return levels[(cur+1)%(maxIdx+1)]
 	}, false)
 }

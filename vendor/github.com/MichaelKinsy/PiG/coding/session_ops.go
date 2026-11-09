@@ -135,7 +135,6 @@ func (s *Session) Clone() (*Session, error) {
 	// caller hooks, thinking budgets, model runtime and event buffer as any
 	// other Session; its agent state is the cloned path-to-leaf.
 	opts := SessionOptions{
-		ScopedModels:             s.ScopedModels(),
 		Model:                    s.Model(),
 		Tools:                    s.tools,
 		AllowedTools:             s.toolRegistry.allowed,
@@ -333,6 +332,9 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 
 	registry := icodingagent.NewSlashRegistry()
 	internalSC := sc.toInternal()
+	internalSC.SettingsManager = s.SettingsManager()
+	internalSC.ShowStatus = func(message string) { output = append(output, message) }
+	internalSC.ShowError = func(message string) { output = append(output, "Error: "+message) }
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {
 			return fmt.Errorf("subagents are unavailable")

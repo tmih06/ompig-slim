@@ -53,6 +53,8 @@ func WithRecord(entry MessageEntry, raw json.RawMessage) MessageEntry {
 
 type ModelChangeEntry struct {
 	SessionEntryBase
+	// Role records logical fallback ownership; omitted legacy entries are direct model selections.
+	Role     string `json:"role,omitempty"`
 	Provider string `json:"provider"`
 	ModelID  string `json:"modelId"`
 }

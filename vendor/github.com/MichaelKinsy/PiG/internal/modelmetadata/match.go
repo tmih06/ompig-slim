@@ -37,7 +37,7 @@ var variantMarkers = map[string]bool{
 	"experimental": true, "preview": true, "beta": true, "alpha": true, "coder": true,
 	"code": true, "chat": true, "instruct": true, "base": true, "turbo": true, "fast": true,
 	"ultraspeed": true, "highspeed": true, "search": true, "distill": true, "guard": true,
-	"embedding": true,
+	"embedding": true, "pro": true,
 }
 
 var (

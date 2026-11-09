@@ -651,11 +651,6 @@ type InteractiveMode struct {
 	// and input-error exit paths. Mirrors upstream's single stopInteractiveTui().
 	tuiTornDown bool
 
-	// Scoped model IDs for Ctrl+P cycling.
-	// nil = all models enabled (no filter).
-	// Populated from settings on startup; updated by /scoped-models.
-	scopedModelIDs []string
-
 	// managedToolStatusStarted mirrors upstream managedToolStatusStarted:
 	// the first managed-tool status report is preceded by a spacer.
 	managedToolStatusStarted bool
@@ -681,7 +676,8 @@ type InteractiveMode struct {
 	pendingUserInputs       []string
 	onInputCallback         func(string)
 	initialMessagesDone     <-chan struct{}
-	// activeSelectorToken identifies the model selector still shown while its change settles, and activeSelectorDispose closes it (interactive-mode.ts:469-470).
+	// activeSelectorToken identifies Alt+P's live picker until its model change
+	// settles. activeSelectorDispose closes it when another modal takes ownership.
 	activeSelectorToken   *int
 	activeSelectorDispose func()
 }
@@ -1604,13 +1600,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	mark := m.startupMark()
 	m.initStartupTheme()
 	mark("theme-detected")
-	// Fullscreen renders on the alternate screen, so stdout text would stay in the shell after exit; its header shows the notice.
-	if m.opts.TuiMode != "fullscreen" {
-		if notice := m.getModelScopeNotice(); notice != "" {
-			tui.WriteToTerminal(os.Stdout, notice+"\n")
-		}
-	}
-
 	// Set up TUI. Fullscreen mode uses the alternate-screen renderer; both
 	// satisfy tui.Renderer so the rest of the driver is renderer-agnostic.
 	// createInteractiveTui owns renderer construction plus the owner-loop-scoped
@@ -1847,8 +1836,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	// Bind thinking presentation to the Session's effective startup state.
 	m.initThinkingLevel()
 
-	m.initScopedModels()
-
 	// Dispatch session_start through the extension runner. The bridge performs
 	// the typed event conversion.
 	mark("pre-emit-session-start")
@@ -1938,14 +1925,28 @@ func (m *InteractiveMode) run(ctx context.Context) error {
 
 	m.startVersionCheck()
 
-	// Share the interactive catalog refresh with selectors, with independent cancellation for each caller.
+	// Restore-first startup never waits on discovery. Long-lived interactive
+	// sessions revalidate every two hours; failures retry after ten minutes while
+	// last-known-good models remain available. Selectors share in-flight work.
 	if m.opts.ModelRegistry != nil && ModelNetworkEnabled() {
 		m.backgroundTasks.Go(func() {
-			// upstream: packages/coding-agent/src/modes/interactive/interactive-mode.ts:run
-			refreshCtx, cancel := context.WithTimeout(m.backgroundCtx, 15*time.Second)
-			defer cancel()
-			if _, err := RefreshModelCatalogs(refreshCtx, m.opts.ModelRegistry); err == nil {
-				_ = m.postToMain(m.backgroundCtx, m.updateProviderInfo)
+			for {
+				refreshCtx, cancel := context.WithTimeout(m.backgroundCtx, 15*time.Second)
+				result, err := RefreshModelCatalogs(refreshCtx, m.opts.ModelRegistry)
+				cancel()
+				delay := 2 * time.Hour
+				if err != nil || result.Aborted || len(result.Errors) > 0 {
+					delay = 10 * time.Minute
+				} else {
+					_ = m.postToMain(m.backgroundCtx, m.updateProviderInfo)
+				}
+				timer := time.NewTimer(delay)
+				select {
+				case <-m.backgroundCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
 			}
 		})
 	}

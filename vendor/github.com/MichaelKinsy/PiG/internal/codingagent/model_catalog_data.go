@@ -12,12 +12,12 @@ import (
 // GetProviderModelData composes metadata without resolving keys, headers, or backend clients. Like the catalog and the native collection it composes from, it omits the models of a stripped API, including models.json and extension definitions on one (ai.OfferedModels).
 func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	if plain, ok := r.plainGeneratedModels(id); ok {
-		return r.plainModelDataEnriched(plain)
+		return r.enrichModelData(plainModelData(plain))
 	}
 	if r.GetProvider(id) != nil {
 		return r.enrichModelData(r.GetNativeModels(id))
 	}
-	generatedModels := builtinChatCatalogListed(id)
+	generatedModels := builtinChatCatalog(id)
 	var baseline []*ai.Model
 	if len(generatedModels) > 0 {
 		baseline = make([]*ai.Model, 0, len(generatedModels))
@@ -25,6 +25,7 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	for _, generated := range generatedModels {
 		baseline = append(baseline, generated.ToModel())
 	}
+	baseline = append(baseline, r.publicCatalogAdditions(id)...)
 	// The remote catalog overlay adds models to, and replaces same-id models of, the bundled catalog (remote-catalog-provider.ts:getModels).
 	// A personalized catalog (the user's own list) replaces the bundled one instead (remote-catalog-provider.ts:withPersonalizedCatalog getModels).
 	if overlay := r.remoteOverlayModels(id); len(overlay) > 0 {
@@ -71,12 +72,12 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 	return r.enrichModelData(ai.OfferedModels(models))
 }
 
-// plainGeneratedModels returns the bundled catalog of provider id, with OpenRouter's routing variants (builtinChatCatalogListed), when nothing changes it: no provider code, remote catalog overlay, Radius provider, extension registration or models.json entry. GetProviderModelData's models for such a provider are exactly plainModelData of it, and building them has no effect to observe.
+// plainGeneratedModels returns the bundled catalog of provider id, without synthetic routing variants, when nothing changes it: no provider code, remote catalog overlay, Radius provider, extension registration or models.json entry. GetProviderModelData's models for such a provider are exactly plainModelData of it, and building them has no effect to observe.
 func (r *ModelRegistry) plainGeneratedModels(id string) ([]ai.GeneratedModel, bool) {
 	if !r.isPlainGenerated(id) {
 		return nil, false
 	}
-	return builtinChatCatalogListed(id), true
+	return builtinChatCatalog(id), true
 }
 
 // isPlainGenerated reports whether nothing changes the bundled catalog of provider id (plainGeneratedModels).
@@ -84,7 +85,7 @@ func (r *ModelRegistry) isPlainGenerated(id string) bool {
 	if r.GetProvider(id) != nil {
 		return false
 	}
-	if len(r.remoteOverlayModels(id)) > 0 {
+	if len(r.remoteOverlayModels(id)) > 0 || len(r.publicCatalogAdditions(id)) > 0 {
 		return false
 	}
 	r.mu.RLock()
@@ -110,15 +111,8 @@ func plainModelData(generated []ai.GeneratedModel) []*ai.Model {
 	return ai.OfferedModels(models)
 }
 
-// plainModelDataEnriched is plainModelData with the public catalog metrics of each model, which is what
-// every list path publishes (model-metadata-provider.ts withModelMetadata). Bundled models only receive
-// int/tps/description: their curated prices and limits outrank a catalog scrape.
-func (r *ModelRegistry) plainModelDataEnriched(generated []ai.GeneratedModel) []*ai.Model {
-	return r.enrichModelData(plainModelData(generated))
-}
-
-// plainModelDataEntriesEnriched is plainModelDataEnriched for a catalog the caller already filtered by
-// entry pointer.
+// plainModelDataEntriesEnriched builds and enriches a catalog the caller already
+// filtered by entry pointer.
 func (r *ModelRegistry) plainModelDataEntriesEnriched(generated []*ai.GeneratedModel) []*ai.Model {
 	if len(generated) == 0 {
 		return nil
@@ -277,6 +271,7 @@ func (r *ModelRegistry) modelProviderIDs() []string {
 	}
 	r.mu.RUnlock()
 	order := ai.ListProviders()
+	order = append(order, ai.OMPCatalogProviders()...)
 	order = append(order, configured...)
 	order = append(order, dynamic...)
 	order = append(order, r.nativeCollectionProviderIDs()...)

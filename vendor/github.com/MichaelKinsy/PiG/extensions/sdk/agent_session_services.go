@@ -101,7 +101,6 @@ type CreateAgentSessionFromServicesOptions struct {
 	SessionStartEvent *SessionStartEvent
 	Model             any
 	ThinkingLevel     string
-	ScopedModels      []ScopedModel
 	Tools             []string
 	ExcludeTools      []string
 	NoTools           string
@@ -113,7 +112,7 @@ func CreateAgentSessionFromServices(c Context, options CreateAgentSessionFromSer
 	services := options.Services
 	return c.CreateAgentSession(CreateAgentSessionOptions{
 		Cwd: services.Cwd, AgentDir: services.AgentDir, ModelRuntime: services.ModelRuntime, SettingsManager: services.SettingsManager, ResourceLoader: services.ResourceLoader,
-		SessionManager: options.SessionManager, Model: options.Model, ThinkingLevel: options.ThinkingLevel, ScopedModels: options.ScopedModels, Tools: options.Tools,
+		SessionManager: options.SessionManager, Model: options.Model, ThinkingLevel: options.ThinkingLevel, Tools: options.Tools,
 		ExcludeTools: options.ExcludeTools, NoTools: options.NoTools, CustomTools: options.CustomTools, SessionStartEvent: options.SessionStartEvent,
 	})
 }

@@ -470,14 +470,26 @@ func (r *ModelRegistry) RefreshCatalogs(ctx context.Context, options CatalogRefr
 			result.errorOrder = append(result.errorOrder, id)
 		}
 	})
+	// Fetch the shared source independently of authenticated discovery. A slow
+	// OAuth/provider endpoint must not consume the entire background deadline
+	// before the public catalog has even started. Failures retain the last rows.
+	wg.Go(func() {
+		force := options.Force != nil && *options.Force
+		metadata, err := r.RefreshModelMetadata(ctx, options.AllowNetwork, force)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil && ctx.Err() != nil {
+			result.Aborted = true
+		} else if options.AllowNetwork && (err != nil || metadata.Error != "") {
+			if err == nil {
+				err = fmt.Errorf("public model catalog: %s", metadata.Error)
+			}
+			result.Errors["catalog"] = err
+			result.errorOrder = append(result.errorOrder, "catalog")
+		}
+	})
 	wg.Wait()
 	maps.Copy(result.Errors, r.refreshNativeProviders(ctx, options.Providers, options.AllowNetwork, options.Force))
-	// The public catalog metrics refresh with the model catalogs: a failed fetch keeps the previous
-	// rows, so a network outage never removes labels from the selectors (model-runtime.ts refresh).
-	force := options.Force != nil && *options.Force
-	if _, err := r.RefreshModelMetadata(ctx, options.AllowNetwork, force); err != nil && ctx.Err() != nil {
-		result.Aborted = true
-	}
 	availability := r.reconcileAvailability(ctx, options.Providers, ai.ModelsRefreshResult{Aborted: ctx.Err() != nil, Errors: result.Errors, ErrorOrder: result.errorOrder})
 	result.Aborted, result.Errors, result.errorOrder = availability.Aborted, availability.Errors, availability.ErrorOrder
 	if backgroundRefresh(ctx) {

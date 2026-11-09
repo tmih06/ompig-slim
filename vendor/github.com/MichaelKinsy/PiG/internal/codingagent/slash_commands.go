@@ -317,19 +317,10 @@ type SlashContext struct {
 	// text when navigating to a user-message entry).
 	SetEditorText func(text string)
 
-	// Mid-session model switch. SwitchModel starts the change and calls settled
-	// on the owner loop once it settles, without waiting for it. An accepted
-	// PickModel selection stays shown and focused until then, as Pi's model
-	// selector closes only once setModel settles. ShowError reports a failure.
-	SwitchModel           func(spec string, settled func(error))
-	ShowError             func(msg string)
-	modelSelectionPersist bool
-	modelSelectorDone     func()
-	PickModel             func(initialQuery string) (spec string, ok bool)
-	ResolveModel          func(input string) (spec string, ok bool)
+	ShowError func(msg string)
 
-	// /scoped-models selector.
-	ShowScopedModels func() // opens editor-slot scoped-models list
+	// ShowModelHub manages role assignments, fallback chains, and quick-cycle order.
+	ShowModelHub func()
 
 	// Settings UI.
 	// SettingsManager provides read/write access to global settings.
@@ -696,10 +687,9 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			return sc.Subagents(args)
 		}},
 		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
-		{Name: "model", Description: "Select model (opens selector UI)", ArgumentHint: "<provider/model>", TakesArguments: true, Handler: modelHandler},
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
 		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
-		{Name: "scoped-models", Description: "Enable/disable models for Ctrl+P cycling", Handler: scopedModelsHandler},
+		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
 		{Name: "export", Description: "Export session (HTML default, or specify path: .html/.jsonl)", TakesArguments: true, Handler: exportHandler},
 		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
 		// pig divergence (D64): PiG shares through its own expiring gateway, not a GitHub gist.
@@ -912,98 +902,6 @@ func probeOAuthXaiHandler(sc *SlashContext) error {
 		return err
 	}
 	sc.Append(out)
-	return nil
-}
-
-func modelHandler(sc *SlashContext) error {
-	current := "(unknown)"
-	if sc.ModelName != nil {
-		current = sc.ModelName()
-	}
-
-	if sc.Args == "" {
-		// Empty args: prefer the picker overlay if available.
-		if sc.PickModel != nil && sc.SwitchModel != nil {
-			spec, ok := sc.PickModel("")
-			if !ok {
-				return nil
-			}
-			switchModelThen(sc, spec)
-			return nil
-		}
-		// Headless or test context: just print current.
-		sc.Append(fmt.Sprintf("Current model: %s", current))
-		// Upstream v0.70.0 hint text.
-		sc.Append("(Model picker unavailable in this context. Only showing models from configured providers. Use /login to add providers.)")
-		return nil
-	}
-
-	// Direct switch: /model <spec>
-	if sc.SwitchModel == nil {
-		sc.Append("Model switching is not available in this context.")
-		return nil
-	}
-	spec := sc.Args
-	if sc.ResolveModel != nil {
-		resolved, ok := sc.ResolveModel(sc.Args)
-		switch {
-		case ok:
-			spec = resolved
-		case sc.PickModel != nil:
-			picked, pickedOK := sc.PickModel(sc.Args)
-			if !pickedOK {
-				return nil
-			}
-			spec = picked
-		default:
-			sc.Append("No matching models")
-			return nil
-		}
-	}
-	switchModelThen(sc, spec)
-	return nil
-}
-
-// switchModelThen applies spec and reports the change once it settles, as Pi's model command and selector do after awaiting
-// setModel (interactive-mode.ts:5163-5180, 5313-5325): the status, or the error's message. The command returns at once; Pi's
-// editor does not await onSubmit (3180, 3195-3199).
-func switchModelThen(sc *SlashContext, spec string) {
-	sc.SwitchModel(spec, func(err error) {
-		if err != nil {
-			if sc.ShowError != nil {
-				sc.ShowError(err.Error())
-			}
-			return
-		}
-		showModelSelectionStatus(sc, spec)
-	})
-}
-
-func showModelSelectionStatus(sc *SlashContext, spec string) {
-	if sc.ShowStatus == nil {
-		return
-	}
-	if sc.modelSelectionPersist {
-		sc.ShowStatus("Default model: " + spec)
-		return
-	}
-	_, bareID, found := strings.Cut(spec, "/")
-	if !found {
-		bareID = spec
-	}
-	sc.ShowStatus("Model: " + bareID)
-}
-
-// scopedModelsHandler implements /scoped-models: enable/disable models
-// for Ctrl+P cycling. Mirrors upstream interactive-mode.ts:3925
-// (showModelsSelector). Opens a multi-select toggle list via the
-// editor-slot pattern.
-func scopedModelsHandler(sc *SlashContext) error {
-	if sc.ShowScopedModels == nil {
-		sc.Append("Scoped models selector not available in this context.")
-		return nil
-	}
-	sc.ShowScopedModels()
 	return nil
 }
 

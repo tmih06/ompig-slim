@@ -199,12 +199,6 @@ func callbackBackground() context.Context {
 	return context.Background()
 }
 
-// graphScopedModel is one entry of getScopedModels: a model object and its thinking level.
-type graphScopedModel struct {
-	Model         json.RawMessage `json:"model"`
-	ThinkingLevel string          `json:"thinkingLevel"`
-}
-
 // graphSignalState is the answer of getSignal: whether the signal has aborted.
 type graphSignalState struct {
 	Aborted bool `json:"aborted"`
@@ -249,7 +243,7 @@ type graphRendererFlags struct {
 // graphDecoded is every type an extension's answer to a runner callback decodes into. The set is closed so that no answer is decoded into an interface value.
 type graphDecoded interface {
 	string | bool | []string | extension.ThinkingLevel | extension.Settings | extension.AgentToolCallOutcome | extension.CancelledResult | extension.BoundaryContextPreview |
-		[]extension.ToolInfo | []extension.SlashCommandInfo | []extension.AgentTool | []graphScopedModel |
+		[]extension.ToolInfo | []extension.SlashCommandInfo | []extension.AgentTool |
 		*extension.ContextUsage | *extension.BuildSystemPromptOptions | *graphSignalState | *graphRendererFlags
 }
 

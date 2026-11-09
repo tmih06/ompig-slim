@@ -21,6 +21,10 @@ smoke: build
 
 # CI extracts a verified release binary before calling this build-free target.
 smoke-built:
+	python3 scripts/test-model-menu.py
+	python3 scripts/smoke-test-model-menu.py ./bin/ompig-slim
+	python3 scripts/measure-model-menu.py ./bin/ompig-slim --legacy-settings --runs 1
+	python3 scripts/measure-model-menu.py ./bin/ompig-slim --stale-cycle --runs 1
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-web-tools-binary.py ./bin/ompig-slim

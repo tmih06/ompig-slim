@@ -22,7 +22,7 @@ func (s *Session) reportExtensionEntry(entry icodingagent.CustomEntry, direct *s
 	return nil
 }
 
-// bindLoaderExtensionHost binds the Session's state to the bridge of the Extension Host that loaded its resource loader's extensions, so that their contexts read the Session as Pi's do: _bindExtensionCore binds the Session's model, scoped models, idle state, signal, tools, commands, session reads and actions in every mode. Nothing binds a UI, so ctx.hasUI is false and the dialogs answer nothing, as in Pi's headless context. It binds what print mode binds for the same context. Close unbinds.
+// bindLoaderExtensionHost binds the Session's state to the bridge of the Extension Host that loaded its resource loader's extensions, so that their contexts read the Session as Pi's do: _bindExtensionCore binds the Session's model, idle state, signal, tools, commands, session reads and actions in every mode. Nothing binds a UI, so ctx.hasUI is false and the dialogs answer nothing, as in Pi's headless context. It binds what print mode binds for the same context. Close unbinds.
 //
 // A Session a CLI mode runs does not call it: the mode owns its host's bridge and binds it itself.
 func (s *Session) bindLoaderExtensionHost(bridge *subprocess.UIBridge) {

@@ -307,6 +307,18 @@ func ResolveHeaders(in map[string]string, env map[string]string) map[string]stri
 	return out
 }
 
+// Invalidate removes one cached !command value for an explicit credential
+// refresh. Other providers' helpers remain cached; ordinary catalog browsing
+// must never cause unrelated secret brokers to re-mint credentials.
+func Invalidate(value string) {
+	if !isCommand(value) {
+		return
+	}
+	cacheMu.Lock()
+	delete(cache, value)
+	cacheMu.Unlock()
+}
+
 // ClearCache wipes the !cmd cache. Test-only.
 func ClearCache() {
 	cacheMu.Lock()

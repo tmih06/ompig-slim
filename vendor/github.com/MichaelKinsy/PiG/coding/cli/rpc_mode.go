@@ -616,7 +616,7 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
 		publish := func() {
 			answer(func() any {
 				return rpcSuccess(id, "cycle_model", RPCModelCycleResult{
-					Model: rpcModelValue(result.Model), ThinkingLevel: currentSession.ThinkingLevel(), IsScoped: result.IsScoped,
+					Model: rpcModelValue(result.Model), ThinkingLevel: currentSession.ThinkingLevel(),
 				})
 			})
 		}

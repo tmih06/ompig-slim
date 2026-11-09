@@ -228,7 +228,11 @@ func init() {
 		IsSubscription bool
 		LoginLabel     string
 	}{Name: codexJSONName, IsSubscription: true}
-	for _, model := range slices.Clone(GeneratedModels) {
+	catalog, owned := OMPChatCatalog("openai-codex")
+	if !owned {
+		catalog = GeneratedModels
+	}
+	for _, model := range slices.Clone(catalog) {
 		if model.Provider == "openai-codex" {
 			model.Provider = codexJSONProviderID
 			// The raw catalog record is also used by RPC/model serialization.

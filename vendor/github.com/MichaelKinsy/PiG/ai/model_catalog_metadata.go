@@ -17,9 +17,10 @@ import (
 	"strings"
 )
 
-// ModelCatalogMetadataVersion is the snapshot schema version; bump it when row semantics change so
-// old caches are discarded.
-const ModelCatalogMetadataVersion = 1
+// ModelCatalogMetadataVersion includes persisted discovery eligibility. Schema 1
+// remains readable for offline metrics but requires unconditional revalidation;
+// other unknown versions are rejected rather than interpreted as runnable data.
+const ModelCatalogMetadataVersion = 2
 
 // modelCatalogEffortLevels are the canonical effort tiers a catalog row may publish, in order
 // (THINKING_LEVELS of model-schema.ts). "none" is not a tier: it is the explicit disable effort.
@@ -41,6 +42,11 @@ type ModelCatalogMetadataRow struct {
 	ID string `json:"id"`
 	// Name is the published display name, when the row has one.
 	Name string `json:"name,omitempty"`
+	// ToolCall is the published tool capability, required before a remote row
+	// can introduce a new chat identity. Absence is not an affirmative capability.
+	ToolCall *bool `json:"toolCall,omitempty"`
+	// Kind distinguishes chat rows from non-chat public discovery entries.
+	Kind string `json:"kind,omitempty"`
 	// Int is the intelligence index. A row without a score omits it; 0 is a real score.
 	Int *float64 `json:"int,omitempty"`
 	// TPS is the estimated output speed in tokens per second.
@@ -113,6 +119,8 @@ type catalogWireRow struct {
 	reasoning        *bool
 	reasoningOptions *[]catalogWireEffortOption
 	status           *string
+	toolCall         *bool
+	kind             *string
 }
 
 // catalogWireEffortOption is one reasoning_options entry.
@@ -201,6 +209,16 @@ func decodeCatalogWireRow(raw json.RawMessage) (catalogWireRow, bool) {
 	}
 	var row catalogWireRow
 	var valid bool
+	if value, present := members["tool_call"]; present {
+		if row.toolCall, valid = jsonBool(value); !valid {
+			return catalogWireRow{}, false
+		}
+	}
+	if value, present := members["kind"]; present {
+		if row.kind, valid = jsonString(value); !valid {
+			return catalogWireRow{}, false
+		}
+	}
 	if value, present := members["id"]; present {
 		if row.id, valid = jsonString(value); !valid {
 			return catalogWireRow{}, false
@@ -401,7 +419,10 @@ func catalogRow(provider, fallbackID string, wire catalogWireRow) (ModelCatalogM
 	if id == "" {
 		return ModelCatalogMetadataRow{}, false
 	}
-	row := ModelCatalogMetadataRow{Provider: provider, ID: id}
+	row := ModelCatalogMetadataRow{Provider: provider, ID: id, ToolCall: wire.toolCall}
+	if wire.kind != nil {
+		row.Kind = *wire.kind
+	}
 	if wire.name != nil {
 		row.Name = *wire.name
 	}
@@ -573,6 +594,22 @@ func decodeStoredCatalogRow(value any) (ModelCatalogMetadataRow, bool) {
 		return ModelCatalogMetadataRow{}, false
 	}
 	row := ModelCatalogMetadataRow{Provider: *provider, ID: *id}
+	if value, present := members["toolCall"]; present {
+		flag, valid := storedCatalogScalar[bool](value)
+		if !valid {
+			return ModelCatalogMetadataRow{}, false
+		}
+		row.ToolCall = flag
+	}
+	if value, present := members["kind"]; present {
+		kind, valid := storedCatalogScalar[string](value)
+		if !valid {
+			return ModelCatalogMetadataRow{}, false
+		}
+		if kind != nil {
+			row.Kind = *kind
+		}
+	}
 	if value, present := members["name"]; present {
 		name, valid := storedCatalogScalar[string](value)
 		if !valid {
@@ -729,7 +766,7 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 		return ModelCatalogMetadataSnapshot{}, false
 	}
 	version, ok := storedCatalogNumber(versionRaw)
-	if !ok || version != ModelCatalogMetadataVersion {
+	if !ok || (version != ModelCatalogMetadataVersion && version != 1) {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
 	fetchedRaw, present := members["fetchedAt"]
@@ -751,7 +788,7 @@ func ParseModelCatalogMetadataSnapshot(payload []byte) (ModelCatalogMetadataSnap
 	if _, present := members["rows"]; !present {
 		return ModelCatalogMetadataSnapshot{}, false
 	}
-	snapshot := ModelCatalogMetadataSnapshot{Version: ModelCatalogMetadataVersion, FetchedAt: int64(fetchedAt), CheckedAt: int64(checkedAt), Rows: []ModelCatalogMetadataRow{}}
+	snapshot := ModelCatalogMetadataSnapshot{Version: int(version), FetchedAt: int64(fetchedAt), CheckedAt: int64(checkedAt), Rows: []ModelCatalogMetadataRow{}}
 	if etag, ok := members["etag"].(string); ok {
 		snapshot.ETag = etag
 	}

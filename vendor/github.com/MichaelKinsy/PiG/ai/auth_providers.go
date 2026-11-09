@@ -614,6 +614,12 @@ var builtinAPIKeyNames = sync.OnceValue(func() map[string]string {
 func BuiltinProviderAuth(providerID string) (ProviderAuth, error) {
 	apiKey, ok := builtinAPIKeyAuth(providerID)
 	if !ok {
+		if OMPKeylessCatalog(providerID) {
+			return ProviderAuth{}, nil
+		}
+		if keys := OMPProviderEnvKeys(providerID); len(keys) > 0 {
+			return ProviderAuth{APIKey: EnvAPIKeyAuth(ProviderDisplayName(providerID), keys...)}, nil
+		}
 		return ProviderAuth{}, fmt.Errorf("no built-in auth for provider %q", providerID)
 	}
 	auth := ProviderAuth{APIKey: apiKey}

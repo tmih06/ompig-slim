@@ -52,6 +52,10 @@ func (s *Session) PreparePrompt(ctx context.Context, content []ai.UserContentBlo
 // prepareRun awaits before_agent_start for the message that starts a run (agent-session.ts:1885-1936 _prepareRun) without holding the
 // Session lock, so a handler's own Session calls and queue operations proceed while it is suspended.
 func (s *Session) prepareRun(ctx context.Context, trigger extension.BeforeAgentStartTrigger) (*PreparedPrompt, error) {
+	if err := s.prepareFallbackModel(ctx); err != nil {
+		return nil, err
+	}
+	s.applyAutoThinking(ctx, trigger.Prompt)
 	p := &PreparedPrompt{session: s, sessionID: s.ID()}
 	select {
 	case <-s.closeDone:

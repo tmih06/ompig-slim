@@ -81,7 +81,6 @@ type SendUserMessageOptions struct {
 // ExtensionContextActions is Pi's ExtensionContextActions: the functions the contexts read. A nil function is Pi's undefined.
 type ExtensionContextActions struct {
 	GetModel           func() map[string]any
-	GetScopedModels    func() []ScopedModel
 	IsIdle             func() bool
 	IsProjectTrusted   func() bool
 	GetSignal          func() context.Context
@@ -272,9 +271,6 @@ func (r *ExtensionRunner) bindCoreWire(actions ExtensionActions, contextActions 
 	}
 	if f := contextActions.GetModel; f != nil {
 		named(wireContext, "getModel", func([]json.RawMessage) (any, error) { return f(), nil })
-	}
-	if f := contextActions.GetScopedModels; f != nil {
-		named(wireContext, "getScopedModels", func([]json.RawMessage) (any, error) { return f(), nil })
 	}
 	if f := contextActions.IsIdle; f != nil {
 		named(wireContext, "isIdle", func([]json.RawMessage) (any, error) { return f(), nil })

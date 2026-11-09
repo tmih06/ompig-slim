@@ -645,17 +645,8 @@ func (s SettingsManager) SetBlockImages(blocked bool) error {
 	return err
 }
 
-func (s SettingsManager) GetEnabledModels() ([]string, error) {
-	return graphMethodCall[[]string](s.object, "getEnabledModels")
-}
-
 func (s SettingsManager) GetDefaultTools() ([]string, error) {
 	return graphMethodCall[[]string](s.object, "getDefaultTools")
-}
-
-func (s SettingsManager) SetEnabledModels(patterns []string) error {
-	_, err := graphMethodCall[graphDone](s.object, "setEnabledModels", patterns)
-	return err
 }
 
 func (s SettingsManager) GetDoubleEscapeAction() (string, error) {

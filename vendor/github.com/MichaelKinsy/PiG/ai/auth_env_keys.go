@@ -96,7 +96,7 @@ func getAPIKeyEnvVars(provider string) []string {
 	if vars, ok := ompProviderAPIKeyEnvs(provider); ok {
 		return vars
 	}
-	return nil
+	return OMPProviderEnvKeys(provider)
 }
 
 // FindEnvKeys returns the configured environment variables that can provide

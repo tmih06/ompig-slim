@@ -1,0 +1,35 @@
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	     854	    652112 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       5	 114749576 ns/op	27228473 B/op	  391707 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   30634	     18105 ns/op	    5696 B/op	      84 allocs/op
+PASS
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	    1000	    608513 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       6	 105496725 ns/op	27225032 B/op	  391699 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   34720	     17017 ns/op	    5696 B/op	      84 allocs/op
+PASS
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	     822	    617686 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       6	 105514278 ns/op	27225266 B/op	  391701 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   34610	     17300 ns/op	    5696 B/op	      84 allocs/op
+PASS
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	     690	    917753 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       3	 199953262 ns/op	27224109 B/op	  391697 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   30219	     18967 ns/op	    5696 B/op	      84 allocs/op
+PASS
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	     736	    688539 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       5	 119648465 ns/op	27224985 B/op	  391701 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   34160	     16692 ns/op	    5696 B/op	      84 allocs/op
+PASS

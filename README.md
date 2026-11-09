@@ -63,6 +63,7 @@ make install
   and Ctrl+O expansion.
 - A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
+- OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.
 - Native Linux and macOS releases for x64 and arm64.
 
 Codemode and other agent tools run with your user permissions; codemode is not an OS security sandbox. Account credentials are stored locally in SQLite and are not encrypted at rest.
@@ -72,7 +73,7 @@ Codemode and other agent tools run with your user permissions; codemode is not a
 ```sh
 make check    # tests and vet, including the patched PiG library
 make race     # race-enabled checks
-make smoke    # compiled codemode, subagent, and web-tool scenarios
+make smoke    # real model-menu PTY, codemode, subagent, and web-tool scenarios
 make test-install     # the curl installer against a loopback release server
 make test-self-update # update/upgrade against a loopback release server
 make release  # build supported platform archives
