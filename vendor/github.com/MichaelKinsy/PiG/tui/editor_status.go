@@ -39,7 +39,7 @@ func (e *Editor) NeedsRedraw() bool {
 // pig additive (D91): SurfaceLive reports that the embedded indicator, which changes without
 // invalidating the editor, or a dynamic right border label draws in the editor.
 func (e *Editor) SurfaceLive() bool {
-	return e.TopRightStatus != nil || e.EmbedWorkingStatus && e.workingStatusIndicator != nil
+	return e.TopRightStatus != nil || e.TopRightControl != nil || e.EmbedWorkingStatus && e.workingStatusIndicator != nil
 }
 
 // renderStatusBorder mirrors CustomEditor.renderTopBorder, retaining a centered
@@ -91,33 +91,73 @@ func (e *Editor) topRightStatusChanged() bool {
 	return e.topRightStatusLabel() != e.topRightRendered
 }
 
+// topRightStatusParts reserves the source control first, then offers remaining
+// cells to quota. An unavailable quota must not hide the widget disclosure.
+func (e *Editor) topRightStatusParts() (string, string) {
+	budget := e.topRightBudget
+	if budget <= 0 {
+		return "", ""
+	}
+	control := ""
+	if e.TopRightControl != nil {
+		control = e.TopRightControl(budget)
+		if widthx.VisibleWidth(control) > budget {
+			control = ""
+		}
+	}
+	statusBudget := budget
+	if control != "" {
+		statusBudget = max(0, budget-widthx.VisibleWidth(control)-3)
+	}
+	status := ""
+	if e.TopRightStatus != nil && statusBudget > 0 {
+		status = e.TopRightStatus(statusBudget)
+		if widthx.VisibleWidth(status) > statusBudget {
+			status = ""
+		}
+	}
+	return status, control
+}
+
+// topRightStatusLabel is the complete live label used for cache invalidation.
 func (e *Editor) topRightStatusLabel() string {
-	if e.TopRightStatus == nil || e.topRightBudget <= 0 {
-		return ""
+	status, control := e.topRightStatusParts()
+	return joinTopRightLabels(status, control)
+}
+
+// joinTopRightLabels avoids dangling separators when quota or control is absent.
+func joinTopRightLabels(status, control string) string {
+	if status == "" {
+		return control
 	}
-	label := e.TopRightStatus(e.topRightBudget)
-	if widthx.VisibleWidth(label) > e.topRightBudget {
-		return ""
+	if control == "" {
+		return status
 	}
-	return label
+	return status + " · " + control
 }
 
 // Only replace trailing border cells, preserving the working label and centered scroll indicator.
 func (e *Editor) renderTopRightStatus(width int, border string) string {
 	e.topRightRendered = ""
-	if e.TopRightStatus == nil {
+	e.topRightControlStart, e.topRightControlEnd = 0, 0
+	if e.TopRightStatus == nil && e.TopRightControl == nil {
 		e.topRightBudget = 0
 		return border
 	}
 	plain := widthx.StripAnsi(border)
 	trailing := len([]rune(plain)) - len([]rune(strings.TrimRight(plain, "─")))
 	e.topRightBudget = max(0, min(width-4, trailing-4))
-	label := e.topRightStatusLabel()
+	status, control := e.topRightStatusParts()
+	label := joinTopRightLabels(status, control)
 	labelWidth := widthx.VisibleWidth(label)
 	if labelWidth == 0 {
 		return border
 	}
 	e.topRightRendered = label
+	if control != "" {
+		e.topRightControlEnd = width - 3
+		e.topRightControlStart = e.topRightControlEnd - widthx.VisibleWidth(control)
+	}
 	left := width - labelWidth - 3
 	return widthx.SliceByColumn(border, 0, left, false) + e.colorEditorBorder(" ") + label + e.colorEditorBorder(" ─")
 }

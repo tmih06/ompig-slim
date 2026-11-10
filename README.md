@@ -72,6 +72,13 @@ make install
   palette's own body color, so the interface stays colored on a terminal whose
   default foreground is hard to tell from its background.
 - A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
+- The widget shows one item at a time: Tasks take priority; Quota appears
+  when there is no todo list. It opens upward at the bottom-right, anchored to
+  a Widgets control beside quota on the prompt's top border, without reserving space.
+  Alt+W folds the entire overlay back into that border so responses stay easy
+  to select/copy; the border control reopens it. Section headers toggle details;
+  scroll or use Alt+PageUp / Alt+PageDown for long lists. Todo tool calls retain
+  compact transcript receipts showing the action, status and progress—not the list.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.
 - Native Linux and macOS releases for x64 and arm64.

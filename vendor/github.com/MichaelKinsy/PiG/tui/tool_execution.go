@@ -877,7 +877,9 @@ func (c *ToolExecutionComponent) renderTool(width int) []string {
 
 // renderCard draws the content box: the definition's Box, or the legacy card for a tool without one. It records the card's height and width for mouse dispatch.
 func (c *ToolExecutionComponent) renderCard(width int) []string {
-	if c.Rich && width >= richMinWidth {
+	// Todo receipts have no frame, so the frame's minimum width must not
+	// make their otherwise-empty call/result shell disappear in tiny panes.
+	if c.Rich && (width >= richMinWidth || c.Name == "todo") {
 		return c.renderRichCard(width)
 	}
 	return c.renderCardContent(width)
