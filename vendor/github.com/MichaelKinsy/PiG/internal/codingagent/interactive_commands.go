@@ -190,7 +190,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 	sc = &SlashContext{
 		Subagents: func(args string) error { return m.subagentsCommand(ctx, args) },
 		Append: func(s string) {
-			block := tui.NewMarkdown(s)
+			block := m.proseMarkdown(s, 0, 0)
 			block.FinishStreaming()
 			m.appendToChat(block)
 		},

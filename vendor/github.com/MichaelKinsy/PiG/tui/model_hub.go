@@ -1313,16 +1313,18 @@ func (h *ModelHub) footer(width int) string {
 		thinking, compaction := "", ""
 		if item, _, ok := h.selectedRowItem(); ok {
 			if len(ModelThinkingOptions(item, false)) > 0 {
-				thinking = " · t thinking"
+				thinking = "t thinking"
 			}
 			if h.cfg.Compaction != nil {
-				compaction = " · k compaction limit"
+				compaction = "k compaction limit"
 			}
 		}
 		row := h.rows[h.cursor]
 		switch row.kind {
 		case "fallback":
-			return fg(th.Dim, "↑/↓ rows · ⏎ replace · f add another · x remove"+thinking+compaction+" · [/] reorder · ← providers")
+			return fg(th.Dim, hintLine(width,
+				[]string{"↑/↓ rows", "⏎ replace", "f add another", "x remove", thinking, compaction, "[/] reorder", "← providers"},
+				thinking, compaction))
 		case "chain":
 			return fg(th.Dim, "↑/↓ rows · ⏎/f add fallback · x clear chain · ← providers")
 		case "newFallback":
@@ -1330,9 +1332,11 @@ func (h *ModelHub) footer(width int) string {
 		}
 		deletion := ""
 		if row.kind == "role" && h.cfg.DeleteRole != nil && !slices.Contains(modelroles.Builtins(), row.key) {
-			deletion = " · D delete role"
+			deletion = "D delete role"
 		}
-		return fg(th.Dim, "↑/↓ rows · ⏎ pick · f fallback · x clear"+deletion+thinking+compaction+" · c cycle · [/] reorder · n new")
+		return fg(th.Dim, hintLine(width,
+			[]string{"↑/↓ rows", "⏎ pick", "f fallback", "x clear", deletion, thinking, compaction, "c cycle", "[/] reorder", "n new"},
+			deletion, thinking, compaction))
 	}
 	entry := h.entries[h.side]
 	if entry.locked {
@@ -1346,6 +1350,33 @@ func (h *ModelHub) footer(width int) string {
 		return fg(th.Dim, "⏎/→ models · ↑/↓ providers · type to search · Alt+←/Alt+→ kind"+refresh+" · ⎋ close")
 	}
 	return fg(th.Dim, "⏎ assign roles · ↑/↓ models · ← providers · type to search · Alt+←/Alt+→ kind"+refresh+" · ⎋ close")
+}
+
+// hintLine joins hint segments with OMP's " · " separator, omitting empty
+// ones. Segments named in optional may be dropped, rightmost first, until the
+// line fits width. Callers list segments in display order and name only the
+// keys that a narrower terminal may hide: the frame truncates this footer from
+// the right, so a single joined string used to lose `c cycle` — the only hint
+// that Ctrl+P membership is edited here — behind the longer conditional
+// delete/thinking/compaction tokens while keeping a creation key every row
+// accepts. Width is the footer's content width, inside the border and inset.
+func hintLine(width int, segments []string, optional ...string) string {
+	dropped := map[string]bool{}
+	join := func() string {
+		parts := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			if segment != "" && !dropped[segment] {
+				parts = append(parts, segment)
+			}
+		}
+		return strings.Join(parts, " · ")
+	}
+	line := join()
+	for i := len(optional) - 1; i >= 0 && widthx.VisibleWidth(line) > width; i-- {
+		dropped[optional[i]] = true
+		line = join()
+	}
+	return line
 }
 
 // tabs renders OMP's colored track; preset controls are intentionally absent.

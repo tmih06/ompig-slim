@@ -21,7 +21,7 @@ You can send more input while the agent runs:
 | Steering message | After the current turn, before the next model request. |
 | Follow-up message | After the agent has no more work, before the run ends. |
 
-`Enter` steers and `Alt+Enter` queues a follow-up. On Windows and WSL, `Ctrl+Q` queues a follow-up. Press `Escape` to stop the run. PiG then puts the queued messages back into the editor. See [keybindings](keybindings.md).
+`Enter` steers and `Ctrl+Q` queues a follow-up. Press `Escape` to stop the run. PiG then puts the queued messages back into the editor. See [keybindings](keybindings.md).
 
 Before each further turn of a run, PiG checks the context size. When the context passes its limit, PiG compacts older history into a summary and then continues the run. See [compaction](compaction.md).
 

@@ -541,7 +541,7 @@ func NewSettingsSelectorComponent(config SettingsConfig, callbacks SettingsCallb
 		toggle("clear-on-shrink", "Clear on shrink", "Clear empty rows when content shrinks (may cause flicker)", config.ClearOnShrink),
 		toggle("terminal-progress", "Terminal progress", "Show OSC 9;4 progress indicators in the terminal tab bar", config.ShowTerminalProgress),
 		cycle("steering-mode", "Steering mode", "Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.", config.SteeringMode, "one-at-a-time", "all"),
-		cycle("follow-up-mode", "Follow-up mode", tui.ActionKeyDisplayTextOr("app.message.followUp", "alt+enter")+" queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.", config.FollowUpMode, "one-at-a-time", "all"),
+		cycle("follow-up-mode", "Follow-up mode", tui.ActionKeyDisplayTextOr("app.message.followUp", "ctrl+q")+" queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.", config.FollowUpMode, "one-at-a-time", "all"),
 		cycle("transport", "Transport", "Preferred transport for providers that support multiple transports", config.Transport, "sse", "websocket", "websocket-cached", "auto"),
 		// pig divergence (D64): Pi's "share-destination" item (auto, gist, radius) is omitted because PiG's /share always uploads to the PiG gateway.
 		cycle("http-idle-timeout", "HTTP idle timeout", "Maximum idle gap while waiting for HTTP headers or body chunks. Disable for local models that pause longer than five minutes.", formatHTTPIdleTimeoutMs(config.HttpIdleTimeoutMs), timeoutLabels...),

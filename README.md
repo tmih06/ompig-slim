@@ -61,6 +61,16 @@ make install
   phase background on every card and grep/find results drawn as a file tree. Write and edit
   stream their content while the arguments arrive, with diffs, highlighting,
   and Ctrl+O expansion.
+- oh-my-pi's theme collection: its 100 bundled palettes plus `system`, `dark`
+  and `light`, selectable with `/theme` or in settings. The default is Titanium
+  on a dark terminal and `light` on a light one, so a fresh install is colored
+  before the terminal reports anything, and a custom theme from `~/.pi/agent/themes`
+  drops in unchanged, including its `terminal.ansi` palette.
+- Colorful Markdown drawn from the theme's palette: a distinct hue per heading
+  depth, colored emphasis, inline code and table headers, as in oh-my-pi.
+- Reply prose, dialog descriptions, list rows and settings labels draw the
+  palette's own body color, so the interface stays colored on a terminal whose
+  default foreground is hard to tell from its background.
 - A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
 - The widget shows one item at a time: Tasks take priority; Quota appears
   when there is no todo list. It opens upward at the bottom-right, anchored to

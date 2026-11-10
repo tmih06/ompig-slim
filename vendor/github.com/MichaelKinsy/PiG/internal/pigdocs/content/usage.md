@@ -33,11 +33,11 @@ Extensions can register more shortcuts. An extension shortcut on a key of a rese
 | What you want | Action |
 |---|---|
 | Adjust the current task | Type a message and press `Enter` |
-| Add work after the current task | Type a message and press `Alt+Enter` (`Ctrl+Q` on Windows and WSL) |
+| Add work after the current task | Type a message and press `Ctrl+Q` |
 | Return queued messages to the editor | Press `Alt+Up` (`Alt+Q` on Windows and WSL) |
 | Stop the current task | Press `Escape` |
 
-A message sent with `Enter` waits until the current response and its tool calls finish, then steers the next response. A follow-up sent with `Alt+Enter` waits until PiG finishes the current task. Returning queued messages to the editor keeps queued extension custom messages queued. Pi 1.5.0 drops those custom messages (D135, [Pi #9886](https://github.com/earendil-works/pi/issues/9886)).
+A message sent with `Enter` waits until the current response and its tool calls finish, then steers the next response. A follow-up sent with `Ctrl+Q` waits until PiG finishes the current task. Returning queued messages to the editor keeps queued extension custom messages queued. Pi 1.5.0 drops those custom messages (D135, [Pi #9886](https://github.com/earendil-works/pi/issues/9886)).
 
 ## Autocomplete
 

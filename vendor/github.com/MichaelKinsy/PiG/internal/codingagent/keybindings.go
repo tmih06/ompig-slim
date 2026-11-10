@@ -78,7 +78,10 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.thinking.toggle", description: "Toggle thinking blocks", keys: []KeyID{"ctrl+t"}},
 	{id: "app.session.toggleNamedFilter", description: "Toggle named session filter", keys: []KeyID{"ctrl+n"}},
 	{id: "app.editor.external", description: "Open external editor", keys: []KeyID{"ctrl+g"}},
-	{id: "app.message.followUp", description: "Queue follow-up message", platform: &tui.PlatformKeys{Other: []KeyID{"alt+enter"}, Windows: []KeyID{"ctrl+q"}}},
+	// ompig-slim default: ctrl+q queues a follow-up on every platform (upstream binds alt+enter outside Windows and WSL).
+	// ctrl+q is the XON flow-control byte, which reaches the process because raw mode clears IXON; upstream already
+	// binds it on Windows, and ctrl+s (XOFF) is bound the same way, so no terminal is asked for a new capability.
+	{id: "app.message.followUp", description: "Queue follow-up message", keys: []KeyID{"ctrl+q"}},
 	{id: "app.message.copy", description: "Copy selection or last assistant message", keys: []KeyID{"ctrl+x"}},
 	{id: "app.message.dequeue", description: "Restore queued messages", platform: &tui.PlatformKeys{Other: []KeyID{"alt+up"}, Windows: []KeyID{"alt+q"}}},
 	{id: "app.clipboard.pasteImage", description: "Paste files on macOS, images, or text from clipboard", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+v"}, Windows: []KeyID{"alt+v"}}},
