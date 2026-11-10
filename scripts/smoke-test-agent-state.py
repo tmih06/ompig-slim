@@ -118,17 +118,24 @@ def run(binary):
 
             def pump(seconds):
                 """Read output and sample the published state until the deadline."""
+                pump_until(lambda: False, seconds)
+
+            def pump_until(condition, seconds):
+                """Read output and sample state until condition holds or time is up."""
                 end = time.monotonic() + seconds
                 while time.monotonic() < end:
                     if select.select([master], [], [], 0.02)[0]:
                         try:
                             captured.extend(os.read(master, 262144))
                         except OSError:
-                            return
+                            return False
                     document = published()
                     if document and document.get("state"):
                         if not states or states[-1] != document["state"]:
                             states.append(document["state"])
+                    if condition():
+                        return True
+                return condition()
 
             try:
                 # The first load builds the extension against the staged SDK.
@@ -139,6 +146,14 @@ def run(binary):
                 for field in ("session_id", "session_file", "cwd", "pid", "updated_at"):
                     assert document.get(field), f"state document lacks {field}: {document!r}"
                 assert document["mode"] == "tui", f"mode was {document.get('mode')!r}"
+                # The document is refreshed while the session lives, so a reader
+                # applying the staleness rule can always prove it is current. An
+                # idle agent between turns is exactly the case that needs it:
+                # without a refresh its timestamp ages with no state change to
+                # explain it, and a consumer treats the agent as unknown.
+                stamped = document["updated_at"]
+                refreshed = pump_until(lambda: (published() or {}).get("updated_at") != stamped, 60)
+                assert refreshed, f"the document was never refreshed: {published()!r}"
 
                 os.write(master, b"hello\r")
                 pump(20)

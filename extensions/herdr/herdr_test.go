@@ -76,8 +76,14 @@ func indexOf(args []string, value string) int {
 }
 
 // writeState writes a state document into dir, as internal/agentstate does.
+// writeState writes a state document. A caller that does not set `updated_at` gets
+// a current timestamp, because the adapter only reports a freshly published
+// document; a fixture without one would be testing the staleness path by accident.
 func writeState(t *testing.T, dir string, document map[string]any) string {
 	t.Helper()
+	if _, ok := document["updated_at"]; !ok {
+		document["updated_at"] = time.Now().Format(time.RFC3339Nano)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -248,6 +254,44 @@ func TestReadReportedToleratesAMissingOrCorruptDocument(t *testing.T) {
 	}
 	if _, ok := readReported(corrupt); ok {
 		t.Fatal("a corrupt document must report nothing")
+	}
+}
+
+// TestReadReportedDropsAStaleDocument pins the reader's half of the heartbeat
+// contract.
+//
+// Herdr never expires a reported state, so a document that stopped being refreshed
+// would keep a pane looking busy forever: the observed symptom was a session whose
+// document froze at `working` on its first turn. A reader therefore reports nothing
+// for a document older than the harness's own heartbeat window, and keeps reporting
+// inside it, so one missed refresh does not blank a healthy agent.
+func TestReadReportedDropsAStaleDocument(t *testing.T) {
+	dir := t.TempDir()
+	published := time.Now()
+	path := writeState(t, dir, map[string]any{
+		"state":      "working",
+		"updated_at": published.Format(time.RFC3339Nano),
+	})
+
+	if got, ok := readReportedAt(path, published.Add(staleAfter)); !ok || got.state != "working" {
+		t.Fatalf("a document at the staleness edge was dropped: %+v, %v", got, ok)
+	}
+	if _, ok := readReportedAt(path, published.Add(staleAfter+time.Second)); ok {
+		t.Fatal("a stale document must report nothing")
+	}
+
+	// A document with no readable timestamp has no claim to being current.
+	for name, content := range map[string]string{
+		"absent timestamp":  `{"state":"working"}`,
+		"unparseable value": `{"state":"working","updated_at":"yesterday"}`,
+	} {
+		path := filepath.Join(t.TempDir(), "status.json")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, ok := readReportedAt(path, published); ok {
+			t.Fatalf("%s: a document with no usable timestamp must report nothing", name)
+		}
 	}
 }
 

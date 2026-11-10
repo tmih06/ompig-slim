@@ -2,6 +2,7 @@ package agentstate
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -271,6 +272,73 @@ func TestClockIsInjectable(t *testing.T) {
 // defect that motivated per-process directories: with one shared file, the second
 // session's publish overwrote the first, so a consumer watching a pane could see
 // a rival session's state.
+// TestRefreshRestampsAnUnchangedDocument pins the writer's half of the heartbeat
+// contract.
+//
+// Publish deliberately suppresses a write whose content matches the last one, so
+// an idle agent leaves a timestamp that ages. A reader applying [HeartbeatAfter]
+// would then call a healthy agent unknown — which is what happened in practice: a
+// session whose document stopped being written showed as busy or gone instead of
+// idle. Refresh re-stamps the last document without changing its state, and
+// invents nothing when the publisher has never published.
+func TestRefreshRestampsAnUnchangedDocument(t *testing.T) {
+	root := t.TempDir()
+	publisher := NewPublisherAt(root)
+	start := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	now := start
+	publisher.clock = func() time.Time { return now }
+
+	// Before any publish there is nothing to refresh.
+	publisher.Refresh()
+	if _, err := os.Stat(filepath.Join(root, "status.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Refresh invented a document: %v", err)
+	}
+
+	publisher.Publish(Document{State: Working, Agent: "ompig-slim"})
+	if got := readDocument(t, root); got.State != Working || got.UpdatedAt != start.Format(time.RFC3339Nano) {
+		t.Fatalf("published document = %+v", got)
+	}
+
+	now = start.Add(HeartbeatInterval)
+	publisher.Refresh()
+	refreshed := readDocument(t, root)
+	if refreshed.State != Working {
+		t.Fatalf("Refresh changed the state: %q", refreshed.State)
+	}
+	if refreshed.UpdatedAt != now.Format(time.RFC3339Nano) {
+		t.Fatalf("updated_at = %q, want the refresh time", refreshed.UpdatedAt)
+	}
+	if staleAt(refreshed, now) {
+		t.Fatal("a freshly refreshed document counted as stale")
+	}
+}
+
+// TestStaleTracksDocumentAge pins the reader-side rule: a document older than its
+// heartbeat window no longer describes its writer, and one without a readable
+// timestamp never did.
+func TestStaleTracksDocumentAge(t *testing.T) {
+	now := time.Now()
+	fresh := Document{UpdatedAt: now.Format(time.RFC3339Nano)}
+	if staleAt(fresh, now) {
+		t.Fatal("a current document counted as stale")
+	}
+	edge := Document{UpdatedAt: now.Add(-HeartbeatAfter).Format(time.RFC3339Nano)}
+	if staleAt(edge, now) {
+		t.Fatal("a document at the staleness edge counted as stale")
+	}
+	// The slack a second of RFC 3339 rounding needs must not become license for a
+	// document that genuinely missed a beat.
+	for name, doc := range map[string]Document{
+		"missed a heartbeat": {UpdatedAt: now.Add(-HeartbeatAfter - 2*time.Second).Format(time.RFC3339Nano)},
+		"no timestamp":       {},
+		"unparseable":        {UpdatedAt: "yesterday"},
+	} {
+		if !staleAt(doc, now) {
+			t.Fatalf("%s: a document that cannot prove it is current counted as fresh", name)
+		}
+	}
+}
+
 func TestConcurrentSessionsKeepSeparateDocuments(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PIG_HOME", root)

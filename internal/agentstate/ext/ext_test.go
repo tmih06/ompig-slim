@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
@@ -32,8 +33,9 @@ func (m *testSessionManager) GetSessionFile() *string {
 // ctx.SessionManager(), ctx.CWD(), and ctx.Mode() answer from the runner's
 // bound actions instead of from a stub this package invents.
 type harness struct {
-	runner *inproc.Runner
-	root   string
+	runner  *inproc.Runner
+	root    string
+	tracker *tracker
 }
 
 func newHarness(t *testing.T, idle bool, mode extension.ExtensionMode) *harness {
@@ -45,8 +47,9 @@ func newHarness(t *testing.T, idle bool, mode extension.ExtensionMode) *harness 
 func newHarnessAt(t *testing.T, root string, idle bool, mode extension.ExtensionMode) *harness {
 	t.Helper()
 	publisher := agentstate.NewPublisherAt(root)
+	tracked := newTracker(publisher)
 	loaded, err := factoryload.LoadExtensionFromFactory(
-		Extension(publisher), root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:agentstate>",
+		extensionWithTracker(publisher, tracked), root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:agentstate>",
 	)
 	if err != nil {
 		t.Fatalf("load extension: %v", err)
@@ -60,7 +63,7 @@ func newHarnessAt(t *testing.T, root string, idle bool, mode extension.Extension
 		},
 	}, nil)
 	runner.SetUIContext(extension.NoopUIContext, mode)
-	return &harness{runner: runner, root: root}
+	return &harness{runner: runner, root: root, tracker: tracked}
 }
 
 func (h *harness) emit(t *testing.T, event extension.ExtensionEvent) {
@@ -201,6 +204,111 @@ func TestShutdownPublishesTheTerminalState(t *testing.T) {
 	if got := h.document(t).State; got != agentstate.Exited {
 		t.Fatalf("state = %q after a late event", got)
 	}
+}
+
+// TestSessionScopedShutdownKeepsPublishing pins the difference between a process
+// that is ending and one that replaced its session.
+//
+// `session_shutdown` does not mean the process is gone: `/clear` emits it with
+// reason "new", `/reload` with "reload", and resuming or forking with their own
+// reasons. Treating every shutdown as terminal published `exited` and then
+// ignored every later event, so a live agent's document claimed it had exited for
+// the rest of the process. A consumer reads `exited` as "stop watching this pane",
+// which is exactly the reported symptom: the multiplexer showed no agent even
+// though the agent was working.
+func TestSessionScopedShutdownKeepsPublishing(t *testing.T) {
+	for _, reason := range []string{"new", "reload", "resume", "fork"} {
+		t.Run(reason, func(t *testing.T) {
+			h := newHarness(t, true, extension.ModeTUI)
+			h.emit(t, extension.SessionStartEvent{Type: "session_start", Reason: "startup"})
+			h.emit(t, extension.AgentStartEvent{Type: "agent_start"})
+			if got := h.document(t).State; got != agentstate.Working {
+				t.Fatalf("state = %q before the switch, want working", got)
+			}
+
+			h.emit(t, extension.SessionShutdownEvent{Type: "session_shutdown", Reason: reason})
+			// The ended session's run is over; the process is not.
+			if got := h.document(t).State; got != agentstate.Idle {
+				t.Fatalf("state = %q after a %q shutdown, want idle", got, reason)
+			}
+
+			// The next session of the same process must still publish.
+			h.emit(t, extension.AgentStartEvent{Type: "agent_start"})
+			if got := h.document(t).State; got != agentstate.Working {
+				t.Fatalf("state = %q after the next agent_start, want working", got)
+			}
+			h.emit(t, extension.AgentSettledEvent{Type: "agent_settled"})
+			if got := h.document(t).State; got != agentstate.Idle {
+				t.Fatalf("state = %q after the next turn, want idle", got)
+			}
+		})
+	}
+}
+
+// TestSessionScopedShutdownClearsAStaleDialog pins that a replaced session does
+// not inherit the previous one's blocking dialog: a `blocked` document with no
+// dialog open would make a consumer wait on a user who is not being asked
+// anything.
+func TestSessionScopedShutdownClearsAStaleDialog(t *testing.T) {
+	h := newHarness(t, true, extension.ModeTUI)
+	h.emit(t, extension.SessionStartEvent{Type: "session_start", Reason: "startup"})
+	h.emit(t, extension.UIPromptStartEvent{Type: "ui_prompt_start", Kind: "permission", Title: "Allow?"})
+	if got := h.document(t).State; got != agentstate.Blocked {
+		t.Fatalf("state = %q before the switch, want blocked", got)
+	}
+
+	h.emit(t, extension.SessionShutdownEvent{Type: "session_shutdown", Reason: "new"})
+	document := h.document(t)
+	if document.State != agentstate.Idle {
+		t.Fatalf("state = %q after a /clear, want idle", document.State)
+	}
+	if document.Detail != "" || document.BlockedKind != "" {
+		t.Fatalf("a replaced session kept the old dialog: %+v", document)
+	}
+}
+
+// TestHeartbeatKeepsTheDocumentCurrent pins that a running session re-stamps its
+// document, so a consumer applying the staleness rule never calls a healthy agent
+// unknown while it sits idle between turns.
+//
+// Without the heartbeat the document keeps the timestamp of the last state change,
+// which for an idle agent is arbitrarily old. That is precisely how a pane can read
+// as gone: the reader sees a document it cannot prove is current.
+func TestHeartbeatKeepsTheDocumentCurrent(t *testing.T) {
+	h := newHarness(t, true, extension.ModeTUI)
+	h.tracker.beatEvery = 10 * time.Millisecond
+	h.emit(t, extension.SessionStartEvent{Type: "session_start", Reason: "startup"})
+
+	before := h.document(t)
+	if before.State != agentstate.Idle {
+		t.Fatalf("state = %q, want idle", before.State)
+	}
+
+	// Shorten the loop so the test observes a beat instead of waiting a third of a
+	// minute for the production interval.
+	h.tracker.beatEvery = 10 * time.Millisecond
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if document := h.document(t); document.UpdatedAt != before.UpdatedAt {
+			if document.State != agentstate.Idle {
+				t.Fatalf("the heartbeat changed the state to %q", document.State)
+			}
+			if agentstate.Stale(document) {
+				t.Fatal("the refreshed document counted as stale")
+			}
+			// A quit stops the loop, so a session that is gone stops publishing
+			// instead of leaving a goroutine writing for it.
+			h.emit(t, extension.SessionShutdownEvent{Type: "session_shutdown", Reason: "quit"})
+			select {
+			case <-h.tracker.beatStopped:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the heartbeat outlived the session")
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the document timestamp never advanced")
 }
 
 func TestHeadlessRunsPublishTheirMode(t *testing.T) {

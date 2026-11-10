@@ -32,7 +32,7 @@
 //
 // The document is advisory. A reader must treat an absent file, an unreadable
 // file, or an old timestamp as "no information" rather than an error, because
-// the writer is a normal process that can be killed mid-turn. `HeartbeatAfter`
+// the writer is a normal process that can be killed mid-turn. [HeartbeatAfter]
 // in the document lets a reader distinguish "idle since long ago" from "the
 // writer died", which a bare state string cannot express.
 package agentstate
@@ -108,6 +108,39 @@ type Document struct {
 	// numeric zone. A reader that finds this very old should verify
 	// [Document.ProcessID] is still alive before trusting `state`.
 	UpdatedAt string `json:"updated_at"`
+}
+
+// HeartbeatAfter is how long a document stays authoritative without being
+// rewritten. The publisher refreshes the document on this interval, and a reader
+// that finds an older `updated_at` must treat the state as unknown rather than
+// current.
+//
+// The interval exists because a writer can stop publishing while staying alive:
+// an extension reloaded mid-run, a handler that panicked, a process suspended and
+// resumed. A reader that trusts a frozen `working` forever shows an agent as busy
+// when it is not, and one that trusts a frozen `exited` stops watching a pane
+// whose agent came back. Both were observed: a session whose document was frozen
+// at `working` from its first turn, and a `/clear` that published `exited` for a
+// process that kept working. One minute is several times the refresh interval, so
+// a reader tolerates a missed write without ever accepting a stale state for long.
+const HeartbeatAfter = time.Minute
+
+// Stale reports whether doc is too old to describe its writer, per
+// [HeartbeatAfter]. A document with no timestamp counts as stale: guessing that
+// it is current is how a reader shows a dead agent as active.
+func Stale(doc Document) bool { return staleAt(doc, time.Now()) }
+
+// staleAt is Stale against an explicit clock. The comparison has a second of slack
+// at the deadline because the document records its time as RFC 3339, which drops
+// trailing zero nanoseconds: a timestamp written at exactly whole seconds reads
+// back with the same value, but one written mid-second round-trips within that
+// second. A reader must not call a document stale over a formatting artifact.
+func staleAt(doc Document, now time.Time) bool {
+	updated, err := time.Parse(time.RFC3339Nano, doc.UpdatedAt)
+	if err != nil {
+		return true
+	}
+	return now.Sub(updated) > HeartbeatAfter+time.Second
 }
 
 // Root returns the directory holding every agent's document:
@@ -199,6 +232,39 @@ func pidFromDir(dir string) int {
 
 // Enabled reports whether this Publisher writes anything.
 func (p *Publisher) Enabled() bool { return p != nil && p.dir != "" }
+
+// Refresh rewrites the last published document with a current timestamp, even
+// when its state is unchanged, so a reader can tell a live writer from one that
+// stopped. It publishes nothing when this Publisher has not published yet: a
+// refresh must never invent a document.
+//
+// This is what makes [HeartbeatAfter] meaningful. [Publisher.Publish] suppresses a
+// write whose content matches the last one, so an agent that sits idle for an hour
+// leaves an hour-old timestamp, and a reader applying the staleness rule would
+// call a perfectly healthy agent unknown. The refresh loop is the writer's half of
+// that contract.
+func (p *Publisher) Refresh() {
+	if !p.Enabled() {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.last == nil {
+		return
+	}
+	doc := *p.last
+	doc.Version = Version
+	doc.ProcessID = p.pid
+	doc.UpdatedAt = p.clock().Format(time.RFC3339Nano)
+	p.last = &doc
+	p.err = p.write(doc)
+	p.writes++
+}
+
+// HeartbeatInterval is how often a running session calls [Publisher.Refresh]:
+// comfortably inside [HeartbeatAfter], so one missed tick still leaves a
+// document a reader accepts.
+const HeartbeatInterval = HeartbeatAfter / 3
 
 // Publish writes doc. Version, ProcessID, and UpdatedAt are filled in here so a
 // caller cannot forget them.

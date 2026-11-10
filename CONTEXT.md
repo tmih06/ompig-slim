@@ -259,8 +259,27 @@ also carries `agent` (`ompig-slim`), `session_id`, `session_file`, `cwd`, `mode`
 title for a blocked state, collapsed to one printable line), `blocked_kind`, `pid`, and `updated_at`.
 A consumer that only cares about an interactive agent must require `mode == "tui"`: a one-shot
 `-p` run in the same directory publishes too, and it is not the agent the user is watching. `exited` is
-written once on shutdown so a poller stops instead of trusting the last `working` forever; `pid` and
-`updated_at` let a reader tell a live document from a killed writer's leftovers.
+written once when the *process* ends, so a poller stops instead of trusting the last `working` forever;
+`pid` and `updated_at` let a reader tell a live document from a killed writer's leftovers.
+
+**A replaced session is not an exit.** `session_shutdown` carries a reason, and only `quit` ends the
+process: `/clear` emits `new`, `/reload` emits `reload`, and resuming or forking emit their own. The
+tracker therefore routes the event by reason — `quit` publishes `exited` and stops, every other reason
+resets the run and dialog state and republishes — so the next session of the same process keeps
+publishing. Treating every shutdown as terminal published `exited` for a live process and ignored
+every later event; a consumer reads `exited` as "stop watching this pane", which is one way the adapter
+appeared to lose the agent.
+
+**The document is refreshed, not only rewritten.** `Publish` suppresses a write whose content matches
+the last one, so an idle agent keeps the timestamp of its last state change — arbitrarily old. The
+extension therefore re-stamps the last document every `HeartbeatInterval` (a third of
+`HeartbeatAfter`, one minute) through `Publisher.Refresh`, which writes a fresh `updated_at` without
+inventing a document or changing `state`. A reader applying `agentstate.Stale` / the adapter's own
+`staleAfter` treats anything older as "no information", so one missed beat is tolerated and a writer
+that really did stop publishing stops being believed. This matters because Herdr never expires a
+reported state on its own: a frozen `working` kept a pane looking busy indefinitely, which was the
+other way the adapter appeared to lose the agent. The reader-side rule needs the writer-side refresh;
+neither is useful alone.
 
 Derivation, in the order the states win: an open blocking dialog is `blocked`, an in-flight run is
 `working`, anything else is `idle`. `blocked` wins because a dialog can open mid-run and is what a
@@ -320,12 +339,15 @@ too. The adapter never releases the pane; Herdr clears the agent and its resume 
 the pane is back at its shell prompt, which covers exit and crash alike.
 
 `internal/agentstate/agentstate_test.go` covers the atomic write, duplicate suppression, field
-preservation, failure silence, and the reader's missing-versus-corrupt distinction;
-`internal/agentstate/ext/ext_test.go` drives real session events through the production factory loader
-and a real `inproc.Runner`. `extensions/herdr/herdr_test.go` covers the command line, seq ordering,
-`exited` filtering, resume validation, and the poller. `scripts/smoke-test-agent-state.py` proves both
-halves on the built executable: one real model turn moves the document `idle → working → idle`, and
-the installed extension forwards those states to a recording fake Herdr with the resume command.
+preservation, failure silence, refresh of an unchanged document, the staleness window, and the
+reader's missing-versus-corrupt distinction; `internal/agentstate/ext/ext_test.go` drives real session
+events through the production factory loader and a real `inproc.Runner`, including each
+session-scoped shutdown reason and the heartbeat's start and stop. `extensions/herdr/herdr_test.go`
+covers the command line, seq ordering, `exited` filtering, the staleness drop, resume validation, and
+the poller. `scripts/smoke-test-agent-state.py` proves both halves on the built executable: one real
+model turn moves the document `idle → working → idle`, the idle document is refreshed without a state
+change, and the installed extension forwards those states to a recording fake Herdr with the resume
+command.
 
 ### Theme, palette and colorful Markdown
 
