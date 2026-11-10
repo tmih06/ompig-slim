@@ -15,10 +15,17 @@ package codingagent
 //   - A steer or follow-up enqueues its own mention message, so a mention typed
 //     while a run streams lands with the text in the same queue slot.
 //
-// Reading is best effort: a mention that is not an existing path is prose, so a
-// failed read never rejects the prompt.
+// Reading is best effort: a mention that is neither a URL nor an existing path
+// is prose, so a failed read never rejects the prompt.
+//
+// A URL mention is a network read, and a prompt is dispatched on the owner loop,
+// where a fetch would freeze the editor for its whole timeout. So a prompt whose
+// mentions include a URL is read on a worker and its delivery is posted back to
+// the loop; a prompt whose mentions are all local files is read inline, since a
+// directory listing or file read cannot block on another host.
 
 import (
+	"context"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
@@ -31,28 +38,39 @@ type fileMentionContext struct {
 	message  agent.AgentMessage
 }
 
-// readPromptFileMentions auto-reads the `@path` mentions of text against the
-// session's working directory. It returns nil when the text mentions nothing
-// readable.
-func (m *InteractiveMode) readPromptFileMentions(text string) []FileMention {
-	if m.opts.CWD == "" {
-		return nil
-	}
+// readPromptFileMentions auto-reads the `@path` and `@url` mentions of text
+// against the session's working directory. It returns nil when the text
+// mentions nothing readable. It performs network I/O for a URL mention, so it
+// must not run on the owner loop.
+func (m *InteractiveMode) readPromptFileMentions(ctx context.Context, text string) []FileMention {
 	paths := ExtractFileMentions(text)
 	if len(paths) == 0 {
 		return nil
 	}
-	return ReadFileMentions(paths, m.opts.CWD)
+	return ReadFileMentions(ctx, paths, m.opts.CWD)
 }
 
 // prepareFileMentions reads a prompt's mentions and builds the message that
-// delivers them beside it. A nil result means nothing was read.
-func (m *InteractiveMode) prepareFileMentions(text string) *fileMentionContext {
-	mentions := m.readPromptFileMentions(text)
+// delivers them beside it. A nil result means nothing was read. It shares
+// readPromptFileMentions' rule about the owner loop.
+func (m *InteractiveMode) prepareFileMentions(ctx context.Context, text string) *fileMentionContext {
+	mentions := m.readPromptFileMentions(ctx, text)
 	if len(mentions) == 0 {
 		return nil
 	}
 	return &fileMentionContext{mentions: mentions, message: FileMentionsMessage(mentions)}
+}
+
+// mentionsNeedNetwork reports whether reading text's mentions fetches a URL, so
+// the caller can move the read off the owner loop. A local-only read stays
+// inline and keeps the prompt's ordering guarantees.
+func mentionsNeedNetwork(text string) bool {
+	for _, mention := range ExtractFileMentions(text) {
+		if isFileMentionURL(mention) {
+			return true
+		}
+	}
+	return false
 }
 
 // promptStartingMessages is the batch a prompt turn starts from: the user

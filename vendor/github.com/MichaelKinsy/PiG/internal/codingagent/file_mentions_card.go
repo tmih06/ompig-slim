@@ -74,6 +74,14 @@ func fileMentionDetail(mention FileMention) string {
 		return "skipped: " + tools.FormatSize(int(mention.ByteSize))
 	case "binary":
 		return "skipped: binary, " + tools.FormatSize(int(mention.ByteSize))
+	case "fetchFailed":
+		return "fetch failed"
+	}
+	if mention.IsURL {
+		if mention.LineCount == 1 {
+			return "1 line"
+		}
+		return fmt.Sprintf("%d lines", mention.LineCount)
 	}
 	if mention.IsDirectory {
 		switch mention.LineCount {

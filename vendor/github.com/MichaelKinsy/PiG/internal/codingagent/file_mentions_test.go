@@ -5,8 +5,11 @@ package codingagent
 // `├─ Read path (N lines)`.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +74,7 @@ func TestExtractFileMentions(t *testing.T) {
 // and the ordering the card draws.
 func TestReadFileMentions(t *testing.T) {
 	cwd := mentionFixture(t)
-	mentions := ReadFileMentions([]string{"README.md", "src", "blob.bin", "missing.md"}, cwd)
+	mentions := ReadFileMentions(context.Background(), []string{"README.md", "src", "blob.bin", "missing.md"}, cwd)
 	if len(mentions) != 3 {
 		t.Fatalf("mentions = %+v; want the missing path skipped", mentions)
 	}
@@ -109,7 +112,7 @@ func TestReadFileMentionsTruncates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, "big.txt"), []byte(content.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mentions := ReadFileMentions([]string{"big.txt"}, cwd)
+	mentions := ReadFileMentions(context.Background(), []string{"big.txt"}, cwd)
 	if len(mentions) != 1 {
 		t.Fatalf("mentions = %+v", mentions)
 	}
@@ -232,14 +235,14 @@ func TestFileMentionsRoundTrip(t *testing.T) {
 // from resolving a mention against the process directory.
 func TestPrepareFileMentionsNeedsCwd(t *testing.T) {
 	m := &InteractiveMode{}
-	if m.prepareFileMentions("@README.md") != nil {
+	if m.prepareFileMentions(context.Background(), "@README.md") != nil {
 		t.Fatal("resolved a mention without a cwd")
 	}
 	m.opts.CWD = mentionFixture(t)
-	if mentions := m.prepareFileMentions("see @README.md"); mentions == nil || len(mentions.mentions) != 1 {
+	if mentions := m.prepareFileMentions(context.Background(), "see @README.md"); mentions == nil || len(mentions.mentions) != 1 {
 		t.Fatalf("mentions = %+v", mentions)
 	}
-	if m.prepareFileMentions("nothing here") != nil {
+	if m.prepareFileMentions(context.Background(), "nothing here") != nil {
 		t.Fatal("unmentioned prompt produced a read")
 	}
 }
@@ -249,7 +252,7 @@ func TestPrepareFileMentionsNeedsCwd(t *testing.T) {
 func TestAppendFileMentionCard(t *testing.T) {
 	mode := &InteractiveMode{opts: InteractiveModeOptions{CWD: mentionFixture(t)}}
 	mode.chatContainer = tui.NewContainer()
-	mentions := mode.readPromptFileMentions("see @README.md and @src")
+	mentions := mode.readPromptFileMentions(context.Background(), "see @README.md and @src")
 	if len(mentions) != 2 {
 		t.Fatalf("mentions = %+v", mentions)
 	}
@@ -278,7 +281,7 @@ func TestFileMentionCardFollowsSubmittedPrompt(t *testing.T) {
 	// Production reads this from settings (GetOutputPad defaults to one cell), so
 	// the card is indented with the prompt block it belongs to.
 	mode.outputPad = 1
-	mentions := mode.prepareFileMentions("please explain @README.md")
+	mentions := mode.prepareFileMentions(context.Background(), "please explain @README.md")
 	if mentions == nil {
 		t.Fatal("no auto-read produced")
 	}
@@ -300,6 +303,137 @@ func TestFileMentionCardFollowsSubmittedPrompt(t *testing.T) {
 	}
 	if !strings.Contains(widthx.StripAnsi(strings.Join(rows, "\n")), "please explain @README.md") {
 		t.Fatal("the prompt is not in the transcript")
+	}
+}
+
+// TestReadURLMentions fetch a real document over loopback, so the URL path is
+// exercised end to end without touching a network the tests do not own.
+func TestReadURLMentions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, "alpha\nbeta\ngamma\n")
+	}))
+	defer server.Close()
+
+	url := server.URL + "/doc.txt"
+	if !isFileMentionURL(url) {
+		t.Fatalf("%q is not detected as a URL", url)
+	}
+	if isFileMentionURL("src/a.go") {
+		t.Fatal("a relative path was detected as a URL")
+	}
+	mentions := ReadFileMentions(context.Background(), []string{url}, t.TempDir())
+	if len(mentions) != 1 {
+		t.Fatalf("mentions = %+v", mentions)
+	}
+	got := mentions[0]
+	if !got.IsURL || got.Path != url {
+		t.Fatalf("mention = %+v", got)
+	}
+	// The row reports the document's own line count, and the content is read's
+	// rendering: the Fetched header plus the body.
+	if got.LineCount != 3 {
+		t.Fatalf("line count = %d; want 3", got.LineCount)
+	}
+	for _, want := range []string{"Fetched " + url, "alpha", "gamma"} {
+		if !strings.Contains(got.Content, want) {
+			t.Fatalf("content missing %q: %q", want, got.Content)
+		}
+	}
+	if detail := fileMentionDetail(got); detail != "3 lines" {
+		t.Fatalf("detail = %q", detail)
+	}
+}
+
+// TestReadURLMentionFailure keeps a broken URL as a named row with the reason,
+// unlike a path that turned out to be prose.
+func TestReadURLMentionFailure(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	mentions := ReadFileMentions(context.Background(), []string{server.URL + "/missing"}, t.TempDir())
+	if len(mentions) != 1 {
+		t.Fatalf("mentions = %+v", mentions)
+	}
+	if !mentions[0].IsURL || mentions[0].Skipped != "fetchFailed" || !strings.Contains(mentions[0].Content, "skipped auto-read") {
+		t.Fatalf("failure row = %+v", mentions[0])
+	}
+	if detail := fileMentionDetail(mentions[0]); detail != "fetch failed" {
+		t.Fatalf("detail = %q", detail)
+	}
+}
+
+// TestMentionsNeedNetwork routes a URL mention off the owner loop and keeps a
+// local-only mention inline.
+func TestMentionsNeedNetwork(t *testing.T) {
+	for _, tc := range []struct {
+		prompt string
+		want   bool
+	}{
+		{"read @README.md", false},
+		{"read @https://example.com/doc", true},
+		{"read @http://example.com and @README.md", true},
+		{"nothing mentioned", false},
+	} {
+		if got := mentionsNeedNetwork(tc.prompt); got != tc.want {
+			t.Errorf("%q: needsNetwork = %t, want %t", tc.prompt, got, tc.want)
+		}
+	}
+}
+
+// TestPrepareFileMentionsKeepsURLWithoutCwd makes sure a URL still reads when a
+// session has no working directory, while a relative path does not resolve
+// against the process directory.
+func TestPrepareFileMentionsKeepsURLWithoutCwd(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "body\n")
+	}))
+	defer server.Close()
+	m := &InteractiveMode{}
+	mentions := m.prepareFileMentions(context.Background(), "see @"+server.URL+"/x and @README.md")
+	if mentions == nil || len(mentions.mentions) != 1 || !mentions.mentions[0].IsURL {
+		t.Fatalf("mentions = %+v", mentions)
+	}
+}
+
+// TestDeliverPromptReadsOffLoop is the routing rule deliverPrompt applies: a
+// URL mention set is read on a worker and reports that it kept the preflight
+// slot, while a local-only set is read inline and releases it at once. The
+// delivery half is covered by TestFileMentionCardFollowsSubmittedPrompt; these
+// cases stop at the routing decision so no turn is started.
+func TestDeliverPromptReadsOffLoop(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "doc line\n")
+	}))
+	defer server.Close()
+	cwd := mentionFixture(t)
+	for _, tc := range []struct {
+		name    string
+		prompt  string
+		offLoop bool
+	}{
+		{"local", "read @README.md", false},
+		{"url", "read @" + server.URL + "/doc", true},
+		{"mixed", "read @README.md and @" + server.URL + "/doc", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mentionsNeedNetwork(tc.prompt); got != tc.offLoop {
+				t.Fatalf("needsNetwork = %t, want %t", got, tc.offLoop)
+			}
+			// The same read either way, so routing cannot change the rows.
+			mentions := ReadFileMentions(context.Background(), ExtractFileMentions(tc.prompt), cwd)
+			if len(mentions) == 0 {
+				t.Fatal("no mentions read")
+			}
+			for _, mention := range mentions {
+				if mention.Content == "" {
+					t.Fatalf("empty content for %q", mention.Path)
+				}
+			}
+		})
 	}
 }
 

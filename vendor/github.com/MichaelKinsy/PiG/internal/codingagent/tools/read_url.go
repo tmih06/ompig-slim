@@ -206,6 +206,67 @@ func renderReadURL(ctx context.Context, result webtools.FetchResult) agent.Agent
 	return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}}, Details: details}
 }
 
+// RenderedURLText is a URL read's model-visible text and the number of lines the
+// document has. It is renderReadURL's text for a fetch with no line window, so a
+// caller that delivers the text elsewhere (an auto-read `@url` mention) reports
+// exactly what a `read` of the same URL would.
+type RenderedURLText struct {
+	Text string
+	// Lines is the fetched document's own line count, not the shown window's.
+	Lines int
+}
+
+// RenderURLText renders a completed fetch as read's text. Images report their
+// attachment line rather than a base64 body, because the caller has no model
+// image budget to spend and the note still tells the model what was there.
+func RenderURLText(result webtools.FetchResult) RenderedURLText {
+	if result.Image != nil {
+		return RenderedURLText{
+			Text:  readURLHeader(result) + "\n\n[Image " + result.Image.MIME + ", " + FormatSize(len(result.Image.Data)) + "]",
+			Lines: 1,
+		}
+	}
+	return RenderedURLText{Text: urlBodyText(result), Lines: max(result.TotalLines, 1)}
+}
+
+// urlBodyText is renderReadURL's body: the header, the head-truncated document
+// and the continuation windows, without the artifact path a tool result adds.
+func urlBodyText(result webtools.FetchResult) string {
+	header := readURLHeader(result)
+	body := result.Text
+	if strings.TrimSpace(body) == "" {
+		if result.TotalLines == 0 {
+			body = "(the document rendered to no text)"
+		} else {
+			body = fmt.Sprintf("(the requested line window is empty; the document has %d lines)", result.TotalLines)
+		}
+	}
+	truncation := TruncateHead(body, TruncationOptions{MaxLines: new(readURLMaxOutputLines), MaxBytes: new(readURLMaxOutputBytes)})
+	var tail []string
+	if warning := FormatTruncationWarning(truncation); warning != "" {
+		tail = append(tail, warning)
+	}
+	if shown := readURLShownWindow(result, truncation); shown.start <= shown.end && (shown.start > 1 || shown.end < result.TotalLines) {
+		note := fmt.Sprintf("[Showing lines %d-%d of %d.", shown.start, shown.end, result.TotalLines)
+		if shown.end < result.TotalLines {
+			note += fmt.Sprintf(" Append :%d-%d to the URL for the next range.", shown.end+1, min(shown.end+readURLMaxOutputLines, result.TotalLines))
+		}
+		tail = append(tail, note+"]")
+	}
+	for _, note := range result.Notes {
+		tail = append(tail, "[Note: "+note+"]")
+	}
+	text := header + "\n\n" + truncation.Content
+	if len(tail) > 0 {
+		text += "\n\n" + strings.Join(tail, "\n")
+	}
+	return text
+}
+
+// IsReadableURLPath is read.ts isReadableUrlPath for callers that must tell a
+// URL from a filesystem path before choosing a reader.
+func IsReadableURLPath(value string) bool { return isReadableURLPath(value) }
+
 // renderReadURLImage returns the image as an attachment when the model accepts
 // images, and describes it otherwise.
 func renderReadURLImage(ctx context.Context, result webtools.FetchResult, details *readURLDetails) agent.AgentToolResult {

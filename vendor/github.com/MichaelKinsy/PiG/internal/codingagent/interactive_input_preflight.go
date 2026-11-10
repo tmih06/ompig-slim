@@ -153,7 +153,14 @@ func (m *InteractiveMode) preflightPending() bool {
 // starts the next queued submission. It is also the synchronous path's whole
 // body, so both strategies deliver a result the same way.
 func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inputPreflightResult) {
-	defer m.endPreflightDispatch()
+	// The slot is released exactly once: here, unless deliverPrompt moved the
+	// delivery to a worker, which then releases it when the prompt is delivered.
+	released := false
+	defer func() {
+		if !released {
+			m.endPreflightDispatch()
+		}
+	}()
 	switch {
 	case submission.session != m.opts.SessionHandle:
 		// The Session was replaced while the handlers ran; the result belonged
@@ -174,35 +181,71 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
 				text = expanded
 			}
 		}
-		// Auto-read @path mentions after expansion, as agent-session.ts:9484 does: the
-		// read is inserted beside the prompt instead of costing the model a read call.
-		mentions := m.prepareFileMentions(text)
-		// Upstream rechecks streaming after the input await (agent-session.ts
-		// `_queueUserInput`): a run that started while the handlers ran receives
-		// text the user typed while working as a steer or follow-up.
-		if submission.streaming && m.enqueueIfTurnActive(func() {
-			if submission.followUp {
-				m.followUpMessageWithImages(text, result.images)
-				m.followUpFileMentions(mentions)
-			} else {
-				m.steerMessageWithImages(text, result.images)
-				m.steerFileMentions(mentions)
-			}
-		}) {
-			break
-		}
-		// Text typed while idle never joins another run. Upstream holds it in
-		// pendingUserInputs (interactive-mode.ts onSubmit) and its main loop
-		// prompts each entry only after the previous prompt settled
-		// (getUserInput / session.prompt), so it waits here, behind any text
-		// already held, and runs as its own prompt.
-		if m.runStreaming() || len(m.heldPrompts) > 0 {
-			m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: result.images, mentions: mentions, session: submission.session})
-			m.runHeldPrompts()
-			break
-		}
-		m.runPromptTurnWithImages(submission.ctx, text, result.images, mentions)
+		released = m.deliverPrompt(submission, text, result.images)
 	}
+}
+
+// deliverPrompt auto-reads the submission's mentions and delivers the prompt
+// with them: as a steer or follow-up when a run took the submission, or as a
+// new turn (directly or behind the held prompts).
+//
+// The read happens here, after expansion, as agent-session.ts:9484 does. A
+// mention set that fetches a URL is read on a worker, because a fetch would
+// otherwise freeze the editor for its whole timeout on this loop; the delivery
+// is posted back and runs in submission order because the worker keeps the
+// preflight slot until it delivers. A local-only mention set is read inline.
+//
+// It reports whether it kept the preflight slot: true means the delivery is
+// still in flight, so the caller must not release the slot.
+func (m *InteractiveMode) deliverPrompt(submission inputPreflight, text string, images []ai.ImageContent) bool {
+	read := func(ctx context.Context) *fileMentionContext { return m.prepareFileMentions(ctx, text) }
+	if !mentionsNeedNetwork(text) || submission.ctx == nil {
+		m.deliverPromptWithMentions(submission, text, images, read(submission.ctx))
+		return false
+	}
+	go func() {
+		mentions := read(submission.ctx)
+		m.runOnMain(m.runCtx, func() {
+			// The session may have been replaced while the fetch ran;
+			// deliverPromptWithMentions is not session-aware for a new turn, so
+			// recheck it here exactly as the synchronous path does.
+			if submission.session == m.opts.SessionHandle {
+				m.deliverPromptWithMentions(submission, text, images, mentions)
+			}
+			m.endPreflightDispatch()
+		})
+	}()
+	return true
+}
+
+// deliverPromptWithMentions is deliverPrompt's synchronous half: it queues or
+// starts the prompt once its mentions are read.
+func (m *InteractiveMode) deliverPromptWithMentions(submission inputPreflight, text string, images []ai.ImageContent, mentions *fileMentionContext) {
+	// Upstream rechecks streaming after the input await (agent-session.ts
+	// `_queueUserInput`): a run that started while the handlers ran receives
+	// text the user typed while working as a steer or follow-up.
+	if submission.streaming && m.enqueueIfTurnActive(func() {
+		if submission.followUp {
+			m.followUpMessageWithImages(text, images)
+			m.followUpFileMentions(mentions)
+		} else {
+			m.steerMessageWithImages(text, images)
+			m.steerFileMentions(mentions)
+		}
+	}) {
+		return
+	}
+	// Text typed while idle never joins another run. Upstream holds it in
+	// pendingUserInputs (interactive-mode.ts onSubmit) and its main loop
+	// prompts each entry only after the previous prompt settled
+	// (getUserInput / session.prompt), so it waits here, behind any text
+	// already held, and runs as its own prompt.
+	if m.runStreaming() || len(m.heldPrompts) > 0 {
+		m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: images, mentions: mentions, session: submission.session})
+		m.runHeldPrompts()
+		return
+	}
+	m.runPromptTurnWithImages(submission.ctx, text, images, mentions)
 }
 
 // runHeldPrompts starts the oldest held prompt when no run is active, or waits

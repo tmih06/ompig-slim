@@ -1,20 +1,25 @@
 package codingagent
 
-// Auto-read of `@path` mentions in a submitted prompt.
+// Auto-read of `@path` and `@url` mentions in a submitted prompt.
 //
 // Ports oh-my-pi's packages/coding-agent/src/utils/file-mentions.ts. When a
-// prompt mentions a file or directory, the mention is read here and delivered
-// to the model beside the prompt, so the agent does not spend a turn calling
-// read. The transcript shows what was read under the submitted prompt.
+// prompt mentions a file, directory or http(s) URL, the mention is read here
+// and delivered to the model beside the prompt, so the agent does not spend a
+// turn calling read. The transcript shows what was read under the submitted
+// prompt.
 //
-// Divergences from the upstream port, both forced by this runtime:
+// Divergences from the upstream port, all forced by this runtime:
+//   - URLs are read too. Upstream's mention port is filesystem-only, but this
+//     runtime's `read` tool already treats a URL as its other source, so a
+//     URL mention goes through that same fetch and renders identically.
 //   - Only text output is produced. PiG has no video contact sheets or markit
 //     converters, so image files report their attachment in the content and are
 //     not decoded into image blocks here.
-//   - Reading goes through the read tool's own resolver and truncation so a
-//     mention and a later `read` call report identical text.
+//   - Reading goes through the read tool's own resolver, fetch and truncation so
+//     a mention and a later `read` call report identical text.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,6 +31,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
+	"github.com/MichaelKinsy/PiG/internal/webtools"
 )
 
 // fileMentionMaxAutoReadBytes bounds a mentioned file's auto-read. A larger file
@@ -42,6 +48,11 @@ var fileMentionRegex = lazyregexp.New(`@(?:"([^"]+)"|'([^']+)'|([^\s@]+))`)
 
 // fileMentionLeadingPunct and fileMentionTrailingPunct are stripped from a bare
 // mention, so `(@src/a.ts),` resolves to `src/a.ts`.
+//
+// A URL keeps its own `:` and `/`, which are not stripped, and a trailing `.`
+// is stripped like any sentence period. The cost is a URL that genuinely ends in
+// one, such as `@https://host/doc.`; that path is prose in the same way, so the
+// fix is to quote the mention, which the selector supports.
 const (
 	fileMentionLeadingPunct  = "`\"'([{<"
 	fileMentionTrailingPunct = ")]}>.,;:!?\"'`"
@@ -65,6 +76,8 @@ type FileMention struct {
 	ByteSize int64 `json:"byteSize,omitempty"`
 	// IsDirectory marks a directory listing rather than file content.
 	IsDirectory bool `json:"isDirectory,omitempty"`
+	// IsURL marks a fetched http(s) document rather than local content.
+	IsURL bool `json:"isURL,omitempty"`
 	// Skipped is the reason the content was not read, or "" when it was.
 	Skipped string `json:"skippedReason,omitempty"`
 }
@@ -121,6 +134,44 @@ func ExtractFileMentions(text string) []string {
 	return mentions
 }
 
+// isFileMentionURL reports whether a mention is an http(s) document rather than
+// a filesystem path. It is the read tool's own test, so `@https://…` and a
+// `read` of the same URL take the same branch.
+func isFileMentionURL(mention string) bool {
+	return tools.IsReadableURLPath(mention)
+}
+
+// fileMentionURLTimeout bounds one mention fetch. It matches the read tool's
+// whole-call deadline, so a mentioned URL cannot hang the worker longer than a
+// manual read would.
+const fileMentionURLTimeout = webtools.DefaultFetchTimeout
+
+// readFileMentionURL fetches a mentioned URL through the read tool's own fetch
+// and rendering, so the auto-read and a later `read` of the same URL report the
+// same text and continuation notes. A fetch failure is reported in the content
+// rather than dropped: a URL the user asked for is worth naming, unlike a path
+// that turned out to be prose.
+func readFileMentionURL(ctx context.Context, mention string) (FileMention, bool) {
+	fetchCtx, cancel := context.WithTimeout(ctx, fileMentionURLTimeout)
+	defer cancel()
+	result, err := webtools.Fetch(fetchCtx, mention, webtools.FetchOptions{Reader: "native", Timeout: fileMentionURLTimeout})
+	if err != nil {
+		if ctx.Err() != nil {
+			return FileMention{}, false
+		}
+		return FileMention{
+			Path:    mention,
+			Content: "(skipped auto-read: " + err.Error() + ")",
+			IsURL:   true,
+			Skipped: "fetchFailed",
+		}, true
+	}
+	// The read tool renders this fetch for the model; the mention carries the same
+	// text so a later `read` of the URL is answered already.
+	rendered := tools.RenderURLText(result)
+	return FileMention{Path: mention, Content: rendered.Text, LineCount: rendered.Lines, IsURL: true}, true
+}
+
 // fileMentionText truncates a mentioned file exactly as the read tool would,
 // so the auto-read and a later read call report the same text.
 func fileMentionText(content string) (string, int) {
@@ -173,13 +224,25 @@ func fileMentionDirectory(path string) (string, int, error) {
 	return output, count, nil
 }
 
-// ReadFileMentions resolves each mention against cwd and auto-reads it. A
-// mention that does not resolve to an existing path is skipped silently, as
-// upstream does: the `@` selector inserts a real path, so anything else is
-// prose. The returned slice is nil when nothing could be read.
-func ReadFileMentions(mentions []string, cwd string) []FileMention {
+// ReadFileMentions resolves each mention against cwd and auto-reads it. A URL
+// mention is fetched instead. A mention that is neither an http(s) URL nor an
+// existing path is skipped silently, as upstream does: the `@` selector inserts
+// a real path, so anything else is prose. The returned slice is nil when nothing
+// could be read.
+func ReadFileMentions(ctx context.Context, mentions []string, cwd string) []FileMention {
 	read := make([]FileMention, 0, len(mentions))
 	for _, mention := range mentions {
+		if isFileMentionURL(mention) {
+			if fetched, ok := readFileMentionURL(ctx, mention); ok {
+				read = append(read, fetched)
+			}
+			continue
+		}
+		if cwd == "" {
+			// A session without a working directory can still read a URL, but a
+			// relative path must not resolve against the process directory.
+			continue
+		}
 		absolute, err := tools.ResolveReadPath(mention, cwd)
 		if err != nil {
 			continue

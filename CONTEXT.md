@@ -82,23 +82,30 @@ and produces no partial expansion. Other slash-command arguments and local
 execution input remain literal. This multi-skill expansion is shared by
 interactive, Session, print and RPC paths, not an editor-only substitution.
 
-### `@path` mentions in a prompt
+### `@path` and `@url` mentions in a prompt
 
-A prompt's `@path` mentions are auto-read, so the model does not spend a turn
-calling `read`. This ports oh-my-pi's `utils/file-mentions.ts`. Extraction
+A prompt's `@path` and `@url` mentions are auto-read, so the model does not spend
+a turn calling `read`. This ports oh-my-pi's `utils/file-mentions.ts`. Extraction
 requires a whitespace or opening-punctuation boundary, so an email address stays
 prose; `@"quoted path"` and `@'quoted path'` allow spaces, and surrounding
-punctuation is stripped. A mention that does not resolve to an existing path is
-prose and is dropped silently. A trailing `/` and `~` expansion go through the
-read tool's own resolver.
+punctuation is stripped. A mention that is neither an http(s) URL nor an existing
+path is prose and is dropped silently. A trailing `/` and `~` expansion go
+through the read tool's own resolver.
 
-Reading is text only: a file is decoded and truncated with the read tool's own
-`TruncateHead`, so an auto-read and a later `read` call report identical text and
-the same continuation notice. A directory lists as the read tool lists one
-(directories first, `name/`, capped at 500 entries). Files over 5MB and files
-with a NUL byte in their first 8KB are reported by size instead of read. Images
-and other binary formats are not decoded into attachment blocks; this runtime
-has no video contact sheets or document converters.
+URLs are an addition to the upstream port, which is filesystem-only: this
+runtime's `read` tool already treats a URL as its other source, so a URL mention
+goes through the same `webtools.Fetch` call and `tui/tools/read_url.go` rendering
+and reports the same `Fetched …` text and continuation notes a `read` would. A
+URL the server refuses keeps its row with `fetch failed` rather than vanishing,
+because the user named a document, unlike a path that turned out to be prose.
+
+Reading local content is text only: a file is decoded and truncated with the read
+tool's own `TruncateHead`, so an auto-read and a later `read` call report
+identical text and the same continuation notice. A directory lists as the read
+tool lists one (directories first, `name/`, capped at 500 entries). Files over
+5MB and files with a NUL byte in their first 8KB are reported by size instead of
+read. Images and other binary formats are not decoded into attachment blocks;
+this runtime has no video contact sheets or document converters.
 
 Delivery is one custom message of type `file-mentions` whose content is the
 `<file path="…">` blocks the model reads. A turn that starts from a prompt sends
@@ -107,6 +114,13 @@ is atomic with the prompt and a refused run leaves nothing queued. A steer or
 follow-up enqueues its own custom message beside the text. The message's
 `details.mentions` is the structured row list, which is why a resumed session
 rebuilds the card without re-reading the files.
+
+A submission is dispatched on the owner loop, where a fetch could freeze the
+editor for its whole 30-second timeout. So a mention set containing a URL is read
+on a worker and delivered back through the owner loop, and that worker keeps the
+preflight slot until it delivers: submissions stay in order and a later prompt
+cannot overtake a slower fetch. A local-only mention set is still read inline,
+keeping its ordering guarantees without a goroutine.
 
 The transcript draws the rows directly under the submitted prompt, replacing
 oh-my-pi's `fileMention` block, which has no message role here. The tree is
