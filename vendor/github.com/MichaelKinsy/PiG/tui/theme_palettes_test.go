@@ -253,23 +253,24 @@ func TestDefaultThemeIsAPalette(t *testing.T) {
 	if got := DefaultThemeName(TerminalColorSchemeLight); got != DefaultLightTheme {
 		t.Fatalf("light default = %q", got)
 	}
+	// Set the appearance the way the process learns it, then take the no-setting
+	// path: SetThemeSettingPresence(nil) must select that appearance's default. Asking
+	// for the name directly would test DefaultThemeName against itself.
 	for _, appearance := range []TerminalColorScheme{TerminalColorSchemeDark, TerminalColorSchemeLight} {
-		name := DefaultThemeName(appearance)
+		SetTerminalColorScheme(appearance)
 		SetThemeSettingPresence(nil)
-		if err := SetThemeByNameChecked(name); err != nil {
-			t.Fatalf("%s default %q does not resolve: %v", appearance, name, err)
-		}
 		theme := ActiveTheme()
-		if theme.Name != name {
-			t.Fatalf("%s default selected %q", appearance, theme.Name)
+		if want := DefaultThemeName(appearance); theme.Name != want {
+			t.Fatalf("%s: no setting selected %q, want %q", appearance, theme.Name, want)
 		}
 		if theme.Name == SystemThemeName {
-			t.Fatalf("%s default is still the system theme", appearance)
+			t.Fatalf("%s: default is still the system theme", appearance)
 		}
 		if !theme.HasANSIPalette() {
-			t.Fatalf("%s default %q has no ANSI palette", appearance, theme.Name)
+			t.Fatalf("%s: default %q has no ANSI palette", appearance, theme.Name)
 		}
 	}
+	SetTerminalColorScheme("")
 }
 
 // TestDefaultThemeResolvesThroughTheBundle covers a registry that lists no
@@ -407,5 +408,56 @@ func TestAssistantMessageTextWins(t *testing.T) {
 	theme.fgAnsi[string(ThemeColorAssistantMessageText)] = "\x1b[38;2;1;2;3m"
 	if got := theme.ProseFg(); got != "\x1b[38;2;1;2;3m" {
 		t.Fatalf("assistantMessageText did not win over text: %q", got)
+	}
+}
+
+// TestSystemThemeCoversEveryToken covers the generated theme against the whole
+// token table. system_theme.go builds its colors from a family list, so a token
+// added to the schema but not to that list resolves to nothing and panics the
+// first component that draws it. The background variants are covered too: a
+// terminal that reports a background and one that reports none take different
+// paths (GenerateSystemThemeColors' palette tiers, systemIndexedColors), and the
+// pending state renders grayscale before any color arrives.
+func TestSystemThemeCoversEveryToken(t *testing.T) {
+	background := &RgbColor{R: 26, G: 27, B: 38}
+	foreground := &RgbColor{R: 192, G: 202, B: 245}
+	palette := make([]RgbColor, ANSISlotCount)
+	for i := range palette {
+		palette[i] = RgbColor{R: float64(20 + i*13), G: float64(30 + i*11), B: float64(40 + i*9)}
+	}
+	appearance := TerminalTheme("dark")
+
+	for _, tc := range []struct {
+		name   string
+		input  SystemThemeInput
+		dimmed bool
+	}{
+		{"background and palette", SystemThemeInput{Foreground: foreground, Background: background, Palette: palette, AppearanceHint: appearance}, true},
+		{"background only", SystemThemeInput{Foreground: foreground, Background: background, AppearanceHint: appearance}, true},
+		{"nothing reported", SystemThemeInput{AppearanceHint: appearance}, false},
+		{"grayscale pending", SystemThemeInput{Foreground: foreground, Background: background, Palette: palette, AppearanceHint: appearance, Saturation: new(0.0)}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			generated := GenerateSystemThemeColors(tc.input)
+			foregroundValues, backgroundValues := splitThemeTokenValues(generated.Colors)
+			theme, err := NewTheme(foregroundValues, backgroundValues, TerminalColorModeTrueColor,
+				ThemeOptions{Name: SystemThemeName, Appearance: generated.Appearance, Dim: generated.Dim})
+			if err != nil {
+				t.Fatalf("build theme: %v", err)
+			}
+			for _, token := range ThemeColorTokens() {
+				// Fg and Bg panic with "Unknown theme color" for a token the theme never
+				// resolved, which is exactly the failure this guards.
+				if themeBackgroundTokens[token.Name] {
+					if ansi := theme.GetBgAnsi(token.Name); ansi == "" {
+						t.Fatalf("%s: no background escape", token.Name)
+					}
+					continue
+				}
+				if ansi := theme.GetFgAnsi(token.Name); ansi == "" {
+					t.Fatalf("%s: no foreground escape", token.Name)
+				}
+			}
+		})
 	}
 }

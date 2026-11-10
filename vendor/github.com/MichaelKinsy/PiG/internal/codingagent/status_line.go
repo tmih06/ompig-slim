@@ -480,9 +480,8 @@ func footerSeparator() string { return footerToken(tui.ThemeColorStatusLineSep, 
 //
 // Every segment carries its own statusLine* token, as OMP's status line does:
 // path, branch, session name, the token counters, cost, context window and the
-// model each have a hue. Wrapping the whole footer in one dim color, as this
-// function used to, threw all of that away and rendered it in the terminal's
-// default foreground on every theme.
+// model each have a hue, so no part of the line depends on the terminal's default
+// foreground.
 func renderFooter(d footerData, width int) []string {
 	if width <= 0 {
 		width = 80

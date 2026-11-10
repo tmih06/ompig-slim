@@ -53,10 +53,27 @@ func (m *InteractiveMode) markdownThemeWithSettings() *tui.MarkdownTheme {
 // default foreground is close to its background, which is what "the TUI is all
 // white" looks like. The panel and changelog bodies go through here for that
 // reason, not only assistant replies.
-func (m *InteractiveMode) proseMarkdown(content string, paddingX, paddingY int) *tui.Markdown {
+//
+// The color is a ThemedText-style rebuild rather than a one-time SetDefaultColor so
+// a block already on screen follows a theme switch. SetDefaultColor is a no-op when
+// the color is unchanged, so the per-render comparison is the whole cost.
+func (m *InteractiveMode) proseMarkdown(content string, paddingX, paddingY int) *proseColoredMarkdown {
 	md := tui.NewMarkdownWithOptions(content, paddingX, paddingY, m.markdownThemeWithSettings(), nil, nil)
 	md.SetDefaultColor(tui.ActiveTheme().ProseFg())
-	return md
+	return &proseColoredMarkdown{Markdown: md}
+}
+
+// proseColoredMarkdown re-applies the active theme's prose color before each render.
+// It embeds Markdown so the block keeps Markdown's whole surface, including
+// FinishStreaming, which the transcript still calls after its last delta.
+type proseColoredMarkdown struct {
+	*tui.Markdown
+}
+
+// Render refreshes the prose color, then renders the block.
+func (p *proseColoredMarkdown) Render(width int) []string {
+	p.SetDefaultColor(tui.ActiveTheme().ProseFg())
+	return p.Markdown.Render(width)
 }
 
 // messageMeta is the persisted session entry a transcript message renders from, handed to the Markdown transformers as the

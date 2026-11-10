@@ -1432,11 +1432,15 @@ func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inli
 		return resolved
 	}
 	var out strings.Builder
-	// pending reports that the context's opening codes are already at the end of the
-	// output, because every inline token writes stylePrefix after itself. A text run
-	// then starts with the same codes from applyText, so they are written once
-	// instead of twice: invisible, but it doubles the escape bytes of every line
-	// carrying emphasis or a code span.
+	// pending reports that the output already ends with the context's opening codes,
+	// because writeToken just wrote them. A text run that begins with the same codes
+	// then writes them once instead of twice: invisible, but it doubles the escape
+	// bytes of every line carrying emphasis or a code span.
+	//
+	// Only writeToken raises it. A text run ends with applyText's closing codes, not
+	// the opening ones, so it clears the flag for the run that follows: escaped
+	// punctuation and HTML are separate runs, and reusing a prefix that is not there
+	// would drop their color.
 	pending := false
 	// writeToken writes an inline token's rendering followed by the context's opening
 	// codes, which the next text run then reuses instead of opening them again.
@@ -1456,7 +1460,7 @@ func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inli
 				styled = styled[len(style.stylePrefix):]
 			}
 			out.WriteString(styled)
-			pending = styled != ""
+			pending = false
 		}
 	}
 	for _, token := range tokens {

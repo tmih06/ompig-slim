@@ -9,7 +9,6 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/tui"
-	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // footerTheme is a theme whose every token is a distinct color, so a test can
@@ -103,8 +102,9 @@ func TestFooterSegmentsUseStatusLineTokens(t *testing.T) {
 		t.Fatal("path and model share a color")
 	}
 	// The footer must not be wrapped in one outer color, which would reset the
-	// per-segment colors the moment a segment closed.
-	if strings.HasPrefix(widthx.StripAnsi(lines[1]), theme.GetFgAnsi("dim")) {
+	// per-segment colors the moment a segment closed. Checked against the raw line:
+	// stripping escapes first would remove the very wrapper this looks for.
+	if strings.HasPrefix(lines[1], theme.GetFgAnsi("dim")) {
 		t.Fatal("line 2 still starts with a dim wrapper")
 	}
 }
@@ -143,6 +143,27 @@ func TestFooterContextThresholds(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("%d/%d tokens did not draw the context window with %s:\n%q", want.tokens, window, want.token, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// TestFirstRunHighlightMatchesPreview covers the first-run dialog's theme step: the
+// highlighted option must be the theme the dialog previews, which is the appearance
+// default. A fixed first entry would show Titanium selected over a light preview on a
+// light terminal.
+func TestFirstRunHighlightMatchesPreview(t *testing.T) {
+	previous := tui.ActiveTheme()
+	t.Cleanup(func() {
+		tui.SetTerminalColorScheme("")
+		tui.SetThemeInstance(previous)
+	})
+
+	for _, appearance := range []tui.TerminalTheme{"dark", "light"} {
+		tui.SetTerminalColorScheme(appearance)
+		component := NewFirstTimeSetupComponent(FirstTimeSetupOptions{})
+		want := tui.DefaultThemeName(appearance)
+		if got := firstTimeSetupThemeOptions[component.themeIndex].value; got != want {
+			t.Fatalf("%s: highlighted %q, want the previewed %q", appearance, got, want)
 		}
 	}
 }

@@ -86,6 +86,17 @@ func NewFirstTimeSetupComponent(options FirstTimeSetupOptions) *FirstTimeSetupCo
 			c.spriteIndex = i
 		}
 	}
+	// Highlight the theme the dialog is about to preview, which is the appearance
+	// default rather than a fixed first entry: on a light terminal that is `light`,
+	// and a stale highlight would show Titanium selected over a light preview.
+	// Update runs after this, so the highlighted option matches the shown theme.
+	defaultTheme := tui.DefaultThemeName(tui.GetTerminalTheme())
+	for i, option := range firstTimeSetupThemeOptions {
+		if option.value == defaultTheme {
+			c.themeIndex = i
+			break
+		}
+	}
 	c.update()
 	return c
 }
