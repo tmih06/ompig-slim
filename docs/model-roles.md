@@ -51,8 +51,8 @@ model it resolved to at assignment time. The Roles list renders that assignment 
 because the alias is what was chosen; the referenced role's own row still shows its
 model.
 
-Roles that would close a cycle are not listed, in either step, so every offered
-choice saves successfully. Primary assignment follows `modelRoles` aliases and the
+Roles that would close a cycle are hidden in both steps, so every offered choice
+saves successfully. Primary assignment follows `modelRoles` aliases and the
 built-in inheritance, so `task → @default` and then `default → @task` is refused at
 the second step rather than leaving both roles unresolvable; chain destinations
 follow chain references instead, and a role that already reaches the chain being
@@ -94,18 +94,10 @@ cycle never gains other roles just because its models are unavailable. Recovery
 is read-only; toggling **c** in Roles saves the displayed effective order.
 
 The footer below the prompt names the active role beside the model, as
-`@review claude-sonnet-4`. Two roles may resolve to one physical model, so
-cycling or fallback can leave the model name alone unable to say which role is
-selected. The role carries the same color it has in the model manager and
-catalog, including a `modelTags` override: both read one source, so a role never
-shows two hues. That source is the catalog's theme, not the transcript's. On the
-stock `dark` and `system` themes those are two palettes — the catalog paints with
-OMP's Titanium colors while the transcript keeps PiG's stock ones — so taking the
-transcript's would show every role in a different color than the manager. An
-explicit or light theme uses one palette for both and is unaffected. A color the
-theme does not define falls back to the footer's own hue rather than failing to
-render. A session with no role — a direct model selection, or a virtual model —
-shows the bare model name as before.
+`@review claude-sonnet-4`, in the same color the role has in the manager and
+catalog. Two roles may resolve to one physical model, so the model name alone
+cannot say which role is selected. A session with no role — a direct model
+selection or a virtual model — shows the bare model name as before.
 
 ### Session picker
 
@@ -249,6 +241,7 @@ from a `default` tail a role is itself named in — still terminates: a role is
 expanded at most once per chain walk, so it shortens the candidate list rather
 than recursing. Inherited tails are not checked at write time because refusing
 them would make an unchanged chain unsaveable and block the edit that removes it.
+
 
 Recovery retains logical role and auto-thinking state, checks destinations before
 asking permission to use a quota reserve, and never wraps a chain. Starting at a

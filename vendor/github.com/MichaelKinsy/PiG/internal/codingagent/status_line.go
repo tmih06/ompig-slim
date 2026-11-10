@@ -56,12 +56,10 @@ type FooterComponent struct {
 	usageTotals func() footerUsageTotals
 	// routedModel reads, under a virtual model selection, the physical model of the latest response on each render (footer.ts reads session.routedModel).
 	routedModel func() *RoutedModelSelection
-	// activeRole reads the logical role of the current selection on each render. It is a callback rather than a SetRole setter because every model
-	// change already rebinds the footer, and a role can change without the physical model changing (fallback restoration, a cycle onto another role
-	// that shares the model), so there is no single setter call that would keep it current.
-	activeRole func() string
-	// activeRoleColor reads that role's color token beside activeRole, and for the same reasons.
-	activeRoleColor func() string
+	// activeRole reads the logical role of the current selection and the theme token the model catalog paints it with, on each render. It is a
+	// callback rather than a SetRole setter because every model change already rebinds the footer, and a role can change without the physical model
+	// changing (fallback restoration, a cycle onto another role that shares the model), so no single setter call would keep it current.
+	activeRole func() (role, color string)
 	// subscriptionFor decides the "(sub)" marker for a newly bound model.
 	subscriptionFor func(*ai.Model) bool
 
@@ -193,7 +191,7 @@ type FooterSession interface {
 func (s *FooterComponent) SetSession(session FooterSession) {
 	s.mu.Lock()
 	if session == nil {
-		s.usageTotals, s.routedModel, s.activeRole, s.activeRoleColor = nil, nil, nil, nil
+		s.usageTotals, s.routedModel, s.activeRole = nil, nil, nil
 	} else {
 		s.usageTotals = func() footerUsageTotals {
 			manager := session.SessionManager()
@@ -203,8 +201,7 @@ func (s *FooterComponent) SetSession(session FooterSession) {
 			return manager.FooterUsageTotals()
 		}
 		s.routedModel = session.RoutedModelSelection
-		s.activeRole = session.ActiveModelRole
-		s.activeRoleColor = session.ActiveModelRoleColor
+		s.activeRole = func() (string, string) { return session.ActiveModelRole(), session.ActiveModelRoleColor() }
 	}
 	s.mu.Unlock()
 	s.Invalidate()
@@ -328,7 +325,7 @@ func (s *FooterComponent) Render(width int) []string {
 // the session's locks, without holding s.mu.
 func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelection, footerSnapshot) {
 	s.mu.RLock()
-	source, routedSource, roleSource, roleColorSource := s.usageTotals, s.routedModel, s.activeRole, s.activeRoleColor
+	source, routedSource, roleSource := s.usageTotals, s.routedModel, s.activeRole
 	s.mu.RUnlock()
 	var totals footerUsageTotals
 	if source != nil {
@@ -340,10 +337,7 @@ func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelect
 	}
 	role, roleColor := "", ""
 	if roleSource != nil {
-		role = roleSource()
-	}
-	if roleColorSource != nil {
-		roleColor = roleColorSource()
+		role, roleColor = roleSource()
 	}
 	cwd, gitBranch, providerCount, extensionStatuses := s.snapshot()
 	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
@@ -711,19 +705,16 @@ func footerContextUsage(d footerData) (contextWindow int, pct float64) {
 	return contextWindow, pct
 }
 
-// footerSelection renders the current selection as an optional role prefix plus
-// the model name, each in its own color. The role comes first because it is what
-// distinguishes two roles that share one physical model, which is exactly the
-// state Ctrl+P cycling and fallback produce.
+// footerSelection renders the current selection as an optional role prefix plus the
+// model name. The role comes first because it is what distinguishes two roles that
+// share one physical model, which is exactly the state Ctrl+P cycling and fallback
+// produce. A session with no role renders the bare model name, as upstream does.
 //
 // The role is painted with roleColor, the token the model catalog and manager use
 // for that same role, so one role keeps one hue across the UI. A missing or
 // undefined token falls back to statusLineContext, the hue this line already uses
-// for secondary facts about the selection: it reads as a qualifier on the model
-// rather than competing with statusLineModel. A theme may leave a tab-added token
-// undefined, and Fg panics on an unknown token, so the fallback is not optional.
-//
-// A session with no role renders the bare model name, as upstream does.
+// for secondary facts: it reads as a qualifier on the model rather than competing
+// with statusLineModel.
 func footerSelection(role, roleColor, modelName string) string {
 	model := footerToken(tui.ThemeColorStatusLineModel, modelName)
 	if role == "" {
@@ -732,22 +723,18 @@ func footerSelection(role, roleColor, modelName string) string {
 	return footerRoleToken(roleColor, "@"+role) + " " + model
 }
 
-// footerRoleToken paints the role with its catalog color, falling back to the
-// status line's own context hue when the theme does not define that token.
-//
-// It reads tui.ModelOverlayTheme, not the active theme, because that is the theme
-// the model manager and browser paint role rows and role chips with. The two are
-// the same object for a light or explicit custom theme, but on the inherited stock
-// dark/system themes the catalog uses OMP's Titanium palette while the transcript
-// keeps PiG's stock colors, so reading ActiveTheme here painted every role a
-// visibly different hue than the catalog showed for the same role. Taking the
-// catalog's palette is what makes one role one color across the UI.
+// footerRoleToken paints the role with its catalog color. It reads
+// tui.ModelOverlayTheme, not the active theme, because that is the palette the
+// model manager and browser paint role rows with: the two are the same object for a
+// light or explicit custom theme, but on the inherited stock dark/system themes the
+// catalog uses OMP's Titanium colors while the transcript keeps PiG's stock ones, so
+// the active theme would show every role a different hue than the manager.
 //
 // The guard is required, not defensive: Theme.Fg panics on an unknown token, and a
 // role color can come from user-authored modelTags that settings accept as any
-// string. HasFgToken answers that from the table Fg reads. GetResolvedThemeColors
-// would not: it reports the concrete colors a theme resolved, which is empty for
-// the catalog's synthesized Titanium projection even though it draws fine.
+// string. HasFgToken asks that of the table Fg reads; GetResolvedThemeColors would
+// not work, because it is empty for the catalog's synthesized Titanium projection
+// even though that projection draws fine.
 func footerRoleToken(color, text string) string {
 	theme := tui.ModelOverlayTheme()
 	if theme.HasFgToken(color) {

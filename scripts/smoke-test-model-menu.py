@@ -98,20 +98,15 @@ def run(binary):
             send(b"\r")
             # The footer redraws in the same burst that announces the selection, and
             # read_until only inspects bytes seen during its own call, so assert on the
-            # buffer it returns rather than waiting for a second redraw.
+            # buffer it returns rather than waiting for a second redraw. saved_settings
+            # waits out a write in progress, which the runner publishes truncating.
             selection_output = read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
                                           "role selection")
-            # saved_settings waits out a write in progress: the runner publishes a save
-            # with one truncating write, so an unlocked read can catch it half-written.
             assert saved_settings()["modelRoles"] == saved_roles, "picker changed saved roles"
             # default and review resolve to the same fixture model, so the footer must
-            # name the active role: the model name alone cannot tell them apart. The
-            # fixture model ID is "model", so the footer line reads "@review model".
-            # Strip escape sequences first: the footer colors the role and the model
-            # with separate theme tokens, so the two words are not adjacent on the wire.
-            if b"@review model" not in visible_text(selection_output):
-                raise AssertionError("footer does not show the active role beside the model\n"
-                                     f"tail: {visible_text(selection_output)[-600:]!r}")
+            # name the active role: the model name alone cannot tell them apart.
+            assert b"@review model" in visible_text(selection_output), \
+                f"footer does not name the active role: {visible_text(selection_output)[-600:]!r}"
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")
@@ -151,12 +146,13 @@ def run(binary):
 def visible_text(data):
     """Return terminal output with escape sequences removed.
 
-    Assertions about what a user sees must look at the stripped text: this
-    runtime colors footer segments with separate theme tokens, so words that
-    appear side by side on screen are separated by SGR sequences on the wire.
+    Assertions about what a user sees must strip escapes first: the footer paints
+    the role and the model name with separate theme tokens, so words that appear
+    side by side on screen are separated by SGR sequences on the wire. The pattern
+    is the one scripts/smoke-test-info-widgets.py already uses, so both read the same
+    subset of control sequences.
     """
-    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", data)
-    return re.sub(rb"\x1b\][^\x07]*\x07", b"", text)
+    return re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 
 
 def main():

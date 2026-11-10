@@ -84,39 +84,52 @@ func TestChainEntriesExpandRoleDestinations(t *testing.T) {
 func TestAssignableRolesFollowsAliases(t *testing.T) {
 	c := Config{ModelRoles: map[string]string{"default": "p/a", "review": "@default", "audit": "p/c", "loop": "@other", "other": "@loop"}}
 	// task inherits @default without an authored entry, so it reaches default.
-	if got := AssignableRoles(c, []string{"smol", "task", "audit", "review"}, "default"); slices.Contains(got, "task") || slices.Contains(got, "review") {
+	got := AssignableRoles(c, nil, "default")
+	if slices.Contains(got, "task") || slices.Contains(got, "review") || slices.Contains(got, "default") {
 		t.Fatalf("alias-closing roles offered: %v", got)
 	}
-	if got := AssignableRoles(c, []string{"default", "audit"}, "review"); !slices.Equal(got, []string{"default", "audit"}) {
-		t.Fatalf("chain rules leaked into assignment: %v", got)
+	if !slices.Contains(got, "audit") {
+		t.Fatalf("eligible role missing: %v", got)
 	}
-	// A role may always be assigned to itself's target and to plain models; a saved
-	// cycle in settings must not make the walk hang.
-	if got := AssignableRoles(c, []string{"audit"}, "audit"); len(got) != 0 {
-		t.Fatalf("self offered: %v", got)
-	}
-	if got := AssignableRoles(c, []string{"loop"}, "audit"); !slices.Equal(got, []string{"loop"}) {
+	// A role always reaches itself, so no role is offered for its own primary, and
+	// a cycle already saved in settings must not make the walk hang.
+	if got := AssignableRoles(c, nil, "audit"); !slices.Contains(got, "loop") {
 		t.Fatalf("stored cycle escaped: %v", got)
+	}
+	if got := AssignableRoles(c, nil, "loop"); slices.Contains(got, "other") || slices.Contains(got, "loop") {
+		t.Fatalf("stored cycle not excluded: %v", got)
+	}
+	// An alias carrying an effort suffix still names the role it points at, so the
+	// edge exists: Resolve strips that suffix the same way, and a guard that did not
+	// would let `default: '@task:high'` close a loop the manager shows as unpickable.
+	c.ModelRoles["task"], c.ModelRoles["audit"] = "@default:high", "p/d"
+	if !AliasReaches(c, "task", "default") {
+		t.Fatal("effort-suffixed alias edge missed")
 	}
 }
 
 // TestChainReachesFindsLoops is the write-time guard: appending @from to target's
-// chain closes a loop exactly when from already reaches target. Stored loops and
-// self references report a path instead of hanging, and a model-keyed chain ends
-// the walk because only role entries expand into other chains.
+// chain closes a loop exactly when from already reaches target. A role reaches
+// itself, a stored loop terminates, and a model or provider entry ends the walk
+// because only a role entry expands into another chain.
 func TestChainReachesFindsLoops(t *testing.T) {
-	chains := map[string][]string{"review": {"@slow"}, "slow": {"@tiny"}, "tiny": {"@audit"}, "audit": {"p/m", "@review"}, "p/m": {"@slow"}}
+	chains := map[string][]string{"review": {"@slow"}, "slow": {"@tiny"}, "tiny": {"@audit"}, "audit": {"p/m", "@review"}}
 	for _, tc := range []struct {
 		from, target string
-		want         []string
-	}{{"slow", "review", []string{"slow", "tiny", "audit", "review"}}, {"tiny", "review", []string{"tiny", "audit", "review"}}, {"audit", "review", []string{"audit", "review"}}, {"review", "review", []string{"review"}}, {"tiny", "tiny", []string{"tiny"}}, {"audit", "orphan", nil}, {"p/m", "review", nil}} {
-		if got := ChainReaches(chains, tc.from, tc.target); !reflect.DeepEqual(got, tc.want) {
+		want         bool
+	}{{"slow", "review", true}, {"tiny", "review", true}, {"audit", "review", true}, {"review", "review", true}, {"tiny", "tiny", true}, {"audit", "orphan", false}, {"orphan", "review", false}} {
+		if got := ChainReaches(chains, tc.from, tc.target); got != tc.want {
 			t.Fatalf("%s→%s: %v want %v", tc.from, tc.target, got, tc.want)
 		}
 	}
 	looped := map[string][]string{"a": {"@b"}, "b": {"@a"}}
-	if got := ChainReaches(looped, "a", "missing"); got != nil {
-		t.Fatalf("stored loop escaped: %v", got)
+	if ChainReaches(looped, "a", "missing") {
+		t.Fatal("stored loop escaped")
+	}
+	// A bare model fragment that names a role is not a reference on the other side
+	// of the edge either: "review" here is a model id, so @audit reaches nothing.
+	if ChainReaches(map[string][]string{"audit": {"review"}}, "audit", "review") {
+		t.Fatal("bare fragment treated as a reference")
 	}
 }
 

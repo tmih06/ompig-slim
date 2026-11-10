@@ -48,8 +48,7 @@ func footerRoleLine(t *testing.T, role, color string) string {
 	t.Helper()
 	footer := NewFooterComponent(roleFooterModel(), "agent", nil)
 	footer.SetThinkingLevel("high")
-	footer.activeRole = func() string { return role }
-	footer.activeRoleColor = func() string { return color }
+	footer.activeRole = func() (string, string) { return role, color }
 	lines := footer.Render(120)
 	if len(lines) < 2 {
 		t.Fatalf("footer rendered %d lines, want at least 2", len(lines))
@@ -65,23 +64,17 @@ func footerSelectionLine(t *testing.T, role string) string {
 
 // TestFooterShowsActiveRoleBesideModel covers the reason the role is displayed at
 // all: Ctrl+P cycling and fallback recovery can leave two different roles on the
-// same physical model, so the model name alone cannot say which one is active.
+// same physical model, so the model name alone cannot say which one is active. It
+// also checks the role is not drawn in the model's own color, because a role
+// painted like the model would not read as a distinction.
 func TestFooterShowsActiveRoleBesideModel(t *testing.T) {
 	theme := footerFixtureTheme(t)
 	for _, role := range []string{"default", "review", "my-custom_role"} {
 		line := footerSelectionLine(t, role)
-		want := "@" + role + " claude-sonnet-4 • high"
-		if !strings.Contains(line, want) {
+		if want := "@" + role + " claude-sonnet-4 • high"; !strings.Contains(line, want) {
 			t.Fatalf("role %q not shown beside the model: %q", role, line)
 		}
 	}
-	// Two roles that resolve to one model must be distinguishable.
-	if first, second := footerSelectionLine(t, "default"), footerSelectionLine(t, "review"); first == second {
-		t.Fatalf("shared-model roles render identically: %q", first)
-	}
-	// The model keeps its own token, and the role must not be drawn in it: a role
-	// colored like the model would be invisible as a distinction. The raw line is
-	// checked because stripping escapes hides which token colored what.
 	raw := footerRawSelectionLine(t, "review")
 	if !strings.Contains(raw, theme.GetFgAnsi("statusLineModel")+"claude-sonnet-4") {
 		t.Fatalf("model is not drawn with statusLineModel: %q", raw)
@@ -189,7 +182,7 @@ func TestFooterOmitsRoleWhenUnset(t *testing.T) {
 func TestFooterFollowsRoleChangesLive(t *testing.T) {
 	footer := NewFooterComponent(roleFooterModel(), "agent", nil)
 	role := "default"
-	footer.activeRole = func() string { return role }
+	footer.activeRole = func() (string, string) { return role, "" }
 	if line := widthx.StripTerminalSequences(footer.Render(120)[1]); !strings.Contains(line, "@default") {
 		t.Fatalf("initial role missing: %q", line)
 	}

@@ -18,17 +18,10 @@ func hubFixture() (*ModelHub, *modelroles.Config, map[string][]string) {
 	chains := map[string][]string{"default": {"p/b", "p/c"}}
 	items := []ModelSelectorItem{{Provider: "p", ID: "a"}, {Provider: "p", ID: "b"}, {Provider: "q", ID: "other"}}
 	h := NewModelHub(ModelHubConfig{Models: items, AllModels: append(append([]ModelSelectorItem{}, items...), ModelSelectorItem{Provider: "locked", ID: "secret"}), Height: func() int { return 32 }, Snapshot: func() (modelroles.Config, map[string][]string) { return config.Clone(), modelroles.CloneChains(chains) }, Resolve: func(s string) (string, error) { return config.Resolve(s, "p/a") }, Assign: func(role, value, scope string) error {
-		// Mirror the real host: an alias that would make Resolve report a cycle is
-		// refused, so a hub test cannot pass by writing a cycle the manager hides.
-		if _, ok := modelroles.RoleRef(value); ok {
-			prospective := config.Clone()
-			if prospective.ModelRoles == nil {
-				prospective.ModelRoles = map[string]string{}
-			}
-			prospective.ModelRoles[role] = value
-			if _, err := prospective.Resolve(value, "p/a"); err != nil {
-				return err
-			}
+		// Mirror the host's write guard, so a hub test cannot pass by saving a cycle
+		// the settings manager would refuse.
+		if alias, ok := modelroles.RoleRef(value); ok && modelroles.AliasReaches(config, alias, role) {
+			return errors.New("model role cycle")
 		}
 		if value == "" {
 			delete(config.ModelRoles, role)
@@ -49,6 +42,22 @@ func hubFixture() (*ModelHub, *modelroles.Config, map[string][]string) {
 
 // openRoles follows OMP's initial All/scope focus with Up then Right.
 func openRoles(h *ModelHub) { h.HandleInput("\x1b[A"); h.HandleInput("\x1b[C") }
+
+// browserRoles returns the role names the browser is currently offering, and parks
+// the cursor on want when it is among them.
+func browserRoles(h *ModelHub, want string) []string {
+	roles := []string{}
+	for i, item := range h.browser.items {
+		if item.Role == "" {
+			continue
+		}
+		roles = append(roles, item.Role)
+		if item.Role == want {
+			h.browser.cursor = i
+		}
+	}
+	return roles
+}
 
 // TestModelHubEdits covers assign, append, delete, membership and ordered movement
 // using upstream's x/f/c/[/] bindings instead of the abandoned approximate menu.
@@ -311,26 +320,16 @@ func TestModelHubOffersRoleFallbackDestinations(t *testing.T) {
 		}
 	}
 	h.HandleInput("f")
-	if !h.pickingFallback() {
+	if h.target == nil || h.target.kind != "append" {
 		t.Fatal("append did not start a chain pick")
 	}
 	h.HandleInput("@")
-	roles := []string{}
-	for _, item := range h.browser.items {
-		if item.Role != "" {
-			roles = append(roles, item.Role)
-		}
-	}
+	roles := browserRoles(h, "default")
 	if slices.Contains(roles, "review") || slices.Contains(roles, "slow") {
 		t.Fatalf("loop-closing roles offered: %v", roles)
 	}
 	if !slices.Contains(roles, "default") {
 		t.Fatalf("eligible role missing: %v", roles)
-	}
-	for i, item := range h.browser.items {
-		if item.Role == "default" {
-			h.browser.cursor = i
-		}
 	}
 	h.HandleInput("\r")
 	if got := chains["review"]; !slices.Contains(got, "@default") {
@@ -352,30 +351,20 @@ func TestModelHubAssignsRoleToRole(t *testing.T) {
 		}
 	}
 	h.HandleInput("\r")
-	if !h.pickingRolePrimary() {
+	if h.target == nil || h.target.kind != "role" {
 		t.Fatal("primary assignment does not accept roles")
 	}
 	// A leading @ is the alias gesture, mirroring the Alt+P picker.
 	h.HandleInput("@")
-	if !h.roleMode {
+	if !h.rolePool() {
 		t.Fatal("@ did not open the alias pool")
 	}
-	roles := []string{}
-	for _, item := range h.browser.items {
-		if item.Role != "" {
-			roles = append(roles, item.Role)
-		}
-	}
+	roles := browserRoles(h, "default")
 	if slices.Contains(roles, "task") {
 		t.Fatalf("self assignment offered: %v", roles)
 	}
 	if !slices.Contains(roles, "default") {
 		t.Fatalf("default not offered: %v", roles)
-	}
-	for i, item := range h.browser.items {
-		if item.Role == "default" {
-			h.browser.cursor = i
-		}
 	}
 	h.HandleInput("\r")
 	if got := config.ModelRoles["task"]; got != "@default" {
@@ -391,12 +380,9 @@ func TestModelHubAssignsRoleToRole(t *testing.T) {
 	if item, _, ok := h.selectedRowItem(); !ok || item.Role != "default" {
 		t.Fatalf("effort edit would pin the model: %+v", item)
 	}
-	// Now the loop direction: default must not be assignable to task.
-	if got := modelroles.AssignableRoles(*config, []string{"task"}, "default"); len(got) != 0 {
+	// The loop direction: default must not be assignable to task.
+	if got := modelroles.AssignableRoles(*config, nil, "default"); slices.Contains(got, "task") {
 		t.Fatalf("cycle-closing alias offered: %v", got)
-	}
-	if err := h.cfg.Assign("default", "@task", "global"); err == nil {
-		t.Fatal("host accepted a cycle the picker hides")
 	}
 }
 

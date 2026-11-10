@@ -3,7 +3,6 @@ package codingagent
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -71,23 +70,15 @@ func (sm *SettingsManager) GetAutoThinkingMaxEffort() string {
 // An alias assignment is checked for cycles before mutation. Because an alias now
 // comes from the manager's own role list, `default` → `@task` → `@default` is two
 // ordinary clicks away, and once saved Config.Resolve reports a cycle for both
-// roles, leaving neither resolvable. Refusing the closing assignment keeps every
-// saved alias walkable; the pre-existing cycle check in Resolve still covers
-// hand-edited settings.
+// roles, leaving neither resolvable. The closing assignment is refused when the
+// alias it names already reaches role, which is exactly the loop it would close;
+// the pre-existing check in Resolve still covers hand-edited settings.
 func (sm *SettingsManager) SetModelRole(role, selector, scope string) error {
 	if role == "" || strings.ContainsAny(role, "/ @:\t\n") {
 		return fmt.Errorf("invalid role name %q", role)
 	}
-	if alias, ok := modelroles.RoleRef(selector); ok {
-		prospective := sm.Get().Config
-		prospective.ModelRoles = maps.Clone(prospective.ModelRoles)
-		if prospective.ModelRoles == nil {
-			prospective.ModelRoles = map[string]string{}
-		}
-		prospective.ModelRoles[role] = selector
-		if _, err := prospective.Resolve("@"+alias, ""); err != nil && strings.Contains(err.Error(), "cycle") {
-			return fmt.Errorf("assigning @%s to @%s would form a model role cycle", role, alias)
-		}
+	if alias, ok := modelroles.RoleRef(selector); ok && modelroles.AliasReaches(sm.Get().Config, alias, role) {
+		return fmt.Errorf("assigning %s to @%s would form a model role cycle", selector, role)
 	}
 	update := func(s *Settings) {
 		if s.ModelRoles == nil {
@@ -128,8 +119,8 @@ func (sm *SettingsManager) SetFallbackChain(key string, chain []string, scope st
 			if !ok {
 				continue
 			}
-			if loop := modelroles.ChainReaches(authored, role, key); loop != nil {
-				return fmt.Errorf("fallback chain for %s would form a role cycle: %s", key, strings.Join(append([]string{key}, loop...), " → "))
+			if modelroles.ChainReaches(authored, role, key) {
+				return fmt.Errorf("fallback chain for %s would form a role cycle through @%s", key, role)
 			}
 		}
 	}

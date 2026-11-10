@@ -187,67 +187,88 @@ func ChainEntries(chains map[string][]string, key string) []string {
 	return entries
 }
 
-// ChainReaches reports the role-reference path that takes from's chain to target,
-// as role names ending in target ("slow", "review" when @slow reaches @review),
-// or nil when it does not reach it. A role reaches itself, so the result for
-// from == target is that single name. from must be a role name: a model or
-// provider key is a terminal chain, because only a role entry expands into
-// another chain, so such a key never reaches anything and always reports nil.
+// ChainReaches reports whether from's chain reaches target by following role
+// entries. A role reaches itself, so from == target reports true, which is what
+// makes a self reference a loop.
 //
-// Appending @from to target's chain closes a loop exactly when this returns
-// non-nil, because every other edge on that loop already exists: reachability
-// covers the pre-existing chains, so callers do not need a prospective copy.
-func ChainReaches(chains map[string][]string, from, target string) []string {
-	if strings.Contains(from, "/") {
-		return nil
-	}
-	if from == target {
-		return []string{target}
-	}
-	path := []string{from}
-	onPath := map[string]bool{from: true}
-	var walk func(string) []string
-	walk = func(role string) []string {
-		for _, entry := range chains[role] {
-			ref, ok := RoleRef(entry)
-			if !ok {
-				continue
-			}
-			if ref == target {
-				return append(slices.Clone(path), target)
-			}
-			// Re-entering a role only revisits edges already explored, so a stored
-			// loop terminates here rather than being re-walked.
-			if onPath[ref] {
-				continue
-			}
-			onPath[ref] = true
-			path = append(path, ref)
-			if found := walk(ref); found != nil {
-				return found
-			}
-			path = path[:len(path)-1]
-			delete(onPath, ref)
+// Appending @from to target's chain closes a loop exactly when this reports true,
+// because every other edge on that loop already exists: the walk covers the saved
+// chains, so the write guard needs no prospective copy. It walks the same edges as
+// ChainEntries, and both terminate on a loop that is already saved.
+func ChainReaches(chains map[string][]string, from, target string) bool {
+	visited := map[string]bool{}
+	var walk func(string) bool
+	walk = func(role string) bool {
+		if role == target {
+			return true
 		}
-		return nil
+		// A stored loop only revisits edges already known not to reach target.
+		if visited[role] {
+			return false
+		}
+		visited[role] = true
+		for _, entry := range chains[role] {
+			if ref, ok := RoleRef(entry); ok && walk(ref) {
+				return true
+			}
+		}
+		return false
 	}
 	return walk(from)
 }
 
-// FallbackRoles returns the roles key's chain may reference, in known-role order.
-// A role qualifies when appending it cannot close a reference loop, which is
-// exactly what the write guard enforces, so every role the hub offers is one the
-// host accepts. Kind compatibility is deliberately not decided here: the catalog's
-// kind families live in the TUI, and asking this package to guess them would give
-// two rules for one question.
+// AliasReaches reports whether following from's assignment reaches target. A role
+// reaches itself, so from == target reports true, which is what makes a self
+// assignment a loop.
+//
+// Only ModelRoles aliases and the built-in inheritance Resolve applies are edges,
+// so this answers "would assigning @target to from cycle?" — a different graph from
+// a chain's role references, which ChainReaches walks. A value naming a model and
+// an unassigned role both end the walk, because Resolve stops there too.
+func AliasReaches(config Config, from, target string) bool {
+	seen := map[string]bool{}
+	for role := from; role != ""; {
+		if role == target {
+			return true
+		}
+		if seen[role] {
+			return false
+		}
+		seen[role] = true
+		role, _ = RoleRef(config.assignment(role, ""))
+	}
+	return false
+}
+
+// FallbackRoles returns the roles key's chain may reference, in known-role order:
+// exactly those whose entry the write guard accepts, because a role that already
+// reaches key would close a reference loop. Kind compatibility is deliberately not
+// decided here — the catalog's kind families live in the TUI — so the hub applies
+// its own kind rule on top.
 func FallbackRoles(config Config, chains map[string][]string, key string) []string {
-	roles := []string{}
-	for _, role := range config.Known(chains) {
-		if ChainReaches(chains, role, key) == nil {
-			roles = append(roles, role)
+	return filterRoles(config.Known(chains), func(role string) bool { return !ChainReaches(chains, role, key) })
+}
+
+// AssignableRoles returns the roles from's primary assignment may alias, in
+// known-role order: exactly those that cannot reach from, so every offered choice
+// resolves instead of producing a cycle.
+//
+// Assignment is a different graph from a chain's role references — it follows
+// ModelRoles aliases, not chains — so this is not ChainReaches with another name.
+func AssignableRoles(config Config, chains map[string][]string, from string) []string {
+	return filterRoles(config.Known(chains), func(role string) bool { return !AliasReaches(config, role, from) })
+}
+
+// filterRoles keeps the roles keep accepts, preserving order and never returning
+// nil so callers can range over the result unconditionally.
+func filterRoles(roles []string, keep func(string) bool) []string {
+	out := []string{}
+	for _, role := range roles {
+		if keep(role) {
+			out = append(out, role)
 		}
 	}
-	return roles
+	return out
 }
 
 // ModelRoleEffort returns the effort suffix of a saved role assignment or chain
@@ -261,67 +282,6 @@ func ModelRoleEffort(entry string) string {
 		return ""
 	}
 	return level
-}
-
-// AliasReaches reports the alias path taking from's assignment to target, as role
-// names ending in target, or nil when it does not reach it. from reaches itself, so
-// from == target yields that single name. Only ModelRoles aliases are followed:
-// this answers "would assigning @target to from cycle?", which is a different graph
-// from a chain's role references and must not be confused with ChainReaches.
-// Assignment values that name a model end the walk, and an unassigned role ends it
-// too, because Resolve stops at the first non-alias value.
-func AliasReaches(config Config, from, target string) []string {
-	if from == target {
-		return []string{target}
-	}
-	path := []string{from}
-	seen := map[string]bool{from: true}
-	role := from
-	for {
-		value := config.ModelRoles[role]
-		if value == "" {
-			// Built-in inheritance is the one edge Resolve adds that settings do not
-			// spell out, so follow the same fallbacks it uses.
-			switch role {
-			case "slow", "plan", "task", "vision", "commit", "smol":
-				value = "@default"
-			case "tiny", "widget":
-				value = "@smol"
-			case "memory":
-				value = "@tiny"
-			case "advisor":
-				value = "@slow"
-			}
-		}
-		next, ok := Role(strings.TrimSpace(value))
-		if !ok {
-			return nil
-		}
-		if next == target {
-			return append(slices.Clone(path), target)
-		}
-		// A saved cycle re-enters a role whose edges are already walked.
-		if seen[next] {
-			return nil
-		}
-		seen[next] = true
-		path = append(path, next)
-		role = next
-	}
-}
-
-// AssignableRoles returns the roles from's assignment may alias, in known-role
-// order: exactly those that cannot reach from, so every offered choice resolves
-// instead of producing a cycle. roles is the caller's display list, which keeps
-// this independent of which names happen to be assigned in a settings layer.
-func AssignableRoles(config Config, roles []string, from string) []string {
-	out := []string{}
-	for _, role := range roles {
-		if AliasReaches(config, role, from) == nil {
-			out = append(out, role)
-		}
-	}
-	return out
 }
 
 // EffectiveCandidates resolves aliases, wildcard tails, and role references,

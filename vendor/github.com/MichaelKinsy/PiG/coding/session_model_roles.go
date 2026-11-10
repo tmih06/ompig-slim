@@ -48,12 +48,12 @@ func (s *Session) ActiveModelRole() string {
 	return ""
 }
 
-// ActiveModelRoleColor reports the color token for the active role, resolved
-// through the same modelroles metadata the model manager paints role rows and
-// browser chips with. One role therefore has one hue across the catalog and the
-// footer, including user-authored modelTags overrides, which Config.RoleInfo
-// merges. It reads the live settings on each call, so a tag edit repaints with
-// the next frame. An empty role reports "" rather than the default role's color.
+// ActiveModelRoleColor reports the color token for the active role, from the same
+// modelroles metadata the model manager paints role rows and browser chips with, so
+// one role keeps one hue across the catalog and the footer — including a
+// user-authored modelTags override, which RoleInfo merges. It reads live settings on
+// each call, so a tag edit repaints with the next frame. No active role reports "",
+// never the default role's color.
 func (s *Session) ActiveModelRoleColor() string {
 	role := s.ActiveModelRole()
 	if role == "" {

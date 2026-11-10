@@ -66,14 +66,11 @@ func modelSegmentPalette(count int) []string {
 }
 
 // modelRoleColor resolves a role to the SGR sequence of its own catalog color, the
-// token RoleInfo reports and the model manager's role rows use. An unknown token,
-// or one the theme leaves undefined, falls back to muted: RoleInfo can inherit a
-// color from user-authored modelTags, and GetFgAnsi panics on a token the theme
-// does not define.
-//
-// Roles that share a token therefore draw in the same color -- plan, task and
-// judge are all muted -- which is the point: one role has one color, and two roles
-// that are the same color in the catalog are the same color here.
+// same token RoleInfo reports to the model manager's role rows. An unknown token,
+// or one the theme leaves undefined, falls back to muted: RoleInfo inherits a color
+// from user-authored modelTags, and GetFgAnsi panics on a token the theme does not
+// define. Roles that share a token therefore draw alike — plan, task and judge are
+// all muted — which is the point: one role, one color.
 func modelRoleColor(config modelroles.Config, role string) string {
 	th := modelOverlayTheme()
 	if token := config.RoleInfo(role).Color; th.HasFgToken(token) {
@@ -84,8 +81,7 @@ func modelRoleColor(config modelroles.Config, role string) string {
 
 // modelRoleTrack paints a track whose segments are roles, each in its own catalog
 // color instead of the positional palette. OMP colors its cycle track by position;
-// this runtime colors it by role so the cycle reads as the same roles the manager
-// and the footer show, rather than recoloring them whenever the order changes.
+// this colors it by role, so a role keeps one hue when the cycle is reordered.
 func modelRoleTrack(config modelroles.Config, roles []string, active int) (string, [][2]int) {
 	labels := make([]string, len(roles))
 	colors := make([]string, len(roles))
@@ -104,9 +100,9 @@ func modelSegmentTrack(labels []string, active int) (string, [][2]int) {
 }
 
 // modelSegmentTrackColors is the shared painter. colors supplies one SGR opening
-// sequence per segment; a shorter slice repeats, which is what the positional
-// palette relies on. The active segment turns its color into a background chip and
-// picks a black or white label for contrast.
+// sequence per segment and is indexed modulo its length, so the positional palette
+// may be shorter than the track. The active segment turns its color into a
+// background chip and picks a black or white label for contrast.
 func modelSegmentTrackColors(labels, colors []string, active int) (string, [][2]int) {
 	th := modelOverlayTheme()
 	out := ""
