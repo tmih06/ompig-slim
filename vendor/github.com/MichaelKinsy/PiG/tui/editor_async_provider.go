@@ -104,7 +104,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 				e.OnChange(e.Text())
 			}
 			if done != nil {
-				done(strings.HasPrefix(prefix, "/"))
+				done(strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:"))
 			} else if strings.HasPrefix(prefix, "/") {
 				// Tab has no submit continuation: query arguments after applying the name.
 				e.refreshAutocomplete()
@@ -164,7 +164,7 @@ func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
 	before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
 	triggered := autocompleteTriggered(before, e.asyncAutocomplete.TriggerCharacters)
 	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
-	return triggered || slash || e.AutocompleteOpen(), triggered
+	return triggered || slash || e.skillSlashContext(before) || e.AutocompleteOpen(), triggered
 }
 
 // SetAutocompleteInputHold binds the host's hold on terminal input for extension provider requests. hold runs on the owner loop when

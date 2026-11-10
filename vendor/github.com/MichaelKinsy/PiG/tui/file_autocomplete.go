@@ -90,6 +90,9 @@ func (p *CombinedProvider) ShouldTriggerFileCompletion(lines []string, cursorLin
 	}
 	before := line[:max(0, min(cursorCol, len(line)))]
 	trimmed := widthx.JSTrim(before)
+	if _, ok := trailingSkillSlash(before); ok && AllowsSkillTokens(strings.Join(lines, "\n")) {
+		return false
+	}
 	return !strings.HasPrefix(trimmed, "/") || strings.Contains(trimmed, " ")
 }
 
@@ -120,8 +123,10 @@ func (p *CombinedProvider) getSuggestions(ctx context.Context, lines []string, c
 	}
 
 	// Slash-command branch, after leading whitespace (autocomplete.ts:338-339).
-	if !force && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
-		return p.slash.GetSuggestions(ctx, lines, cursorLine, cursorCol, AutocompleteSuggestionOptions{})
+	if !force {
+		if result := p.slash.GetSuggestions(ctx, lines, cursorLine, cursorCol, AutocompleteSuggestionOptions{}); result != nil {
+			return result
+		}
 	}
 
 	// Mirrors upstream autocomplete.ts:358 + editor.ts forceFileAutocomplete.
@@ -151,6 +156,9 @@ func (p *CombinedProvider) SuggestionTask(lines []string, line, col int, force b
 	before := lines[line][:min(col, len(lines[line]))]
 	prefix := extractAtPrefix(before)
 	pathPrefix, pathMatch := extractPathPrefix(before, force)
+	if _, ok := trailingSkillSlash(before); ok && AllowsSkillTokens(strings.Join(lines, "\n")) {
+		return "", nil, false
+	}
 	if prefix != "" || force || (pathMatch && !strings.HasPrefix(widthx.JSTrimStart(before), "/")) {
 		lines = slices.Clone(lines)
 		if prefix == "" {
@@ -196,7 +204,7 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
 		afterCursor = afterCursor[1:]
 	}
 	out := slices.Clone(lines)
-	if strings.HasPrefix(prefix, "/") && widthx.JSTrim(beforePrefix) == "" && !strings.Contains(prefix[1:], "/") {
+	if strings.HasPrefix(prefix, "/") && (widthx.JSTrim(beforePrefix) == "" || strings.HasPrefix(item.Value, "skill:")) && (!strings.Contains(prefix[1:], "/") || strings.HasPrefix(item.Value, "skill:")) {
 		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
 		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
 	}

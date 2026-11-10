@@ -1215,10 +1215,8 @@ func (m *InteractiveMode) submit(ctx context.Context, text string) bool {
 	return false
 }
 
-// expandSkillCommand checks if prompt starts with "/skill:name" and if so,
-// expands it to the skill's XML block. Returns (expanded, true) on match.
-// Delegates to ExpandSkillCommand with the session's loaded skills.
-// Mirrors upstream _expandSkillCommand (agent-session.ts:1124-1151).
+// expandSkillCommand expands known skill tokens anywhere in a prompt using the
+// session's current resources. Failed loads emit the existing expansion diagnostic.
 func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
 	if len(m.opts.Skills) == 0 {
 		return "", false

@@ -59,6 +59,29 @@ make test-self-update
 
 ## Feature behavior notes
 
+### Skill calls in the composer
+
+The native composer completes skills after whitespace anywhere in a normal
+prompt; only the leading position offers built-in commands. Skill completion
+with Tab, Enter, or the mouse leaves the draft open for more text and skills.
+Registered `/skill:<name>` tokens draw as bold, tinted `◆ name` badges. Their
+source remains slash syntax for history, undo, external editing and submission;
+normal cursor navigation and deletion treat each recognized token atomically.
+Badges occupy only their compact label width, with one cell of pill padding on
+each side; no space is reserved for the hidden slash prefix. Wrapping and mouse
+hit testing use compact segment widths, while vertical navigation translates
+between source and display UTF-16 columns. Tokens wider than the editor may wrap
+as source text.
+
+`tui/skill_tokens.go` owns token boundaries and literal-input exclusions shared
+by the composer and `internal/codingagent/skills.go`. On submission, known skills
+are loaded from current resources, once per name in first-appearance order, and
+prepended as the existing XML skill blocks before the remaining user text. An
+unknown token stays literal; a read/parse failure reports the existing diagnostic
+and produces no partial expansion. Other slash-command arguments and local
+execution input remain literal. This multi-skill expansion is shared by
+interactive, Session, print and RPC paths, not an editor-only substitution.
+
 ### The base system prompt
 
 The prompt's opening text lives in `prompts/system.md` at the repository root and is embedded into the binary with `go:embed`; nothing reads the file at runtime. Edit the Markdown, not Go source. `prompts.System()` returns it trimmed.

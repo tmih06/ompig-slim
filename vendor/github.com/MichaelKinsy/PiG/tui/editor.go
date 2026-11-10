@@ -668,6 +668,17 @@ func (e *Editor) wrappedChunks(width int) [][]textChunk {
 	if width < 1 {
 		width = 1
 	}
+	// Skill widths depend on the live registry and the whole draft's execution
+	// context, not just this line. Do not reuse source-only cache entries for them.
+	for _, line := range e.lines {
+		if strings.Contains(line, "/skill:") {
+			chunks := make([][]textChunk, len(e.lines))
+			for i, text := range e.lines {
+				chunks[i] = e.wrapLine(text, width)
+			}
+			return chunks
+		}
+	}
 	reuse := e.wrapCacheWidth == width && len(e.wrapCachePasteIDs) == len(e.pastes)
 	if reuse {
 		for id := range e.wrapCachePasteIDs {
@@ -761,24 +772,20 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
 	emitCursorMarker := e.Focused // upstream editor.ts: const emitCursorMarker = this.focused; the hardware cursor stays on the text while the autocomplete popup is open
 	for _, line := range e.layoutText(width) {
 		if !line.hasCursor {
-			out = append(out, line.text)
+			out = append(out, e.skillDisplay(line.text, -1, false))
 			continue
 		}
 		// pig divergence (D66): Upstream appends the end-of-line cursor as a
 		// highlighted space even when the row has no cell left for it, which
 		// happens only at width 1 without padding. PiG highlights the final
 		// grapheme there instead of emitting a row wider than the terminal.
-		if line.cursorPos == jsstring.Length(line.text) && widthx.VisibleWidth(line.text) >= rowWidth && len(line.text) > 0 {
+		if line.cursorPos == jsstring.Length(line.text) && e.skillVisibleWidth(line.text) >= rowWidth && len(line.text) > 0 {
 			segments := graphemeSegments(line.text)
 			last := segments[len(segments)-1]
-			marker := ""
-			if emitCursorMarker {
-				marker = widthx.CursorMarker
-			}
-			out = append(out, line.text[:last.Start]+marker+widthx.RenderFakeCursor(last.Text))
+			out = append(out, e.skillDisplay(line.text, jsstring.Length(line.text)-jsstring.Length(last.Text), emitCursorMarker))
 			continue
 		}
-		out = append(out, e.renderCursorAt(line.text, line.cursorPos, emitCursorMarker))
+		out = append(out, e.skillDisplay(line.text, line.cursorPos, emitCursorMarker))
 	}
 	return out
 }
@@ -1276,9 +1283,8 @@ func (e *Editor) AutocompleteCancel() {
 }
 
 // AutocompleteAccept applies the currently-selected suggestion.
-// Returns submit=true iff the host should now submit the editor
-// (mirrors upstream editor.ts:644: Enter on a slash-name prefix
-// inserts and falls through to submit).
+// Returns submit=true for a non-skill slash command name. Skill and argument
+// selections leave the draft open so the user can continue composing.
 func (e *Editor) AutocompleteAccept() (submit bool) {
 	if e.asyncAutocomplete != nil {
 		e.acceptAsyncAutocomplete(nil)
@@ -1317,10 +1323,8 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
 	lines, row, byteCol := e.autocompleteView()
 	newLines, nl, nc := e.autocomplete.ApplyCompletion(lines, row, byteCol, item, prefix)
 	e.applyAutocompleteState(newLines, nl, nc)
-	// A prefix that starts with "/" falls through to submit; anything else
-	// (an argument completion) does not (upstream editor.ts
-	// tui.select.confirm).
-	isSlashName := strings.HasPrefix(prefix, "/")
+	// Skill calls are composable prompt tokens, not commands to dispatch immediately.
+	isSlashName := strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:")
 	e.AutocompleteCancel()
 	if !isSlashName && e.OnChange != nil {
 		e.OnChange(e.Text())
@@ -1358,7 +1362,7 @@ func (e *Editor) AutocompleteMove(delta int) {
 func (e *Editor) forceFileAutocomplete() bool {
 	if e.asyncAutocomplete != nil {
 		before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
-		force := !strings.HasPrefix(strings.TrimLeft(before, " \t"), "/") || strings.Contains(strings.TrimLeft(before, " \t"), " ")
+		force := !e.skillSlashContext(before) && (!strings.HasPrefix(strings.TrimLeft(before, " \t"), "/") || strings.Contains(strings.TrimLeft(before, " \t"), " "))
 		e.requestAsyncAutocomplete(force, true)
 		return true
 	}
@@ -1422,6 +1426,9 @@ func (e *Editor) naturalAutocompleteContext() bool {
 	}
 	line := e.lines[e.cursor[0]]
 	before := jsstring.Slice(line, 0, e.cursor[1])
+	if e.skillSlashContext(before) {
+		return true
+	}
 	if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") {
 		return true
 	}
@@ -1802,7 +1809,7 @@ func (e *Editor) HandleInput(data string) {
 	} else if kb.Matches(data, KBInputTab) {
 		line := e.lines[e.cursor[0]]
 		before := jsstring.Slice(line, 0, e.cursor[1])
-		if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") && !strings.Contains(strings.TrimLeftFunc(before, widthx.IsJSSpace), " ") {
+		if e.skillSlashContext(before) || (e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") && !strings.Contains(strings.TrimLeftFunc(before, widthx.IsJSSpace), " ")) {
 			e.refreshAutocomplete()
 			return
 		}
@@ -2266,27 +2273,29 @@ func (e *Editor) moveToVisualLine(visual []editorVisualLine, currentVisualLine, 
 	}
 	currentVL := visual[currentVisualLine]
 	targetVL := visual[targetVisualLine]
-	currentVisualCol := e.cursor[1] - currentVL.startCol
+	sourceText := e.lines[currentVL.logicalLine]
+	targetText := e.lines[targetVL.logicalLine]
+	currentVisualCol := e.skillColumn(sourceText, e.cursor[1]) - e.skillColumn(sourceText, currentVL.startCol)
 	if e.snappedFromCursorCol != nil {
 		vlIndex := e.findVisualLineAt(visual, currentVL.logicalLine, *e.snappedFromCursorCol)
-		currentVisualCol = *e.snappedFromCursorCol - visual[vlIndex].startCol
+		currentVisualCol = e.skillColumn(sourceText, *e.snappedFromCursorCol) - e.skillColumn(sourceText, visual[vlIndex].startCol)
 	}
 
 	isLastSourceSegment := currentVisualLine == len(visual)-1 || visual[currentVisualLine+1].logicalLine != currentVL.logicalLine
-	sourceMaxVisualCol := currentVL.length
+	sourceMaxVisualCol := e.skillColumn(sourceText, currentVL.startCol+currentVL.length) - e.skillColumn(sourceText, currentVL.startCol)
 	if !isLastSourceSegment {
-		sourceMaxVisualCol = max(0, currentVL.length-1)
+		sourceMaxVisualCol = max(0, sourceMaxVisualCol-1)
 	}
 
 	isLastTargetSegment := targetVisualLine == len(visual)-1 || visual[targetVisualLine+1].logicalLine != targetVL.logicalLine
-	targetMaxVisualCol := targetVL.length
+	targetMaxVisualCol := e.skillColumn(targetText, targetVL.startCol+targetVL.length) - e.skillColumn(targetText, targetVL.startCol)
 	if !isLastTargetSegment {
-		targetMaxVisualCol = max(0, targetVL.length-1)
+		targetMaxVisualCol = max(0, targetMaxVisualCol-1)
 	}
 
 	moveToVisualCol := e.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol)
 	e.cursor[0] = targetVL.logicalLine
-	targetCol := targetVL.startCol + moveToVisualCol
+	targetCol := e.skillSourceColumn(targetText, e.skillColumn(targetText, targetVL.startCol)+moveToVisualCol)
 	e.cursor[1] = min(targetCol, jsstring.Length(e.lines[targetVL.logicalLine]))
 	for _, segment := range e.segmentLine(e.lines[targetVL.logicalLine]) {
 		if segment.Start > e.cursor[1] {
