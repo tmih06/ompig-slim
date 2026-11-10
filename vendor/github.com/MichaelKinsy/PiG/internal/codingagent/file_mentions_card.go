@@ -13,6 +13,7 @@ package codingagent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -23,15 +24,21 @@ import (
 // read tool's status rows so the auto-read and a manual read look the same.
 type fileMentionCard struct {
 	mentions []FileMention
+	// outputPad is the horizontal padding that indents the tree into the prompt
+	// block, the same value the user message uses. Zero draws at the left edge.
+	outputPad int
 }
 
-// Render draws the tree. A single row uses `└─`; several use `├─` and end with
-// `└─`. Rows never wrap: the tree's rail only stays aligned when every entry is
-// one row, so a path too wide for the terminal is truncated with `…`.
+// Render draws the tree indented by outputPad. A single row uses `└─`; several
+// use `├─` and end with `└─`. Rows never wrap: the tree's rail only stays
+// aligned when every entry is one row, so a path too wide for the terminal is
+// truncated with `…`.
 func (c *fileMentionCard) Render(width int) []string {
 	if len(c.mentions) == 0 {
 		return nil
 	}
+	pad := max(0, min(c.outputPad, max(0, width-1)))
+	indent := strings.Repeat(" ", pad)
 	theme := tui.ActiveTheme()
 	rows := make([]string, 0, len(c.mentions))
 	for i, mention := range c.mentions {
@@ -44,13 +51,19 @@ func (c *fileMentionCard) Render(width int) []string {
 			theme.Fg("muted", "Read ") +
 			tui.ChalkBold(mention.Path) +
 			theme.Fg("dim", " ("+detail+")")
-		rows = append(rows, widthx.TruncateToWidth(row, max(1, width), "…", false))
+		rows = append(rows, indent+widthx.TruncateToWidth(row, max(1, width-pad), "…", false))
 	}
 	return rows
 }
 
-// Invalidate is a no-op: the rows bake in the theme colors of the render that
-// built them, as other native cards do.
+// SetOutputPad is the chat-wide outputPad setting reaching this block, so a
+// settings change re-indents the tree with the rest of the transcript.
+func (c *fileMentionCard) SetOutputPad(outputPad int) {
+	c.outputPad = max(0, outputPad)
+}
+
+// Invalidate satisfies tui.Component. The card holds no cached render, so the
+// container draws it fresh each frame and a theme change needs no rebuilding.
 func (c *fileMentionCard) Invalidate() {}
 
 // fileMentionDetail is the parenthesised row detail: the line count for a file,

@@ -168,6 +168,35 @@ func TestFileMentionCardRendersTree(t *testing.T) {
 	}
 }
 
+// TestFileMentionCardIndent checks the tree sits one indent in from the prompt
+// block and stays within the terminal at that indent.
+func TestFileMentionCardIndent(t *testing.T) {
+	mentions := []FileMention{{Path: "README.md", LineCount: 123, Content: "x"}}
+	flat := (&fileMentionCard{mentions: mentions}).Render(80)
+	indented := (&fileMentionCard{mentions: mentions, outputPad: 1}).Render(80)
+	if len(flat) != 1 || len(indented) != 1 {
+		t.Fatalf("flat=%v indented=%v", flat, indented)
+	}
+	if !strings.HasPrefix(widthx.StripAnsi(flat[0]), "└─") {
+		t.Fatalf("zero padding did not start the row: %q", flat[0])
+	}
+	if !strings.HasPrefix(widthx.StripAnsi(indented[0]), " └─") {
+		t.Fatalf("outputPad 1 did not indent the row: %q", indented[0])
+	}
+	// The indent counts against the width, so a padded row is never too wide.
+	for _, row := range (&fileMentionCard{mentions: mentions, outputPad: 1}).Render(14) {
+		if widthx.VisibleWidth(row) > 14 {
+			t.Fatalf("indented row exceeds width: %q", row)
+		}
+	}
+	// A padding wider than the terminal collapses instead of emitting a blank row.
+	for _, row := range (&fileMentionCard{mentions: mentions, outputPad: 200}).Render(10) {
+		if widthx.VisibleWidth(row) > 10 {
+			t.Fatalf("over-wide padding produced a long row: %q", row)
+		}
+	}
+}
+
 // TestFileMentionsRoundTrip checks a resumed session rebuilds the card from the
 // entry's details, whether they arrive typed or as decoded JSON.
 func TestFileMentionsRoundTrip(t *testing.T) {
@@ -246,6 +275,9 @@ func TestAppendFileMentionCard(t *testing.T) {
 func TestFileMentionCardFollowsSubmittedPrompt(t *testing.T) {
 	mode := resetWiringTest(t, nil)
 	mode.opts.CWD = mentionFixture(t)
+	// Production reads this from settings (GetOutputPad defaults to one cell), so
+	// the card is indented with the prompt block it belongs to.
+	mode.outputPad = 1
 	mentions := mode.prepareFileMentions("please explain @README.md")
 	if mentions == nil {
 		t.Fatal("no auto-read produced")
@@ -256,7 +288,13 @@ func TestFileMentionCardFollowsSubmittedPrompt(t *testing.T) {
 	}}})
 	mode.handleAgentEvent(agent.MessageStartEvent{Message: mentions.message})
 	rows := mode.chatContainer.Render(80)
-	last := widthx.StripAnsi(tui.SanitizeDisplayLine(rows[len(rows)-1]))
+	// SanitizeDisplayLine collapses whitespace, so the indent is read from the
+	// raw row and the text from the sanitized one.
+	raw := widthx.StripAnsi(rows[len(rows)-1])
+	last := tui.SanitizeDisplayLine(rows[len(rows)-1])
+	if !strings.HasPrefix(raw, " └─ ") {
+		t.Fatalf("card is not indented under the prompt: %q", raw)
+	}
 	if !strings.Contains(last, "└─ Read README.md (4 lines)") {
 		t.Fatalf("card is not the row under the prompt: %q", last)
 	}

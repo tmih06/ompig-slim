@@ -555,7 +555,7 @@ func (m *InteractiveMode) appendCustomMessage(message CustomMessageEntry) {
 	// from the entry's details.
 	if message.CustomType == FileMentionsCustomType {
 		if mentions := FileMentionsOf(message.Details); len(mentions) > 0 {
-			m.chatContainer.Add(&fileMentionCard{mentions: mentions})
+			m.chatContainer.Add(&fileMentionCard{mentions: mentions, outputPad: m.outputPad})
 		}
 		return
 	}

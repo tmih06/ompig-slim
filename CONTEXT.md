@@ -109,15 +109,17 @@ follow-up enqueues its own custom message beside the text. The message's
 rebuilds the card without re-reading the files.
 
 The transcript draws the rows directly under the submitted prompt, replacing
-oh-my-pi's `fileMention` block, which has no message role here:
+oh-my-pi's `fileMention` block, which has no message role here. The tree is
+indented by the chat-wide `outputPad` setting, so it reads as one block with the
+prompt above it:
 
 ```text
-├─ Read README.md (123 lines)
-└─ Read src/ (12 entries)
+ ├─ Read README.md (123 lines)
+ └─ Read src/ (12 entries)
 ```
 
-Rows are one line each, truncated at the terminal width, because a tree's `│`
-rail only stays aligned when every entry is one row. A skipped read shows
+Rows are one line each, truncated at the terminal width after the indent,
+because a tree's `│` rail only stays aligned when every entry is one row. A skipped read shows
 `skipped: <size>` or `skipped: binary, <size>`. See
 `internal/codingagent/file_mentions.go`, `file_mentions_card.go`,
 `interactive_file_mentions.go`, and the tests beside them.
