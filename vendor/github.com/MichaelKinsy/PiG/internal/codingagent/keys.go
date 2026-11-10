@@ -29,7 +29,7 @@ const (
 	actionSuspend                             // Ctrl+Z : SIGTSTP to self; resume on `fg`
 	actionSubmit                              // plain Enter
 	actionNewline                             // Shift+Enter / Ctrl+J: insert literal newline
-	actionFollowUp                            // Alt+Enter: queue follow-up (working) or submit (idle)
+	actionFollowUp                            // app.message.followUp: queue follow-up (working) or submit (idle)
 	actionDequeue                             // Alt+Up   : restore queued messages to editor
 	actionCycleThinking                       // Shift+Tab: cycle thinking level
 	actionToggleThinking                      // Ctrl+T: toggle thinking block visibility
@@ -144,7 +144,7 @@ const (
 	outcomeSuspend
 	outcomeSubmit
 	outcomeNewline
-	outcomeFollowUp // Alt+Enter: working: queue; idle: submit
+	outcomeFollowUp // app.message.followUp: working: queue; idle: submit
 	outcomeDequeue  // Alt+Up: restore queued messages to editor
 	outcomeInsert
 	outcomeCycleThinking      // Shift+Tab: state-invariant
@@ -247,7 +247,7 @@ func resolveOutcome(action keyAction, idle, editorEmpty bool) dispatchOutcome {
 	case actionNewline:
 		return outcomeNewline
 	case actionFollowUp:
-		// Alt+Enter: while working, queue follow-up; while idle, act as submit.
+		// app.message.followUp: while working, queue follow-up; while idle, act as submit.
 		// upstream: interactive-mode.ts:3258-3270
 		return outcomeFollowUp
 	case actionDequeue:

@@ -58,7 +58,7 @@ tables.
 | `app.editor.external` | `ctrl+g` | Open external editor |
 | `app.message.copy` | `ctrl+x` | Copy selection or last assistant message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages |
-| `app.message.followUp` | `alt+enter` | Queue follow-up message |
+| `app.message.followUp` | `ctrl+q` | Queue follow-up message |
 
 ### Models
 
@@ -200,7 +200,6 @@ or `WSL_INTEROP`.
 | `app.clipboard.pasteImage` | `ctrl+v` | `ctrl+v` | `alt+v` | `alt+v` |
 | `app.suspend` | `ctrl+z` | `ctrl+z` | `ctrl+z` | none |
 | `app.message.dequeue` | `alt+up` | `alt+up` | `alt+q` | `alt+q` |
-| `app.message.followUp` | `alt+enter` | `alt+enter` | `ctrl+q` | `ctrl+q` |
 | `app.model.cycleBackward` | `shift+ctrl+p` | `shift+ctrl+p` | `alt+p` | `alt+p` |
 | `app.tree.foldOrUp` | `alt+left, ctrl+left` | `ctrl+left, alt+left` | `ctrl+left, alt+left` | `ctrl+left, alt+left` |
 | `app.tree.unfoldOrDown` | `alt+right, ctrl+right` | `ctrl+right, alt+right` | `ctrl+right, alt+right` | `ctrl+right, alt+right` |
@@ -225,7 +224,7 @@ slash command, or bind them in `keybindings.json`.
 
 Write a key as its name, or as modifiers joined to the name with `+`. Use
 `ctrl`, `alt` and `shift` for modifiers. Examples: `ctrl+o`, `shift+ctrl+p`,
-`alt+enter`, `escape`, `ctrl+backspace`.
+`ctrl+q`, `escape`, `ctrl+backspace`.
 
 Terminals do not all report the same keys. If a binding does not respond, the
 terminal usually consumed the key before PiG saw it. See

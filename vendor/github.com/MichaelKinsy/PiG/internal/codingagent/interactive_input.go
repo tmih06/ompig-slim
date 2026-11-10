@@ -1093,7 +1093,7 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
 		m.editor.HandleInput("\n")
 
 	case outcomeFollowUp:
-		// Alt+Enter: if idle, act as regular submit; if working, enqueue
+		// app.message.followUp (ctrl+q): if idle, act as regular submit; if working, enqueue
 		// as follow-up (delivered after the agent has no more tool calls
 		// or steering messages).
 		// upstream: interactive-mode.ts:3258-3270
@@ -1114,7 +1114,7 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
 		// commands run and anything else queues for after it; while a run is
 		// active, prompt(text, { streamingBehavior: "followUp" }) runs an
 		// extension command or queues the text as a follow-up; otherwise
-		// Alt+Enter acts like Enter.
+		// the follow-up key acts like Enter.
 		trimmed := widthx.JSTrim(text)
 		switch {
 		case m.isExtensionCommand(trimmed) && (m.isCompacting || m.runStreaming()):
