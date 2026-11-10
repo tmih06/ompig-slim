@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Prove the two todo-argument fixes on a built binary through a loopback model.
+"""Prove the todo argument repairs on a built binary through a loopback model.
 
 The reported failure was `Validation failed for tool "todo": op: missing`, reached
 two ways: a call the schema rejected before the tool could repair an omitted `op`,
 and a call whose argument text was not JSON at all (reported as a missing member of
 the empty object that text decays to). This drives both through the real CLI and
 reads the session transcript for what the model was actually told.
+
+The payloads are the shapes this project's sessions actually produced: an op-less
+`list`, an op-less flat `items`, a bare call, and the op's own name as the member
+holding the phases. The model-facing text is unchanged by the widget fix in
+`smoke-test-info-widgets.py`; this script pins what the model reads.
 
 Print mode does not echo tool results, so the assertions read the session log the
 run writes. That is also what a resumed session sees, so the check covers what the
@@ -33,6 +38,10 @@ STAGES = [
     # 4. A flat-init `items` list with no phase: append would reject a missing
     # phase, so init is the only op that can succeed.
     {"name": "todo", "arguments": json.dumps({"items": ["Flat init task"]})},
+    # 5. The op's own name as the member holding the phases, which logged models
+    # emit when they mistake `op` for a call signature.
+    {"name": "todo", "arguments": json.dumps(
+        {"init": [{"phase": "Repair", "items": ["Lift the phases into list"]}]})},
 ]
 
 
@@ -151,8 +160,16 @@ def main():
         assert len(phases) == 1 and [t["content"] for t in phases[0]["tasks"]] == ["Flat init task"], \
             f"the flat init did not land: {phases}"
 
-        print("PASS: op-less init and flat init repaired, unparseable arguments report "
-              "the parse error, bare call reads the list")
+        # 5. The op-as-member payload landed too, with its phases moved to `list`.
+        member = results[4]
+        assert not member["isError"], f"an op-as-member init failed: {member['text']}"
+        assert member["details"].get("op") == "init", f"op = {member['details'].get('op')}, want init"
+        phases = member["details"].get("phases") or []
+        assert len(phases) == 1 and phases[0]["name"] == "Repair", \
+            f"the op-as-member init did not land: {phases}"
+
+        print("PASS: op-less init, flat init and op-as-member init repaired, unparseable "
+              "arguments report the parse error, bare call reads the list")
 
 
 if __name__ == "__main__":

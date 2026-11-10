@@ -18,8 +18,26 @@ import time
 
 
 class ModelServer(http.server.BaseHTTPRequestHandler):
-    """Return one todo mutation, then a legitimate handoff (no settle nudge)."""
+    """Replay one scripted turn per request: a valid plan, then a rejected call.
+
+    The second user turn emits a payload validation has to reject, which is the
+    shape this check exists for: the Tasks panel must show one short reason
+    instead of the harness's whole message with the arguments echoed in it.
+    """
     stage = 0
+
+    # One entry per assistant turn: the tool call to emit, or the text ending the
+    # turn. Both texts end with a question, the sanctioned stop that keeps the
+    # completion reminder from continuing the run.
+    script = [
+        {"call": {"name": "todo", "arguments": json.dumps({"op": "init", "list": [
+            {"phase": "Verify", "items": ["Widget task alpha", "Widget task beta"] +
+                [f"Scroll item {index:02d}" for index in range(24)] + ["Widget scroll tail"]}]})}},
+        {"text": "WIDGET_DONE. Should I continue?"},
+        {"call": {"name": "todo", "arguments": json.dumps(
+            {"op": "todo", "list": [{"phase": "Verify", "items": ["Widget task gamma"]}]})}},
+        {"text": "WIDGET_ERROR_DONE. Should I continue?"},
+    ]
 
     def log_message(self, *_):
         """Keep the fixture quiet; assertions report any failures."""
@@ -27,17 +45,13 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         """Use the production tool schema and OpenAI-compatible SSE transport."""
         self.rfile.read(int(self.headers["Content-Length"]))
-        if type(self).stage == 0:
-            items = ["Widget task alpha", "Widget task beta"]
-            items += [f"Scroll item {index:02d}" for index in range(24)]
-            items.append("Widget scroll tail")
-            args = {"op": "init", "list": [{"phase": "Verify", "items": items}]}
+        turn = type(self).script[min(type(self).stage, len(type(self).script) - 1)]
+        if "call" in turn:
             delta = {"role": "assistant", "tool_calls": [{"index": 0,
-                "id": "widget-proof", "type": "function", "function": {
-                    "name": "todo", "arguments": json.dumps(args)}}]}
+                "id": f"widget-{type(self).stage}", "type": "function", "function": turn["call"]}]}
             reason = "tool_calls"
         else:
-            delta = {"role": "assistant", "content": "WIDGET_DONE. Should I continue?"}
+            delta = {"role": "assistant", "content": turn["text"]}
             reason = "stop"
         type(self).stage += 1
         chunks = [
@@ -79,7 +93,11 @@ def run(binary, server, mode):
         captured = bytearray()
 
         def wait(token):
-            """Wait for an observable frame instead of guessing startup delays."""
+            """Wait for an observable frame instead of guessing startup delays.
+
+            Returns what was read while waiting, so an assertion can be scoped to
+            one repaint instead of the whole session's output.
+            """
             observed = bytearray()
             deadline = time.monotonic() + 25
             while time.monotonic() < deadline:
@@ -91,7 +109,7 @@ def run(binary, server, mode):
                     captured.extend(data)
                     observed.extend(data)
                 if token in observed:
-                    return
+                    return bytes(observed)
                 if process.poll() is not None:
                     break
             raise AssertionError(f"{mode}: missing {token!r}; exit={process.poll()}\n{bytes(captured[-4000:])!r}")
@@ -115,7 +133,28 @@ def run(binary, server, mode):
             wait("▸ Widgets".encode())
             os.write(master, b"\x1bw")
             wait("▾ Widgets".encode())
-            print(f"PASS: {mode} prompt-anchored widget, compact todo receipt, native checkbox renderer, first/last-page scrolling, border-only collapse/reopen")
+
+            # A call validation rejects must reach the panel as one short reason.
+            # The harness message is a header, the failure bullet and a
+            # pretty-printed copy of the model's arguments; the panel is a capped
+            # overlay, so it must show the bullet alone.
+            os.write(master, b"Send the malformed todo call.\r")
+            wait(b"WIDGET_ERROR_DONE")
+            rejected = bytes(captured)
+            assert b"op: expected one of" in rejected, \
+                f"{mode}: the panel did not show the rejected member\n{bytes(captured[-4000:])!r}"
+            assert b"Received arguments" not in rejected and b"Validation failed" not in rejected, \
+                f"{mode}: the whole validation message reached the terminal\n{bytes(captured[-4000:])!r}"
+
+            # The list the call could not change is still the panel's content.
+            os.write(master, b"\x1bw")
+            wait("▸ Widgets".encode())
+            os.write(master, b"\x1bw")
+            reopened = wait(b"Widget task alpha")
+            for token in (b"op: expected one of", b"Widget task beta"):
+                assert token in reopened, f"{mode}: reopen lost {token!r}\n{reopened!r}"
+            print(f"PASS: {mode} prompt-anchored widget, compact todo receipt, native checkbox renderer, "
+                  "first/last-page scrolling, border-only collapse/reopen, one-row rejected-call reason")
         finally:
             if process.poll() is None:
                 process.terminate()

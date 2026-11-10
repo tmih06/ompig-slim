@@ -97,6 +97,65 @@ func TestPrepareArgumentsRepairsOmittedOp(t *testing.T) {
 		}
 	})
 
+	t.Run("an init member is a list", func(t *testing.T) {
+		// The observed failure: a model wrote the op's name as the key holding the
+		// phases. Nothing else can be meant, so the array moves to `list`.
+		got := validated(t, `{"init":[{"phase":"P","items":["a"]}]}`)
+		if got["op"] != "init" {
+			t.Fatalf("op = %v, want init", got["op"])
+		}
+		if got["init"] != nil {
+			t.Fatalf("the repair left the init member behind: %v", got)
+		}
+		if list, ok := got["list"].([]any); !ok || len(list) != 1 {
+			t.Fatalf("the repair did not move the phases into list: %v", got)
+		}
+	})
+
+	t.Run("a stringified init member is still a list", func(t *testing.T) {
+		// Two logged calls arrived this way: the phase array quoted as the string
+		// value of `init`. Validation would reject the text either way, so reading
+		// it back as JSON is the only useful repair.
+		got := validated(t, `{"init":"[{\"phase\":\"P\",\"items\":[\"a\"]}]"}`)
+		if got["op"] != "init" {
+			t.Fatalf("op = %v, want init", got["op"])
+		}
+		if list, ok := got["list"].([]any); !ok || len(list) != 1 {
+			t.Fatalf("the repair kept the phases as text: %v", got)
+		}
+	})
+
+	t.Run("an unreadable init member is left ambiguous", func(t *testing.T) {
+		// A string that is not JSON cannot be guessed at; the model must fix it.
+		prepared, err := prepareArguments(json.RawMessage(`{"init":"not json"}`))
+		if err != nil {
+			t.Fatalf("prepareArguments: %v", err)
+		}
+		if string(prepared) != `{"init":"not json"}` {
+			t.Fatalf("prepareArguments rewrote an unreadable init: %s", prepared)
+		}
+	})
+
+	t.Run("list wins over an init member", func(t *testing.T) {
+		// The documented member is what the model meant; the stray one is dropped
+		// rather than passed on to a schema that has no place for it.
+		got := validated(t, `{"list":[{"phase":"P","items":["a"]}],"init":[{"phase":"Q","items":["b"]}]}`)
+		if got["op"] != "init" {
+			t.Fatalf("op = %v, want init", got["op"])
+		}
+		if list := got["list"].([]any); len(list) != 1 || list[0].(map[string]any)["phase"] != "P" {
+			t.Fatalf("the repair preferred the stray init member: %v", got)
+		}
+	})
+
+	t.Run("an empty op is the same omission", func(t *testing.T) {
+		// An empty string names no operation, so the arguments still decide.
+		got := validated(t, `{"op":"","items":["a"]}`)
+		if got["op"] != "init" {
+			t.Fatalf("op = %v, want init", got["op"])
+		}
+	})
+
 	t.Run("an empty items list is left ambiguous", func(t *testing.T) {
 		// Nothing to init and nothing to append: no op can succeed, so the model is
 		// told about the missing op rather than being handed one that fails later.
