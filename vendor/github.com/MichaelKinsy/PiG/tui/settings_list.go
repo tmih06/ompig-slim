@@ -90,7 +90,7 @@ func GetSettingsListTheme() SettingsListTheme {
 			if selected {
 				return ActiveTheme().Fg("accent", text)
 			}
-			return text
+			return markdownForeground(ActiveTheme().Text, text)
 		},
 		Value: func(text string, selected bool) string {
 			if selected {

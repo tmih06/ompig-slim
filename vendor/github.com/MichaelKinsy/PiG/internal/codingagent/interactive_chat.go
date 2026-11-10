@@ -42,6 +42,40 @@ func (m *InteractiveMode) markdownThemeWithSettings() *tui.MarkdownTheme {
 	return m.markdownTheme
 }
 
+// proseMarkdown builds a transcript Markdown block whose body text carries the
+// theme's prose color (tui.Theme.ProseFg).
+//
+// Every other part of a Markdown block already has a token: headings, code,
+// lists, quotes and links are all colored. The prose between them is not, and a
+// palette whose `text` token is the terminal default (96 of oh-my-pi's 100) would
+// leave it at whatever foreground the user's terminal happens to show. A themed
+// block reads as a few colored words inside uncolored text on a terminal whose
+// default foreground is close to its background, which is what "the TUI is all
+// white" looks like. The panel and changelog bodies go through here for that
+// reason, not only assistant replies.
+//
+// The color is a ThemedText-style rebuild rather than a one-time SetDefaultColor so
+// a block already on screen follows a theme switch. SetDefaultColor is a no-op when
+// the color is unchanged, so the per-render comparison is the whole cost.
+func (m *InteractiveMode) proseMarkdown(content string, paddingX, paddingY int) *proseColoredMarkdown {
+	md := tui.NewMarkdownWithOptions(content, paddingX, paddingY, m.markdownThemeWithSettings(), nil, nil)
+	md.SetDefaultColor(tui.ActiveTheme().ProseFg())
+	return &proseColoredMarkdown{Markdown: md}
+}
+
+// proseColoredMarkdown re-applies the active theme's prose color before each render.
+// It embeds Markdown so the block keeps Markdown's whole surface, including
+// FinishStreaming, which the transcript still calls after its last delta.
+type proseColoredMarkdown struct {
+	*tui.Markdown
+}
+
+// Render refreshes the prose color, then renders the block.
+func (p *proseColoredMarkdown) Render(width int) []string {
+	p.SetDefaultColor(tui.ActiveTheme().ProseFg())
+	return p.Markdown.Render(width)
+}
+
 // messageMeta is the persisted session entry a transcript message renders from, handed to the Markdown transformers as the
 // context's messageId and timestamp (Pi #11270 messageMeta). It is the zero value for a live message.
 type messageMeta struct{ ID, Timestamp string }
