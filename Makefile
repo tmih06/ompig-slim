@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container
+.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -38,6 +38,7 @@ smoke-built:
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-web-tools-binary.py ./bin/ompig-slim
+	python3 scripts/smoke-test-agent-state.py ./bin/ompig-slim
 
 release:
 	bash scripts/build-binaries.sh $(ARGS)
@@ -46,6 +47,13 @@ release:
 # only Python 3, bash, and the usual archive/HTTP tools.
 test-install:
 	python3 scripts/test-install.py
+
+# Run the installable extensions' own test suites. They live in a separate Go
+# module per extension because PiG builds each one against the SDK staged for the
+# running version, which a test needs a `replace` for; the script adds and
+# removes it. The adapters themselves ship as extensions, not in the binary.
+test-extensions: build
+	bash scripts/test-extensions.sh
 
 # Prove `ompig-slim update` and `upgrade` on the real executable: they replace
 # the file the installer placed, and refuse an installation it did not create.

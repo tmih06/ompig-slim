@@ -203,6 +203,114 @@ This is a native Go adaptation of jcode's margin-widget design, not a Rust compa
 
 See `vendor/github.com/MichaelKinsy/PiG/coding/extension/builtin/todo/state.go`, `vendor/github.com/MichaelKinsy/PiG/coding/extension/builtin/todo/render.go`, `vendor/github.com/MichaelKinsy/PiG/coding/extension/builtin/todo/settle.go`, `vendor/github.com/MichaelKinsy/PiG/coding/extension/builtin/todo/base_tool.go`, and the tests beside them.
 
+### Agent state published to other programs
+
+The binary publishes what each running agent is doing as one JSON document per process:
+
+```text
+<PIG_HOME|~/.pi>/state/agent/<pid>/status.json
+```
+
+One directory per process, not one shared file, because several agents run at once on a real machine
+— two Herdr panes, a pane plus a `-p` run from a script, a subagent host. A single file had them
+overwrite each other, and a consumer watching a pane could see a rival session's state; that was a
+real defect in the first version of this surface, and `TestConcurrentSessionsKeepSeparateDocuments`
+is its regression test. A process id is the right key because one process runs one session at a time;
+a session replacement reuses the directory. The publisher fixes `pid` at construction from the
+directory name, so a document's `pid` and the directory a consumer enumerates can never disagree.
+
+A consumer either reads one document ([PathForPID], for a tool already embedded in an agent) or
+enumerates the live ones ([List], for a status bar or a supervisor). [List] drops a document whose
+process is gone and removes its directory, because a killed writer cannot clean up after itself and a
+stale `working` in a listing is worse than a missing entry; a pid this process may not signal counts as
+alive, so a document is never dropped for lack of permission to check it.
+
+`internal/agentstate` owns that document — its schema, its atomic writer, and its reader — and
+`internal/agentstate/ext` is the compiled-in extension that fills it from session events. Everything
+else that wants to know what the agent is doing reads the file. Nothing in the binary knows about
+Herdr, tmux, a status bar, or a notifier, so supporting another consumer never means a new binary.
+
+**Why a file rather than a socket or a callback.** A lifecycle event is a moment, and a consumer that
+starts after it — a status bar launched later, an integration attached to an already-running session —
+would miss it. Publishing the *current* state instead of the transitions means a reader only has to
+read the file to be correct, and a publish coalesces naturally: two changes faster than one write
+leave the newest state on disk. The document is written atomically (temp file in the same directory,
+then rename), so a reader never sees a partial file and a crash mid-write leaves the previous document
+intact.
+
+**The move, not the moment.** `state` is `idle`, `working`, `blocked`, or `exited`, and the document
+also carries `agent` (`ompig-slim`), `session_id`, `session_file`, `cwd`, `mode`, `detail` (the dialog
+title for a blocked state, collapsed to one printable line), `blocked_kind`, `pid`, and `updated_at`.
+A consumer that only cares about an interactive agent must require `mode == "tui"`: a one-shot
+`-p` run in the same directory publishes too, and it is not the agent the user is watching. `exited` is
+written once on shutdown so a poller stops instead of trusting the last `working` forever; `pid` and
+`updated_at` let a reader tell a live document from a killed writer's leftovers.
+
+Derivation, in the order the states win: an open blocking dialog is `blocked`, an in-flight run is
+`working`, anything else is `idle`. `blocked` wins because a dialog can open mid-run and is what a
+consumer waiting on the user must see. `agent_settled` — not `agent_end` — ends a run, because PiG
+fires it only after retries, compaction, and queued continuations stop, so a consumer does not see
+`idle` between two attempts of one turn. `session_start` re-reads the session's own idle flag instead
+of assuming, because a `/reload` replaces the extension mid-run. A nested dialog increments a depth
+counter, so only the outermost close ends `blocked`. The handlers run on more than one goroutine, so
+every mutation publishes under the same mutex the state is derived under.
+
+**Failure is silent, by design.** `Publish` reports nothing: a read-only home, a full disk, or an
+unresolvable configuration root costs a missing status document, never a failed turn. The last write
+error is kept for a caller that wants to log it, and a publisher with no destination drops
+everything.
+
+### The Herdr adapter
+
+Herdr decides which agent owns a pane from the **process name** of the pane's foreground job, matched
+against a closed alias table (`pi`, `omp`, `claude`, …) in `src/detect/mod.rs`. `ompig-slim` is not in
+it, so a Herdr pane running this program looks like a plain shell: no sidebar row, no
+`herdr agent wait`, no tab or workspace rollup. Herdr's bundled Pi integration cannot bridge this — it
+attaches to a process named `pi` and would report the wrong agent if pointed elsewhere.
+
+`extensions/herdr` is an ordinary **installable extension**, not compiled-in code, and it is a pure
+adapter: it polls the state document and calls `herdr pane report-agent`. It cannot find its document
+by process id — PiG runs an extension in its own process — so it matches on the session id every
+document carries, re-resolved on each poll, which also handles a session replacement without an
+explicit re-subscription. It derives no state of its
+own, so it cannot disagree with what the binary published, and a bug in it can only misreport a state
+that is already visible on disk. Installing it is `ompig-slim install ./extensions/herdr`, or
+`-e ./extensions/herdr` for one run.
+
+Because an extension is a separate Go module built by PiG against the SDK staged for the running
+version, `make test-extensions` adds a `replace` to the staged SDK, runs `go test`, and restores
+`go.mod`. That is why `extensions/herdr/go.mod` carries a placeholder `require … v0.0.0`: the loader
+rewrites the version, and a committed `replace` would pin a stale SDK. The `go` directive stays at
+1.26 — the version `ompig-slim extension init` scaffolds — because a newer one refuses to build on an
+older toolchain.
+
+Transport is `"$HERDR_BIN_PATH" pane report-agent …` rather than the socket in `HERDR_SOCKET_PATH`:
+Herdr documents the CLI as the portable form (it reaches the Windows named pipe itself), and the
+socket wire protocol, `resume_argv` framing included, stays out of this repository. A call is bounded
+by a 2s timeout with both streams discarded, and an unchanged state sends nothing, so a session that
+sits idle makes no calls at all.
+
+`--seq` starts from `time.Now().UnixNano()` and only increases, because Herdr drops a report whose seq
+is not higher than the last one it accepted from that source and `custom:ompig-slim` keeps that
+high-water mark across agent restarts in the same pane.
+
+Resume is reported as `ompig-slim --session <absolute session file>`. Herdr types the command into a
+fresh shell and rejects a path as the executable, so `ompig-slim` must be on `PATH` from the installer;
+the session is named by file rather than by ID because Herdr restores in the stored cwd and an ID
+lookup depends on the original one. Herdr's limits (a plain command name, no control characters or
+apostrophes, ≤64 arguments, ≤8 KiB) are enforced in the adapter before sending: a resume command that
+breaks one is left out rather than making Herdr reject the whole report, which would lose the state
+too. The adapter never releases the pane; Herdr clears the agent and its resume command itself once
+the pane is back at its shell prompt, which covers exit and crash alike.
+
+`internal/agentstate/agentstate_test.go` covers the atomic write, duplicate suppression, field
+preservation, failure silence, and the reader's missing-versus-corrupt distinction;
+`internal/agentstate/ext/ext_test.go` drives real session events through the production factory loader
+and a real `inproc.Runner`. `extensions/herdr/herdr_test.go` covers the command line, seq ordering,
+`exited` filtering, resume validation, and the poller. `scripts/smoke-test-agent-state.py` proves both
+halves on the built executable: one real model turn moves the document `idle → working → idle`, and
+the installed extension forwards those states to a recording fake Herdr with the resume command.
+
 ### Theme, palette and colorful Markdown
 
 The theme system is `vendor/github.com/MichaelKinsy/PiG/tui/theme*.go`, a port of `packages/tui/src/theme/` in oh-my-pi. Four things were changed from the stock port; keep them together, because each one only makes sense beside the others.
