@@ -14,6 +14,7 @@ type ChatViewportOptions struct {
 	Footer              tui.Component
 	WidgetsAbove        tui.Component
 	WidgetsBelow        tui.Component
+	InfoWidgets         *tui.InfoWidgets
 	Scrollbar           string
 	ScrollbarTrackStyle func(text string) string
 	ScrollbarThumbStyle func(text string) string
@@ -57,11 +58,12 @@ func CreateChatViewport(options ChatViewportOptions) ChatViewport {
 	}
 	dockChildren = append(dockChildren, shrinking(options.Footer, 0))
 	dock := tui.NewVStack(dockChildren, tui.StackOptions{})
-	return ChatViewport{
-		Transcript: transcript,
-		Root: tui.NewVStack([]tui.StackEntry{
-			{Component: transcript, StackEntryOptions: tui.StackEntryOptions{Basis: new(0), Grow: new(1), Shrink: new(1), MinSize: new(1)}},
-			{Component: dock, StackEntryOptions: tui.StackEntryOptions{Grow: new(0), Shrink: new(1), MinSize: new(1)}},
-		}, tui.StackOptions{}),
+	var root tui.Component = tui.NewVStack([]tui.StackEntry{
+		{Component: transcript, StackEntryOptions: tui.StackEntryOptions{Basis: new(0), Grow: new(1), Shrink: new(1), MinSize: new(1)}},
+		{Component: dock, StackEntryOptions: tui.StackEntryOptions{Grow: new(0), Shrink: new(1), MinSize: new(1)}},
+	}, tui.StackOptions{})
+	if options.InfoWidgets != nil {
+		root = &tui.InfoWidgetLayout{Content: root, Widgets: options.InfoWidgets, Prompt: options.Editor}
 	}
+	return ChatViewport{Transcript: transcript, Root: root}
 }

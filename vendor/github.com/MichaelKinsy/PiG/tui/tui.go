@@ -832,6 +832,9 @@ type TuiMainScreen struct {
 	tuiBase
 
 	prevLines []string
+	// Passive information overlays are separate from modal overlay ownership.
+	infoWidgets    *InfoWidgets
+	infoWidgetDock Component
 	// Line-reset reuse cache. ApplyLineResets appends the SegmentReset
 	// barrier to every line every frame, allocating one string per line.
 	// The transcript above the changed region is identical frame-to-frame
@@ -2172,7 +2175,14 @@ func (t *TuiMainScreen) doRender() {
 	// overlay-state lock held.
 	// Resolve fake cursors before compositing so overlays and line slicing see plain SGR codes (tui-main-screen.ts doRender).
 	rootLines, rootVersion, kept := t.renderBorrowedSince(width, t.windowVersion)
-	newLines, unresolved := t.composeFrameLines(rootLines, width, height)
+	widgetLines, widgetLayout := t.composeInfoWidgetFrame(rootLines, width, height)
+	newLines, unresolved := t.composeFrameLines(widgetLines, width, height)
+	if widgetLayout != nil {
+		// Modal overlays paint and receive mouse events above the passive HUD.
+		t.overlayMu.Lock()
+		t.renderedOverlayLayouts = append([]renderedOverlayLayout{*widgetLayout}, t.renderedOverlayLayouts...)
+		t.overlayMu.Unlock()
+	}
 	hasOverlay := t.HasOverlay()
 	// The reset cache may compare with the last frame's input when that array
 	// is unchanged: a composed array is the renderer's own, and the root

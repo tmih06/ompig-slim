@@ -35,6 +35,12 @@ translate can1357/oh-my-pi at commit
 2f833c564598b878ab7c5a752672e6c5b1f0ae60 (MIT). The upstream copyright and
 permission notice are reproduced in LICENSE.
 
+The adaptive information-widget layout is a native Go adaptation of jcode's
+margin-widget design, observed at commit
+4d1f3cdf0a8667758d0f07a00887c49e549779ba (1jehuang/jcode).
+Copyright (c) 2025 Jeremy Huang, MIT. Its permission notice is retained in
+vendor/github.com/MichaelKinsy/PiG/tui/LICENSE.jcode.
+
 Bundled model identities, limits, pricing, kinds, and provider environment
 names are imported from @oh-my-pi/pi-catalog 18.14.2 (MIT). Source hashes
 are retained in vendor/github.com/MichaelKinsy/PiG/ai/omp_catalog_data/manifest.json.
