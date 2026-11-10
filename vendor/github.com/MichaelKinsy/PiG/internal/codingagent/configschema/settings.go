@@ -94,7 +94,7 @@ func settingsSchema() *Schema {
 		Optional("usageReservePolicy", Union(literals("confirm", "auto", "fail-closed"), Default("confirm"))),
 		Optional("modelFallback", Boolean(Default(true))),
 		Optional("fallbackOn", Union(literals("any", "usage-limit", "except-usage-limit"), Default("any"))),
-		Optional("fallbackChains", Record(Array(String()), D("Ordered fallbacks keyed by role, exact model selector, or provider/*; an empty array disables inheritance."))),
+		Optional("fallbackChains", Record(Array(String()), D("Ordered fallbacks keyed by role, exact model selector, or provider/*; entries may name another @role, and an empty array disables inheritance."))),
 		Optional("enabled", Boolean(Default(d.retryEnabled))),
 		Optional("maxRetries", Number(Default(d.retryMaxRetries))),
 		Optional("baseDelayMs", Number(D("Exponential backoff base delay in milliseconds: 2s, 4s, 8s."), Default(d.retryBaseDelayMs))),

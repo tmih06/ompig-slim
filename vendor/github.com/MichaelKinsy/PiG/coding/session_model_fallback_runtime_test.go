@@ -59,6 +59,79 @@ func TestFallbackChainAtTailProtectsItself(t *testing.T) {
 	}
 }
 
+// TestFallbackChainRoleDestination hops to another role's model and then keeps
+// walking through that role's own chain. The failed hop stays attributed to the
+// originating role, so a role destination is a routing shortcut and not a role
+// switch, and the loop guard keeps the two-role reference from repeating.
+func TestFallbackChainRoleDestination(t *testing.T) {
+	s := roleTestSession(t, map[string][]string{"review": {"@slow:off"}, "slow": {"openai/gpt-4o-mini:off", "openai/gpt-4.1"}})
+	if err := s.SettingsManager().UpdateGlobal(func(settings *Settings) {
+		settings.ModelRoles["slow"] = "openai/gpt-4o-mini"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, want := range []string{"gpt-4o-mini", "gpt-4.1"} {
+		message := appendRoleFailure(t, s, "billing quota exceeded")
+		hopped, err := s.tryModelFallback(context.Background(), message)
+		if err != nil || !hopped || s.Model().ID != want {
+			t.Fatal(hopped, err, s.Model().ID, want)
+		}
+		if s.ActiveModelRole() != "review" {
+			t.Fatal("role destination changed the logical role", s.ActiveModelRole())
+		}
+	}
+	message := appendRoleFailure(t, s, "billing quota exceeded")
+	if hopped, err := s.tryModelFallback(context.Background(), message); err != nil || hopped {
+		t.Fatalf("role chain did not terminate: %v %v", hopped, err)
+	}
+}
+
+// TestFallbackChainStoredRoleLoopTerminates covers chains the write guard never
+// saw: a hand-edited config, and a loop that only exists in the inherited default
+// tail. Both must walk each role once and stop, rather than expanding a role
+// forever.
+func TestFallbackChainStoredRoleLoopTerminates(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		roles  map[string]string
+		chains map[string][]string
+	}{
+		{"mutual",
+			map[string]string{"default": "openai/gpt-4o", "review": "openai/gpt-4o", "audit": "openai/gpt-4o-mini"},
+			map[string][]string{"review": {"@audit"}, "audit": {"@review"}}},
+		// Review has no authored chain: it inherits default's [@audit], and audit
+		// points back at @review. Nothing in one authored chain repeats.
+		{"inherited default tail",
+			map[string]string{"default": "openai/gpt-4o", "review": "openai/gpt-4o", "audit": "openai/gpt-4o-mini"},
+			map[string][]string{"default": {"@audit"}, "audit": {"@review"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := roleTestSession(t, tc.chains)
+			if err := s.SettingsManager().UpdateGlobal(func(settings *Settings) {
+				settings.ModelRoles = tc.roles
+				// This test asserts expansion termination, not retry backoff, so it must
+				// not wait out same-model retries between hops.
+				settings.Retry.MaxRetries = new(0)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			// The reachable model is the assertion; an unguarded expansion would hang here.
+			message := appendRoleFailure(t, s, "billing quota exceeded")
+			if hopped, err := s.tryModelFallback(context.Background(), message); err != nil || !hopped || s.Model().ID != "gpt-4o-mini" {
+				t.Fatal(hopped, err, s.Model().ID)
+			}
+			message = appendRoleFailure(t, s, "billing quota exceeded")
+			if hopped, err := s.tryModelFallback(context.Background(), message); err != nil || hopped {
+				t.Fatalf("stored role loop did not terminate: %v %v", hopped, err)
+			}
+		})
+	}
+}
+
 // TestMissingCredentialPrewalk restores the primary as soon as its credential
 // returns, without inventing a failed assistant response or waiting a cooldown.
 func TestMissingCredentialPrewalk(t *testing.T) {

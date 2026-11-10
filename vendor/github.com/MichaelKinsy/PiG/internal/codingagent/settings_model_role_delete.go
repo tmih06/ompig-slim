@@ -35,8 +35,7 @@ func (sm *SettingsManager) DeleteModelRole(role, scope string) error {
 					continue // The role's own chain is removed in the same write.
 				}
 				for _, selector := range chain {
-					base, _ := modelroles.Split(selector)
-					if target, ok := modelroles.Role(base); ok && target == role {
+					if target, ok := modelroles.RoleRef(selector); ok && target == role {
 						return fmt.Errorf("@%s is referenced by fallback chain %s; edit it before deleting", role, owner)
 					}
 				}

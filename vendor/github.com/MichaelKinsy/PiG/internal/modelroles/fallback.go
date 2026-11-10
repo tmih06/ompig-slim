@@ -151,9 +151,143 @@ func mapKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// EffectiveCandidates resolves aliases and wildcard tails, deduplicates canonical
-// selectors, and returns the tail after current. wrap adds earlier entries for
-// credential/usage prewalking; ordinary retry never wraps.
+// RoleRef reports the role an entry points at, if it points at one at all. Only
+// an explicit role spelling counts; a bare model fragment that happens to share a
+// role's name must never be expanded as that role.
+func RoleRef(entry string) (string, bool) {
+	base, _ := Split(strings.TrimSpace(entry))
+	return Role(base)
+}
+
+// ChainEntries flattens key's chain, expanding each role entry depth-first through
+// the referenced role's own chain. A role destination therefore means that role's
+// model first and then that role's own recovery plan, in the order the author
+// wrote it. Every role is entered at most once, so a reference loop — written by
+// hand in one settings file, or closed across the global and project layers —
+// degrades to a shorter chain instead of expanding forever. The result is raw
+// entries: alias resolution and deduplication stay in EffectiveCandidates so both
+// paths agree on canonical identity.
+func ChainEntries(chains map[string][]string, key string) []string {
+	entries := []string{}
+	visited := map[string]bool{}
+	var expand func(string)
+	expand = func(node string) {
+		if visited[node] {
+			return
+		}
+		visited[node] = true
+		for _, entry := range chains[node] {
+			entries = append(entries, entry)
+			if role, ok := RoleRef(entry); ok {
+				expand(role)
+			}
+		}
+	}
+	expand(key)
+	return entries
+}
+
+// ChainReaches reports whether from's chain reaches target by following role
+// entries. A role reaches itself, so from == target reports true, which is what
+// makes a self reference a loop.
+//
+// Appending @from to target's chain closes a loop exactly when this reports true,
+// because every other edge on that loop already exists: the walk covers the saved
+// chains, so the write guard needs no prospective copy. It walks the same edges as
+// ChainEntries, and both terminate on a loop that is already saved.
+func ChainReaches(chains map[string][]string, from, target string) bool {
+	visited := map[string]bool{}
+	var walk func(string) bool
+	walk = func(role string) bool {
+		if role == target {
+			return true
+		}
+		// A stored loop only revisits edges already known not to reach target.
+		if visited[role] {
+			return false
+		}
+		visited[role] = true
+		for _, entry := range chains[role] {
+			if ref, ok := RoleRef(entry); ok && walk(ref) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(from)
+}
+
+// AliasReaches reports whether following from's assignment reaches target. A role
+// reaches itself, so from == target reports true, which is what makes a self
+// assignment a loop.
+//
+// Only ModelRoles aliases and the built-in inheritance Resolve applies are edges,
+// so this answers "would assigning @target to from cycle?" — a different graph from
+// a chain's role references, which ChainReaches walks. A value naming a model and
+// an unassigned role both end the walk, because Resolve stops there too.
+func AliasReaches(config Config, from, target string) bool {
+	seen := map[string]bool{}
+	for role := from; role != ""; {
+		if role == target {
+			return true
+		}
+		if seen[role] {
+			return false
+		}
+		seen[role] = true
+		role, _ = RoleRef(config.assignment(role, ""))
+	}
+	return false
+}
+
+// FallbackRoles returns the roles key's chain may reference, in known-role order:
+// exactly those whose entry the write guard accepts, because a role that already
+// reaches key would close a reference loop. Kind compatibility is deliberately not
+// decided here — the catalog's kind families live in the TUI — so the hub applies
+// its own kind rule on top.
+func FallbackRoles(config Config, chains map[string][]string, key string) []string {
+	return filterRoles(config.Known(chains), func(role string) bool { return !ChainReaches(chains, role, key) })
+}
+
+// AssignableRoles returns the roles from's primary assignment may alias, in
+// known-role order: exactly those that cannot reach from, so every offered choice
+// resolves instead of producing a cycle.
+//
+// Assignment is a different graph from a chain's role references — it follows
+// ModelRoles aliases, not chains — so this is not ChainReaches with another name.
+func AssignableRoles(config Config, chains map[string][]string, from string) []string {
+	return filterRoles(config.Known(chains), func(role string) bool { return !AliasReaches(config, role, from) })
+}
+
+// filterRoles keeps the roles keep accepts, preserving order and never returning
+// nil so callers can range over the result unconditionally.
+func filterRoles(roles []string, keep func(string) bool) []string {
+	out := []string{}
+	for _, role := range roles {
+		if keep(role) {
+			out = append(out, role)
+		}
+	}
+	return out
+}
+
+// ModelRoleEffort returns the effort suffix of a saved role assignment or chain
+// entry, or "" when it carries none. "inherit" means "use whatever the resolved
+// model defaults to" and is reported as empty so callers can treat it as absent.
+// A role entry's suffix belongs to the alias, so an effort edit rewrites the alias
+// instead of pinning the model it currently resolves to.
+func ModelRoleEffort(entry string) string {
+	_, level := Split(strings.TrimSpace(entry))
+	if level == "inherit" {
+		return ""
+	}
+	return level
+}
+
+// EffectiveCandidates resolves aliases, wildcard tails, and role references,
+// deduplicates canonical selectors, and returns the tail after current. chain
+// must already be flattened, i.e. the output of ChainEntries for its key. wrap
+// adds earlier entries for credential/usage prewalking; ordinary retry never wraps.
 func EffectiveCandidates(config Config, primary, current, legacy string, chain []string, lookup Lookup, wrap bool) []Selector {
 	parsed, ok := ParseSelector(current, lookup)
 	if !ok {

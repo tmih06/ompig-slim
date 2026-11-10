@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,6 +18,11 @@ func hubFixture() (*ModelHub, *modelroles.Config, map[string][]string) {
 	chains := map[string][]string{"default": {"p/b", "p/c"}}
 	items := []ModelSelectorItem{{Provider: "p", ID: "a"}, {Provider: "p", ID: "b"}, {Provider: "q", ID: "other"}}
 	h := NewModelHub(ModelHubConfig{Models: items, AllModels: append(append([]ModelSelectorItem{}, items...), ModelSelectorItem{Provider: "locked", ID: "secret"}), Height: func() int { return 32 }, Snapshot: func() (modelroles.Config, map[string][]string) { return config.Clone(), modelroles.CloneChains(chains) }, Resolve: func(s string) (string, error) { return config.Resolve(s, "p/a") }, Assign: func(role, value, scope string) error {
+		// Mirror the host's write guard, so a hub test cannot pass by saving a cycle
+		// the settings manager would refuse.
+		if alias, ok := modelroles.RoleRef(value); ok && modelroles.AliasReaches(config, alias, role) {
+			return errors.New("model role cycle")
+		}
 		if value == "" {
 			delete(config.ModelRoles, role)
 		} else {
@@ -35,6 +42,22 @@ func hubFixture() (*ModelHub, *modelroles.Config, map[string][]string) {
 
 // openRoles follows OMP's initial All/scope focus with Up then Right.
 func openRoles(h *ModelHub) { h.HandleInput("\x1b[A"); h.HandleInput("\x1b[C") }
+
+// browserRoles returns the role names the browser is currently offering, and parks
+// the cursor on want when it is among them.
+func browserRoles(h *ModelHub, want string) []string {
+	roles := []string{}
+	for i, item := range h.browser.items {
+		if item.Role == "" {
+			continue
+		}
+		roles = append(roles, item.Role)
+		if item.Role == want {
+			h.browser.cursor = i
+		}
+	}
+	return roles
+}
 
 // TestModelHubEdits covers assign, append, delete, membership and ordered movement
 // using upstream's x/f/c/[/] bindings instead of the abandoned approximate menu.
@@ -185,6 +208,75 @@ func TestModelHubWheelDoesNotSelect(t *testing.T) {
 	}
 }
 
+// distinctTokenTheme installs a theme whose every token resolves to a different
+// color, so a rendered segment identifies the token that painted it. A source path
+// is set because modelOverlayTheme hands back the active theme unchanged for an
+// explicit custom theme, which keeps this fixture authoritative for both the
+// catalog and anything that reads the catalog's palette.
+func distinctTokenTheme(t *testing.T) *Theme {
+	t.Helper()
+	previous := ActiveTheme()
+	t.Cleanup(func() { SetThemeInstance(previous) })
+	theme := &Theme{Name: "distinct-tokens", SourcePath: "/fixture/distinct.json", mode: TerminalColorModeTrueColor, ownAppearance: "dark", fgAnsi: map[string]string{}, bgAnsi: map[string]string{}, dimTokens: map[string]bool{}}
+	for i, token := range ThemeColorTokens() {
+		// Distinct greys: 3 + i per channel keeps every token distinguishable.
+		value := 3 + i%200
+		theme.fgAnsi[token.Name] = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", value, value, value)
+		theme.bgAnsi[token.Name] = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", value, value, value)
+	}
+	theme.populateFields()
+	SetThemeInstance(theme)
+	return theme
+}
+
+// TestModelHubCycleTrackColorsByRole diverges from OMP deliberately: OMP paints the
+// cycle track from a positional palette, so the same role changes color when the
+// order changes. This runtime colors each segment with the role's own catalog token
+// instead, so the cycle reads as the same roles the manager rows, the quick picker
+// and the footer show. The assertion is that a role's color is independent of its
+// position, which is exactly what the positional palette could not provide.
+func TestModelHubCycleTrackColorsByRole(t *testing.T) {
+	theme := distinctTokenTheme(t)
+	config := modelroles.Config{ModelRoles: map[string]string{"default": "p/a", "smol": "p/b", "slow": "p/c", "task": "@default"}}
+	for _, tc := range []struct{ order []string }{
+		{[]string{"default", "smol", "slow", "task"}},
+		{[]string{"task"}},
+		{[]string{"task", "default"}},
+		{[]string{"slow", "task", "default"}},
+	} {
+		track, _ := modelRoleTrack(config, tc.order, -1)
+		// Every role in the order draws in its own token, at any position.
+		for _, role := range tc.order {
+			token := config.RoleInfo(role).Color
+			if !strings.Contains(track, theme.GetFgAnsi(token)+role) {
+				t.Fatalf("order %v: role %s not drawn in %s: %q", tc.order, role, token, track)
+			}
+		}
+	}
+	// A role whose color comes from a modelTags override follows the tag, and an
+	// undefined token falls back to muted instead of panicking in GetFgAnsi.
+	config.ModelTags = map[string]modelroles.Tag{"slow": {Color: "error"}, "odd": {Color: "not-a-token"}}
+	if track, _ := modelRoleTrack(config, []string{"slow"}, -1); !strings.Contains(track, theme.GetFgAnsi("error")+"slow") {
+		t.Fatalf("tag override ignored: %q", track)
+	}
+	if track, _ := modelRoleTrack(config, []string{"odd"}, -1); !strings.Contains(track, theme.GetFgAnsi("muted")+"odd") {
+		t.Fatalf("undefined token did not fall back: %q", track)
+	}
+	// The active segment keeps its chip treatment: caps around a padded bold label,
+	// and the next segment is separated without a divider (OMP's active-spacing rule).
+	active, ranges := modelRoleTrack(config, []string{"default", "task"}, 0)
+	visible := widthx.StripTerminalSequences(active)
+	if !strings.Contains(visible, "◀ default ▶") {
+		t.Fatalf("active role chip missing: %q", visible)
+	}
+	if strings.Contains(visible, "┆") {
+		t.Fatalf("active segment still drew a divider: %q", visible)
+	}
+	if len(ranges) != 2 || ranges[0][0] != 0 || ranges[1][0] <= ranges[0][0] {
+		t.Fatalf("mouse ranges unusable for the chip geometry: %v", ranges)
+	}
+}
+
 // TestModelHubFallbackCreationDeduplicates checks the selected-model/provider key strip.
 func TestModelHubFallbackCreationDeduplicates(t *testing.T) {
 	h, _, chains := hubFixture()
@@ -210,6 +302,90 @@ func TestModelHubFallbackCreationDeduplicates(t *testing.T) {
 	}
 }
 
+// TestModelHubOffersRoleFallbackDestinations keeps the picker and the write guard
+// in agreement: while a chain destination is being chosen, the browser lists @role
+// rows ahead of models, the originating role and every role that would close a
+// reference loop are absent, and accepting a role row writes the role name rather
+// than the model the role resolves to today.
+func TestModelHubOffersRoleFallbackDestinations(t *testing.T) {
+	h, config, chains := hubFixture()
+	config.ModelRoles["review"] = "p/a"
+	config.ModelRoles["slow"] = "q/other"
+	chains["slow"] = []string{"@review"}
+	h.reload()
+	openRoles(h)
+	for i, row := range h.rows {
+		if row.kind == "role" && row.key == "review" {
+			h.cursor = i
+		}
+	}
+	h.HandleInput("f")
+	if h.target == nil || h.target.kind != "append" {
+		t.Fatal("append did not start a chain pick")
+	}
+	h.HandleInput("@")
+	roles := browserRoles(h, "default")
+	if slices.Contains(roles, "review") || slices.Contains(roles, "slow") {
+		t.Fatalf("loop-closing roles offered: %v", roles)
+	}
+	if !slices.Contains(roles, "default") {
+		t.Fatalf("eligible role missing: %v", roles)
+	}
+	h.HandleInput("\r")
+	if got := chains["review"]; !slices.Contains(got, "@default") {
+		t.Fatalf("role destination saved as a model: %v", got)
+	}
+}
+
+// TestModelHubAssignsRoleToRole covers primary assignment accepting a role alias.
+// Assigning task to @default must save the alias, so task keeps tracking default
+// when default is repointed, and the effort dial must not pin a model in its place.
+func TestModelHubAssignsRoleToRole(t *testing.T) {
+	h, config, _ := hubFixture()
+	config.ModelRoles["smol"] = "p/b"
+	h.reload()
+	openRoles(h)
+	for i, row := range h.rows {
+		if row.kind == "role" && row.key == "task" {
+			h.cursor = i
+		}
+	}
+	h.HandleInput("\r")
+	if h.target == nil || h.target.kind != "role" {
+		t.Fatal("primary assignment does not accept roles")
+	}
+	// A leading @ is the alias gesture, mirroring the Alt+P picker.
+	h.HandleInput("@")
+	if !h.rolePool() {
+		t.Fatal("@ did not open the alias pool")
+	}
+	roles := browserRoles(h, "default")
+	if slices.Contains(roles, "task") {
+		t.Fatalf("self assignment offered: %v", roles)
+	}
+	if !slices.Contains(roles, "default") {
+		t.Fatalf("default not offered: %v", roles)
+	}
+	h.HandleInput("\r")
+	if got := config.ModelRoles["task"]; got != "@default" {
+		t.Fatalf("assignment pinned a model instead of the alias: %q", got)
+	}
+	// The alias must survive an effort change rather than collapsing to a model.
+	h.reload()
+	for i, row := range h.rows {
+		if row.kind == "role" && row.key == "task" {
+			h.cursor = i
+		}
+	}
+	if item, _, ok := h.selectedRowItem(); !ok || item.Role != "default" {
+		t.Fatalf("effort edit would pin the model: %+v", item)
+	}
+	// The loop direction: default must not be assignable to task.
+	if got := modelroles.AssignableRoles(*config, nil, "default"); slices.Contains(got, "task") {
+		t.Fatalf("cycle-closing alias offered: %v", got)
+	}
+}
+
 // TestQuickPickerPreservesRole checks @ mode and Task/session isolation.
 func TestQuickPickerPreservesRole(t *testing.T) {
 	items := []ModelSelectorItem{{Provider: "p", ID: "a"}, {Provider: "p", ID: "b"}}
@@ -225,6 +401,58 @@ func TestQuickPickerPreservesRole(t *testing.T) {
 	task.HandleInput("\r")
 	if !task.SelectedTask() {
 		t.Fatal("shortcut did not toggle Task")
+	}
+}
+
+// TestModelHubRendersRoleAlias covers how a role-to-role assignment is displayed.
+// The authored alias is the assignment, so the row shows @role in the referenced
+// role's own color and must not substitute the model that role resolves to today;
+// a chain entry naming a role renders the same way under its owner.
+func TestModelHubRendersRoleAlias(t *testing.T) {
+	h, config, chains := hubFixture()
+	config.ModelRoles["task"] = "@default"
+	config.ModelRoles["review"] = "@slow:high"
+	config.ModelRoles["slow"] = "p/b"
+	chains["task"] = []string{"@slow:off"}
+	h.reload()
+	openRoles(h)
+	// Park the cursor on a row with no alias: the focused row paints its value in the
+	// accent color, which would mask the role color this test is about.
+	for i, row := range h.rows {
+		if row.kind == "role" && row.key == "vision" {
+			h.cursor = i
+		}
+	}
+	frame := h.Render(100)
+	rowLine := func(fragment string) string {
+		for _, line := range frame {
+			if strings.Contains(widthx.StripTerminalSequences(line), fragment) {
+				return line
+			}
+		}
+		return ""
+	}
+	theme := modelOverlayTheme()
+	// Each alias renders as @name, colored by the role it names, with no model.
+	for _, tc := range []struct{ role, alias, color string }{{"task", "@default", "success"}, {"review", "@slow", "accent"}} {
+		line := rowLine(tc.alias)
+		if line == "" {
+			t.Fatalf("%s row does not show %s", tc.role, tc.alias)
+		}
+		if strings.Contains(widthx.StripTerminalSequences(line), "→ p/") {
+			t.Fatalf("%s row substituted the resolved model: %q", tc.role, line)
+		}
+		if !strings.Contains(line, theme.Fg(tc.color, tc.alias)) {
+			t.Fatalf("%s alias is not colored %s: %q", tc.role, tc.color, line)
+		}
+	}
+	// A chain entry naming a role shows the role, not the model behind it.
+	line := rowLine("↳ @slow")
+	if line == "" || !strings.Contains(line, theme.Fg("accent", "@slow")) {
+		t.Fatalf("fallback role destination is not a colored @role: %q", line)
+	}
+	if !strings.Contains(widthx.StripTerminalSequences(line), "off") {
+		t.Fatalf("fallback role suffix lost: %q", line)
 	}
 }
 

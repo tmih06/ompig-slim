@@ -872,6 +872,31 @@ func (m *InteractiveMode) RoutedModelSelection() *RoutedModelSelection {
 	return nil
 }
 
+// activeRoleHandle is the optional session-handle surface for the footer's role. A
+// handle without roles, such as an SDK session, simply renders none.
+type activeRoleHandle interface {
+	ActiveModelRole() string
+	ActiveModelRoleColor() string
+}
+
+// ActiveModelRole reads the logical role of the current selection, which the footer
+// pairs with the model name because two roles may resolve to one physical model.
+func (m *InteractiveMode) ActiveModelRole() string {
+	if handle, ok := m.opts.SessionHandle.(activeRoleHandle); ok {
+		return handle.ActiveModelRole()
+	}
+	return ""
+}
+
+// ActiveModelRoleColor reads the color token the model catalog paints that same
+// role with, so the footer cannot disagree with the manager about a role's hue.
+func (m *InteractiveMode) ActiveModelRoleColor() string {
+	if handle, ok := m.opts.SessionHandle.(activeRoleHandle); ok {
+		return handle.ActiveModelRoleColor()
+	}
+	return ""
+}
+
 // footerUsageTotals reads the current session's all-entry usage totals.
 func (m *InteractiveMode) footerUsageTotals() footerUsageTotals {
 	session := m.currentSession()

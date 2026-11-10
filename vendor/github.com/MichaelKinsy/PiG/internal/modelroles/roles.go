@@ -188,6 +188,32 @@ func Split(selector string) (string, string) {
 	return selector, ""
 }
 
+// assignment returns the selector role expands to next: the authored ModelRoles
+// entry, or the built-in inheritance Resolve falls back to. legacyDefault is the
+// pre-role default provider/model and applies only to "default". An empty result
+// means the role resolves to nothing.
+//
+// It is the single definition of the alias graph, so cycle checks and resolution
+// cannot disagree about which edges exist.
+func (c Config) assignment(role, legacyDefault string) string {
+	if value := c.ModelRoles[role]; value != "" {
+		return value
+	}
+	switch role {
+	case "default":
+		return legacyDefault
+	case "smol", "slow", "plan", "task", "vision", "commit":
+		return "@default"
+	case "tiny", "widget":
+		return "@smol"
+	case "memory":
+		return "@tiny"
+	case "advisor":
+		return "@slow"
+	}
+	return ""
+}
+
 // Resolve follows role aliases and inheritance, rejecting cycles and unassigned roles.
 // legacyDefault is the provider-qualified pre-role default, used only for default.
 func (c Config) Resolve(selector, legacyDefault string) (string, error) {
@@ -213,23 +239,7 @@ func (c Config) Resolve(selector, legacyDefault string) (string, error) {
 			return "", fmt.Errorf("model role cycle at @%s", role)
 		}
 		seen[role] = true
-		value := c.ModelRoles[role]
-		if value == "" {
-			switch role {
-			case "default":
-				value = legacyDefault
-			case "slow", "plan", "task", "vision", "commit":
-				value = "@default"
-			case "tiny", "widget":
-				value = "@smol"
-			case "memory":
-				value = "@tiny"
-			case "advisor":
-				value = "@slow"
-			case "smol":
-				value = "@default"
-			}
-		}
+		value := c.assignment(role, legacyDefault)
 		if value == "" {
 			return "", fmt.Errorf("model role @%s is unassigned", role)
 		}

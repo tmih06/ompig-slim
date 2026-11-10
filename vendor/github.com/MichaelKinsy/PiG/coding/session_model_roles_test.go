@@ -146,6 +146,37 @@ func TestRoleCycleRemovedScopes(t *testing.T) {
 	}
 }
 
+// TestActiveModelRoleColorMatchesCatalog proves the footer's color source is the
+// model manager's: both read Config.RoleInfo, so a built-in role, a modelTags
+// override, and a role with no metadata at all report the same token in each.
+func TestActiveModelRoleColorMatchesCatalog(t *testing.T) {
+	s := roleTestSession(t, nil)
+	if err := s.SettingsManager().UpdateGlobal(func(settings *Settings) {
+		if settings.ModelTags == nil {
+			settings.ModelTags = map[string]modelroles.Tag{}
+		}
+		settings.ModelTags["review"] = modelroles.Tag{Color: "accent"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := s.SettingsManager().Get().Config
+	for _, role := range []string{"review", "default", "smol", "task"} {
+		tag := *s.activeModelRole.Swap(&role)
+		t.Cleanup(func() { s.activeModelRole.Store(&tag) })
+		want := config.RoleInfo(role).Color
+		if got := s.ActiveModelRoleColor(); got != want {
+			t.Fatalf("role %s: footer color %q, catalog color %q", role, got, want)
+		}
+	}
+	// No role has no color: the footer renders the bare model name, so an empty
+	// string must not degrade into the default role's hue.
+	empty := ""
+	s.activeModelRole.Store(&empty)
+	if got := s.ActiveModelRoleColor(); got != "" {
+		t.Fatalf("roleless session reported color %q", got)
+	}
+}
+
 // TestRoleCycleSharedModel verifies role identity is not inferred from physical model equality.
 func TestRoleCycleSharedModel(t *testing.T) {
 	s := roleTestSession(t, nil)

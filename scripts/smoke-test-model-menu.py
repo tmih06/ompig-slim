@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import pty
 import select
@@ -95,9 +96,17 @@ def run(binary):
             send(b"@review")
             read_until(lambda data: b"@review" in data, "quick-role search")
             send(b"\r")
-            read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
-                       "role selection")
+            # The footer redraws in the same burst that announces the selection, and
+            # read_until only inspects bytes seen during its own call, so assert on the
+            # buffer it returns rather than waiting for a second redraw. saved_settings
+            # waits out a write in progress, which the runner publishes truncating.
+            selection_output = read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
+                                          "role selection")
             assert saved_settings()["modelRoles"] == saved_roles, "picker changed saved roles"
+            # default and review resolve to the same fixture model, so the footer must
+            # name the active role: the model name alone cannot tell them apart.
+            assert b"@review model" in visible_text(selection_output), \
+                f"footer does not name the active role: {visible_text(selection_output)[-600:]!r}"
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")
@@ -132,6 +141,18 @@ def run(binary):
                 process.kill()
                 process.wait()
             os.close(master)
+
+
+def visible_text(data):
+    """Return terminal output with escape sequences removed.
+
+    Assertions about what a user sees must strip escapes first: the footer paints
+    the role and the model name with separate theme tokens, so words that appear
+    side by side on screen are separated by SGR sequences on the wire. The pattern
+    is the one scripts/smoke-test-info-widgets.py already uses, so both read the same
+    subset of control sequences.
+    """
+    return re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", data)
 
 
 def main():
