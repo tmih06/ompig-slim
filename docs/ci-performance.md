@@ -8,7 +8,10 @@
   still runs both normal and race-enabled tests and their default vet checks.
 - Only executable consumers wait for `release`. Benchmarks do not wait for tests
   or hygiene: they consume the same verified archive and run the same five serial
-  samples. Publication waits for **all** validation jobs, including benchmarks.
+  samples. Archive and broker image publication wait for **all** validation jobs,
+  including benchmarks and the broker container storage contract. The broker
+  contract still runs independently on Ubuntu with its existing image/client
+  tests and cache.
 - Native smoke scenarios are distributed across two machines per OS. The shard
   runner reads `make --dry-run smoke-built`, so the Makefile remains the sole
   scenario list. Scenarios must be independent Python commands with private
@@ -94,7 +97,9 @@ Baseline job medians in seconds (unchanged GitHub-managed workflows omitted):
 The 22 successful completed CI runs had a **19m15s** median wall time (range
 13m43s–34m43s). Most runner queues were only 3–4 seconds; unnecessary dependency
 waits, large cache transfers and serialized macOS scenarios were the bottlenecks.
-The broker contract exists only on other feature branches and was not modified.
+In the baseline snapshot the broker contract existed only on other feature
+branches. It subsequently landed on main; integration preserves its container
+checks and tag-only image publication, with both publishers gated on all checks.
 
 Two consecutive local `make build` invocations took **0.533s and 0.500s**, both
 successful, with the existing Go cache. Builds are already incremental; no build

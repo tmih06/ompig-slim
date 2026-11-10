@@ -136,6 +136,9 @@ func (m *InteractiveMode) getLoginProviderOptions(includeStatus ...bool) []tui.O
 			}
 		}
 	}
+	if ProfileLogin != nil {
+		providers = append(providers, tui.OAuthProvider{ID: ProfileLogin.ID, Name: ProfileLogin.Name, AuthType: "profile"})
+	}
 	for i := range providers {
 		providers[i].Subscription = m.loginProviderSubscription(providers[i].ID)
 	}

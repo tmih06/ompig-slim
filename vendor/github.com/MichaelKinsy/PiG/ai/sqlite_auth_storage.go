@@ -423,8 +423,14 @@ func (s *SQLiteAuthStorage) selectedID(ctx context.Context, providerID string) (
 	if err != nil || !present {
 		return 0, false, err
 	}
+	return selectedIDOn(ctx, s.db, providerID)
+}
+
+// selectedIDOn reads the selection through q, so a caller holding a transaction
+// never waits on the pool for the connection its own transaction occupies.
+func selectedIDOn(ctx context.Context, q querier, providerID string) (int64, bool, error) {
 	var value string
-	err = s.db.QueryRowContext(ctx, "SELECT value FROM cache WHERE key = ?", selectionKey(providerID)).Scan(&value)
+	err := q.QueryRowContext(ctx, "SELECT value FROM cache WHERE key = ?", selectionKey(providerID)).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -435,8 +441,14 @@ func (s *SQLiteAuthStorage) selectedID(ctx context.Context, providerID string) (
 	if convErr != nil {
 		return 0, false, nil
 	}
+	return enabledRow(ctx, q, id)
+}
+
+// enabledRow reports the credential id when the row is still enabled, so a
+// selection naming a tombstoned account reads as no selection.
+func enabledRow(ctx context.Context, q querier, id int64) (int64, bool, error) {
 	var enabled int64
-	err = s.db.QueryRowContext(ctx, "SELECT id FROM auth_credentials WHERE id = ? AND disabled_cause IS NULL", id).Scan(&enabled)
+	err := q.QueryRowContext(ctx, "SELECT id FROM auth_credentials WHERE id = ? AND disabled_cause IS NULL", id).Scan(&enabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -740,8 +752,8 @@ func (s *SQLiteAuthStorage) HasProvider(ctx context.Context, providerID string) 
 	return true, nil
 }
 
-// SaveAccount stores credential as accountKey, reviving a tombstone, and makes it active.
-func (s *SQLiteAuthStorage) SaveAccount(ctx context.Context, providerID string, accountKey *string, credential Credential) ([]CredentialAccountInfo, error) {
+// saveAccountLocal stores credential as accountKey, reviving a tombstone, and makes it active.
+func (s *SQLiteAuthStorage) saveAccountLocal(ctx context.Context, providerID string, accountKey *string, credential Credential) ([]CredentialAccountInfo, error) {
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
@@ -803,8 +815,8 @@ func (s *SQLiteAuthStorage) saveAccount(ctx context.Context, providerID string, 
 	})
 }
 
-// SelectAccount makes accountKey the account Read resolves to.
-func (s *SQLiteAuthStorage) SelectAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+// selectAccountLocal makes accountKey the account Read resolves to.
+func (s *SQLiteAuthStorage) selectAccountLocal(ctx context.Context, providerID, accountKey string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
@@ -829,8 +841,8 @@ func (s *SQLiteAuthStorage) SelectAccount(ctx context.Context, providerID, accou
 	return true, nil
 }
 
-// DeleteAccount tombstones one account, keeping the provider's others.
-func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+// deleteAccountLocal tombstones one account, keeping the provider's others.
+func (s *SQLiteAuthStorage) deleteAccountLocal(ctx context.Context, providerID, accountKey string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
@@ -890,7 +902,7 @@ func (s *SQLiteAuthStorage) ModifyAccount(ctx context.Context, providerID string
 	return s.modify(ctx, providerID, accountKey, true, fn)
 }
 
-// modify serializes read-modify-write for one account.
+// modifyLocal serializes read-modify-write for one account.
 //
 // The callback is synchronous, so no SQLite transaction spans it. Serialization instead comes from
 // two layers: callbacks for the same provider queue in this process, and - because an OAuth refresh
@@ -904,7 +916,7 @@ func (s *SQLiteAuthStorage) ModifyAccount(ctx context.Context, providerID string
 //   - Without a key, the write is a login upsert (saving a credential makes it the default), but a
 //     refresh of an existing account keeps that row's identity_key and id so OMP keeps matching
 //     blocks, leases, and org-scoped identity keys derived from the credential claims.
-func (s *SQLiteAuthStorage) modify(ctx context.Context, providerID string, accountKey *string, explicit bool, fn func(current *Credential) (*Credential, error)) (*Credential, error) {
+func (s *SQLiteAuthStorage) modifyLocal(ctx context.Context, providerID string, accountKey *string, explicit bool, fn func(current *Credential) (*Credential, error)) (*Credential, error) {
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
@@ -1444,8 +1456,8 @@ func providerKey(row *credentialRow) string {
 	return row.Provider + ":" + row.CredentialType
 }
 
-// Delete tombstones every enabled credential of a provider and drops its selection.
-func (s *SQLiteAuthStorage) Delete(ctx context.Context, providerID string) error {
+// deleteLocal tombstones every enabled credential of a provider and drops its selection.
+func (s *SQLiteAuthStorage) deleteLocal(ctx context.Context, providerID string) error {
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os"
 
 	_ "github.com/MichaelKinsy/PiG/ai/all" // Register bundled providers, including Amazon Bedrock.
@@ -11,6 +13,7 @@ import (
 
 	_ "modernc.org/sqlite" // Register the native driver used by shared Pi/OMP credentials.
 
+	"ompig-slim/internal/broker"
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/prompts"
 )
@@ -25,6 +28,14 @@ func main() {
 		os.Exit(code)
 	} else if delegated != nil {
 		args = delegated
+	}
+	// Load the saved /login connection (or environment override) and synchronize
+	// local profile storage before PiG loads configuration. Provider
+	// requests and OAuth exchanges remain on this machine; no gateway is used.
+	finishSync, err := broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
 	// The vendored personal runtime supplies the defaults; keep the complete CLI.
@@ -44,5 +55,9 @@ func main() {
 	// composes its tool, rules, project-context and skills sections around it.
 	cli.Main(args, &cli.MainOptions{
 		SystemPromptPreamble: prompts.System(),
+		BeforeExit:           finishSync,
+		ProfileLogin: &cli.ProfileLoginOption{
+			ID: broker.LoginProviderID, Name: broker.LoginProviderName, Login: broker.Login,
+		},
 	})
 }
