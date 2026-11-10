@@ -101,6 +101,23 @@ Slash commands: `/login` `/model` `/settings` `/usage` `/subagents` `/compact` `
 Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live
 in local SQLite, unencrypted at rest.
 
+## Remote broker
+
+One hosted service keeps sign-in, custom providers, settings, model roles and keybindings identical across
+your machines. It stores profile state only: **inference, OAuth refresh and tools still run on each client**,
+so this is not a traffic proxy.
+
+```sh
+docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
+  -e OMPIG_BROKER_TOKEN -v ompig-profile:/data \
+  ghcr.io/tmih06/ompig-slim-broker:<version>
+```
+
+On each client, open `/login`, choose **Remote ompig-slim broker**, and enter the URL and secret. The first
+client seeds storage; the rest download it. Editing preferences or signing in anywhere synchronizes with
+revision checks instead of overwriting. Use HTTPS or a private network: stored credentials, including
+refresh tokens, sync too. See [broker setup and containers](docs/remote-broker.md) for deployment and limits.
+
 ## Development
 
 ```sh
@@ -109,6 +126,7 @@ make race              # the same with the race detector
 make smoke             # model menu, widget, codemode, subagent, web-tool PTY scenarios
 make test-install      # curl installer against a loopback release server
 make test-self-update  # update/upgrade against a loopback release server
+make test-broker-container  # the broker image and two clients, needs Docker
 make release           # build the four platform archives
 ```
 
