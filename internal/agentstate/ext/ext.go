@@ -12,6 +12,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
 
@@ -29,8 +30,19 @@ const agentName = "ompig-slim"
 // adds no tool, command, or flag to the session, so it cannot shadow a user's
 // extension or appear in the tool list.
 func Extension(publisher *agentstate.Publisher) extension.ExtensionFactory {
+	return extensionWithTracker(publisher, nil)
+}
+
+// extensionWithTracker is Extension with an injectable tracker. A nil tracker
+// builds the production one; a test passes its own so it can shorten the heartbeat
+// interval and observe that the loop stopped, without a second tracker whose state
+// nothing reads.
+func extensionWithTracker(publisher *agentstate.Publisher, provided *tracker) extension.ExtensionFactory {
 	return func(api extension.API) error {
-		session := newTracker(publisher)
+		session := provided
+		if session == nil {
+			session = newTracker(publisher)
+		}
 
 		api.OnSessionStart(func(ctx context.Context, _ extension.SessionStartEvent) error {
 			session.identify(ctx)
@@ -38,6 +50,7 @@ func Extension(publisher *agentstate.Publisher) extension.ExtensionFactory {
 			// idle flag is the only trustworthy answer here; assuming "idle"
 			// would report a working agent as ready for input.
 			session.setRunning(!session.idle(ctx))
+			session.startHeartbeat()
 			return nil
 		})
 		api.OnAgentStart(func(_ context.Context, _ extension.AgentStartEvent) error {
@@ -59,8 +72,8 @@ func Extension(publisher *agentstate.Publisher) extension.ExtensionFactory {
 			session.unblock()
 			return nil
 		})
-		api.OnSessionShutdown(func(_ context.Context, _ extension.SessionShutdownEvent) error {
-			session.exit()
+		api.OnSessionShutdown(func(_ context.Context, event extension.SessionShutdownEvent) error {
+			session.shutdown(event.Reason)
 			return nil
 		})
 		return nil
@@ -92,10 +105,64 @@ type tracker struct {
 	kind    string
 	// exited stops further publishing once the session has shut down.
 	exited bool
+	// heartbeat closes to stop the refresh loop; nil before the first
+	// session_start and after the process exits.
+	heartbeat chan struct{}
+	// beatEvery is the refresh interval. Production leaves it zero, which means
+	// [agentstate.HeartbeatInterval]; a test sets it so it need not wait a real
+	// third of a minute to see one beat.
+	beatEvery time.Duration
+	// beatStopped closes once the refresh loop returns, so a test can prove a
+	// shutdown stopped it instead of assuming.
+	beatStopped chan struct{}
 }
 
 func newTracker(publisher *agentstate.Publisher) *tracker {
 	return &tracker{publisher: publisher}
+}
+
+// startHeartbeat keeps the document's timestamp current for as long as the
+// process publishes, so a reader applying [agentstate.HeartbeatAfter] never calls
+// a healthy agent stale. It is idempotent: a repeated session_start (a reload)
+// keeps the running loop instead of starting a second one, and a session whose
+// document has not been published yet starts nothing.
+func (t *tracker) startHeartbeat() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.heartbeat != nil {
+		return
+	}
+	t.heartbeat = make(chan struct{})
+	t.beatStopped = make(chan struct{})
+	every := t.beatEvery
+	if every <= 0 {
+		every = agentstate.HeartbeatInterval
+	}
+	go t.beat(t.heartbeat, t.beatStopped, every)
+}
+
+// beat refreshes the document until done is closed.
+func (t *tracker) beat(done <-chan struct{}, stopped chan<- struct{}, every time.Duration) {
+	defer close(stopped)
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+		}
+		t.mu.Lock()
+		if t.exited {
+			t.mu.Unlock()
+			return
+		}
+		// Refresh under the same lock a mutation publishes under, so a beat can
+		// never land between a state change and its own write and leave the file
+		// describing the state before that change.
+		t.publisher.Refresh()
+		t.mu.Unlock()
+	}
 }
 
 // identify records the session's identity. Failures are ignored: a document
@@ -164,6 +231,13 @@ func (t *tracker) unblock() {
 
 // exit publishes the terminal state once. A consumer that keeps polling learns
 // the agent is gone instead of trusting the last `working` forever.
+//
+// Only a real exit reaches it. A session_shutdown whose reason is "new",
+// "reload", "resume" or "fork" ends one session, not the process: `new` is what
+// `/clear` emits, and `reload` is `/reload`, so treating every shutdown as
+// terminal left the document at `exited` for the rest of a live process. That is
+// the state a multiplexer reads as "the agent is gone" — it stops watching the
+// pane, and the next turn's `working` was never published for it to see.
 func (t *tracker) exit() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -173,6 +247,40 @@ func (t *tracker) exit() {
 	t.exited = true
 	t.running = false
 	t.blocked = 0
+	if t.heartbeat != nil {
+		close(t.heartbeat)
+		t.heartbeat = nil
+	}
+	t.publishLocked()
+}
+
+// shutdown routes a session_shutdown event by its reason: the process is ending,
+// or only this session is. A session-scoped shutdown resets the run and dialog
+// state a replaced session cannot carry over, then republishes, so the document
+// describes the new session rather than the ended one. The identity fields are
+// refreshed by the session_start that follows.
+func (t *tracker) shutdown(reason string) {
+	switch reason {
+	case "quit", "":
+		t.exit()
+	default:
+		t.reset()
+	}
+}
+
+// reset returns the tracker to a freshly started session's state and
+// republishes. It is what a session-scoped shutdown needs: the old session's run
+// and dialog are over, and a document still claiming `working` or `blocked`
+// would describe a session that no longer exists.
+func (t *tracker) reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.exited {
+		return
+	}
+	t.running = false
+	t.blocked = 0
+	t.kind, t.detail = "", ""
 	t.publishLocked()
 }
 

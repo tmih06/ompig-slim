@@ -21,11 +21,14 @@ anything else is `pane report-agent`, which this extension calls.
 It derives no state of its own. It polls the document the harness publishes —
 
 ```text
-<PIG_HOME|~/.pi>/state/agent/status.json
+<PIG_HOME|~/.pi>/state/agent/<pid>/status.json
 ```
 
 — and forwards each change, so it cannot disagree with what the agent actually
-reported. Any other consumer of that file needs no change here.
+reported. A document older than a minute is ignored rather than forwarded: the
+harness refreshes it every twenty seconds while it runs, so an old one describes
+a writer that stopped publishing, and Herdr never expires a reported state on its
+own. Any other consumer of that file needs no change here.
 
 ## Requirements
 
