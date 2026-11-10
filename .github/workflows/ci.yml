@@ -39,20 +39,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # setup-go keys normally only include go.sum. Include the source tree so
-      # new successful test/build results can be saved, and isolate race flags.
+      # setup-go only restores exact keys. Vendored source-keyed build results
+      # need role-specific fallbacks so each new commit does not build cold.
       - name: Identify the reusable Go cache
         env:
           MODE: ${{ matrix.mode }}
         run: |
-          { printf '%s\n' "$MODE"; git rev-parse 'HEAD^{tree}'; } > .ci-go-cache-input
-          # Vendored checks never reuse the runner's unrelated module cache.
-          mkdir -p "$RUNNER_TEMP/ompig-modules"
-          echo "GOMODCACHE=$RUNNER_TEMP/ompig-modules" >> "$GITHUB_ENV"
+          git ls-tree -r HEAD -- . ':!docs' ':!README.md' ':!CONTEXT.md' > .ci-go-cache-input
+          echo "GOCACHE=$RUNNER_TEMP/go-build-$MODE" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: .ci-go-cache-input
+          cache: false
+      - name: Restore this Go mode's incremental cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.GOCACHE }}
+          key: go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ matrix.mode }}-${{ hashFiles('.ci-go-cache-input') }}
+          restore-keys: |
+            go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ matrix.mode }}-
       # Never skip commands on a cache hit: Go validates sources, flags and
       # observed test inputs before reusing successful results.
       - name: Run Go tests and platform checks
@@ -230,13 +235,19 @@ jobs:
           persist-credentials: false
       - name: Identify the reusable Go cache
         run: |
-          { echo release; git rev-parse 'HEAD^{tree}'; } > .ci-go-cache-input
-          mkdir -p "$RUNNER_TEMP/ompig-modules"
-          echo "GOMODCACHE=$RUNNER_TEMP/ompig-modules" >> "$GITHUB_ENV"
+          git ls-tree -r HEAD -- . ':!docs' ':!README.md' ':!CONTEXT.md' > .ci-go-cache-input
+          echo "GOCACHE=$RUNNER_TEMP/go-build-release" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: .ci-go-cache-input
+          cache: false
+      - name: Restore cross-platform release builds only
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.GOCACHE }}
+          key: go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-release-${{ hashFiles('.ci-go-cache-input') }}
+          restore-keys: |
+            go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-release-
       - run: make release
       - run: python3 scripts/verify-releases.py bin/releases
       - name: Retain verified archives
