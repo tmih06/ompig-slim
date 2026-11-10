@@ -243,6 +243,11 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 			pta.name = toolName
 		}
 
+		// Wait for an identity before creating a streaming card.
+		if pta.name == "" {
+			m.toolMu.Unlock()
+			break
+		}
 		if pta.id != "" {
 			comp := m.toolByID[pta.id]
 			created := comp == nil
@@ -414,6 +419,13 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		m.tuiInst.RequestRender()
 
 	case agent.ToolExecutionEndEvent:
+		// Nested codemode calls also update the widget, even without a card.
+		if e.ToolName == "todo" {
+			result := e.Result
+			result.IsError = e.IsError
+			m.updateTodoWidget(result)
+			m.tuiInst.RequestRender()
+		}
 		// Pi checks before it looks up the component (interactive-mode.ts tool_execution_end).
 		if e.IsError {
 			m.maybeShowInstallChangeWarning()
@@ -458,6 +470,9 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		final.DurationMs = e.DurationMs
 		if comp.Rich && (e.ToolName == "bash" || e.ToolName == "powershell") {
 			comp.SetExitCode(shellExitCode(result))
+		}
+		if e.ToolName == "todo" {
+			comp.SetResultMeta(todoCardMeta(result))
 		}
 		comp.UpdateResult(final, false)
 		m.tuiInst.Render()

@@ -181,6 +181,9 @@ type InteractiveMode struct {
 	// editorFactory is the factory of the installed extension editor, nil with the default editor (interactive-mode.ts editorComponentFactory); extComponentMu guards it.
 	editorFactory   extension.EditorFactory
 	widgetContainer *tui.Container
+	infoWidgets     *tui.InfoWidgets // Owner-loop state shared across renderer mounts.
+	todoWidget      *tui.ToolExecutionComponent
+	todoWidgetError string
 	// widgetMu guards the widget state below: the extension processes' widgets (bridgeWidgets) and the host-process ones (inprocessWidgets).
 	widgetMu         sync.Mutex
 	bridgeWidgets    map[string]*subprocess.PushProxy

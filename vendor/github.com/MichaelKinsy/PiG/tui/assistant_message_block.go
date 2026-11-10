@@ -54,8 +54,30 @@ type AssistantMessageComponent struct {
 	terminalErrorPad  int
 }
 
+// newMarkdown builds one Markdown block of the message. Its prose color is applied
+// per render (see applyProseColor) rather than here, because the block outlives the
+// theme it was built under.
+//
+// Prose is the one part of a reply with no token of its own: headings, code,
+// lists, quotes and links all carry an md* color, so when the body text falls
+// back to the terminal default the answer reads as a few colored words inside
+// otherwise uncolored text. Theme.ProseFg supplies it.
 func (b *AssistantMessageComponent) newMarkdown(text string) *Markdown {
 	return NewMarkdownWithOptions(text, 0, 0, b.markdownTheme, nil, nil)
+}
+
+// applyProseColor points every text block's prose at the active theme, so a theme
+// switch restyles a reply already in the transcript. SetDefaultColor is a no-op when
+// the color is unchanged, so this costs a comparison per render. Thinking runs are
+// left alone: they carry ActiveTheme().ThinkingText, set in measureOwnedRuns and
+// updateThinkingRuns, which is a different token.
+func (b *AssistantMessageComponent) applyProseColor() {
+	prose := ActiveTheme().ProseFg()
+	for _, seg := range b.segments {
+		if !seg.thinking {
+			seg.md.SetDefaultColor(prose)
+		}
+	}
 }
 
 // AssistantSegment is one text or thinking content block of a complete
@@ -452,6 +474,7 @@ func (b *AssistantMessageComponent) Render(width int) []string {
 	if width < 1 {
 		width = 1
 	}
+	b.applyProseColor()
 	if b.ownedRuns {
 		b.measureOwnedRuns(width)
 	}

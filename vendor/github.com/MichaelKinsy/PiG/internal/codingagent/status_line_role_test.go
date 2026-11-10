@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
@@ -18,8 +19,20 @@ func roleFooterModel() *ai.Model {
 	}
 }
 
-// footerSelectionLine returns line 2 of the footer, where the model line renders.
-func footerSelectionLine(t *testing.T, role string) string {
+// footerFixtureTheme installs the upstream distinct-token theme for the duration of
+// a test, so a segment's color identifies the token that drew it.
+func footerFixtureTheme(t *testing.T) *tui.Theme {
+	t.Helper()
+	previous := tui.ActiveTheme()
+	t.Cleanup(func() { tui.SetThemeInstance(previous) })
+	theme := footerTheme(t)
+	tui.SetThemeInstance(theme)
+	return theme
+}
+
+// footerRawSelectionLine returns line 2 of the footer with its escape sequences
+// intact, which is what a color assertion needs.
+func footerRawSelectionLine(t *testing.T, role string) string {
 	t.Helper()
 	footer := NewFooterComponent(roleFooterModel(), "agent", nil)
 	footer.SetThinkingLevel("high")
@@ -28,13 +41,20 @@ func footerSelectionLine(t *testing.T, role string) string {
 	if len(lines) < 2 {
 		t.Fatalf("footer rendered %d lines, want at least 2", len(lines))
 	}
-	return widthx.StripTerminalSequences(lines[1])
+	return lines[1]
+}
+
+// footerSelectionLine returns line 2 of the footer as visible text.
+func footerSelectionLine(t *testing.T, role string) string {
+	t.Helper()
+	return widthx.StripTerminalSequences(footerRawSelectionLine(t, role))
 }
 
 // TestFooterShowsActiveRoleBesideModel covers the reason the role is displayed at
 // all: Ctrl+P cycling and fallback recovery can leave two different roles on the
 // same physical model, so the model name alone cannot say which one is active.
 func TestFooterShowsActiveRoleBesideModel(t *testing.T) {
+	theme := footerFixtureTheme(t)
 	for _, role := range []string{"default", "review", "my-custom_role"} {
 		line := footerSelectionLine(t, role)
 		want := "@" + role + " claude-sonnet-4 • high"
@@ -45,6 +65,20 @@ func TestFooterShowsActiveRoleBesideModel(t *testing.T) {
 	// Two roles that resolve to one model must be distinguishable.
 	if first, second := footerSelectionLine(t, "default"), footerSelectionLine(t, "review"); first == second {
 		t.Fatalf("shared-model roles render identically: %q", first)
+	}
+	// The role is drawn with its own token, not the model's and not an outer dim
+	// wrapper: a role colored like the model would be invisible as a distinction,
+	// and one wrapped in dim would be overwritten the moment the model segment
+	// closed. The raw line is checked because stripping escapes hides both cases.
+	raw := footerRawSelectionLine(t, "review")
+	if !strings.Contains(raw, theme.GetFgAnsi("statusLineContext")+"@review") {
+		t.Fatalf("role is not drawn with statusLineContext: %q", raw)
+	}
+	if !strings.Contains(raw, theme.GetFgAnsi("statusLineModel")+"claude-sonnet-4") {
+		t.Fatalf("model is not drawn with statusLineModel: %q", raw)
+	}
+	if theme.GetFgAnsi("statusLineContext") == theme.GetFgAnsi("statusLineModel") {
+		t.Fatal("fixture theme does not distinguish the two tokens")
 	}
 }
 

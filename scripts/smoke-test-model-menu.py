@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import pty
 import select
@@ -92,8 +93,11 @@ def run(binary):
             # default and review resolve to the same fixture model, so the footer must
             # name the active role: the model name alone cannot tell them apart. The
             # fixture model ID is "model", so the footer line reads "@review model".
-            if b"@review model" not in selection_output:
-                raise AssertionError("footer does not show the active role beside the model")
+            # Strip escape sequences first: the footer colors the role and the model
+            # with separate theme tokens, so the two words are not adjacent on the wire.
+            if b"@review model" not in visible_text(selection_output):
+                raise AssertionError("footer does not show the active role beside the model\n"
+                                     f"tail: {visible_text(selection_output)[-600:]!r}")
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")
@@ -128,6 +132,17 @@ def run(binary):
                 process.kill()
                 process.wait()
             os.close(master)
+
+
+def visible_text(data):
+    """Return terminal output with escape sequences removed.
+
+    Assertions about what a user sees must look at the stripped text: this
+    runtime colors footer segments with separate theme tokens, so words that
+    appear side by side on screen are separated by SGR sequences on the wire.
+    """
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", data)
+    return re.sub(rb"\x1b\][^\x07]*\x07", b"", text)
 
 
 def main():
