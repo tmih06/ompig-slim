@@ -45,13 +45,14 @@ jobs:
         env:
           MODE: ${{ matrix.mode }}
         run: |
-          { printf '%s\n' "$MODE"; git rev-parse 'HEAD^{tree}'; } > "$RUNNER_TEMP/go-cache-input"
+          { printf '%s\n' "$MODE"; git rev-parse 'HEAD^{tree}'; } > .ci-go-cache-input
           # Vendored checks never reuse the runner's unrelated module cache.
+          mkdir -p "$RUNNER_TEMP/ompig-modules"
           echo "GOMODCACHE=$RUNNER_TEMP/ompig-modules" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ runner.temp }}/go-cache-input
+          cache-dependency-path: .ci-go-cache-input
       # Never skip commands on a cache hit: Go validates sources, flags and
       # observed test inputs before reusing successful results.
       - name: Run Go tests and platform checks
@@ -71,7 +72,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        suite: [smoke, update]
+        # Two Go jobs plus three native jobs use at most five macOS slots per
+        # run. Keep native platform coverage; OS-independent checks use Ubuntu.
+        suite: [smoke-0, smoke-1, update]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -102,10 +105,12 @@ jobs:
         if: matrix.suite == 'update'
         run: python3 scripts/test-self-update.py ./bin/ompig-slim
       - name: Run native smoke scenarios
-        if: matrix.suite == 'smoke'
-        run: make smoke-built
+        if: startsWith(matrix.suite, 'smoke-')
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: python3 scripts/ci-smoke.py "${SUITE#smoke-}"
       - name: Verify startup accepts and paints early input
-        if: matrix.suite == 'smoke'
+        if: matrix.suite == 'smoke-0'
         run: |
           profile="$(mktemp -d)"
           trap 'rm -rf "$profile"' EXIT
@@ -210,6 +215,8 @@ jobs:
           PY
       - name: Test benchmark fixtures, accounting and reporting
         run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
+      - name: Test smoke shard coverage
+        run: python3 -m unittest discover -s scripts -p 'test_ci_smoke.py'
       - name: Scan every commit, including nested archives
         run: gitleaks git --log-opts=--all --max-archive-depth=10 --redact --no-banner .
 
@@ -223,12 +230,13 @@ jobs:
           persist-credentials: false
       - name: Identify the reusable Go cache
         run: |
-          { echo release; git rev-parse 'HEAD^{tree}'; } > "$RUNNER_TEMP/go-cache-input"
+          { echo release; git rev-parse 'HEAD^{tree}'; } > .ci-go-cache-input
+          mkdir -p "$RUNNER_TEMP/ompig-modules"
           echo "GOMODCACHE=$RUNNER_TEMP/ompig-modules" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ runner.temp }}/go-cache-input
+          cache-dependency-path: .ci-go-cache-input
       - run: make release
       - run: python3 scripts/verify-releases.py bin/releases
       - name: Retain verified archives
