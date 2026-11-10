@@ -733,17 +733,25 @@ func footerSelection(role, roleColor, modelName string) string {
 }
 
 // footerRoleToken paints the role with its catalog color, falling back to the
-// status line's own context hue when the theme does not define that token. The
-// guard is required, not defensive: Theme.Fg panics on an unknown token, a role
-// color can come from user-authored modelTags that settings accept as any string,
-// and a theme copied from OMP may simply leave a token undefined. GetResolvedThemeColors
-// is the non-panicking view, built from the same table Fg reads.
+// status line's own context hue when the theme does not define that token.
+//
+// It reads tui.ModelOverlayTheme, not the active theme, because that is the theme
+// the model manager and browser paint role rows and role chips with. The two are
+// the same object for a light or explicit custom theme, but on the inherited stock
+// dark/system themes the catalog uses OMP's Titanium palette while the transcript
+// keeps PiG's stock colors, so reading ActiveTheme here painted every role a
+// visibly different hue than the catalog showed for the same role. Taking the
+// catalog's palette is what makes one role one color across the UI.
+//
+// The guard is required, not defensive: Theme.Fg panics on an unknown token, and a
+// role color can come from user-authored modelTags that settings accept as any
+// string. HasFgToken answers that from the table Fg reads. GetResolvedThemeColors
+// would not: it reports the concrete colors a theme resolved, which is empty for
+// the catalog's synthesized Titanium projection even though it draws fine.
 func footerRoleToken(color, text string) string {
-	theme := tui.ActiveTheme()
-	if color != "" {
-		if _, known := theme.GetResolvedThemeColors()[color]; known {
-			return theme.Fg(color, text)
-		}
+	theme := tui.ModelOverlayTheme()
+	if theme.HasFgToken(color) {
+		return theme.Fg(color, text)
 	}
 	return footerToken(tui.ThemeColorStatusLineContext, text)
 }

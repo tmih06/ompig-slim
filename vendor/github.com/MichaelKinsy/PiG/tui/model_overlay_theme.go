@@ -7,6 +7,14 @@ import (
 
 var modelOverlayThemes sync.Map
 
+// ModelOverlayTheme returns the theme the model catalog paints with, which is the
+// active theme for a light or explicit custom theme and OMP's Titanium palette for
+// the inherited stock dark/system themes. Anything that must show a role in the
+// catalog's colors has to read them here rather than from ActiveTheme: on the
+// stock dark theme those are two different palettes, so a role painted from
+// ActiveTheme reads as a different hue than the same role in the manager.
+func ModelOverlayTheme() *Theme { return modelOverlayTheme() }
+
 // modelOverlayTheme uses OMP's Titanium chrome for the inherited stock dark
 // theme. Reusing PiG's stock palette made even correctly laid-out ports visibly
 // different (purple selection and blue borders instead of blue/charcoal).

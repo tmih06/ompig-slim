@@ -21,7 +21,11 @@ func roleFooterModel() *ai.Model {
 }
 
 // footerFixtureTheme installs the upstream distinct-token theme for the duration of
-// a test, so a segment's color identifies the token that drew it.
+// a test, so a segment's color identifies the token that drew it. It has a source
+// path, so tui.ModelOverlayTheme returns it unchanged; that makes this fixture
+// authoritative for both the catalog and the footer, which is what a test about
+// token identity needs. TestFooterRoleMatchesCatalogOnStockDarkTheme covers the
+// case where the two themes genuinely differ.
 func footerFixtureTheme(t *testing.T) *tui.Theme {
 	t.Helper()
 	previous := tui.ActiveTheme()
@@ -112,6 +116,39 @@ func TestFooterRoleUsesCatalogColor(t *testing.T) {
 		line := footerRoleLine(t, tc.role, color)
 		if !strings.Contains(line, theme.GetFgAnsi(tc.wantToken)+"@"+tc.role) {
 			t.Fatalf("role %s (catalog color %q) not drawn with %s: %q", tc.role, color, tc.wantToken, line)
+		}
+	}
+}
+
+// TestFooterRoleMatchesCatalogOnStockDarkTheme is the regression this guards. On
+// the inherited stock dark (and system) themes the model catalog paints with OMP's
+// Titanium palette while the transcript keeps PiG's stock colors, so reading the
+// active theme painted every role in the footer a different hue than the same role
+// in the manager. The footer must take the catalog's palette instead.
+func TestFooterRoleMatchesCatalogOnStockDarkTheme(t *testing.T) {
+	previous := tui.ActiveTheme()
+	t.Cleanup(func() { tui.SetThemeInstance(previous) })
+	dark, err := tui.LoadBuiltinTheme("dark")
+	if err != nil {
+		t.Fatalf("load stock dark theme: %v", err)
+	}
+	tui.SetThemeInstance(dark)
+	catalog, active := tui.ModelOverlayTheme(), tui.ActiveTheme()
+	config := modelroles.Config{ModelRoles: map[string]string{"default": "p/a"}}
+
+	// The fixture must actually reproduce the divergence, or this test would pass
+	// on a runtime that no longer has two palettes.
+	if catalog.GetFgAnsi("success") == active.GetFgAnsi("success") {
+		t.Skip("stock dark theme no longer uses a separate catalog palette")
+	}
+	for _, role := range []string{"default", "smol", "slow", "task"} {
+		token := config.RoleInfo(role).Color
+		line := footerRoleLine(t, role, token)
+		if !strings.Contains(line, catalog.GetFgAnsi(token)+"@"+role) {
+			t.Fatalf("role %s is not drawn in the catalog's %s: %q", role, token, line)
+		}
+		if strings.Contains(line, active.GetFgAnsi(token)+"@"+role) {
+			t.Fatalf("role %s still uses the transcript palette: %q", role, line)
 		}
 	}
 }

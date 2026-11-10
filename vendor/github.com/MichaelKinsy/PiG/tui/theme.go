@@ -381,6 +381,19 @@ func (t *Theme) ANSIPalette() (map[string]string, map[string]string) {
 	return fg, bg
 }
 
+// HasFgToken reports whether the theme defines a foreground token. Fg, GetFgAnsi
+// and Style deliberately panic on an unknown token, matching upstream, which
+// leaves a caller holding a token it did not author -- a user-written
+// modelTags.color, say -- no way to ask first. This is that way: it reads the same
+// table they do and never panics.
+func (t *Theme) HasFgToken(token string) bool {
+	if t == nil {
+		return false
+	}
+	_, ok := t.fgAnsi[token]
+	return ok
+}
+
 // Fg returns text in the foreground color of a token, closing the color (and the faint attribute of a faint token).
 // Mirrors upstream theme.fg(tokenName, text); an unknown token panics with `Unknown theme color: <token>`, as upstream throws.
 func (t *Theme) Fg(token, text string) string {
