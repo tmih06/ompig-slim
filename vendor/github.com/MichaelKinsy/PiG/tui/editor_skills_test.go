@@ -247,31 +247,70 @@ func TestSkillGateCachesLeadingRun(t *testing.T) {
 	}
 }
 
-// TestWrapCacheKeepsNonSkillLines checks the wrap cache stays live when the
-// draft holds a skill: other lines keep their cached chunks, and a skill line is
-// recomputed rather than published.
-func TestWrapCacheKeepsNonSkillLines(t *testing.T) {
+// TestWrapCacheSkillLines checks the wrap cache stays live when the draft holds
+// a skill: unchanged lines keep their cached chunks, and the gate or the
+// registry changing re-wraps them.
+func TestWrapCacheSkillLines(t *testing.T) {
 	e := NewEditor()
 	e.SetAutocomplete(skillTestProvider())
 	e.SetText("plain one\n/skill:review\nplain two")
-	first := e.wrappedChunks(10)
-	if len(first) != 3 || len(first[1]) == 0 {
-		t.Fatalf("chunks = %+v", first)
+	// The badge (10 cells) fits this width; the 13-cell source token does not.
+	const width = 12
+	first := e.wrappedChunks(width)
+	if len(first) != 3 || len(first[1]) != 1 {
+		t.Fatalf("a badge that fits was wrapped: %+v", first)
 	}
-	// A skill line's chunks must not be stored: the next call recomputes them.
-	if len(e.wrapCacheChunks) == 3 && e.wrapCacheChunks[1] != nil {
-		t.Fatal("a skill line's chunks were cached")
+	second := e.wrappedChunks(width)
+	if &second[1][0] != &e.wrapCacheChunks[1][0] {
+		t.Fatal("an unchanged draft was re-wrapped")
 	}
-	second := e.wrappedChunks(10)
-	if len(second) != 3 {
-		t.Fatalf("chunks = %+v", second)
+	// A registry that no longer knows the skill must re-wrap the line: the badge
+	// collapses back to the literal source, which no longer fits.
+	e.SetAutocomplete(NewCombinedProvider([]SlashCommand{{Name: "model"}}, "", ""))
+	third := e.wrappedChunks(width)
+	if len(third[1]) != 2 || !strings.Contains(third[1][0].text, "/skill:") {
+		t.Fatalf("stale badge served after the registry changed: %+v", third[1])
 	}
-	for i, want := range []string{"plain one", "", "plain two"} {
-		if want == "" {
-			continue
+
+	// A gate flip has the same effect without any registry change: the whole
+	// draft is command input, so the token is literal text and wraps at its own
+	// characters, while an allowed prompt keeps it atomic as one badge.
+	e.SetAutocomplete(skillTestProvider())
+	e.SetText("/model /skill:review")
+	closed := e.wrappedChunks(width)
+	e.lines[0] = "please /skill:review"
+	open := e.wrappedChunks(width)
+	if lastOpen := open[0][len(open[0])-1]; lastOpen.text != "/skill:review" {
+		t.Fatalf("an allowed token was not kept atomic: %+v", open[0])
+	}
+	for _, chunk := range closed[0] {
+		if chunk.text == "/skill:review" {
+			t.Fatalf("a closed gate kept the token atomic: %+v", closed[0])
 		}
-		if len(second[i]) == 0 || second[i][0].text != want {
-			t.Fatalf("line %d lost its wrapping: %+v", i, second[i])
+	}
+	if !strings.Contains(e.skillDisplay(e.lines[0], -1, false), "◆ review") {
+		t.Fatal("an allowed prompt drew no badge")
+	}
+}
+
+// TestWrapCacheNotReusedAcrossWidths reproduces the stale-width reuse: a draft
+// holding a skill never published its cache, so the cached width advanced while
+// the stored chunks kept the old one, and a later call at that width wrapped
+// nothing and painted rows far past the terminal.
+func TestWrapCacheNotReusedAcrossWidths(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	prose := strings.Repeat("word ", 30)
+	e.SetText("plain line\n" + prose)
+	e.wrappedChunks(80)
+	e.SetText("/skill:review\n" + prose)
+	e.wrappedChunks(80)
+	e.wrappedChunks(40) // the call that used to advance the cached width only
+	for i, chunks := range e.wrappedChunks(40) {
+		for _, chunk := range chunks {
+			if got := widthx.VisibleWidth(chunk.text); got > 40 {
+				t.Fatalf("line %d chunk %q is %d cells wide, wider than 40", i, chunk.text, got)
+			}
 		}
 	}
 }

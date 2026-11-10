@@ -47,9 +47,13 @@ func (e *Editor) skillTokenGate() bool {
 }
 
 // skillSpans recognizes only registered invocations in prompts, never shell or command arguments.
+// The substring test runs first so a line without a token costs no interface lookup.
 func (e *Editor) skillSpans(text string) []SkillToken {
+	if !strings.Contains(text, "/skill:") {
+		return nil
+	}
 	known, ok := e.autocomplete.(interface{ IsKnownSkill(string) bool })
-	if !ok || !strings.Contains(text, "/skill:") || !e.skillTokenGate() {
+	if !ok || !e.skillTokenGate() {
 		return nil
 	}
 	var spans []SkillToken

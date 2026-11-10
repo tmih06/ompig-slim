@@ -150,6 +150,16 @@ type Editor struct {
 	wrapCacheLines    []string
 	wrapCacheChunks   [][]textChunk
 	wrapCachePasteIDs map[int]bool
+	// wrapCacheAllows is the allows-skill gate the cached chunks were wrapped
+	// under, and wrapCacheSkill whether any line held a recognized invocation
+	// when they were. A badge's width is legal only where the gate allows one,
+	// so a draft whose leading run flips the gate must re-wrap; a draft with no
+	// badge needs no per-row badge lookups at all.
+	wrapCacheAllows bool
+	wrapCacheSkill  bool
+	// wrapCacheSkillLine is per logical line whether it holds a `/skill:` token,
+	// so the draft-wide wrapCacheSkill costs no extra scan on an unchanged line.
+	wrapCacheSkillLine []bool
 	// skillGate caches skillTokenGate: the draft's leading trimmed run and the
 	// gate it produced, so repeated renders do not rejoin the whole buffer.
 	skillGateValid  bool
@@ -157,10 +167,9 @@ type Editor struct {
 	skillGateAllows bool
 	// visualMap backs the last visual line map; its callers use a map only while they run.
 	visualMap []editorVisualLine
-	// layoutScratch, visualScratch and wrapScratch are Render's per-frame working
-	// lists; nothing retains them past the frame.
+	// layoutScratch and visualScratch are Render's per-frame working lists;
+	// nothing retains them past the frame.
 	layoutScratch []layoutLine
-	wrapScratch   [][]textChunk
 	visualScratch []string
 	// rowCache holds the padded content rows of the last frame by visible row, and topBorder and bottomBorder its borders.
 	rowCache     []editorRenderedRow
@@ -677,17 +686,18 @@ func thinkingBorderSGR(level string) string {
 // identical to calling e.wrapLine(line, width) for each
 // line; the reuse is invisible. The comparison is by content, so SetText
 // rebuilding the buffer still reuses chunks for lines whose text is unchanged.
+//
+// A badge's width, unlike plain text's, does not follow from the line alone: it
+// comes from the registry that recognizes invocations (cleared by
+// SetAutocomplete) and from the draft-wide allows-skill gate. wrapCacheAllows
+// records the gate these chunks were wrapped under, so a draft whose gate flips
+// re-wraps everything once and every other call keeps the plain text compare.
 func (e *Editor) wrappedChunks(width int) [][]textChunk {
 	if width < 1 {
 		width = 1
 	}
-	// A line holding a skill can change width without its text changing, because
-	// a badge depends on the live registry and the whole draft's execution
-	// context. So a skill line's chunks are computed for this call and never
-	// stored: the cache only ever holds text-derived wrapping, and every other
-	// line keeps the reuse it had.
-	skillLine := func(line string) bool { return strings.Contains(line, "/skill:") }
-	reuse := e.wrapCacheWidth == width && len(e.wrapCachePasteIDs) == len(e.pastes)
+	allows := e.skillTokenGate()
+	reuse := e.wrapCacheWidth == width && e.wrapCacheAllows == allows && len(e.wrapCachePasteIDs) == len(e.pastes)
 	if reuse {
 		for id := range e.wrapCachePasteIDs {
 			if _, ok := e.pastes[id]; !ok {
@@ -696,34 +706,29 @@ func (e *Editor) wrappedChunks(width int) [][]textChunk {
 			}
 		}
 	}
-	cacheMatches := reuse && len(e.wrapCacheLines) == len(e.lines)
-	out := e.wrapScratch[:0]
-	defer func() { e.wrapScratch = out[:0] }()
-	cachedLines := make([]string, len(e.lines))
-	cachedChunks := make([][]textChunk, len(e.lines))
+	if !reuse || len(e.wrapCacheLines) != len(e.lines) {
+		e.wrapCacheLines = make([]string, len(e.lines))
+		e.wrapCacheChunks = make([][]textChunk, len(e.lines))
+		e.wrapCacheSkillLine = make([]bool, len(e.lines))
+		reuse = false
+	}
+	skill := false
 	for i, line := range e.lines {
-		if skillLine(line) {
-			out = append(out, e.wrapLine(line, width))
-			// A placeholder keeps positions aligned for the non-skill lines.
+		if reuse && e.wrapCacheLines[i] == line {
+			skill = skill || e.wrapCacheSkillLine[i]
 			continue
 		}
-		if cacheMatches && e.wrapCacheLines[i] == line {
-			cachedLines[i], cachedChunks[i] = e.wrapCacheLines[i], e.wrapCacheChunks[i]
-		} else {
-			cachedLines[i], cachedChunks[i] = line, e.wrapLine(line, width)
-		}
-		out = append(out, cachedChunks[i])
+		e.wrapCacheLines[i], e.wrapCacheChunks[i] = line, e.wrapLine(line, width)
+		e.wrapCacheSkillLine[i] = strings.Contains(line, "/skill:")
+		skill = skill || e.wrapCacheSkillLine[i]
 	}
-	// Publish only when nothing was recomputed for a stale reason; a skill line
-	// leaves the cache untouched rather than half-updated.
-	if !slices.ContainsFunc(e.lines, skillLine) {
-		e.wrapCacheLines, e.wrapCacheChunks = cachedLines, cachedChunks
-	}
-	e.wrapCacheWidth = width
+	// A token in a draft whose gate forbids skill input is literal text.
+	e.wrapCacheWidth, e.wrapCacheAllows = width, allows
+	e.wrapCacheSkill = skill && allows
 	if !reuse {
 		e.wrapCachePasteIDs = e.validPasteIDs()
 	}
-	return out
+	return e.wrapCacheChunks
 }
 
 // wrapLine is wordWrapLine(line, width, e.segmentLine(line)). A line that fits is one chunk, so it is not segmented.
@@ -781,7 +786,20 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
 	out := e.visualScratch[:0]
 	defer func() { e.visualScratch = out[:0] }()
 	emitCursorMarker := e.Focused // upstream editor.ts: const emitCursorMarker = this.focused; the hardware cursor stays on the text while the autocomplete popup is open
-	for _, line := range e.layoutText(width) {
+	lines := e.layoutText(width)
+	if !e.wrapCacheSkill {
+		// wrappedChunks found no badge in the draft, so no row can hold one and
+		// every row takes the plain path it had before skill badges existed.
+		for _, line := range lines {
+			if !line.hasCursor {
+				out = append(out, line.text)
+				continue
+			}
+			out = append(out, e.renderCursorAt(line.text, line.cursorPos, emitCursorMarker))
+		}
+		return out
+	}
+	for _, line := range lines {
 		if !line.hasCursor {
 			out = append(out, e.skillDisplay(line.text, -1, false))
 			continue
@@ -1266,6 +1284,9 @@ func (e *Editor) SetAutocomplete(p AutocompleteProvider) {
 	if e.autocompleteMax == 0 {
 		e.autocompleteMax = 5
 	}
+	// Skill badges are measured from the registry this provider owns, so a
+	// cached wrap produced against the old one cannot be reused.
+	e.wrapCacheWidth = -1
 }
 
 // RefreshAutocomplete queries the provider again for the current buffer,
