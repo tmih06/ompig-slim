@@ -132,6 +132,12 @@ func TestFooterRoleMatchesCatalogOnStockDarkTheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load stock dark theme: %v", err)
 	}
+	// Pin truecolor. BuiltinTheme resolves in the terminal's mode, and a runner
+	// that answers no color query resolves 256-color, where quantization maps the
+	// two palettes' greys onto the same index. That made this test pass on a
+	// truecolor developer terminal and fail in CI for a reason unrelated to the
+	// behavior under test.
+	dark = dark.WithColorMode(tui.TerminalColorModeTrueColor)
 	tui.SetThemeInstance(dark)
 	catalog, active := tui.ModelOverlayTheme(), tui.ActiveTheme()
 	config := modelroles.Config{ModelRoles: map[string]string{"default": "p/a"}}
@@ -147,7 +153,11 @@ func TestFooterRoleMatchesCatalogOnStockDarkTheme(t *testing.T) {
 		if !strings.Contains(line, catalog.GetFgAnsi(token)+"@"+role) {
 			t.Fatalf("role %s is not drawn in the catalog's %s: %q", role, token, line)
 		}
-		if strings.Contains(line, active.GetFgAnsi(token)+"@"+role) {
+		// Only assert the negative when the two palettes actually differ for this
+		// token: distinct tokens can still share an indexed color after
+		// quantization, and a shared color is not a wrong color.
+		if activeAnsi := active.GetFgAnsi(token); activeAnsi != catalog.GetFgAnsi(token) &&
+			strings.Contains(line, activeAnsi+"@"+role) {
 			t.Fatalf("role %s still uses the transcript palette: %q", role, line)
 		}
 	}
