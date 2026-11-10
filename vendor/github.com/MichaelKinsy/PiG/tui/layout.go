@@ -170,6 +170,9 @@ func layoutComponent(context *layoutContext, component Component, x, y, width in
 	if node == nil {
 		return layoutLeaf(context, component, x, y, safeWidth, height, clip)
 	}
+	if widgets, ok := node.(infoWidgetLayoutNode); ok {
+		return layoutInfoWidgets(context, widgets.layout, x, y, safeWidth, height, clip)
+	}
 	if scroll, ok := node.(ScrollLayoutNode); ok {
 		return layoutScroll(context, component, scroll, x, y, safeWidth, height, clip)
 	}

@@ -201,6 +201,7 @@ func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r I
 	m.opts.RequestAuthRuntime = r.RequestAuthRuntime
 	m.opts.UsageService = r.UsageService
 	m.promptQuota = nil
+	m.todoWidget, m.todoWidgetError = nil, ""
 	if m.backgroundCtx != nil {
 		m.refreshPromptQuota(m.backgroundCtx)
 	}
