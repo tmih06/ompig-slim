@@ -34,13 +34,31 @@ In Roles:
 | Shift+D | Delete a custom role after choosing a settings layer and confirming |
 | [ / ] | Reorder a fallback or move a role in the cycle track |
 | t | Open the inline effort selector |
+| @ | In an assignment browser, swap the model list for `@role` rows |
 | c | Toggle a chat role in Ctrl+P cycling |
 | k | Edit the highlighted model's compaction threshold |
 | Escape | Back out of the current strip, assignment, search, or overlay |
 
 Assignment uses inline role, global/project scope, and effort strips. Kind roles
-reject incompatible models. Role tags supply labels, colors, and visibility.
-Mouse navigation, scrolling, hover, provider rows, and kind tabs are supported.
+reject incompatible models. Either assignment step can also pick a role instead of
+a model: type `@` in the browser to swap the list to `@role` rows, the same
+gesture the Alt+P picker uses, and backspace to return to models. Assigning a
+primary lets one role follow another (`task` → `@default`); appending a fallback
+lets one role reuse another's recovery plan. The saved value keeps the alias, so
+repointing the referenced role moves the follower with it instead of pinning the
+model it resolved to at assignment time. The Roles list renders that assignment as
+`@role` in the referenced role's own color rather than showing the model behind it,
+because the alias is what was chosen; the referenced role's own row still shows its
+model.
+
+Roles that would close a cycle are not listed, in either step, so every offered
+choice saves successfully. Primary assignment follows `modelRoles` aliases and the
+built-in inheritance, so `task → @default` and then `default → @task` is refused at
+the second step rather than leaving both roles unresolvable; chain destinations
+follow chain references instead, and a role that already reaches the chain being
+written is hidden for the same reason. Role tags supply labels, colors, and
+visibility. Mouse navigation, scrolling, hover, provider rows, and kind tabs are
+supported.
 Changes persist immediately; closing the manager does not discard them.
 
 To delete a custom role, highlight its primary row and press **Shift+D**. The
@@ -98,7 +116,8 @@ in `.pi/settings.json`, unless an agent directory override is supplied.
   "modelRoles": {
     "default": "openai/gpt-4o",
     "review": "openai/gpt-4o:high",
-    "fast": "openai/gpt-4o-mini:off"
+    "fast": "openai/gpt-4o-mini:off",
+    "task": "@default"
   },
   "modelTags": {
     "review": { "name": "Reviewer", "color": "accent" }
@@ -110,7 +129,7 @@ in `.pi/settings.json`, unless an agent directory override is supplied.
     "fallbackOn": "any",
     "fallbackChains": {
       "default": ["openai/gpt-4o-mini:off"],
-      "review": ["openai/gpt-4o-mini:off"],
+      "review": ["@slow", "openai/gpt-4o-mini:off"],
       "fast": []
     }
   }
@@ -136,9 +155,11 @@ Selectors support role aliases, effort suffixes (`off`, `auto`, `minimal`, `low`
 }
 ```
 
-Alias cycles are errors. Literal catalog IDs containing `@` win over routing
-parsing. Explicit upstreams are carried through requests, refresh, session audit,
-and resume; unsupported direct providers reject routing rather than ignore it.
+Alias cycles are errors. A role may alias another role (`task: "@default"`), which
+keeps it following that role instead of copying its model; the manager refuses an
+assignment that would close a loop. Literal catalog IDs containing `@` win over
+routing parsing. Explicit upstreams are carried through requests, refresh, session
+audit, and resume; unsupported direct providers reject routing rather than ignore it.
 
 Project role entries overlay global entries independently. Tag properties merge
 individually, including explicit `hidden: false`. An empty `cycleOrder` disables
@@ -185,6 +206,27 @@ then matching/default roles. Explicit `[]` prevents default-chain inheritance.
 Non-chat kind roles never inherit chat fallbacks. A `provider/*` destination keeps
 the failing model ID while changing provider; missing, context-incompatible,
 cooling-down, and credential-ineligible candidates are skipped.
+
+A tail entry may name another role (`@slow`, `pi/slow`, or `*`), with an optional
+effort suffix. The role destination contributes its model first and then that
+role's own chain, depth-first and in the order written, so one role reuses
+another's recovery plan instead of copying its models. The saved entry keeps the
+role name: repointing the referenced role moves the destination with it. The
+failed hop stays attributed to the role that owned the chain, so a role
+destination routes recovery and does not switch the logical role.
+
+Role references are acyclic. A write is refused when a role it names already
+reaches the chain being written, so `review: ["@slow"]` followed by
+`slow: ["@review"]` fails at the second step instead of saving undefined order;
+the manager hides every such role, so accepting a listed destination always
+succeeds. The check reads the merged authored chains, which is why a project chain
+that closes a loop through a global one is refused whichever layer completes it.
+
+A loop that predates the guard — hand-edited config, or a self reference inherited
+from a `default` tail a role is itself named in — still terminates: a role is
+expanded at most once per chain walk, so it shortens the candidate list rather
+than recursing. Inherited tails are not checked at write time because refusing
+them would make an unchanged chain unsaveable and block the edit that removes it.
 
 Recovery retains logical role and auto-thinking state, checks destinations before
 asking permission to use a quota reserve, and never wraps a chain. Starting at a

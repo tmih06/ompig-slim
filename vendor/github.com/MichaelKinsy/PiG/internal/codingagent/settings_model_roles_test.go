@@ -60,6 +60,115 @@ func TestModelRoleSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestModelRoleAliasCycleRefused keeps every saved alias resolvable. Assigning a
+// role to another is now an ordinary manager action, so a two-click loop must be
+// refused at the closing write; Resolve's own check only covers hand-edited files.
+func TestModelRoleAliasCycleRefused(t *testing.T) {
+	sm := NewInMemorySettingsManager(Settings{})
+	if err := sm.SetModelRole("default", "p/a", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetModelRole("task", "@default", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := sm.ResolveModelRole("@task"); err != nil || got != "p/a" {
+		t.Fatal(got, err)
+	}
+	// The closing write is refused and leaves the accepted assignment intact.
+	if err := sm.SetModelRole("default", "@task", "global"); err == nil {
+		t.Fatal("mutual alias accepted")
+	}
+	if got, err := sm.ResolveModelRole("@default"); err != nil || got != "p/a" {
+		t.Fatal("default left unresolvable", got, err)
+	}
+	if err := sm.SetModelRole("audit", "@audit", "global"); err == nil {
+		t.Fatal("self alias accepted")
+	}
+	// Following a role that is itself inherited counts as an edge, so the closing
+	// write of a two-role loop is refused whichever side completes it.
+	if err := sm.SetModelRole("smol", "p/b", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetModelRole("task", "@smol", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetModelRole("smol", "@task", "global"); err == nil {
+		t.Fatal("alias cycle accepted")
+	}
+	// Clearing a role is always allowed, and the freed role is then re-usable.
+	if err := sm.SetModelRole("task", "", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetModelRole("smol", "@task", "global"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestFallbackChainRoleCycleRefused keeps a saved chain terminating: a write that
+// would close a role-reference loop is refused before any layer changes, while
+// model-keyed chains stay legal because they never expand into another chain.
+func TestFallbackChainRoleCycleRefused(t *testing.T) {
+	cwd, dir := t.TempDir(), t.TempDir()
+	sm := NewSettingsManagerWithProjectTrust(cwd, dir, true)
+	if err := sm.SetFallbackChain("review", []string{"@slow"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("slow", []string{"openai/other"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	// A self reference closes a loop; a mixed chain that only references an
+	// acyclic role does not, so the same call shape is accepted below.
+	if err := sm.SetFallbackChain("review", []string{"@review"}, "global"); err == nil {
+		t.Fatal("self reference accepted")
+	}
+	if err := sm.SetFallbackChain("slow", []string{"@review"}, "global"); err == nil {
+		t.Fatal("mutual reference accepted")
+	}
+	if got := sm.GetGlobalSettings().Retry.FallbackChains["slow"]; !reflect.DeepEqual(got, []string{"openai/other"}) {
+		t.Fatalf("refused write mutated slow to %v", got)
+	}
+	// The merged view refuses a chain that closes a loop existing only because a
+	// project entry references a global one, whichever layer completes it.
+	if err := sm.SetFallbackChain("slow", []string{"@review"}, "project"); err == nil {
+		t.Fatal("cross-layer loop accepted")
+	}
+	// A model-keyed chain has no role edges, and a role that is acyclic stays legal.
+	if err := sm.SetFallbackChain("openai/other", []string{"@review"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("openai/other", nil, "global"); err != nil {
+		t.Fatal(err)
+	}
+	// The default tail is inherited by every chat role, so pointing default at a
+	// role and that role back at default is a loop even though no single role key
+	// repeats in one chain.
+	if err := sm.SetFallbackChain("default", []string{"@audit"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("audit", []string{"@default"}, "global"); err == nil {
+		t.Fatal("default-tail loop accepted")
+	}
+	if err := sm.SetFallbackChain("audit", []string{"openai/x"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("review", []string{"openai/x", "@audit:off"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	// Removing an edge is always allowed, and the freed role is then re-usable.
+	if err := sm.SetFallbackChain("slow", nil, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("review", []string{"openai/x"}, "global"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sm.SetFallbackChain("slow", []string{"@review"}, "project"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sm.ModelFallbackChains()["review"]; !reflect.DeepEqual(got, []string{"openai/x"}) {
+		t.Fatal("accepted write lost", got)
+	}
+}
+
 // TestModelRoleFilePersistence verifies real save/reload and rejects untrusted writes.
 func TestModelRoleFilePersistence(t *testing.T) {
 	cwd, dir := t.TempDir(), t.TempDir()

@@ -85,6 +85,8 @@ func ModelThinkingOptions(item ModelSelectorItem, fallback bool) []string {
 }
 
 // BrowserSearchText includes the visible price keyword, matching OMP's free search.
+// A role row is searchable by @name as well as by the model it currently resolves
+// to, so a chain destination can be found either way.
 func BrowserSearchText(item ModelSelectorItem) string {
 	text := item.Provider + "/" + item.ID
 	if item.Role != "" {
