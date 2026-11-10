@@ -227,3 +227,55 @@ func TestQuickPickerPreservesRole(t *testing.T) {
 		t.Fatal("shortcut did not toggle Task")
 	}
 }
+
+// TestModelHubRoleHintKeepsCycleAction asserts that the Roles footer still
+// advertises `c` on a terminal where the row's optional delete/thinking/
+// compaction actions do not fit: those tokens are longer than the mandatory
+// keys that follow them, and the frame truncates the footer from the right.
+func TestModelHubRoleHintKeepsCycleAction(t *testing.T) {
+	h, config, _ := hubFixture()
+	reasoner := metricTestModel("a", func(m *ai.Model) {
+		m.ProviderMeta.Reasoning = true
+		m.Capabilities.MaxThinking = "high"
+	})
+	h.cfg.Models = []ModelSelectorItem{{Provider: "p", ID: "a", Model: reasoner}}
+	h.cfg.AllModels = h.cfg.Models
+	h.cfg.Compaction = func(string, string, bool) (string, bool, error) { return "", false, nil }
+	h.cfg.DeleteRole = func(string, string) error { return nil }
+	config.ModelRoles["review"] = "p/a"
+	config.ModelTags = map[string]modelroles.Tag{"review": {Name: "review"}}
+	h.result(nil)
+	openRoles(h)
+	for i, row := range h.rows {
+		if row.kind == "role" && row.key == "review" {
+			h.cursor = i
+		}
+	}
+	// The full hint is wider than 80 columns once every optional action applies.
+	full := h.footer(1000)
+	for _, action := range []string{"D delete role", "t thinking", "k compaction limit", "c cycle"} {
+		if !strings.Contains(full, action) {
+			t.Fatalf("fixture is missing %q: %q", action, full)
+		}
+	}
+	if widthx.VisibleWidth(full) <= 120 {
+		t.Fatalf("fixture does not exceed a narrow footer: %q", full)
+	}
+	for _, width := range []int{60, 70, 80, 90, 100, 120} {
+		lines := h.Render(width)
+		footer := widthx.StripTerminalSequences(lines[len(lines)-2])
+		if !strings.Contains(footer, "c cycle") {
+			t.Fatalf("width %d: cycle action missing from %q", width, footer)
+		}
+	}
+	for _, width := range []int{80, 90, 100, 120} {
+		lines := h.Render(width)
+		if footer := widthx.StripTerminalSequences(lines[len(lines)-2]); !strings.Contains(footer, "n new") {
+			t.Fatalf("width %d: creation action missing from %q", width, footer)
+		}
+	}
+	lines := h.Render(160)
+	if footer := widthx.StripTerminalSequences(lines[len(lines)-2]); !strings.Contains(footer, "D delete role") || !strings.Contains(footer, "t thinking") || !strings.Contains(footer, "k compaction limit") {
+		t.Fatalf("wide footer lost available actions: %q", footer)
+	}
+}
