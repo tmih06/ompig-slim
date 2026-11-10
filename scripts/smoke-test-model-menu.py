@@ -13,6 +13,8 @@ import tempfile
 import termios
 import time
 
+import settings_fixture
+
 
 def run(binary):
     """Mount real fullscreen/compact menus and assert durable edits in isolation."""
@@ -41,6 +43,16 @@ def run(binary):
                                    cwd=root, env=env, start_new_session=True)
         os.close(slave)
         captured = bytearray()
+
+        def saved_settings():
+            """Return the profile's settings, waiting out a save in progress.
+
+            The assertions below run while this process is still editing the
+            file, and the runtime publishes a save with one truncating write, so
+            an unlocked read can catch it empty or half-written. See
+            settings_fixture.settled_settings.
+            """
+            return settings_fixture.settled_settings(settings)
 
         def read_until(predicate, label, timeout=15):
             """Pump output until an observable condition, not a guessed render delay."""
@@ -73,9 +85,9 @@ def run(binary):
             read_until(lambda data: b"DEFAULT" in data, "Roles view")
             send(b"\x1b[C")
             send(b"c")
-            read_until(lambda _: json.loads(settings.read_text()).get("cycleOrder") == ["review"],
+            read_until(lambda _: saved_settings().get("cycleOrder") == ["review"],
                        "cycle order persistence")
-            saved_roles = json.loads(settings.read_text())["modelRoles"]
+            saved_roles = saved_settings()["modelRoles"]
             send(b"\x1b")
             read_until(lambda data: b"\x1b[?1049l" in data, "restore main screen")
             send(b"\x1bp")
@@ -85,7 +97,7 @@ def run(binary):
             send(b"\r")
             read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
                        "role selection")
-            assert json.loads(settings.read_text())["modelRoles"] == saved_roles, "picker changed saved roles"
+            assert saved_settings()["modelRoles"] == saved_roles, "picker changed saved roles"
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")
@@ -99,13 +111,13 @@ def run(binary):
             send(b"D")
             read_until(lambda data: b"Delete @review (global)" in data, "delete confirmation")
             send(b"\r")  # Cancel is selected by default.
-            assert "review" in json.loads(settings.read_text())["modelRoles"], "default confirmation deleted"
+            assert "review" in saved_settings()["modelRoles"], "default confirmation deleted"
             send(b"D")
             read_until(lambda data: b"Delete @review (global)" in data, "second delete confirmation")
             send(b"\x1b[C\r")
-            read_until(lambda _: "review" not in json.loads(settings.read_text()).get("modelRoles", {}),
+            read_until(lambda _: "review" not in saved_settings().get("modelRoles", {}),
                        "delete role persistence")
-            deleted = json.loads(settings.read_text())
+            deleted = saved_settings()
             assert "review" not in deleted.get("modelTags", {}), "role tag survived"
             assert "review" not in deleted.get("cycleOrder", []), "role cycle survived"
             assert "review" not in deleted.get("retry", {}).get("fallbackChains", {}), "role fallback survived"

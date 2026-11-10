@@ -14,6 +14,8 @@ import tempfile
 import termios
 import time
 
+import settings_fixture
+
 
 def wait_for(master, process, marker, timeout=60, complete_frame=False):
     """Return observed bytes and the first marker time, or fail with the PTY tail.
@@ -103,7 +105,7 @@ def measure(binary, metadata, legacy_settings, stale_cycle):
                     os.write(master, b"\x10")
                     frame, _ = wait_for(master, process, b"Switched to GPT-4o", timeout=15)
                     assert b"Switched to GPT-4o mini" not in frame, "Default was skipped"
-                assert json.loads((agent / "settings.json").read_text())["modelRoles"] == settings["modelRoles"], "cycling changed assignments"
+                assert settings_fixture.settled_settings(agent / "settings.json")["modelRoles"] == settings["modelRoles"], "cycling changed assignments"
             timings = []
             for _ in range(2):
                 # Drain pending startup/refresh output, outside the timed interval.
@@ -115,7 +117,7 @@ def measure(binary, metadata, legacy_settings, stale_cycle):
                 os.write(master, b"/model\r")
                 frame, visible_at = wait_for(master, process, b"All available models", complete_frame=True)
                 timings.append((visible_at - started) * 1000)
-                saved = json.loads((agent / "settings.json").read_text())
+                saved = settings_fixture.settled_settings(agent / "settings.json")
                 assert saved["modelRoles"] == settings["modelRoles"], "obsolete settings created or changed roles"
                 assert b"--models scope" not in frame, "obsolete model filter still active"
                 assert b"openai" in frame, "authenticated provider missing"
