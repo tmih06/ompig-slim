@@ -45,7 +45,7 @@ jobs:
         env:
           MODE: ${{ matrix.mode }}
         run: |
-          git ls-tree -r HEAD -- . ':!docs' ':!README.md' ':!CONTEXT.md' > .ci-go-cache-input
+          git ls-tree HEAD | awk '$4 !~ /^(docs|README[.]md|CONTEXT[.]md)$/' > .ci-go-cache-input
           echo "GOCACHE=$RUNNER_TEMP/go-build-$MODE" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -235,7 +235,7 @@ jobs:
           persist-credentials: false
       - name: Identify the reusable Go cache
         run: |
-          git ls-tree -r HEAD -- . ':!docs' ':!README.md' ':!CONTEXT.md' > .ci-go-cache-input
+          git ls-tree HEAD | awk '$4 !~ /^(docs|README[.]md|CONTEXT[.]md)$/' > .ci-go-cache-input
           echo "GOCACHE=$RUNNER_TEMP/go-build-release" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
