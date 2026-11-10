@@ -48,6 +48,20 @@ func (s *Session) ActiveModelRole() string {
 	return ""
 }
 
+// ActiveModelRoleColor reports the color token for the active role, resolved
+// through the same modelroles metadata the model manager paints role rows and
+// browser chips with. One role therefore has one hue across the catalog and the
+// footer, including user-authored modelTags overrides, which Config.RoleInfo
+// merges. It reads the live settings on each call, so a tag edit repaints with
+// the next frame. An empty role reports "" rather than the default role's color.
+func (s *Session) ActiveModelRoleColor() string {
+	role := s.ActiveModelRole()
+	if role == "" {
+		return ""
+	}
+	return s.SettingsManager().Get().Config.RoleInfo(role).Color
+}
+
 // beginRoleCycle keeps role identity even when two roles resolve to the same model.
 // Unavailable roles are skipped; no configured candidates means no switch, not all models.
 func (s *Session) beginRoleCycle(ctx context.Context, direction string, deferThinking bool, order []string, options ...ModelMutationOptions) (*ModelCycleResult, func(), error) {

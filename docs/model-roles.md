@@ -88,8 +88,11 @@ is read-only; toggling **c** in Roles saves the displayed effective order.
 The footer below the prompt names the active role beside the model, as
 `@review claude-sonnet-4`. Two roles may resolve to one physical model, so
 cycling or fallback can leave the model name alone unable to say which role is
-selected. A session with no role — a direct model selection, or a virtual
-model — shows the bare model name as before.
+selected. The role carries the same color it has in the model manager and
+catalog, including a `modelTags` override: both read one source, so a role never
+shows two hues. A color the active theme does not define falls back to the
+footer's own hue rather than failing to render. A session with no role — a direct
+model selection, or a virtual model — shows the bare model name as before.
 
 ### Session picker
 

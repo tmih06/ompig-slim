@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -34,9 +35,17 @@ func footerFixtureTheme(t *testing.T) *tui.Theme {
 // intact, which is what a color assertion needs.
 func footerRawSelectionLine(t *testing.T, role string) string {
 	t.Helper()
+	return footerRoleLine(t, role, "")
+}
+
+// footerRoleLine renders line 2 for a role and the color token its metadata
+// reports, which is what FooterSession supplies at runtime.
+func footerRoleLine(t *testing.T, role, color string) string {
+	t.Helper()
 	footer := NewFooterComponent(roleFooterModel(), "agent", nil)
 	footer.SetThinkingLevel("high")
 	footer.activeRole = func() string { return role }
+	footer.activeRoleColor = func() string { return color }
 	lines := footer.Render(120)
 	if len(lines) < 2 {
 		t.Fatalf("footer rendered %d lines, want at least 2", len(lines))
@@ -66,19 +75,44 @@ func TestFooterShowsActiveRoleBesideModel(t *testing.T) {
 	if first, second := footerSelectionLine(t, "default"), footerSelectionLine(t, "review"); first == second {
 		t.Fatalf("shared-model roles render identically: %q", first)
 	}
-	// The role is drawn with its own token, not the model's and not an outer dim
-	// wrapper: a role colored like the model would be invisible as a distinction,
-	// and one wrapped in dim would be overwritten the moment the model segment
-	// closed. The raw line is checked because stripping escapes hides both cases.
+	// The model keeps its own token, and the role must not be drawn in it: a role
+	// colored like the model would be invisible as a distinction. The raw line is
+	// checked because stripping escapes hides which token colored what.
 	raw := footerRawSelectionLine(t, "review")
-	if !strings.Contains(raw, theme.GetFgAnsi("statusLineContext")+"@review") {
-		t.Fatalf("role is not drawn with statusLineContext: %q", raw)
-	}
 	if !strings.Contains(raw, theme.GetFgAnsi("statusLineModel")+"claude-sonnet-4") {
 		t.Fatalf("model is not drawn with statusLineModel: %q", raw)
 	}
-	if theme.GetFgAnsi("statusLineContext") == theme.GetFgAnsi("statusLineModel") {
-		t.Fatal("fixture theme does not distinguish the two tokens")
+	if strings.Contains(raw, theme.GetFgAnsi("statusLineModel")+"@review") {
+		t.Fatalf("role is drawn in the model's color: %q", raw)
+	}
+}
+
+// TestFooterRoleUsesCatalogColor is the parity requirement: a role must read the
+// same hue in the footer as in the model manager and catalog, which both paint
+// from modelroles.Config.RoleInfo. The cases below are the ones that differ in
+// practice, including a modelTags override and a token the theme does not define.
+func TestFooterRoleUsesCatalogColor(t *testing.T) {
+	theme := footerFixtureTheme(t)
+	config := modelroles.Config{
+		ModelRoles: map[string]string{"default": "p/a", "review": "p/b"},
+		// review overrides its built-in error hue; an unknown token is accepted by
+		// settings, so the footer must not take the panicking Fg path with it.
+		ModelTags: map[string]modelroles.Tag{"review": {Color: "accent"}, "broken": {Color: "not-a-token"}},
+	}
+	cases := []struct{ role, wantToken string }{
+		{"default", "success"},
+		{"smol", "warning"},
+		{"slow", "accent"},
+		{"review", "accent"},            // the tag override, not the built-in error
+		{"task", "muted"},               // a custom-row default
+		{"broken", "statusLineContext"}, // unknown token falls back
+	}
+	for _, tc := range cases {
+		color := config.RoleInfo(tc.role).Color
+		line := footerRoleLine(t, tc.role, color)
+		if !strings.Contains(line, theme.GetFgAnsi(tc.wantToken)+"@"+tc.role) {
+			t.Fatalf("role %s (catalog color %q) not drawn with %s: %q", tc.role, color, tc.wantToken, line)
+		}
 	}
 }
 
