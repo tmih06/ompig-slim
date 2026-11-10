@@ -341,6 +341,16 @@ func (h *ModelHub) selectedRowItem() (ModelSelectorItem, string, bool) {
 		if strings.HasSuffix(row.label, "/*") {
 			return ModelSelectorItem{}, "", false
 		}
+		// A role destination carries its own effort, so the dial starts from the
+		// saved suffix rather than from the role's primary assignment.
+		if role, ok := modelroles.RoleRef(row.label); ok {
+			item, _, ok := h.roleModel(role)
+			if !ok {
+				return ModelSelectorItem{}, "", false
+			}
+			_, level := modelroles.Split(row.label)
+			return item, level, true
+		}
 		return h.find(row.label)
 	}
 	if row.kind != "role" {
@@ -350,15 +360,110 @@ func (h *ModelHub) selectedRowItem() (ModelSelectorItem, string, bool) {
 	if value == "" {
 		value, _ = h.cfg.Resolve("@" + row.key)
 	}
+	// An authored alias stays an alias here so an effort edit rewrites @other:high
+	// rather than pinning the model @other resolves to today. The catalog item still
+	// supplies the model, which is what the facts line and effort choices need.
+	if alias, ok := modelroles.RoleRef(value); ok {
+		if item, level, ok := h.roleModel(alias); ok {
+			if level == "" {
+				_, level = modelroles.Split(value)
+			}
+			return item, level, true
+		}
+	}
 	return h.find(value)
 }
 
+// roleModel returns the model a role currently resolves to, supplying the facts
+// line and effort choices for a row that shows a role. resolvedRoles is the map
+// reload built from the host resolver, so it already reflects catalog availability;
+// a role that resolves nowhere reports false and its row is not offered.
+func (h *ModelHub) roleModel(role string) (ModelSelectorItem, string, bool) {
+	item, level, ok := h.find(h.resolvedRoles[role])
+	if !ok {
+		return ModelSelectorItem{}, "", false
+	}
+	item.Role = role
+	return item, level, true
+}
+
+// chainAcceptsRole compares a chain's and a role's model families. A chain keyed by
+// a model or a provider wildcard is a chat chain — chat recovery is the only loop
+// that walks one — and every other key is a role, whose own kind rule applies.
+func (h *ModelHub) chainAcceptsRole(key string, item ModelSelectorItem) bool {
+	if strings.Contains(key, "/") {
+		return ModelItemKind(item) == "chat"
+	}
+	return ModelAcceptsRole(key, item)
+}
+
+// roleDestinations returns the alias pool for the current assignment step, or nil
+// when the step accepts models only. Each candidate keeps @role as its identity, so
+// the saved entry names the role rather than whichever model that role maps to
+// today; the resolved model supplies only display facts and effort choices.
+//
+// The two steps are different graphs and therefore different filters: a primary
+// assignment follows ModelRoles aliases, a chain destination follows chain
+// references. Neither list can produce a write the host refuses, and a hidden role
+// is absent from both — the same rule that keeps it out of the role list.
+func (h *ModelHub) roleDestinations() []ModelSelectorItem {
+	if h.target == nil {
+		return nil
+	}
+	var candidates []string
+	switch h.target.kind {
+	case "role":
+		candidates = modelroles.AssignableRoles(h.config, h.chains, h.target.key)
+	case "fallback", "append":
+		candidates = modelroles.FallbackRoles(h.config, h.chains, h.target.key)
+	}
+	items := []ModelSelectorItem{}
+	for _, role := range candidates {
+		if h.config.RoleInfo(role).Hidden {
+			continue
+		}
+		if item, _, ok := h.roleModel(role); ok && h.chainAcceptsRole(h.target.key, item) {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// rolePool reports whether the browser is showing the alias pool: a leading @ in
+// the query while an assignment step that can accept a role is open. The query is
+// the whole state — clearing it closes the pool — so there is no flag to keep in
+// step with the places that reset the browser.
+func (h *ModelHub) rolePool() bool {
+	return strings.HasPrefix(h.browser.Query(), "@") && h.stepAcceptsRoles()
+}
+
+// stepAcceptsRoles reports whether the open assignment step can take a role at all.
+// It is the cheap half of roleDestinations, for the per-keystroke path.
+func (h *ModelHub) stepAcceptsRoles() bool {
+	if h.target == nil {
+		return false
+	}
+	switch h.target.kind {
+	case "role", "fallback", "append":
+		return true
+	}
+	return false
+}
+
 // applyScope retains a provider-local query while allowing global match counts.
+// The alias pool bypasses the model filters: role rows belong to the assigned
+// role's kind, not to the highlighted provider, kind tab, or recent list.
 func (h *ModelHub) applyScope() {
 	if len(h.entries) == 0 {
 		return
 	}
 	entry := h.entries[h.side]
+	if h.rolePool() {
+		if items := h.roleDestinations(); len(items) > 0 {
+			h.browser.SetItems(items)
+			return
+		}
+	}
 	items := []ModelSelectorItem{}
 	for _, item := range h.cfg.Models {
 		if h.target != nil && h.target.kind == "role" && !ModelAcceptsRole(h.target.key, item) {
@@ -567,33 +672,46 @@ func (h *ModelHub) assign(item ModelSelectorItem, role, scope, level string, ret
 	if scope == "" {
 		scope = "global"
 	}
-	if level == "" {
-		_, level = modelroles.Split(h.scopedRole(role, scope))
-		if !slices.Contains(ModelThinkingOptions(item, false), level) {
-			level = "inherit"
+	// A role row assigns the role alias, so the assignment keeps tracking whatever
+	// that role resolves to later. Its effort dial is skipped: the suffix belongs to
+	// the alias, so an effort edit would rewrite @role:level rather than a model.
+	selector := "@" + item.Role
+	if item.Role == "" {
+		if level == "" {
+			_, level = modelroles.Split(h.scopedRole(role, scope))
+			if !slices.Contains(ModelThinkingOptions(item, false), level) {
+				level = "inherit"
+			}
 		}
+		selector = item.Provider + "/" + item.ID
 	}
-	selector := item.Provider + "/" + item.ID
 	if level != "" && level != "inherit" {
 		selector += ":" + level
 	}
+	// followUp opens the step that follows a successful write and reports whether the
+	// browser must stay in assignment for it.
+	followUp := func() bool {
+		if item.Role != "" || len(ModelThinkingOptions(item, false)) == 0 {
+			return false
+		}
+		h.thinkingStrip(item, role, scope, level, -1, returnRoles)
+		return true
+	}
+	h.strip = nil
+	h.pending = true
 	finish := func(err error) {
 		if h.disposed {
 			return
 		}
 		h.pending = false
-		if !h.result(err) {
+		if !h.result(err) || followUp() {
 			return
 		}
-		if len(ModelThinkingOptions(item, false)) > 0 {
-			h.thinkingStrip(item, role, scope, level, -1, returnRoles)
-		} else if returnRoles {
+		if returnRoles {
 			h.setSide(0)
 			h.sidebarFocus = false
 		}
 	}
-	h.strip = nil
-	h.pending = true
 	if h.cfg.AssignAsync != nil {
 		h.cfg.AssignAsync(role, selector, scope, finish)
 	} else {
@@ -654,6 +772,8 @@ func (h *ModelHub) roleStrip(item ModelSelectorItem, keyOnly bool) {
 }
 
 // commitChain deduplicates exact selectors and lands on the changed fallback row.
+// Entries are compared verbatim, so "@slow" and a model that slow resolves to stay
+// distinct destinations; the runtime deduplicates the models they expand into.
 func (h *ModelHub) commitChain(key string, chain []string, selected string) {
 	seen := map[string]bool{}
 	dedup := []string{}
@@ -861,6 +981,9 @@ func (h *ModelHub) roleAction(data string) {
 	case "k":
 		if h.cfg.Compaction != nil {
 			if item, _, ok := h.selectedRowItem(); ok {
+				// Thresholds key on the physical model, so a role destination row uses
+				// the model its role resolves to rather than the @role spelling.
+				item.Role = ""
 				h.nameStrip("compaction")
 				h.strip.item = item
 			}
@@ -1128,6 +1251,22 @@ func (h *ModelHub) HandleInput(data string) {
 		h.roleAction(data)
 		return
 	}
+	// A leading @ swaps the browser to role aliases, the same gesture Alt+P uses. The
+	// pool closes when the query no longer leads with @, so an empty query is the
+	// only way in and backspace is the only way out. A step with no eligible role
+	// keeps the plain model list rather than opening an empty pool.
+	if h.stepAcceptsRoles() {
+		if data == "@" && h.browser.Query() == "" && len(h.roleDestinations()) > 0 {
+			h.browser.SetQuery("@")
+			h.applyScope()
+			return
+		}
+		if h.browser.Query() == "@" && MatchesKeyID(data, "backspace") {
+			h.browser.SetQuery("")
+			h.applyScope()
+			return
+		}
+	}
 	if roles || entry.locked {
 		h.setSide(1)
 	}
@@ -1335,8 +1474,8 @@ func (h *ModelHub) footer(width int) string {
 			deletion = "D delete role"
 		}
 		return fg(th.Dim, hintLine(width,
-			[]string{"↑/↓ rows", "⏎ pick", "f fallback", "x clear", deletion, thinking, compaction, "c cycle", "[/] reorder", "n new"},
-			deletion, thinking, compaction))
+			[]string{"↑/↓ rows", "⏎ pick", "f fallback", "x clear", deletion, thinking, compaction, "@ role", "c cycle", "[/] reorder", "n new"},
+			deletion, thinking, compaction, "@ role"))
 	}
 	entry := h.entries[h.side]
 	if entry.locked {
@@ -1392,6 +1531,29 @@ func (h *ModelHub) tabs(roles bool) string {
 	}
 	track, _ := modelSegmentTrack(labels, active)
 	return " " + modelOverlayTheme().Fg("dim", caption) + " " + track + "  " + modelOverlayTheme().Fg("dim", "Alt+←/Alt+→")
+}
+
+// roleAliasLabel renders @role in that role's own catalog color, which is what the
+// row's dot and tag already use, so one role reads one hue in every place it
+// appears. selected overrides with the accent, matching how the focused row paints
+// its value. Sanitization is applied here because callers pass settings-authored
+// role names straight through.
+func (h *ModelHub) roleAliasLabel(role string, selected bool) string {
+	color := h.config.RoleInfo(role).Color
+	if selected {
+		color = "accent"
+	}
+	return modelOverlayTheme().Fg(color, "@"+SanitizeModelText(role))
+}
+
+// browserEffortBadge renders an effort level as the dial's badge plus its name, or
+// "" when the level carries no badge: absent, or an explicit "inherit", which asks
+// for whatever the model defaults to and so says nothing worth a column.
+func browserEffortBadge(level string) string {
+	if level == "" || level == "inherit" {
+		return ""
+	}
+	return fg(modelOverlayTheme().Dim, browserEffortGlyph(level)+" "+SanitizeModelText(level))
 }
 
 // roleBody ports OMP's role tree: semantic role dots/tags, aligned indented
@@ -1453,11 +1615,19 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		case "chain":
 			line = " " + cursor + " " + fg(th.Dim, "◌ ") + SanitizeModelText(row.key)
 		case "fallback":
-			color := th.Muted
+			label := fg(th.Muted, SanitizeModelText(row.label))
 			if selected {
-				color = th.Accent
+				label = fg(th.Accent, SanitizeModelText(row.label))
 			}
-			line = " " + cursor + " " + fg(th.Dim, strings.Repeat(" ", tagWidth+3)+"↳") + " " + fg(color, SanitizeModelText(row.label))
+			// A role destination names a role, so it carries that role's color like the
+			// role's own row does, and its effort suffix belongs to the alias.
+			if alias, ok := modelroles.RoleRef(row.label); ok {
+				label = h.roleAliasLabel(alias, selected)
+				if badge := browserEffortBadge(modelroles.ModelRoleEffort(row.label)); badge != "" {
+					label += " " + badge
+				}
+			}
+			line = " " + cursor + " " + fg(th.Dim, strings.Repeat(" ", tagWidth+3)+"↳") + " " + label
 		case "role":
 			info := h.config.RoleInfo(row.key)
 			tag := info.Tag
@@ -1472,25 +1642,32 @@ func (h *ModelHub) roleBody(width, height int) []string {
 			if value != "" {
 				dot = th.Fg(info.Color, "●")
 				tagStyled = th.Fg(info.Color, tag)
-				if resolved := h.resolvedRoles[row.key]; resolved != "" {
-					value = resolved
-				}
-				base, level := modelroles.Split(value)
-				provider, id, hasProvider := strings.Cut(base, "/")
-				if hasProvider {
-					modelColor := th.Text
-					if selected {
-						modelColor = th.Accent
-					}
-					value = fg(th.Dim, SanitizeModelText(provider)+"/") + fg(modelColor, SanitizeModelText(id))
+				// An authored alias renders as @role in that role's own color, because
+				// the alias is the assignment: showing the model it resolves to today
+				// would hide what was chosen and pin the display to a value the user
+				// never wrote. The referenced role's own row already shows its model.
+				if alias, ok := modelroles.RoleRef(value); ok {
+					effort = browserEffortBadge(modelroles.ModelRoleEffort(value))
+					value = h.roleAliasLabel(alias, selected)
 				} else {
-					value = SanitizeModelText(base)
-				}
-				if level == "" && row.key == "default" {
-					level = thinking
-				}
-				if level != "" && level != "inherit" {
-					effort = fg(th.Dim, browserEffortGlyph(level)+" "+SanitizeModelText(level))
+					if resolved := h.resolvedRoles[row.key]; resolved != "" {
+						value = resolved
+					}
+					base, level := modelroles.Split(value)
+					provider, id, hasProvider := strings.Cut(base, "/")
+					if hasProvider {
+						modelColor := th.Text
+						if selected {
+							modelColor = th.Accent
+						}
+						value = fg(th.Dim, SanitizeModelText(provider)+"/") + fg(modelColor, SanitizeModelText(id))
+					} else {
+						value = SanitizeModelText(base)
+					}
+					if level == "" && row.key == "default" {
+						level = thinking
+					}
+					effort = browserEffortBadge(level)
 				}
 			} else {
 				resolved := h.resolvedRoles[row.key]
@@ -1539,11 +1716,10 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		if h.cursor < len(h.rows) {
 			selectedRole = h.rows[h.cursor].key
 		}
-		labels := make([]string, len(cycle))
-		for i, role := range cycle {
-			labels[i] = SanitizeModelText(role)
-		}
-		track, _ := modelSegmentTrack(labels, slices.Index(cycle, selectedRole))
+		// Colored by role, not by position: the cycle track names the same roles the
+		// manager's rows and the footer show, so a role keeps one color here even
+		// when reordering the cycle with [ and ].
+		track, _ := modelRoleTrack(h.config, cycle, slices.Index(cycle, selectedRole))
 		lines = append(lines, fg(th.Dim, "  Ctrl+P cycle: ")+track)
 	}
 	return lines

@@ -66,9 +66,19 @@ func (sm *SettingsManager) GetAutoThinkingMaxEffort() string {
 // SetModelRole writes an assignment in the requested scope. Empty removes that
 // scope's override, revealing a lower layer or the role's automatic inheritance.
 // Project writes use the existing trusted-settings boundary; errors are not swallowed.
+//
+// An alias assignment is checked for cycles before mutation. Because an alias now
+// comes from the manager's own role list, `default` → `@task` → `@default` is two
+// ordinary clicks away, and once saved Config.Resolve reports a cycle for both
+// roles, leaving neither resolvable. The closing assignment is refused when the
+// alias it names already reaches role, which is exactly the loop it would close;
+// the pre-existing check in Resolve still covers hand-edited settings.
 func (sm *SettingsManager) SetModelRole(role, selector, scope string) error {
 	if role == "" || strings.ContainsAny(role, "/ @:\t\n") {
 		return fmt.Errorf("invalid role name %q", role)
+	}
+	if alias, ok := modelroles.RoleRef(selector); ok && modelroles.AliasReaches(sm.Get().Config, alias, role) {
+		return fmt.Errorf("assigning %s to @%s would form a model role cycle", selector, role)
 	}
 	update := func(s *Settings) {
 		if s.ModelRoles == nil {
@@ -88,7 +98,32 @@ func (sm *SettingsManager) SetModelRole(role, selector, scope string) error {
 
 // SetFallbackChain replaces one ordered chain. A non-nil empty chain disables
 // inherited fallbacks; nil removes this scope's key and restores inheritance.
+//
+// A chain whose role entries would close a reference loop is rejected before
+// mutation. A role entry expands into the referenced role's own chain, so a loop
+// would leave recovery order undefined rather than merely longer. Because every
+// edge of the new loop but one already exists when the write arrives, testing the
+// saved chains for a path from each new role entry back to key is enough. The
+// check reads the merged authored chains, so a project write is judged against the
+// global entries it references and a loop closed across the two layers is refused
+// whichever layer completes it. Deletion is never checked: removing an edge can
+// only shorten a chain.
 func (sm *SettingsManager) SetFallbackChain(key string, chain []string, scope string) error {
+	if chain != nil {
+		var authored map[string][]string
+		if retry := sm.Get().Retry; retry != nil {
+			authored = retry.FallbackChains
+		}
+		for _, entry := range chain {
+			role, ok := modelroles.RoleRef(entry)
+			if !ok {
+				continue
+			}
+			if modelroles.ChainReaches(authored, role, key) {
+				return fmt.Errorf("fallback chain for %s would form a role cycle through @%s", key, role)
+			}
+		}
+	}
 	update := func(s *Settings) {
 		if s.Retry == nil {
 			s.Retry = &RetrySettingsJSON{}

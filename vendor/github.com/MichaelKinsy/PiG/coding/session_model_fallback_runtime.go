@@ -143,7 +143,11 @@ func (s *Session) fallbackKeys(current string) []string {
 }
 
 // fallbackCandidates resolves the configured primary once, permits a missing role
-// primary to use the current model, and canonicalizes aliases before tail lookup.
+// primary to use the current model, flattens role references in the tail so a
+// role destination contributes its model and then its own recovery plan, and
+// canonicalizes aliases before tail lookup. prewalk wraps a chain that stopped at
+// a missing credential or exhausted quota; ChainEntries has already collapsed
+// reference loops, so wrapping cannot repeat a role.
 func (s *Session) fallbackCandidates(key, current string, wrap bool) []modelroles.Selector {
 	config, chains, legacy, lookup := s.fallbackContext()
 	primary := key
@@ -161,7 +165,7 @@ func (s *Session) fallbackCandidates(key, current string, wrap bool) []modelrole
 	} else if strings.HasSuffix(key, "/*") {
 		primary = current
 	}
-	return modelroles.EffectiveCandidates(config, primary, current, legacy, chains[key], lookup, wrap)
+	return modelroles.EffectiveCandidates(config, primary, current, legacy, modelroles.ChainEntries(chains, key), lookup, wrap)
 }
 
 // fallbackCandidateIdentity fills inherited effort before cycle/cooldown checks;
