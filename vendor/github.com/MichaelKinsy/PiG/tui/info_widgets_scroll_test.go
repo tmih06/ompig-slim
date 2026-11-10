@@ -98,7 +98,7 @@ func TestInfoWidgetScrollResizeKeepsFrame(t *testing.T) {
 	w.Render(40)
 	w.Scroll(1000)
 	for _, height := range []int{7, 3, 2, 1, 0, 5, 12, 30} {
-		rows, rect := w.overlayRows(make([]string, height), 80)
+		rows, rect := w.overlayRows(80, height)
 		if height < 3 {
 			if len(rows) != 0 {
 				t.Fatalf("height %d painted incomplete widget frame", height)

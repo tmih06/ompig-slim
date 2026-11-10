@@ -107,39 +107,57 @@ func TestInfoWidgetDisclosureAndScroll(t *testing.T) {
 	}
 }
 
-// TestInfoWidgetPromptAnchor verifies the panel always meets the prompt border,
-// regardless of response occupancy; collapse removes all transcript hit boxes.
+// TestInfoWidgetPromptAnchor checks bottom-right geometry across viewport sizes.
+// The overlay needs only dimensions, never a painted copy of the transcript.
 func TestInfoWidgetPromptAnchor(t *testing.T) {
 	w := widgetFixture()
-	wide := strings.Repeat("界", 50)
-	background := make([]string, 20)
-	for i := 0; i < 8; i++ {
-		background[i] = wide
-	}
-	rows, rect := w.overlayRows(background, 100)
-	if rect.X != 57 || rect.Y != 20-len(rows) {
-		t.Fatalf("expected bottom-right: %+v", rect)
-	}
-	for i := range background {
-		background[i] = ""
-		if i >= 12 {
-			background[i] = wide
+	for _, width := range []int{30, 80, 100} {
+		for _, height := range []int{3, 5, 20} {
+			rows, rect := w.overlayRows(width, height)
+			if rect.X+rect.Width != width-3 || rect.Y+len(rows) != height {
+				t.Fatalf("detached bottom-right anchor at %dx%d: %+v", width, height, rect)
+			}
 		}
 	}
-	_, rect = w.overlayRows(background, 100)
-	if rect.X != 57 || rect.Y != 20-len(rows) {
-		t.Fatalf("bottom-right anchor moved: %+v", rect)
+	w.Toggle()
+	if rows, _ := w.overlayRows(100, 20); len(rows) != 0 {
+		t.Fatal("collapsed panel still covers the response")
 	}
-	for i := range background {
-		background[i] = wide
+}
+
+// TestInfoWidgetSkipsInvisibleProviders protects the hidden/tiny fast path from
+// rendering data that cannot be painted, including resetting stale scroll bounds.
+func TestInfoWidgetSkipsInvisibleProviders(t *testing.T) {
+	w := widgetFixture()
+	w.Render(40)
+	w.Sections[0].Render = func(int, bool) []string {
+		t.Fatal("invisible widget invoked provider")
+		return nil
 	}
-	_, rect = w.overlayRows(background, 100)
-	if rect.Y != 20-len(rows) {
-		t.Fatal("dense response moved the anchor")
+	for _, size := range [][2]int{{3, 20}, {40, 2}, {40, 0}} {
+		if rows := w.render(size[0], size[1]); len(rows) != 0 || w.lastHeight != 0 || w.viewHeight != 0 {
+			t.Fatalf("invisible widget retained viewport at %v", size)
+		}
 	}
 	w.Toggle()
-	if rows, _ := w.overlayRows(background, 100); len(rows) != 0 {
-		t.Fatal("collapsed panel still covers the response")
+	if len(w.Render(40)) != 0 {
+		t.Fatal("hidden widget retained rows")
+	}
+}
+
+// TestInfoWidgetPreservesProviderRows allows providers to return cached slices:
+// framing, scrolling and disclosure must never overwrite the provider's content.
+func TestInfoWidgetPreservesProviderRows(t *testing.T) {
+	body := strings.Split(strings.Repeat("☐ task 界\n", 30), "\n")
+	original := strings.Join(body, "\n")
+	w := &InfoWidgets{Sections: []InfoWidget{{Key: "tasks", Title: "Tasks", Render: func(int, bool) []string { return body }}}}
+	w.Render(40)
+	w.Scroll(1000)
+	w.Render(40)
+	w.HandleMouse(TuiMouseEvent{Type: MouseClick, Button: MouseButtonLeft})
+	w.Render(40)
+	if strings.Join(body, "\n") != original {
+		t.Fatal("widget mutated cached provider rows")
 	}
 }
 

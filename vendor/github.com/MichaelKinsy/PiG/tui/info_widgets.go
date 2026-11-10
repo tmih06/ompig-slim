@@ -56,27 +56,21 @@ func (w *InfoWidgets) ControlLabel(width int) string {
 	return label
 }
 
-// Render bounds standalone previews. Renderer integration uses overlayRows
-// with the available transcript height and never adds these rows to the layout.
-func (w *InfoWidgets) Render(width int) []string {
-	rows := w.renderRows(width)
-	w.lastHeight = len(rows)
-	height := min(12, len(rows))
-	w.viewHeight = height
-	w.offset = min(w.offset, max(0, len(rows)-height))
-	return w.windowRows(rows, width, height)
-}
+// Render bounds standalone previews to twelve rows, just like the overlay.
+func (w *InfoWidgets) Render(width int) []string { return w.render(width, 12) }
 
-// renderRows frames only the highest-priority candidate that has data. Switching
-// candidates resets scroll position so a quota viewport cannot hide new tasks.
-// The selected renderer chooses its compact summary when its header is collapsed.
-func (w *InfoWidgets) renderRows(width int) []string {
-	if w.hidden || width < 4 {
+// render selects the first nonempty candidate and frames only its visible rows.
+// Providers retain ownership of their rows; scrolling slices them without copying
+// or styling offscreen content. The header/footer stay pinned. Hidden or tiny
+// viewports skip providers entirely; switching candidates resets scroll position.
+func (w *InfoWidgets) render(width, height int) []string {
+	w.lastHeight, w.viewHeight = 0, 0
+	if w.hidden || width < 4 || height < 3 {
 		return nil
 	}
-	var rows []string
 	for _, s := range w.Sections {
-		body := s.Render(max(1, width-4), !w.collapsed[s.Key])
+		collapsed := w.collapsed[s.Key]
+		body := s.Render(max(1, width-4), !collapsed)
 		if len(body) == 0 {
 			continue
 		}
@@ -84,54 +78,43 @@ func (w *InfoWidgets) renderRows(width int) []string {
 			w.activeKey, w.offset = s.Key, 0
 		}
 		marker := "▾ "
-		if w.collapsed[s.Key] {
+		if collapsed {
 			marker = "▸ "
 			body = body[:1]
 		}
+		w.lastHeight = len(body) + 2
+		w.viewHeight = min(12, height, w.lastHeight)
+		w.Scroll(0) // Clamp after content changes or viewport resizing.
+		rows := make([]string, w.viewHeight)
+		theme := ActiveTheme()
 		title := widthx.TruncateToWidth(marker+s.Title+" · Alt+W", width-4, "…", false)
-		rows = append(rows, ActiveTheme().Fg("border", "╭─"+title+strings.Repeat("─", max(0, width-3-widthx.VisibleWidth(title)))+"╮"))
-		for _, line := range body {
-			text := widthx.TruncateToWidth(line, width-4, "…", true)
-			rows = append(rows, ActiveTheme().Fg("border", "│")+" "+text+" "+ActiveTheme().Fg("border", "│"))
+		rows[0] = theme.Fg("border", "╭─"+title+strings.Repeat("─", max(0, width-3-widthx.VisibleWidth(title)))+"╮")
+		left, right := theme.Fg("border", "│")+" ", " "+theme.Fg("border", "│")
+		for i, line := range body[w.offset : w.offset+w.viewHeight-2] {
+			rows[i+1] = left + widthx.TruncateToWidth(line, width-4, "…", true) + right
 		}
-		rows = append(rows, ActiveTheme().Fg("border", "╰"+strings.Repeat("─", width-2)+"╯"))
+		hint := ""
+		if w.viewHeight < w.lastHeight {
+			directions := ""
+			if w.offset > 0 {
+				directions += "↑"
+			}
+			if w.offset+w.viewHeight < w.lastHeight {
+				directions += "↓"
+			}
+			hint = widthx.TruncateToWidth(" "+directions+" Alt+PgUp/PgDn ", width-2, "…", false)
+		}
+		rows[len(rows)-1] = theme.Fg("border", "╰"+hint+strings.Repeat("─", max(0, width-2-widthx.VisibleWidth(hint)))+"╯")
 		return rows
 	}
 	w.activeKey, w.offset = "", 0
-	return rows
+	return nil
 }
 
-// Scroll moves the content between the pinned top/bottom edges. Removing two
-// chrome rows from both content and viewport leaves the same maximum offset.
-// Keyboard page navigation and mouse wheel navigation share that offset.
+// Scroll moves content between the pinned edges, clamped to the last viewport.
+// Keyboard page navigation and mouse wheel navigation share the same offset.
 func (w *InfoWidgets) Scroll(delta int) {
 	w.offset = max(0, min(w.offset+delta, max(0, w.lastHeight-w.viewHeight)))
-}
-
-// windowRows scrolls only interior rows: the first header and final border stay
-// pinned. Navigation hints live in the bottom border rather than replacing an
-// edge or hiding the last content row. Fewer than three cells of height cannot
-// contain both edges and content, so no partial frame is painted there.
-func (w *InfoWidgets) windowRows(rows []string, width, height int) []string {
-	if height < 3 {
-		return nil
-	}
-	if len(rows) <= height {
-		return rows
-	}
-	visible := make([]string, height)
-	visible[0] = rows[0]
-	copy(visible[1:height-1], rows[1+w.offset:1+w.offset+height-2])
-	directions := ""
-	if w.offset > 0 {
-		directions += "↑"
-	}
-	if w.offset+height < len(rows) {
-		directions += "↓"
-	}
-	hint := widthx.TruncateToWidth(" "+directions+" Alt+PgUp/PgDn ", width-2, "…", false)
-	visible[height-1] = ActiveTheme().Fg("border", "╰"+hint+strings.Repeat("─", max(0, width-2-widthx.VisibleWidth(hint)))+"╯")
-	return visible
 }
 
 // HandleMouse toggles a header without stealing editor focus. Wheel events scroll
@@ -177,7 +160,7 @@ func (c *InfoWidgetLayout) Invalidate() { c.Content.Invalidate(); c.Widgets.Inva
 // LayoutNode so hit boxes remain separate from transcript coordinates.
 func (c *InfoWidgetLayout) Render(width int) []string {
 	lines := c.Content.Render(width)
-	rows, rect := c.Widgets.overlayRows(lines, width)
+	rows, rect := c.Widgets.overlayRows(width, len(lines))
 	return compositeInfoWidget(lines, rows, rect, width)
 }
 
@@ -191,16 +174,13 @@ func (infoWidgetLayoutNode) isLayoutNode() {}
 // overlayRows opens upward at the prompt's right edge. Its source control ends
 // three cells before the editor edge, so the panel uses the same right inset.
 // Collapse returns no rows at all: transcript selection cannot hit a hidden HUD.
-func (w *InfoWidgets) overlayRows(background []string, width int) ([]string, LayoutRect) {
+func (w *InfoWidgets) overlayRows(width, height int) ([]string, LayoutRect) {
 	panelWidth := min(40, max(0, width-3))
-	rows := w.renderRows(panelWidth)
-	h := min(12, len(rows), len(background))
-	if h < 3 {
+	rows := w.render(panelWidth, height)
+	if len(rows) == 0 {
 		return nil, LayoutRect{}
 	}
-	w.lastHeight, w.viewHeight = len(rows), h
-	w.offset = min(w.offset, max(0, len(rows)-h))
-	return w.windowRows(rows, panelWidth, h), LayoutRect{X: width - 3 - panelWidth, Y: len(background) - h, Width: panelWidth, Height: h}
+	return rows, LayoutRect{X: width - 3 - panelWidth, Y: height - len(rows), Width: panelWidth, Height: len(rows)}
 }
 
 // compositeInfoWidget paints into a copy of existing lines. Neither transcript
@@ -223,6 +203,9 @@ func layoutInfoWidgets(ctx *layoutContext, c *InfoWidgetLayout, x, y, width int,
 	content := layoutComponent(ctx, c.Content, x, y, width, height, clip)
 	root := &LayoutBox{Component: c, Rect: content.Rect, Clip: intersect(clip, content.Rect), Children: []*LayoutBox{content}}
 	content.Parent = root
+	if c.Widgets.hidden {
+		return root
+	}
 	h := content.Rect.Height
 	if c.Prompt != nil {
 		if prompt := infoWidgetPromptBox(content, c.Prompt); prompt != nil {
@@ -234,13 +217,9 @@ func layoutInfoWidgets(ctx *layoutContext, c *InfoWidgetLayout, x, y, width int,
 			h = 0
 		} // An absent editor must not anchor over another slot.
 	}
-	screen := make([]string, max(0, y+content.Rect.Height))
-	paintBox(content, screen, max(1, x+width))
-	background := make([]string, h)
-	for i := range background {
-		background[i] = widthx.SliceByColumn(screen[y+i], x, width, true)
-	}
-	rows, rect := c.Widgets.overlayRows(background, width)
+	// Placement depends only on geometry. The frame painter composites the
+	// sibling panel later; prepainting the transcript here would do it twice.
+	rows, rect := c.Widgets.overlayRows(width, h)
 	if len(rows) == 0 {
 		return root
 	}

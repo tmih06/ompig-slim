@@ -14,7 +14,7 @@ func (t *TuiMainScreen) SetInfoWidgets(widgets *InfoWidgets, dock Component) {
 // It preserves the line count and cached root lines, keeps the prompt untouched,
 // and returns a terminal-relative mouse target beneath normal modal overlays.
 func (t *TuiMainScreen) composeInfoWidgetFrame(root []string, width, height int) ([]string, *renderedOverlayLayout) {
-	if t.infoWidgets == nil {
+	if t.infoWidgets == nil || t.infoWidgets.hidden {
 		return root, nil
 	}
 	dockHeight := 0
@@ -26,7 +26,7 @@ func (t *TuiMainScreen) composeInfoWidgetFrame(root []string, width, height int)
 	if end <= viewportStart {
 		return root, nil
 	}
-	rows, rect := t.infoWidgets.overlayRows(root[viewportStart:end], width)
+	rows, rect := t.infoWidgets.overlayRows(width, end-viewportStart)
 	if len(rows) == 0 {
 		return root, nil
 	}
