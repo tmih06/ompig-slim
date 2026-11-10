@@ -10,6 +10,7 @@ All notable public changes to PiG will be recorded in this file.
 
 ### ompig-slim native-port maintenance
 
+- `app.message.followUp` (queue a follow-up message) defaults to `ctrl+q` on every platform, replacing upstream's `alt+enter` on macOS and Linux; Windows and WSL keep `ctrl+q`. The Q key was already the Windows default, raw mode clears `IXON` so the XON byte arrives as a keystroke, and one key in every terminal is easier to remember than two. Consequences: `alt+enter` now reaches the editor, where ESC+Return inserts a newline (on Apple Terminal, which cannot report Option+Return, this is what Option+Return does); a `keybindings.json` entry for the action still wins, so restoring `alt+enter` is one line. The startup hint, `/hotkeys` and the settings row read the same table and follow. Recorded as divergence D234.
 - Share routed and unpooled stream preparation and response observation while preserving provider ownership, continuation boundaries, callback options, and simple-stream token limits.
 - Simplify credential-row decoding, account diagnostics, quota form encoding and Cursor pool parsing; retain account identities, refresh leases, logout tombstones, and replay-safe routing.
 - Remove redundant metadata-cache allocation and file-read/YAML forwarding helpers. Preserve explicit model fields, metadata freshness, and YAML symbol handling.
