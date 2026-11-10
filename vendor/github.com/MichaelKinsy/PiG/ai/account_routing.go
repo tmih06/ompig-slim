@@ -75,6 +75,12 @@ func accountKeyOf(accountKey *string) accountKeyValue {
 	return accountKeyValue{key: *accountKey, set: true}
 }
 
+// accountBackoff retains failed writes locally; mirrored deadlines yield to store resets.
+type accountBackoff struct {
+	until     int64
+	persisted bool
+}
+
 // AccountRouter routes independent requests without changing the provider's persistent selected
 // account. A store without the account methods yields a router that never routes.
 type AccountRouter struct {
@@ -89,14 +95,14 @@ type AccountRouter struct {
 	affinity map[string]map[string]map[string]*string
 	// localBlocks holds this run's blocks by provider → account → scope, so an account stays
 	// retired even when the store cannot persist the block.
-	localBlocks map[string]map[accountKeyValue]map[string]int64
+	localBlocks map[string]map[accountKeyValue]map[string]accountBackoff
 	// listeners observe handoffs.
 	listeners []*accountRotationListener
 }
 
 // NewAccountRouter builds a router over store. A nil or single-account store never routes.
 func NewAccountRouter(store CredentialStore) *AccountRouter {
-	router := &AccountRouter{now: time.Now, affinity: map[string]map[string]map[string]*string{}, localBlocks: map[string]map[accountKeyValue]map[string]int64{}}
+	router := &AccountRouter{now: time.Now, affinity: map[string]map[string]map[string]*string{}, localBlocks: map[string]map[accountKeyValue]map[string]accountBackoff{}}
 	if store != nil {
 		if accounts, ok := store.(AccountCredentialStore); ok {
 			router.credentials = accounts
@@ -365,6 +371,16 @@ func (r *AccountRouter) nowMillis() int64 { return r.now().UnixMilli() }
 // read from the store each time so blocks another process wrote hold too.
 func (r *AccountRouter) BlockedUntil(ctx context.Context, model AnyModel, account *CredentialAccountInfo) (*int64, error) {
 	scopes := AccountRequestBlockScopes(model.ProviderID(), model.ModelID())
+	// Snapshot before I/O so a concurrent failure recorded after the read
+	// started cannot be mistaken for a block removed by a reset.
+	r.mu.Lock()
+	mirrored := make(map[string]accountBackoff)
+	for _, scope := range append([]string{""}, scopes...) {
+		if block := r.localBlocks[model.ProviderID()][accountKeyOf(account.AccountKey)][scope]; block.persisted {
+			mirrored[scope] = block
+		}
+	}
+	r.mu.Unlock()
 	stored, err := r.credentials.GetAccountBlockedUntil(ctx, model.ProviderID(), account.AccountKey, scopes)
 	if err != nil {
 		return nil, err
@@ -374,6 +390,17 @@ func (r *AccountRouter) BlockedUntil(ctx context.Context, model AnyModel, accoun
 	if stored != nil && *stored > now {
 		until = *stored
 	}
+	// A successful store read supersedes mirrored local deadlines after a sibling
+	// clears or replaces them. The aggregate is enough: a local deadline hidden
+	// by a longer stored scope cannot affect eligibility until a later read.
+	r.mu.Lock()
+	blocks := r.localBlocks[model.ProviderID()][accountKeyOf(account.AccountKey)]
+	for scope, block := range mirrored {
+		if blocks[scope] == block && block.until > until {
+			delete(blocks, scope)
+		}
+	}
+	r.mu.Unlock()
 	if local := r.localBlockedUntil(model.ProviderID(), account.AccountKey, scopes, now); local > until {
 		until = local
 	}
@@ -397,7 +424,7 @@ func (r *AccountRouter) localBlockedUntil(providerID string, accountKey *string,
 	}
 	until := int64(0)
 	for _, scope := range append([]string{""}, scopes...) {
-		deadline := blocks[scope]
+		deadline := blocks[scope].until
 		if deadline <= now {
 			delete(blocks, scope)
 			continue
@@ -417,17 +444,17 @@ func (r *AccountRouter) rememberBlock(providerID string, accountKey *string, sco
 	defer r.mu.Unlock()
 	accounts := r.localBlocks[providerID]
 	if accounts == nil {
-		accounts = map[accountKeyValue]map[string]int64{}
+		accounts = map[accountKeyValue]map[string]accountBackoff{}
 		r.localBlocks[providerID] = accounts
 	}
 	key := accountKeyOf(accountKey)
 	blocks := accounts[key]
 	if blocks == nil {
-		blocks = map[string]int64{}
+		blocks = map[string]accountBackoff{}
 		accounts[key] = blocks
 	}
-	if until > blocks[scope] {
-		blocks[scope] = until
+	if until > blocks[scope].until {
+		blocks[scope] = accountBackoff{until: until}
 	}
 }
 
@@ -453,7 +480,20 @@ func (r *AccountRouter) Fail(ctx context.Context, model AnyModel, account *Crede
 	if context.Cause(ctx) == nil && r.credentials != nil {
 		// A store failure leaves the in-memory block in place, so this run still retires the
 		// account.
-		_ = r.credentials.BlockAccount(ctx, model.ProviderID(), account.AccountKey, block.Scope, block.Until)
+		if err := r.credentials.BlockAccount(ctx, model.ProviderID(), account.AccountKey, block.Scope, block.Until); err == nil {
+			// Some stores accept writes without persisting them. Only trust a
+			// reset after reading back coverage of this deadline successfully.
+			stored, err := r.credentials.GetAccountBlockedUntil(ctx, model.ProviderID(), account.AccountKey, []string{block.Scope})
+			if err == nil && stored != nil && *stored >= block.Until {
+				r.mu.Lock()
+				blocks := r.localBlocks[model.ProviderID()][accountKeyOf(account.AccountKey)]
+				if current := blocks[block.Scope]; current.until == block.Until {
+					current.persisted = true
+					blocks[block.Scope] = current
+				}
+				r.mu.Unlock()
+			}
+		}
 	}
 	return block
 }
@@ -564,6 +604,6 @@ func (r *AccountRouter) SetStore(store CredentialStore) {
 	r.affinity = map[string]map[string]map[string]*string{}
 	r.activeRoutes = nil
 	r.confirmedRoutes = nil
-	r.localBlocks = map[string]map[accountKeyValue]map[string]int64{}
+	r.localBlocks = map[string]map[accountKeyValue]map[string]accountBackoff{}
 	r.mu.Unlock()
 }
