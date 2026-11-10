@@ -28,7 +28,12 @@ func SettingsListThemeFor(th *Theme) SettingsListTheme {
 			if selected {
 				return th.Fg("accent", text)
 			}
-			return text
+			// An unselected label takes the theme's body color rather than the
+			// terminal's default foreground: the settings list is the one surface
+			// where every unselected row would otherwise have no color at all, and a
+			// palette whose `text` is the terminal default leaves the whole list
+			// looking unstyled next to its colored values.
+			return markdownForeground(th.Text, text)
 		},
 		Value: func(text string, selected bool) string {
 			if selected {

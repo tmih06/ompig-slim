@@ -22,20 +22,102 @@ package tui
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/MichaelKinsy/PiG/internal/jsonparse"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
 	"github.com/MichaelKinsy/PiG/internal/text"
 )
 
-//go:embed theme_dark.json theme_light.json
+//go:embed theme_dark.json theme_light.json theme_palettes.json
 var builtinThemes embed.FS
+
+// paletteDocuments once decodes the bundled palette bundle (theme_palettes.json):
+// oh-my-pi's built-in themes, keyed by name, still as their JSON documents.
+//
+// The bundle is copied from oh-my-pi's packages/tui/src/theme/defaults.json
+// (MIT, see NOTICE) so a user gets the same palettes in both tools rather than a
+// single hand-tuned pair. Only the documents are decoded up front; a palette is
+// resolved into ANSI sequences when it is selected, because resolving all 100
+// costs about 35ms of the first frame's startup budget and a run uses one.
+var paletteDocuments = sync.OnceValue(func() map[string]json.RawMessage {
+	data, err := builtinThemes.ReadFile("theme_palettes.json")
+	if err != nil {
+		return nil
+	}
+	var documents map[string]json.RawMessage
+	if err := json.Unmarshal(data, &documents); err != nil {
+		return nil
+	}
+	return documents
+})
+
+// paletteResolved caches each bundled palette after its first use. Reading a
+// palette's document in one entry skips re-parsing the rest of the bundle.
+var paletteResolved sync.Map // name -> *Theme
+
+// paletteTheme returns the bundled palette with the name, resolved on first use.
+// A palette that fails to parse resolves to nil and stays nil: one broken entry
+// must not take the theme picker down with it, and retrying it on every render
+// would.
+func paletteTheme(name string) *Theme {
+	if cached, ok := paletteResolved.Load(name); ok {
+		return cached.(*Theme)
+	}
+	raw, ok := paletteDocuments()[name]
+	if !ok {
+		return nil
+	}
+	var theme *Theme
+	var tj ThemeJSON
+	if err := json.Unmarshal(raw, &tj); err == nil && tj.Name != "" {
+		if err := extractPaletteColorKeyOrder(raw, &tj); err == nil {
+			if resolved, resolveErr := resolveThemeWithMode(&tj, TerminalColorModeTrueColor); resolveErr == nil {
+				theme = resolved
+			}
+		}
+	}
+	paletteResolved.Store(name, theme)
+	return theme
+}
+
+// extractPaletteColorKeyOrder fills tj.colorKeys from a palette document's raw
+// bytes, so a bundled palette keeps its own "colors" order as a file-loaded one
+// does.
+func extractPaletteColorKeyOrder(raw []byte, tj *ThemeJSON) error {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return err
+	}
+	colors, ok := document["colors"]
+	if !ok {
+		return errors.New("palette has no colors")
+	}
+	tj.colorKeys = rawObjectKeys(colors)
+	return nil
+}
+
+// BuiltinPaletteNames returns the names of the bundled palettes in sorted order.
+// They are themes a user can select, not the dark/light pair this engine owns.
+// A name is listed whether or not its palette parses: the registry resolves it
+// on selection, and a palette that fails then is reported as a load failure
+// rather than silently missing from the picker.
+func BuiltinPaletteNames() []string {
+	documents := paletteDocuments()
+	names := make([]string, 0, len(documents))
+	for name := range documents {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
 
 // LoadBuiltinTheme returns a built-in theme by name ("dark" or "light") in the terminal's color mode.
 func LoadBuiltinTheme(name string) (*Theme, error) {
@@ -66,9 +148,24 @@ type ThemeJSON struct {
 	Vars       map[string]ThemeColorValue `json:"vars"`
 	Colors     map[string]ThemeColorValue `json:"colors"`
 	Export     map[string]ThemeColorValue `json:"export,omitempty"`
+	// Terminal describes the terminal the theme was made for, as ThemeJsonSchema
+	// declares it. This engine never paints the terminal, so only Foreground (the
+	// body color a palette designed against a terminal default) and ANSI (the palette
+	// colorful Markdown draws its hues from) are read.
+	Terminal *ThemeTerminalJSON `json:"terminal,omitempty"`
 	// colorKeys preserves the insertion order of keys in the "colors"
 	// JSON object. Populated by extractColorKeyOrder after decoding.
 	colorKeys []string
+}
+
+// ThemeTerminalJSON is ThemeJsonSchema.terminal: the colors of the terminal the theme
+// was written for, plus the ANSI palette 0-15.
+type ThemeTerminalJSON struct {
+	Background ThemeColorValue   `json:"background,omitempty"`
+	Foreground ThemeColorValue   `json:"foreground,omitempty"`
+	Chrome     ThemeColorValue   `json:"chrome,omitempty"`
+	Widget     ThemeColorValue   `json:"widget,omitempty"`
+	ANSI       []ThemeColorValue `json:"ansi,omitempty"`
 }
 
 // LoadThemeFile reads a theme JSON file and returns the resolved Theme in the terminal's color mode, reporting invalid JSON with ECMAScript SyntaxError text.
@@ -271,13 +368,35 @@ func extractColorKeyOrder(data []byte) []string {
 }
 
 // themeColorFallbacks lists the optional tokens and the token each falls back to,
-// in upstream withThemeColorFallbacks order.
+// in upstream withThemeColorFallbacks order. The pythonMode and statusLine* entries
+// are this engine's additions: upstream's schema requires them, while a theme
+// written before the status line has no reason to name them, and a footer segment
+// whose token is missing has no color to draw with.
 var themeColorFallbacks = []struct{ token, from string }{
 	{"scrollbarTrack", "muted"},
 	{"scrollbarThumb", "text"},
 	{"thinkingMax", "thinkingXhigh"},
 	{"searchMatchBg", "selectedBg"},
 	{"searchMatchText", "text"},
+	{"pythonMode", "bashMode"},
+	{"statusLineSep", "dim"},
+	{"statusLineModel", "accent"},
+	{"statusLinePath", "border"},
+	{"statusLineGitClean", "success"},
+	{"statusLineGitDirty", "warning"},
+	{"statusLineContext", "muted"},
+	{"statusLineSpend", "accent"},
+	{"statusLineStaged", "success"},
+	{"statusLineDirty", "warning"},
+	{"statusLineUntracked", "error"},
+	{"statusLineOutput", "muted"},
+	{"statusLineCost", "success"},
+	{"statusLineSubagents", "accent"},
+	// assistantMessageText is optional and has no token to borrow: an omitted one
+	// is the terminal's default foreground, which is what every theme rendered
+	// prose in before the token existed. "text" is not a substitute, because most
+	// palettes set text to the terminal default as well.
+	{"assistantMessageText", ""},
 }
 
 // themeBackgroundTokens are the tokens drawn as backgrounds (theme.ts BACKGROUND_TOKENS).
@@ -303,15 +422,20 @@ func resolveThemeWithMode(tj *ThemeJSON, mode TerminalColorMode) (*Theme, error)
 		}
 		resolved[k] = next
 	}
-	// Optional tokens use nullish fallbacks: only an omitted token falls back, while an explicitly configured value, including "", is retained.
+	// Optional tokens use nullish fallbacks: only an omitted token falls back, while an explicitly configured value, including "", is retained. A
+	// fallback naming no token resolves to the terminal default, the "no opinion" value for a token whose absence means "inherit".
 	for _, fallback := range themeColorFallbacks {
 		if _, present := tj.Colors[fallback.token]; present {
 			continue
 		}
-		resolved[fallback.token] = resolved[fallback.from]
+		if fallback.from != "" {
+			resolved[fallback.token] = resolved[fallback.from]
+		} else {
+			resolved[fallback.token] = ThemeColorValue{isSet: true}
+		}
 		keys = append(keys, fallback.token)
 	}
-	// Themes shared with OMP carry color tokens this engine does not render (`statusLine*`, `pythonMode`). They validate so one
+	// Themes shared with OMP carry color tokens this engine does not render. They validate so one
 	// file serves both tools, and are dropped here rather than indexed blindly, which would fail on their missing descriptor
 	// (theme.ts splitThemeColors). The theme's own key order is only the tokens it renders, as source Theme's is.
 	keys = slices.DeleteFunc(keys, func(token string) bool { return !themeTokenKnown(token) })
@@ -332,6 +456,12 @@ func resolveThemeWithMode(tj *ThemeJSON, mode TerminalColorMode) (*Theme, error)
 		return nil, err
 	}
 	theme.source = source
+	theme.ansiFg = resolveThemeANSIPalette(tj, mode)
+	// A palette that leaves `text` at the terminal default records the body color it
+	// was designed against in terminal.foreground; adopting it here makes every
+	// existing Fg("text", ...) call site (dialogs, descriptions, login prompts) draw
+	// that color instead of inheriting the terminal's own foreground.
+	theme.adoptPaletteForeground()
 	exportColors := resolveThemeExportColors(tj)
 	theme.ExportPageBg, theme.ExportCardBg, theme.ExportInfoBg = exportColors["pageBg"], exportColors["cardBg"], exportColors["infoBg"]
 	return theme, nil
@@ -341,6 +471,36 @@ func cloneThemeJSON(tj *ThemeJSON) *ThemeJSON {
 	clone := *tj
 	clone.colorKeys = slices.Clone(tj.colorKeys)
 	return &clone
+}
+
+// resolveThemeANSIPalette resolves the theme's "terminal.ansi" colors to the 16
+// foreground escapes colorful Markdown paints from, or nil when the theme names
+// no palette (a theme written for PiG, which has no terminal section). A slot
+// whose value cannot be resolved, or that is the terminal default, stays "", and
+// its role falls back to the terminal's own palette entry (see Theme.ANSIFg).
+func resolveThemeANSIPalette(tj *ThemeJSON, mode TerminalColorMode) []string {
+	if tj.Terminal == nil || len(tj.Terminal.ANSI) == 0 {
+		return nil
+	}
+	palette := make([]string, ANSISlotCount)
+	for slot := 0; slot < ANSISlotCount && slot < len(tj.Terminal.ANSI); slot++ {
+		resolved, err := resolveVarRefs(tj.Terminal.ANSI[slot], tj.Vars, nil)
+		if err != nil {
+			continue
+		}
+		var color Color
+		if resolved.IsIndex {
+			color, err = NewIndexedColor(resolved.Index)
+		} else if resolved.Text != "" {
+			color, err = ParseColor(resolved.Text)
+		} else {
+			continue
+		}
+		if err == nil {
+			palette[slot] = ForegroundAnsi(color, mode)
+		}
+	}
+	return palette
 }
 
 // resolveThemeExportColors mirrors theme.ts getThemeExportColors: CSS colors

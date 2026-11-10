@@ -9,6 +9,7 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
@@ -66,6 +67,12 @@ func (m *InteractiveMode) resolveToolRenderers(name string) *extension.ToolRende
 		if m.newRunner != nil {
 			definition, ok = m.newRunner.GetToolDefinition(name)
 		}
+		if !ok && name == "todo" {
+			// Native todo is not an extension registration. Resolve its own
+			// renderer even under --no-extensions so the widget stays unframed.
+			definition = tools.StaticExtendedBuiltinDefinition(name)
+			ok = definition.Name != ""
+		}
 		if !ok && (name == "read" || name == "write" || name == "edit" || name == "codemode" || name == "Agent") {
 			// codemode is a built-in tool, not an extension, so the runner holds no registration of it: the card is drawn
 			// by the definition's own renderers (core/tools/codemode/renderer.ts).
@@ -110,13 +117,18 @@ func (d *toolCardDefinition) ToolRenderers() *tui.ToolDefinitionRenderers {
 func (m *InteractiveMode) newToolCard(name, toolCallID string, args json.RawMessage) *tui.ToolExecutionComponent {
 	var source tui.ToolDefinitionSource
 	var definition *toolCardDefinition
-	if renderers := m.resolveToolRenderers(name); renderers != nil {
-		definition = &toolCardDefinition{m: m, renderers: *renderers, toolCallID: toolCallID}
-		source = definition
+	if name != "todo" {
+		if renderers := m.resolveToolRenderers(name); renderers != nil {
+			definition = &toolCardDefinition{m: m, renderers: *renderers, toolCallID: toolCallID}
+			source = definition
+		}
 	}
 	comp := tui.NewToolExecutionComponent(name, toolCallID, args, m.toolExecutionOptions(), source, m.tuiInst, m.opts.CWD)
 	if definition != nil {
 		definition.card = comp
+	}
+	if name == "todo" {
+		comp.SetDefinition(todoTranscriptRenderers(comp), args)
 	}
 	m.recordToolCard(comp, toolCallID, name)
 	return comp
@@ -124,6 +136,11 @@ func (m *InteractiveMode) newToolCard(name, toolCallID string, args json.RawMess
 
 // bindToolCard binds the card to the renderers resolved for name.
 func (m *InteractiveMode) bindToolCard(comp *tui.ToolExecutionComponent, toolCallID, name string, args json.RawMessage) {
+	if name == "todo" {
+		// The transcript is an action receipt, never a second task list.
+		comp.SetDefinition(todoTranscriptRenderers(comp), args)
+		return
+	}
 	renderers := m.resolveToolRenderers(name)
 	// Resolved renderers draw their own card, with fallbacks for the renderers they lack; only a tool with none uses
 	// the plain card (upstream ToolExecutionComponent hasRendererDefinition). A later resolution without renderers

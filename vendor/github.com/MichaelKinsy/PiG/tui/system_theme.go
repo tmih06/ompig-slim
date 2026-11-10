@@ -127,6 +127,29 @@ var systemTokenFamilies = []struct{ token, family string }{
 	{"thinkingHigh", "thinkingViolet"},
 	{"thinkingXhigh", "thinkingMagenta"},
 	{"thinkingMax", "thinkingRed"},
+	// Status line segments. They take the families their meaning implies, so a
+	// generated theme colors the footer the same way the palettes do: the model
+	// and the path carry their own hue, statuses use the semantic families, and
+	// the counters stay near the body text so a dense footer does not become a
+	// row of competing colors.
+	{"statusLineSep", "neutral"},
+	{"statusLineModel", "violet"},
+	{"statusLinePath", "blue"},
+	{"statusLineGitClean", "green"},
+	{"statusLineGitDirty", "yellow"},
+	{"statusLineContext", "calamine"},
+	{"statusLineSpend", "calamine"},
+	{"statusLineStaged", "green"},
+	{"statusLineDirty", "yellow"},
+	{"statusLineUntracked", "red"},
+	{"statusLineOutput", "neutral"},
+	{"statusLineCost", "green"},
+	{"statusLineSubagents", "violet"},
+	{"pythonMode", "yellow"},
+	// The assistant reply's prose is generated like any other token, so a system
+	// theme paints it rather than leaving it to the terminal default. The family
+	// is neutral: prose is body text, not an accent.
+	{"assistantMessageText", "neutral"},
 }
 
 var systemTokenFamily = sync.OnceValue(func() map[string]string {
@@ -307,6 +330,26 @@ var systemRuleTable = [...]systemRule{
 	{"thinkingHigh", systemOnBackground, "thinking4"},
 	{"thinkingXhigh", systemOnBackground, "thinking5"},
 	{"thinkingMax", systemOnBackground, "thinking6"},
+	// Status line segments are drawn on the footer's own row, which the generated
+	// theme leaves at the terminal background, so they follow the background rule.
+	// Their level is readable rather than text: the footer is reference
+	// information, and a row of body-weight text at the bottom of every frame
+	// competes with the conversation above it.
+	{"statusLineSep", systemOnBackground, "subtle"},
+	{"statusLineModel", systemOnBackground, "readable"},
+	{"statusLinePath", systemOnBackground, "readable"},
+	{"statusLineGitClean", systemOnBackground, "readable"},
+	{"statusLineGitDirty", systemOnBackground, "readable"},
+	{"statusLineContext", systemOnBackground, "readable"},
+	{"statusLineSpend", systemOnBackground, "readable"},
+	{"statusLineStaged", systemOnBackground, "readable"},
+	{"statusLineDirty", systemOnBackground, "readable"},
+	{"statusLineUntracked", systemOnBackground, "readable"},
+	{"statusLineOutput", systemOnBackground, "readable"},
+	{"statusLineCost", systemOnBackground, "readable"},
+	{"statusLineSubagents", systemOnBackground, "readable"},
+	{"pythonMode", systemOnBackground, "readable"},
+	{"assistantMessageText", systemOnBackground, "text"},
 }
 
 func systemRules() []systemRule { return systemRuleTable[:] }

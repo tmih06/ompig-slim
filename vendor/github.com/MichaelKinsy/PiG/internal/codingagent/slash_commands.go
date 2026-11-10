@@ -991,7 +991,11 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		selectedModelKey = sc.SelectedModelKey()
 	}
 	return func() string {
-		bold := tui.ChalkBold
+		// Section headings carry the accent color as well as bold. Upstream's
+		// /session writes theme.bold(heading) inside a themed report and relies on
+		// the overlay to color it; here the report is appended straight to the
+		// transcript, so a heading that is only bold reads as an unstyled line.
+		bold := func(s string) string { return tui.ChalkBold(tui.ActiveTheme().Fg("accent", s)) }
 		dim := func(s string) string { return tui.ActiveTheme().Fg("dim", s) }
 
 		var b strings.Builder

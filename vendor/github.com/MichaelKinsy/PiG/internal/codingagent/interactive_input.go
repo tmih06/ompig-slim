@@ -849,6 +849,7 @@ func (m *InteractiveMode) defaultCustomEditor() *CustomEditor {
 		m.customEditor = wrapCustomEditor(m.editor, m.keybindings, superInput, options)
 	}
 	m.editor.TopRightStatus = m.promptQuotaLabel
+	m.bindInfoWidgetControl()
 	m.setupKeyHandlers(m.customEditor)
 	return m.customEditor
 }
@@ -866,6 +867,19 @@ func (m *InteractiveMode) setupKeyHandlers(editor *CustomEditor) {
 	editor.OnCtrlD = func() { m.runEditorAction(actionExit, "") }
 	editor.OnPasteImage = func() { m.runEditorAction(actionPasteImage, "") }
 	editor.OnExtensionShortcut = func(data string) bool {
+		if tui.MatchesKeyID(data, "alt+w") {
+			m.toggleInfoWidgets()
+			return true
+		}
+		if tui.MatchesKeyID(data, "alt+pageup") || tui.MatchesKeyID(data, "alt+pagedown") {
+			delta := 5
+			if tui.MatchesKeyID(data, "alt+pageup") {
+				delta = -delta
+			}
+			m.ensureInfoWidgets().Scroll(delta)
+			m.requestRender()
+			return true
+		}
 		m.terminalInputMu.Lock()
 		listener := m.extensionShortcutListener
 		m.terminalInputMu.Unlock()

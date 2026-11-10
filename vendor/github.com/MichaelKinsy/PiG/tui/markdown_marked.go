@@ -1432,12 +1432,35 @@ func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inli
 		return resolved
 	}
 	var out strings.Builder
+	// pending reports that the output already ends with the context's opening codes,
+	// because writeToken just wrote them. A text run that begins with the same codes
+	// then writes them once instead of twice: invisible, but it doubles the escape
+	// bytes of every line carrying emphasis or a code span.
+	//
+	// Only writeToken raises it. A text run ends with applyText's closing codes, not
+	// the opening ones, so it clears the flag for the run that follows: escaped
+	// punctuation and HTML are separate runs, and reusing a prefix that is not there
+	// would drop their color.
+	pending := false
+	// writeToken writes an inline token's rendering followed by the context's opening
+	// codes, which the next text run then reuses instead of opening them again.
+	writeToken := func(styled string) {
+		out.WriteString(styled)
+		out.WriteString(style.stylePrefix)
+		pending = style.stylePrefix != ""
+	}
 	applyText := func(text string) {
 		for i, segment := range strings.Split(text, "\n") {
 			if i > 0 {
 				out.WriteByte('\n')
+				pending = false
 			}
-			out.WriteString(style.applyText(segment))
+			styled := style.applyText(segment)
+			if pending && strings.HasPrefix(styled, style.stylePrefix) {
+				styled = styled[len(style.stylePrefix):]
+			}
+			out.WriteString(styled)
+			pending = false
 		}
 	}
 	for _, token := range tokens {
@@ -1459,22 +1482,18 @@ func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inli
 		case markedHTML:
 			applyText(token.raw)
 		case markedStrong:
-			out.WriteString(theme().Bold(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Bold(m.renderInlineTokensSequential(token.tokens, style)))
 		case markedEm:
-			out.WriteString(theme().Italic(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Italic(m.renderInlineTokensSequential(token.tokens, style)))
 		case markedCodespan:
-			out.WriteString(theme().Code(token.text))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Code(token.text))
 		case markedLink:
-			out.WriteString(m.styleMarkdownLink(m.renderInlineTokensSequential(token.tokens, style), token.text, token.href))
-			out.WriteString(style.stylePrefix)
+			writeToken(m.styleMarkdownLink(m.renderInlineTokensSequential(token.tokens, style), token.text, token.href))
 		case markedBr:
 			out.WriteByte('\n')
+			pending = false
 		case markedDel:
-			out.WriteString(theme().Strikethrough(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Strikethrough(m.renderInlineTokensSequential(token.tokens, style)))
 		}
 	}
 	result := out.String()
