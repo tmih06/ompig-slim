@@ -70,7 +70,11 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.thinking.cycle", description: "Cycle thinking level", keys: []KeyID{"shift+tab"}},
 	{id: "app.thinking.save", description: "Save thinking level", keys: []KeyID{"ctrl+s"}},
 	{id: "app.model.cycleForward", description: "Cycle to next model", keys: []KeyID{"ctrl+p"}},
-	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"shift+ctrl+p"}, Windows: []KeyID{"alt+p"}}},
+	// ompig-slim: ctrl+shift+left cycles backward. Upstream binds shift+ctrl+p, a Ctrl+Shift+letter, which no
+	// terminal without the Kitty protocol or modifyOtherKeys can distinguish from ctrl+p (the forward key), so the
+	// upstream default fired the forward action instead. A Ctrl+Shift+arrow needs no such reporting: xterm sends it
+	// as CSI 1;6D, which a stock Apple Terminal profile already produces.
+	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+shift+left"}, Windows: []KeyID{"alt+p"}}},
 	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"alt+p", "ctrl+l"}},
 	{id: "app.usage.toggleView", description: "Switch usage overview and detailed report", keys: []KeyID{"tab", "enter"}},
 	{id: "app.usage.refresh", description: "Refresh provider usage quotas", keys: []KeyID{"r"}},
@@ -97,14 +101,15 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.session.toggleSort", description: "Toggle session sort mode", keys: []KeyID{"ctrl+s"}},
 	{id: "app.session.rename", description: "Rename session", keys: []KeyID{"ctrl+r"}},
 	{id: "app.session.delete", description: "Delete session", keys: []KeyID{"ctrl+d"}},
-	{id: "app.session.deleteNoninvasive", description: "Delete session when query is empty", keys: []KeyID{"ctrl+backspace"}},
+	{id: "app.session.deleteNoninvasive", description: "Delete session when query is empty", keys: []KeyID{"ctrl+delete"}},
 	{id: "app.tree.filter.default", description: "Tree filter: default view", keys: []KeyID{"ctrl+d"}},
 	{id: "app.tree.filter.noTools", description: "Tree filter: hide tool results", keys: []KeyID{"ctrl+t"}},
 	{id: "app.tree.filter.userOnly", description: "Tree filter: user messages only", keys: []KeyID{"ctrl+u"}},
 	{id: "app.tree.filter.labeledOnly", description: "Tree filter: labeled entries only", keys: []KeyID{"ctrl+l"}},
 	{id: "app.tree.filter.all", description: "Tree filter: show all entries", keys: []KeyID{"ctrl+a"}},
 	{id: "app.tree.filter.cycleForward", description: "Tree filter: cycle forward", keys: []KeyID{"ctrl+o"}},
-	{id: "app.tree.filter.cycleBackward", description: "Tree filter: cycle backward", keys: []KeyID{"shift+ctrl+o"}},
+	// ompig-slim: ctrl+shift+right cycles backward through the tree filters, for the reason given on app.model.cycleBackward.
+	{id: "app.tree.filter.cycleBackward", description: "Tree filter: cycle backward", keys: []KeyID{"ctrl+shift+right"}},
 }
 
 // appKeybindingDefinitionsFor returns the app.* rows of upstream KEYBINDINGS (core/keybindings.ts) for one platform column. Every call returns a

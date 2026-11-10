@@ -223,9 +223,15 @@ var tuiKeybindingRows = [...]tuiKeybindingRow{
 	{id: KBAltScreenLineDown, description: "Scroll viewport down one line", keys: []string{}},
 	{id: KBAltScreenPreviousPrompt, description: "Jump to previous semantic prompt", platform: &PlatformKeys{Other: []string{"ctrl+shift+up", "ctrl+up"}, Windows: []string{"ctrl+up"}}},
 	{id: KBAltScreenNextPrompt, description: "Jump to next semantic prompt", platform: &PlatformKeys{Other: []string{"ctrl+shift+down", "ctrl+down"}, Windows: []string{"ctrl+down"}}},
-	{id: KBAltScreenSearch, description: "Search the primary scroll view", platform: &PlatformKeys{Other: []string{"ctrl+shift+f"}, Windows: []string{"ctrl+f"}}},
+	// ompig-slim: ctrl+f on every column. ctrl+shift+f is a Ctrl+Shift+letter, which a terminal without the Kitty
+	// protocol or xterm modifyOtherKeys cannot report: both collapse to the same control byte as ctrl+f, so the
+	// upstream macOS/Linux default never fired there. The Windows column already used ctrl+f.
+	{id: KBAltScreenSearch, description: "Search the primary scroll view", keys: []string{"ctrl+f"}},
 	{id: KBAltScreenSearchNext, description: "Select the next search match", keys: []string{"enter", "ctrl+g"}},
-	{id: KBAltScreenSearchPrevious, description: "Select the previous search match", keys: []string{"shift+enter", "ctrl+shift+g"}},
+	// ompig-slim: f3 is the portable second key. ctrl+shift+g is Ctrl+Shift-only (a legacy terminal reports it as
+	// ctrl+g, the next-match key). shift+enter is kept: Apple Terminal and native Windows rewrite a plain Return to
+	// CSI 13;2u by asking the OS whether Shift is held, so it works there; f3 covers every other terminal.
+	{id: KBAltScreenSearchPrevious, description: "Select the previous search match", keys: []string{"shift+enter", "f3"}},
 	{id: KBAltScreenSearchClose, description: "Close transcript search", keys: []string{"escape"}},
 	{id: KBAltScreenTop, description: "Scroll viewport to top", keys: []string{"ctrl+home"}},
 	{id: KBAltScreenBottom, description: "Scroll viewport to bottom", keys: []string{"ctrl+end"}},
