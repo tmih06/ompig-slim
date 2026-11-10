@@ -22,7 +22,13 @@ type editorSegment struct {
 
 // segmentLine retains the source's UTF-16 offsets, including gaps left by a base grapheme that straddles a marker's end.
 func (e *Editor) segmentLine(text string) []editorSegment {
-	return editorSegments(e.segment(text, "grapheme"), text)
+	segments := editorSegments(e.segment(text, "grapheme"), text)
+	for i := range segments {
+		if spans := e.skillSpans(segments[i].Text); len(spans) == 1 {
+			segments[i].Width = widthx.VisibleWidth(skillLabel(spans[0].Name))
+		}
+	}
+	return segments
 }
 
 // editorSegments collects the segments of text. A text has at most one grapheme per code point, so the count sizes the result
@@ -101,13 +107,13 @@ func (e *Editor) segment(text, mode string) iter.Seq[SegmentData] {
 	if mode == "word" {
 		base = wordsegmenter.Segments
 	}
-	return segmentWithMarkers(text, base, e.validPasteIDs())
+	return e.segmentSkills(text, segmentWithMarkers(text, base, e.validPasteIDs()))
 }
 
 func (e *Editor) wordNavigationOptions() WordNavigationOptions {
 	return WordNavigationOptions{
 		Segment:         func(text string) iter.Seq[SegmentData] { return e.segment(text, "word") },
-		IsAtomicSegment: isPasteMarker,
+		IsAtomicSegment: func(text string) bool { return isPasteMarker(text) || len(e.skillSpans(text)) > 0 },
 	}
 }
 
@@ -129,7 +135,7 @@ func (e *Editor) previousSegmentStart(text string, col int) int {
 
 // lastSegment is the last element of segmentLine(text), found without building the list when the text holds no registered paste marker.
 func (e *Editor) lastSegment(text string) (editorSegment, bool) {
-	if len(e.pastes) > 0 && strings.Contains(text, "[paste #") {
+	if (len(e.pastes) > 0 && strings.Contains(text, "[paste #")) || len(e.skillSpans(text)) > 0 {
 		segments := e.segmentLine(text)
 		if len(segments) == 0 {
 			return editorSegment{}, false

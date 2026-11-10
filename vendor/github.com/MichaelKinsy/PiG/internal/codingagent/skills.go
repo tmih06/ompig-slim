@@ -10,6 +10,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
+	"github.com/MichaelKinsy/PiG/tui"
 
 	"golang.org/x/text/encoding/unicode"
 
@@ -287,9 +288,45 @@ func DefaultSkillsDir() string {
 	return filepath.Join(DefaultAgentDir(), "skills")
 }
 
-// ExpandSkillCommand reads the selected skill at invocation time, strips frontmatter, and appends trimmed arguments. Unknown skills are not expanded. Read and parse errors leave input unchanged and carry a skill_expansion diagnostic.
-// Ports packages/coding-agent/src/core/agent-session.ts (_expandSkillCommand).
+// ExpandSkillCommand loads every known skill token in source order, once per name, then appends the remaining prompt. Unknown tokens stay literal. Read/parse errors return no expansion so a failed multi-skill load cannot submit a partial result. Command arguments and shell input are never interpreted as skill invocations.
 func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
+	if !tui.AllowsSkillTokens(text) {
+		return "", false, nil
+	}
+	var blocks []string
+	var prompt strings.Builder
+	seen := make(map[string]bool)
+	offset := 0
+	for _, token := range tui.SkillTokens(text) {
+		if seen[token.Name] {
+			prompt.WriteString(text[offset:token.Start])
+			offset = token.End
+			continue
+		}
+		block, ok, err := expandSingleSkillCommand(text[token.Start:token.End], skills)
+		if err != nil {
+			return "", false, err
+		}
+		if !ok {
+			continue
+		}
+		prompt.WriteString(text[offset:token.Start])
+		offset = token.End
+		blocks = append(blocks, block)
+		seen[token.Name] = true
+	}
+	if len(blocks) == 0 {
+		return "", false, nil
+	}
+	prompt.WriteString(text[offset:])
+	if rest := jsTrim(prompt.String()); rest != "" {
+		blocks = append(blocks, rest)
+	}
+	return strings.Join(blocks, "\n\n"), true, nil
+}
+
+// expandSingleSkillCommand preserves the original file-loading and diagnostic contract for a single leading invocation. Resources are read at submission, not selection.
+func expandSingleSkillCommand(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
 	if !strings.HasPrefix(text, "/skill:") {
 		return "", false, nil
 	}
@@ -354,9 +391,11 @@ type ParsedSkillBlockFromText struct {
 	UserMessage string // trailing user text after </skill>\n\n, or ""
 }
 
-// ParseSkillBlock attempts to parse a skill XML block from message text.
+// ParseSkillBlock attempts to parse a single leading skill XML block from message text.
 // Returns nil if the text doesn't match the skill block format.
 // Mirrors upstream parseSkillBlock (agent-session.ts:102-116).
+//
+// Use ParseSkillBlocks for text this runtime expanded: it can carry several blocks.
 func ParseSkillBlock(text string) *ParsedSkillBlockFromText {
 	m := skillBlockRe.FindStringSubmatch(text)
 	if m == nil {
@@ -372,4 +411,40 @@ func ParseSkillBlock(text string) *ParsedSkillBlockFromText {
 		Content:     m[3],
 		UserMessage: userMsg,
 	}
+}
+
+// skillBlockAtRe matches one skill block at the start of a remainder, and
+// captures the text after it without requiring it to be trailing prose.
+var skillBlockAtRe = lazyregexp.New(
+	`^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n</skill>`,
+)
+
+// ParseExpandedSkillMessage splits a submitted prompt that ExpandSkillCommand
+// produced into its skill blocks and the user's own text.
+//
+// Upstream's parseSkillBlock is anchored to one block and treats everything
+// after it as the user message, which is correct for Pi's single-skill
+// expansion. This runtime expands every token in a prompt, so a second block
+// would otherwise be rendered as user prose — printing the skill's XML and body
+// into the transcript. Blocks are returned in order and the user text is what
+// remains once they are removed.
+//
+// A message with no leading skill block returns no blocks and the text itself.
+func ParseExpandedSkillMessage(text string) (blocks []ParsedSkillBlockFromText, userMessage string) {
+	rest := text
+	for {
+		m := skillBlockAtRe.FindStringSubmatch(rest)
+		if m == nil {
+			break
+		}
+		blocks = append(blocks, ParsedSkillBlockFromText{Name: m[1], Location: m[2], Content: m[3]})
+		rest = rest[len(m[0]):]
+		// The expansion joins blocks with a blank line; consume it so the next
+		// block is still at the start of the remainder.
+		rest = strings.TrimPrefix(rest, "\n\n")
+	}
+	if len(blocks) == 0 {
+		return nil, text
+	}
+	return blocks, jsTrim(rest)
 }

@@ -159,30 +159,32 @@ func (m *InteractiveMode) renderSessionEntriesWithHistory(populateHistory bool) 
 }
 
 // addUserMessageToChat is addMessageToChat case "user" (interactive-mode.ts:3927-3963), shared by the live message_start path and the
-// transcript rebuild: Spacer(1) after the first chat child, a skill block as a collapsible SkillInvocationMessageComponent followed by
+// transcript rebuild: Spacer(1) after the first chat child, each skill block as a collapsible SkillInvocationMessageComponent followed by
 // its trailing user message (#5371 spacer), otherwise the user message itself.
+//
+// Every expanded block earns one component. Pi renders a single block because
+// its expansion produces one; a prompt here can carry several, and rendering
+// only the first would print the rest as the user's own prose.
 func (m *InteractiveMode) addUserMessageToChat(msg agent.AgentMessage, text string, meta messageMeta) {
 	if !m.chatContainer.IsEmpty() {
 		m.chatContainer.Add(tui.NewSpacer(1))
 	}
-	parsed := ParseSkillBlock(text)
-	if parsed == nil {
-		block := m.newUserMessageBlock(text, meta)
-		block.SetImages(userMessageImages(msg))
-		m.chatContainer.Add(block)
-		return
+	blocks, userMessage := ParseExpandedSkillMessage(text)
+	for _, parsed := range blocks {
+		comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
+			Name:    parsed.Name,
+			Content: parsed.Content,
+		}, m.markdownThemeWithSettings(), m.outputPad)
+		if m.toolsExpanded {
+			comp.SetExpanded(true)
+		}
+		m.chatContainer.Add(comp)
 	}
-	comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
-		Name:    parsed.Name,
-		Content: parsed.Content,
-	}, m.markdownThemeWithSettings(), m.outputPad)
-	if m.toolsExpanded {
-		comp.SetExpanded(true)
-	}
-	m.chatContainer.Add(comp)
-	if parsed.UserMessage != "" {
-		m.chatContainer.Add(tui.NewSpacer(1))
-		block := m.newUserMessageBlock(parsed.UserMessage, meta)
+	if len(blocks) == 0 || userMessage != "" {
+		if len(blocks) > 0 {
+			m.chatContainer.Add(tui.NewSpacer(1))
+		}
+		block := m.newUserMessageBlock(userMessage, meta)
 		block.SetImages(userMessageImages(msg))
 		m.chatContainer.Add(block)
 	}
@@ -558,6 +560,16 @@ func (m *InteractiveMode) addCustomEntryToChat(entry CustomEntry) {
 // appendCustomMessage mounts a CustomMessageComponent for a displayed custom message, as upstream interactive-mode.ts:3861-3872
 // does: the registered renderer (if any) is handed to the component, which rebuilds it when expansion or padding changes.
 func (m *InteractiveMode) appendCustomMessage(message CustomMessageEntry) {
+	// An auto-read of @path mentions draws its own tree under the prompt it
+	// accompanied, without the custom-message box: the card is a status block,
+	// as oh-my-pi's fileMention block is, and a resumed session rebuilds it
+	// from the entry's details.
+	if message.CustomType == FileMentionsCustomType {
+		if mentions := FileMentionsOf(message.Details); len(mentions) > 0 {
+			m.chatContainer.Add(&fileMentionCard{mentions: mentions, outputPad: m.outputPad})
+		}
+		return
+	}
 	var renderer tui.MessageRenderer
 	if m.newRunner != nil {
 		if registered := m.newRunner.MessageRenderer(message.CustomType); registered != nil {

@@ -95,11 +95,10 @@ func NewSlashOnlyProvider(cmds []SlashCommand) *SlashOnlyProvider {
 
 // GetSuggestions implements AutocompleteProvider. Three cases:
 //
-//  1. Buffer doesn't start with `/` (after trim of leading line slice
-//     up to cursor) → return nil (popup off).
-//  2. `/<partial>` (no space) → fuzzy-filter command names.
-//  3. `/<cmd> <argPrefix>` (space present) → delegate to the matched
-//     command's GetArgumentCompletions.
+//  1. A trailing slash token inside prose → fuzzy-filter skill names only.
+//  2. A leading `/<partial>` (no space) → fuzzy-filter all command names.
+//  3. `/<cmd> <argPrefix>` → delegate to the matched argument completer.
+//  4. Other text → return nil (popup off).
 //
 // Mirrors `CombinedAutocompleteProvider.getSuggestions` slash branch
 // (autocomplete.ts:262-342): minus the `@`/path branches.
@@ -113,6 +112,18 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 	}
 	// The slash-command path applies when the current line up to the cursor starts with `/` after leading whitespace (autocomplete.ts:338-339, #10218).
 	before := widthx.JSTrimStart(line[:cursorCol])
+	// Only skills may complete within prose; built-in commands retain their leading position.
+	midPrompt := false
+	if token, ok := trailingSkillSlash(line[:cursorCol]); ok && (token != before || strings.TrimSpace(strings.Join(lines[:cursorLine], "\n")) != "") {
+		if !AllowsSkillTokens(strings.Join(lines, "\n")) {
+			// A context that forbids skill tokens (shell input, another command's
+			// arguments) still gets that command's own argument completion: leave
+			// `before` as the whole trimmed line and fall through to the argument
+			// branch below, which only matches a registered command name.
+			return p.argumentCompletions(before)
+		}
+		before, midPrompt = token, true
+	}
 	if !strings.HasPrefix(before, "/") {
 		return nil
 	}
@@ -127,6 +138,9 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 		}
 		all := make([]item, 0, len(p.Commands))
 		for i, c := range p.Commands {
+			if midPrompt && !strings.HasPrefix(c.commandName(), "skill:") {
+				continue
+			}
 			all = append(all, item{cmd: c, text: c.commandName(), idx: i})
 		}
 		// Upstream autocomplete.ts matches skill commands by their bare name
@@ -169,8 +183,18 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 		return &AutocompleteSuggestions{Items: out, Prefix: before}
 	}
 
-	// `/<cmd> <args>`: argument completion path.
-	name, argText, _ := slashArgumentPrefix(before)
+	return p.argumentCompletions(before)
+}
+
+// argumentCompletions is the `/<cmd> <args>` branch: it delegates to the
+// matched command's synchronous completer. It returns nil for text that is not
+// a registered command with an argument prefix, so a caller can use it as the
+// fallback for a slash token whose command names are not offered.
+func (p *SlashOnlyProvider) argumentCompletions(before string) *AutocompleteSuggestions {
+	name, argText, ok := slashArgumentPrefix(before)
+	if !ok {
+		return nil
+	}
 	for _, c := range p.Commands {
 		if c.commandName() != name {
 			continue
@@ -253,8 +277,8 @@ func (p *SlashOnlyProvider) ApplyCompletion(lines []string, cursorLine, cursorCo
 	// further `/` (i.e. it's `/foo` not `/foo/bar`), and the text
 	// before the prefix is empty/whitespace (line start).
 	isSlashName := strings.HasPrefix(prefix, "/") &&
-		!strings.Contains(prefix[1:], "/") &&
-		widthx.JSTrim(beforePrefix) == ""
+		(!strings.Contains(prefix[1:], "/") || strings.HasPrefix(item.Value, "skill:")) &&
+		(widthx.JSTrim(beforePrefix) == "" || strings.HasPrefix(item.Value, "skill:"))
 	if isSlashName {
 		newLine := beforePrefix + "/" + item.Value + " " + afterCursor
 		out[cursorLine] = newLine

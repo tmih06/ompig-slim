@@ -165,6 +165,53 @@ func renderReadURL(ctx context.Context, result webtools.FetchResult) agent.Agent
 	if result.Image != nil {
 		return renderReadURLImage(ctx, result, details)
 	}
+	// The one body renderer both a `read` result and an auto-read mention use;
+	// the writer is what a tool result adds and a mention does not.
+	text := urlBody(result, func(body string) string {
+		path, err := outputfiles.WriteFile("pi-fetch", ".md", []byte(body))
+		if err != nil {
+			return ""
+		}
+		details.FullOutputPath = path
+		return path
+	}, func() { details.Truncated = true })
+	return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}}, Details: details}
+}
+
+// RenderedURLText is a URL read's model-visible text and the number of lines the
+// document has. It is renderReadURL's text for a fetch with no line window, so a
+// caller that delivers the text elsewhere (an auto-read `@url` mention) reports
+// exactly what a `read` of the same URL would.
+type RenderedURLText struct {
+	Text string
+	// Lines is the fetched document's own line count, not the shown window's.
+	Lines int
+}
+
+// RenderURLText renders a completed fetch as read's text. Images report their
+// attachment line rather than a base64 body, because the caller has no model
+// image budget to spend and the note still tells the model what was there.
+func RenderURLText(result webtools.FetchResult) RenderedURLText {
+	if result.Image != nil {
+		return RenderedURLText{
+			Text:  readURLHeader(result) + "\n\n[Image " + result.Image.MIME + ", " + FormatSize(len(result.Image.Data)) + "]",
+			Lines: 1,
+		}
+	}
+	return RenderedURLText{Text: urlBody(result, nil, nil), Lines: max(result.TotalLines, 1)}
+}
+
+// urlBody renders a completed non-image fetch as read's model-visible text:
+// the header, the head-truncated document, and the tail notes that say what was
+// cut and how to continue.
+//
+// writeFullOutput, when non-nil, is called with the complete body when head
+// truncation cut it; it returns the artifact path to name in the truncation
+// note, or "" to omit the artifact. onTruncated, when non-nil, runs when the
+// result was truncated, so a caller can record that in its details. Both are
+// optional so a caller without an artifact store (an auto-read mention) renders
+// the same text without writing files.
+func urlBody(result webtools.FetchResult, writeFullOutput func(body string) string, onTruncated func()) string {
 	header := readURLHeader(result)
 	body := result.Text
 	if strings.TrimSpace(body) == "" {
@@ -175,18 +222,24 @@ func renderReadURL(ctx context.Context, result webtools.FetchResult) agent.Agent
 		}
 	}
 	truncation := TruncateHead(body, TruncationOptions{MaxLines: new(readURLMaxOutputLines), MaxBytes: new(readURLMaxOutputBytes)})
-	visible := truncation.Content
 	var tail []string
 	if warning := FormatTruncationWarning(truncation); warning != "" {
-		details.Truncated = true
-		if path, err := outputfiles.WriteFile("pi-fetch", ".md", []byte(body)); err == nil {
-			details.FullOutputPath = path
-			tail = append(tail, fmt.Sprintf("%s Full output: %s (read it with offset/limit).", warning, path))
+		if onTruncated != nil {
+			onTruncated()
+		}
+		path := ""
+		if writeFullOutput != nil {
+			path = writeFullOutput(body)
+		}
+		if path != "" {
+			tail = append(tail, warning+" Full output: "+path+" (read it with offset/limit).")
 		} else {
 			tail = append(tail, warning)
 		}
 	} else if truncation.FirstLineExceedsLimit {
-		details.Truncated = true
+		if onTruncated != nil {
+			onTruncated()
+		}
 		tail = append(tail, FormatTruncationWarning(truncation))
 	}
 	if shown := readURLShownWindow(result, truncation); shown.start <= shown.end && (shown.start > 1 || shown.end < result.TotalLines) {
@@ -199,12 +252,16 @@ func renderReadURL(ctx context.Context, result webtools.FetchResult) agent.Agent
 	for _, note := range result.Notes {
 		tail = append(tail, "[Note: "+note+"]")
 	}
-	text := header + "\n\n" + visible
+	text := header + "\n\n" + truncation.Content
 	if len(tail) > 0 {
 		text += "\n\n" + strings.Join(tail, "\n")
 	}
-	return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}}, Details: details}
+	return text
 }
+
+// IsReadableURLPath is read.ts isReadableUrlPath for callers that must tell a
+// URL from a filesystem path before choosing a reader.
+func IsReadableURLPath(value string) bool { return isReadableURLPath(value) }
 
 // renderReadURLImage returns the image as an attachment when the model accepts
 // images, and describes it otherwise.

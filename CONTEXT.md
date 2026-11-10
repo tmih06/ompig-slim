@@ -107,6 +107,22 @@ The `container-image` job publishes to GHCR only on a `v*` tag push, needs the s
 
 ## Feature behavior notes
 
+### Skill calls in the composer
+
+The composer offers skill completion after whitespace anywhere in a normal prompt; built-in commands keep the leading-only position. A skill selection leaves the draft open, so one prompt can carry several skills. Registered `/skill:<name>` tokens draw as compact badges instead of raw slash syntax, while the buffer keeps the slash form so history, undo, external editing and submission are unaffected. Cursor navigation and deletion treat a recognized token as one unit, and wrapping and mouse columns are measured in badge cells rather than source cells.
+
+`tui/skill_tokens.go` owns token boundaries and the literal-input exclusions, and `internal/codingagent/skills.go` shares them (D252), so the editor and the expander cannot disagree about what counts as an invocation. On submission every known token is loaded once, in first-appearance order, ahead of the remaining prompt text. The transcript then renders one collapsible badge per expanded block, each disclosing its body only under the global expand key; Pi's parser recognizes a single leading block, so this runtime parses the whole expansion and would otherwise print every later skill's XML and body as the user's own prose. An unknown token stays literal; a read or parse failure expands nothing at all rather than submitting a partial load. Command arguments and local-execution input remain literal throughout. The expansion is shared by interactive, Session, print and RPC paths, so it is a runtime behavior, not an editor feature.
+
+### `@path` and `@url` mentions in a prompt
+
+A prompt's `@path` and `@url` mentions are read before the model runs, so it does not spend a turn calling read. This ports oh-my-pi's mention auto-read, extended with URLs because this runtime's `read` already treats one as its other source. Extraction requires a whitespace or opening-punctuation boundary, so prose such as an email address never becomes a read; quoted mentions may contain spaces. A filesystem mention that is not an existing path is prose and is dropped. A mention that names a URL is fetched through `read`'s own fetch and rendering, so an auto-read and a later `read` of the same URL report the same text; a refused URL keeps a `fetch failed` row because the user named a document. Local content is text only: files truncate with `read`'s limits, directories list as `read` lists them, and non-text files report their size instead of being decoded. See divergence D253.
+
+Delivery is one custom message of type `file-mentions` whose content is the `<file path="…">` blocks the model reads and whose details hold the structured rows, so a resumed session rebuilds the transcript card without re-reading. A new turn sends the user message and that message in one batch, and a steer or follow-up enqueues them as one queue slot: the queues drain one slot per turn by default, so separate enqueues would let the model answer the prompt before reading the files it named (D254). The read is therefore atomic with the prompt, and a refused run consumes neither (D255).
+
+A submission is dispatched on the owner loop, where a fetch would freeze the editor for its whole timeout. A mention set containing a URL is read on a worker and delivered back through the loop; that worker holds the preflight slot until it delivers, so submissions stay in order and a later prompt cannot overtake a slower fetch. A local-only set is read inline. The worker receives the working directory captured on the loop, so a `/cd` or session swap cannot race it.
+
+The transcript draws one indented row per mention under the submitted prompt, replacing oh-my-pi's `fileMention` block, which has no message role here. Rows are one line each and never wrap: a tree rail only stays aligned that way, and a path from the prompt is sanitized to a single display line before it is drawn.
+
 ### The base system prompt
 
 The prompt's opening text lives in `prompts/system.md` at the repository root and is embedded into the binary with `go:embed`; nothing reads the file at runtime. Edit the Markdown, not Go source. `prompts.System()` returns it trimmed.
