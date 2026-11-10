@@ -83,9 +83,17 @@ def run(binary):
             send(b"@review")
             read_until(lambda data: b"@review" in data, "quick-role search")
             send(b"\r")
-            read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
-                       "role selection")
+            # The footer redraws in the same burst that announces the selection, and
+            # read_until only inspects bytes seen during its own call, so assert on the
+            # buffer it returns rather than waiting for a second redraw.
+            selection_output = read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
+                                          "role selection")
             assert json.loads(settings.read_text())["modelRoles"] == saved_roles, "picker changed saved roles"
+            # default and review resolve to the same fixture model, so the footer must
+            # name the active role: the model name alone cannot tell them apart. The
+            # fixture model ID is "model", so the footer line reads "@review model".
+            if b"@review model" not in selection_output:
+                raise AssertionError("footer does not show the active role beside the model")
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")

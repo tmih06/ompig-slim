@@ -56,6 +56,10 @@ type FooterComponent struct {
 	usageTotals func() footerUsageTotals
 	// routedModel reads, under a virtual model selection, the physical model of the latest response on each render (footer.ts reads session.routedModel).
 	routedModel func() *RoutedModelSelection
+	// activeRole reads the logical role of the current selection on each render. It is a callback rather than a SetRole setter because every model
+	// change already rebinds the footer, and a role can change without the physical model changing (fallback restoration, a cycle onto another role
+	// that shares the model), so there is no single setter call that would keep it current.
+	activeRole func() string
 	// subscriptionFor decides the "(sub)" marker for a newly bound model.
 	subscriptionFor func(*ai.Model) bool
 
@@ -166,14 +170,17 @@ func (s *FooterComponent) SetSubscriptionResolver(resolve func(*ai.Model) bool) 
 }
 
 // FooterSession is the members of Pi's AgentSession that FooterComponent reads (footer.ts:103-107, :241): sessionManager, whose entries carry the
-// all-entry usage totals (getSessionStats), and routedModel, the physical model the latest response was routed to. Go's AgentSession is
-// coding.Session, which imports this package, so the footer takes this consumer-owned interface of exactly those two members, and package coding
-// asserts that *coding.Session implements it.
+// all-entry usage totals (getSessionStats), routedModel, the physical model the latest response was routed to, and activeRole, the logical role the
+// selection belongs to. Go's AgentSession is coding.Session, which imports this package, so the footer takes this consumer-owned interface of exactly
+// those members, and package coding asserts that *coding.Session implements it.
 type FooterSession interface {
 	// SessionManager is `sessionManager`; a nil manager has no usage.
 	SessionManager() *Session
 	// RoutedModelSelection is `routedModel` in the form the footer renders: nil unless a virtual model selection routed the latest response.
 	RoutedModelSelection() *RoutedModelSelection
+	// ActiveModelRole is the logical role of the current selection, or "" for none. Two roles can share one physical model, so the model name alone
+	// cannot tell them apart; the footer shows the role beside it.
+	ActiveModelRole() string
 }
 
 // SetSession points the footer at another session (footer.ts setSession); the next render reads that session's totals and routed model.
@@ -181,7 +188,7 @@ type FooterSession interface {
 func (s *FooterComponent) SetSession(session FooterSession) {
 	s.mu.Lock()
 	if session == nil {
-		s.usageTotals, s.routedModel = nil, nil
+		s.usageTotals, s.routedModel, s.activeRole = nil, nil, nil
 	} else {
 		s.usageTotals = func() footerUsageTotals {
 			manager := session.SessionManager()
@@ -191,6 +198,7 @@ func (s *FooterComponent) SetSession(session FooterSession) {
 			return manager.FooterUsageTotals()
 		}
 		s.routedModel = session.RoutedModelSelection
+		s.activeRole = session.ActiveModelRole
 	}
 	s.mu.Unlock()
 	s.Invalidate()
@@ -314,7 +322,7 @@ func (s *FooterComponent) Render(width int) []string {
 // the session's locks, without holding s.mu.
 func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelection, footerSnapshot) {
 	s.mu.RLock()
-	source, routedSource := s.usageTotals, s.routedModel
+	source, routedSource, roleSource := s.usageTotals, s.routedModel, s.activeRole
 	s.mu.RUnlock()
 	var totals footerUsageTotals
 	if source != nil {
@@ -324,8 +332,12 @@ func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelect
 	if routedSource != nil {
 		routed = routedSource()
 	}
+	role := ""
+	if roleSource != nil {
+		role = roleSource()
+	}
 	cwd, gitBranch, providerCount, extensionStatuses := s.snapshot()
-	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, providerCount: providerCount, extensionStatuses: extensionStatuses}
+	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role}
 }
 
 // footerSnapshot is the footer data provider's state, read together without holding s.mu.
@@ -333,6 +345,8 @@ type footerSnapshot struct {
 	cwd, gitBranch    string
 	providerCount     int
 	extensionStatuses map[string]string
+	// role is the logical role of the current selection, or "" when it has none.
+	role string
 }
 
 // footerDataLocked snapshots the footer's inputs; the caller holds s.mu.
@@ -353,6 +367,7 @@ func (s *FooterComponent) footerDataLocked(totals footerUsageTotals, routed *Rou
 		thinkingLevel:          s.thinkingLevel,
 		autoCompactEnabled:     s.autoCompactEnabled,
 		providerCount:          snap.providerCount,
+		role:                   snap.role,
 		usingSubscription:      s.usingSubscription,
 		extensionStatuses:      snap.extensionStatuses,
 	}
@@ -387,6 +402,12 @@ type footerData struct {
 	// Rendered as a third footer line (sorted by key). Mirrors upstream
 	// footer.ts:205-215.
 	extensionStatuses map[string]string
+	// role is the logical role the current selection belongs to, or "" when the
+	// session has none (a direct model selection, or a virtual model). It is shown
+	// beside the model because Ctrl+P cycling and fallback can land on two roles
+	// that resolve to the same physical model, which the name alone cannot
+	// distinguish. Empty omits it, so a session without roles renders as before.
+	role string
 }
 
 // footerUsageTotals is upstream footer.ts's usageTotals over every session
@@ -507,16 +528,17 @@ func renderFooter(d footerData, width int) []string {
 	// When multiple providers are available, prepend "(provider)" prefix.
 	// Mirrors upstream footer.ts:165-174.
 	modelName, modelProvider, thinkingLevel := footerModel(d)
-	rightSide := modelName
+	selection := footerSelection(d.role, modelName)
+	rightSide := selection
 	// Upstream footer.ts:160-162 renders the thinking level as plain
 	// text: no per-level color. The entire right side is wrapped in
 	// dim() with the rest of line 2, so it appears in dim grey.
 	switch thinkingLevel {
 	case "":
 	case "off":
-		rightSide = modelName + " \u2022 thinking " + thinkingLevel
+		rightSide = selection + " \u2022 thinking " + thinkingLevel
 	default:
-		rightSide = modelName + " \u2022 " + thinkingLevel
+		rightSide = selection + " \u2022 " + thinkingLevel
 	}
 
 	// A virtual model routes each request; show where the latest response went (footer.ts:237-243).
@@ -648,6 +670,17 @@ func footerContextUsage(d footerData) (contextWindow int, pct float64) {
 		pct = float64(d.contextTokens) / float64(contextWindow) * 100
 	}
 	return contextWindow, pct
+}
+
+// footerSelection renders the current selection as a role plus model name. The
+// role comes first because it is what distinguishes two roles that share one
+// physical model, which is exactly the case Ctrl+P cycling and fallback produce.
+// A session with no role renders the bare model name, as upstream does.
+func footerSelection(role, modelName string) string {
+	if role == "" {
+		return modelName
+	}
+	return "@" + role + " " + modelName
 }
 
 // footerModel returns the model's id, its provider's id, and the thinking

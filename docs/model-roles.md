@@ -85,6 +85,12 @@ An explicit empty `cycleOrder: []` still disables cycling, and a valid explicit
 cycle never gains other roles just because its models are unavailable. Recovery
 is read-only; toggling **c** in Roles saves the displayed effective order.
 
+The footer below the prompt names the active role beside the model, as
+`@review claude-sonnet-4`. Two roles may resolve to one physical model, so
+cycling or fallback can leave the model name alone unable to say which role is
+selected. A session with no role — a direct model selection, or a virtual
+model — shows the bare model name as before.
+
 ### Session picker
 
 The bottom-sheet picker changes the current session, not a persistent role.

@@ -872,6 +872,20 @@ func (m *InteractiveMode) RoutedModelSelection() *RoutedModelSelection {
 	return nil
 }
 
+// activeRoleHandle is the session-handle member the footer reads for the logical
+// role. It is an optional interface so a handle without roles, such as an SDK
+// session, simply renders no role.
+type activeRoleHandle interface{ ActiveModelRole() string }
+
+// ActiveModelRole reads the logical role of the current selection. Two roles may
+// resolve to one physical model, so the footer pairs this with the model name.
+func (m *InteractiveMode) ActiveModelRole() string {
+	if handle, ok := m.opts.SessionHandle.(activeRoleHandle); ok {
+		return handle.ActiveModelRole()
+	}
+	return ""
+}
+
 // footerUsageTotals reads the current session's all-entry usage totals.
 func (m *InteractiveMode) footerUsageTotals() footerUsageTotals {
 	session := m.currentSession()
