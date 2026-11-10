@@ -47,9 +47,13 @@ func (c *fileMentionCard) Render(width int) []string {
 			branch = "└─ "
 		}
 		detail := fileMentionDetail(mention)
+		// The path comes from the user's prompt, so it can carry ANSI escapes or
+		// newlines. SanitizeDisplayLine strips terminal sequences and control
+		// characters and collapses whitespace, keeping every mention one row: the
+		// tree rail and this card's row accounting both assume it.
 		row := theme.Fg("dim", branch) +
 			theme.Fg("muted", "Read ") +
-			tui.ChalkBold(mention.Path) +
+			tui.ChalkBold(tui.SanitizeDisplayLine(mention.Path)) +
 			theme.Fg("dim", " ("+detail+")")
 		rows = append(rows, indent+widthx.TruncateToWidth(row, max(1, width-pad), "…", false))
 	}

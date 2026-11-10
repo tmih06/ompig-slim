@@ -150,10 +150,17 @@ type Editor struct {
 	wrapCacheLines    []string
 	wrapCacheChunks   [][]textChunk
 	wrapCachePasteIDs map[int]bool
+	// skillGate caches skillTokenGate: the draft's leading trimmed run and the
+	// gate it produced, so repeated renders do not rejoin the whole buffer.
+	skillGateValid  bool
+	skillGateKey    string
+	skillGateAllows bool
 	// visualMap backs the last visual line map; its callers use a map only while they run.
 	visualMap []editorVisualLine
-	// layoutScratch and visualScratch are Render's per-frame working lists; nothing retains them past the frame.
+	// layoutScratch, visualScratch and wrapScratch are Render's per-frame working
+	// lists; nothing retains them past the frame.
 	layoutScratch []layoutLine
+	wrapScratch   [][]textChunk
 	visualScratch []string
 	// rowCache holds the padded content rows of the last frame by visible row, and topBorder and bottomBorder its borders.
 	rowCache     []editorRenderedRow
@@ -674,17 +681,12 @@ func (e *Editor) wrappedChunks(width int) [][]textChunk {
 	if width < 1 {
 		width = 1
 	}
-	// Skill widths depend on the live registry and the whole draft's execution
-	// context, not just this line. Do not reuse source-only cache entries for them.
-	for _, line := range e.lines {
-		if strings.Contains(line, "/skill:") {
-			chunks := make([][]textChunk, len(e.lines))
-			for i, text := range e.lines {
-				chunks[i] = e.wrapLine(text, width)
-			}
-			return chunks
-		}
-	}
+	// A line holding a skill can change width without its text changing, because
+	// a badge depends on the live registry and the whole draft's execution
+	// context. So a skill line's chunks are computed for this call and never
+	// stored: the cache only ever holds text-derived wrapping, and every other
+	// line keeps the reuse it had.
+	skillLine := func(line string) bool { return strings.Contains(line, "/skill:") }
 	reuse := e.wrapCacheWidth == width && len(e.wrapCachePasteIDs) == len(e.pastes)
 	if reuse {
 		for id := range e.wrapCachePasteIDs {
@@ -694,31 +696,34 @@ func (e *Editor) wrappedChunks(width int) [][]textChunk {
 			}
 		}
 	}
-	if !reuse || len(e.wrapCacheLines) != len(e.lines) {
-		lines := make([]string, len(e.lines))
-		chunks := make([][]textChunk, len(e.lines))
-		for i, line := range e.lines {
-			lines[i] = line
-			if reuse && i < len(e.wrapCacheLines) && e.wrapCacheLines[i] == line {
-				chunks[i] = e.wrapCacheChunks[i]
-				continue
-			}
-			chunks[i] = e.wrapLine(line, width)
-		}
-		e.wrapCacheLines, e.wrapCacheChunks = lines, chunks
-		e.wrapCacheWidth = width
-		if !reuse {
-			e.wrapCachePasteIDs = e.validPasteIDs()
-		}
-		return e.wrapCacheChunks
-	}
+	cacheMatches := reuse && len(e.wrapCacheLines) == len(e.lines)
+	out := e.wrapScratch[:0]
+	defer func() { e.wrapScratch = out[:0] }()
+	cachedLines := make([]string, len(e.lines))
+	cachedChunks := make([][]textChunk, len(e.lines))
 	for i, line := range e.lines {
-		if e.wrapCacheLines[i] != line {
-			e.wrapCacheLines[i] = line
-			e.wrapCacheChunks[i] = e.wrapLine(line, width)
+		if skillLine(line) {
+			out = append(out, e.wrapLine(line, width))
+			// A placeholder keeps positions aligned for the non-skill lines.
+			continue
 		}
+		if cacheMatches && e.wrapCacheLines[i] == line {
+			cachedLines[i], cachedChunks[i] = e.wrapCacheLines[i], e.wrapCacheChunks[i]
+		} else {
+			cachedLines[i], cachedChunks[i] = line, e.wrapLine(line, width)
+		}
+		out = append(out, cachedChunks[i])
 	}
-	return e.wrapCacheChunks
+	// Publish only when nothing was recomputed for a stale reason; a skill line
+	// leaves the cache untouched rather than half-updated.
+	if !slices.ContainsFunc(e.lines, skillLine) {
+		e.wrapCacheLines, e.wrapCacheChunks = cachedLines, cachedChunks
+	}
+	e.wrapCacheWidth = width
+	if !reuse {
+		e.wrapCachePasteIDs = e.validPasteIDs()
+	}
+	return out
 }
 
 // wrapLine is wordWrapLine(line, width, e.segmentLine(line)). A line that fits is one chunk, so it is not segmented.
@@ -1823,7 +1828,14 @@ func (e *Editor) HandleInput(data string) {
 	} else if kb.Matches(data, KBInputTab) {
 		line := e.lines[e.cursor[0]]
 		before := jsstring.Slice(line, 0, e.cursor[1])
-		if e.skillSlashContext(before) || (e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") && !strings.Contains(strings.TrimLeftFunc(before, widthx.IsJSSpace), " ")) {
+		if e.skillSlashContext(before) {
+			e.refreshAutocomplete()
+			// A trailing slash token in prose names no skill: fall through to path
+			// completion so `/tmp`, `./src` and friends still complete.
+			if e.AutocompleteOpen() {
+				return
+			}
+		} else if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") && !strings.Contains(strings.TrimLeftFunc(before, widthx.IsJSSpace), " ") {
 			e.refreshAutocomplete()
 			return
 		}

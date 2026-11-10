@@ -39,22 +39,26 @@ type fileMentionContext struct {
 }
 
 // readPromptFileMentions auto-reads the `@path` and `@url` mentions of text
-// against the session's working directory. It returns nil when the text
-// mentions nothing readable. It performs network I/O for a URL mention, so it
-// must not run on the owner loop.
-func (m *InteractiveMode) readPromptFileMentions(ctx context.Context, text string) []FileMention {
+// against cwd. It returns nil when the text mentions nothing readable. It
+// performs network I/O for a URL mention, so it must not run on the owner loop.
+//
+// cwd is a parameter rather than a read of m.opts.CWD because the worker that
+// fetches a URL must not touch owner-loop state: a session swap or /cd landing
+// mid-fetch would otherwise race the read.
+func readPromptFileMentions(ctx context.Context, text, cwd string) []FileMention {
 	paths := ExtractFileMentions(text)
 	if len(paths) == 0 {
 		return nil
 	}
-	return ReadFileMentions(ctx, paths, m.opts.CWD)
+	return ReadFileMentions(ctx, paths, cwd)
 }
 
 // prepareFileMentions reads a prompt's mentions and builds the message that
 // delivers them beside it. A nil result means nothing was read. It shares
-// readPromptFileMentions' rule about the owner loop.
-func (m *InteractiveMode) prepareFileMentions(ctx context.Context, text string) *fileMentionContext {
-	mentions := m.readPromptFileMentions(ctx, text)
+// readPromptFileMentions' rule about the owner loop, so cwd must already have
+// been captured there.
+func prepareFileMentions(ctx context.Context, text, cwd string) *fileMentionContext {
+	mentions := readPromptFileMentions(ctx, text, cwd)
 	if len(mentions) == 0 {
 		return nil
 	}
@@ -89,20 +93,19 @@ func promptStartingMessages(prompt string, content ai.UserContentBlocks, mention
 	return []agent.AgentMessage{user, mentions.message}
 }
 
-// steerFileMentions and followUpFileMentions deliver an auto-read with the
-// queued message it belongs to, so a mention typed while a run streams reaches
-// the same call as the text. The custom message renders the card at its
-// message_start, which follows the queued user message.
-func (m *InteractiveMode) steerFileMentions(mentions *fileMentionContext) {
-	if mentions == nil || m.agent == nil {
-		return
+// queuedPromptMessages is the delivery unit a queued prompt enqueues: the user
+// message, then its auto-read when there is one. The steering and follow-up
+// queues drain one slot at a time by default, so enqueueing the two separately
+// would let the model answer the prompt before reading the files it named;
+// Agent.SteerGroup/FollowUpGroup keep them in one slot.
+func queuedPromptMessages(text string, images []ai.ImageContent, mentions *fileMentionContext) []agent.AgentMessage {
+	user := agent.AgentMessage{User: &agent.UserMessage{
+		Role:      agent.RoleUser,
+		Content:   promptContent(text, images),
+		Timestamp: time.Now().UnixMilli(),
+	}}
+	if mentions == nil {
+		return []agent.AgentMessage{user}
 	}
-	m.agent.Steer(mentions.message)
-}
-
-func (m *InteractiveMode) followUpFileMentions(mentions *fileMentionContext) {
-	if mentions == nil || m.agent == nil {
-		return
-	}
-	m.agent.FollowUp(mentions.message)
+	return []agent.AgentMessage{user, mentions.message}
 }

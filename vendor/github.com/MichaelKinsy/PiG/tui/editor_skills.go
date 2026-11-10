@@ -21,10 +21,35 @@ func (p *SlashOnlyProvider) IsKnownSkill(name string) bool {
 	return false
 }
 
+// skillTokenGate reports AllowsSkillTokens for the whole draft without joining
+// it on every call. skillSpans runs several times per render (and per segment),
+// so e.Text() there copied the entire buffer; AllowsSkillTokens itself reads
+// only the draft's leading trimmed run, so that run is the cache key and a
+// keystroke that does not change it costs one trimmed-line scan.
+func (e *Editor) skillTokenGate() bool {
+	// AllowsSkillTokens only inspects the leading sigil of the trimmed draft:
+	// "/skill:" (7 cells), a leading "/" or "!", or "$"/"$$" and whether a space
+	// follows. Sixteen cells of the first non-empty line therefore determine the
+	// answer, and text changing after that cannot change it.
+	key := ""
+	for _, line := range e.lines {
+		if trimmed := widthx.JSTrimStart(line); trimmed != "" {
+			key = trimmed[:min(len(trimmed), 16)]
+			break
+		}
+	}
+	if e.skillGateValid && e.skillGateKey == key {
+		return e.skillGateAllows
+	}
+	e.skillGateKey, e.skillGateAllows = key, AllowsSkillTokens(e.Text())
+	e.skillGateValid = true
+	return e.skillGateAllows
+}
+
 // skillSpans recognizes only registered invocations in prompts, never shell or command arguments.
 func (e *Editor) skillSpans(text string) []SkillToken {
 	known, ok := e.autocomplete.(interface{ IsKnownSkill(string) bool })
-	if !ok || !strings.Contains(text, "/skill:") || !AllowsSkillTokens(e.Text()) {
+	if !ok || !strings.Contains(text, "/skill:") || !e.skillTokenGate() {
 		return nil
 	}
 	var spans []SkillToken
@@ -157,5 +182,5 @@ func (e *Editor) skillDisplay(text string, col int, emit bool) string {
 // skillSlashContext keeps slash completion active after prose or a previous skill.
 func (e *Editor) skillSlashContext(before string) bool {
 	_, ok := trailingSkillSlash(before)
-	return ok && AllowsSkillTokens(e.Text())
+	return ok && e.skillTokenGate()
 }

@@ -1266,12 +1266,28 @@ func (a *Agent) BeginSendContent(ctx context.Context, content []ai.UserContentBl
 
 // BeginSendMessages claims a turn for already-built messages without starting events. The owner calls Run exactly once, even if Start fails, just as for BeginSendContent.
 func (a *Agent) BeginSendMessages(ctx context.Context, messages []AgentMessage) (*PromptRun, error) {
+	return a.BeginSendMessagesWith(ctx, func() []AgentMessage { return messages })
+}
+
+// BeginSendMessagesWith is BeginSendMessages whose messages are built after the
+// claim succeeds. A caller that must consume state to build them (a pending
+// next-turn queue, which TakePendingNextTurn removes) uses this so a refused
+// claim — a busy agent, or one with no usable model — consumes nothing.
+//
+// pig additive (D255): upstream builds the prompt messages before
+// agent.prompt claims the run, so a rejection there loses the deferred
+// messages it had already taken.
+func (a *Agent) BeginSendMessagesWith(ctx context.Context, build func() []AgentMessage) (*PromptRun, error) {
 	if err := a.beginRun(ctx, ErrAlreadyProcessingPrompt); err != nil {
 		return nil, err
 	}
 	if err := a.ensureModel(); err != nil {
 		a.finishRun()
 		return nil, err
+	}
+	var messages []AgentMessage
+	if build != nil {
+		messages = build()
 	}
 	return &PromptRun{agent: a, ctx: a.Signal(), messages: messages, suppliedMessages: true}, nil
 }
@@ -1649,10 +1665,18 @@ func (a *Agent) IsStreaming() bool {
 // allowing the user to redirect the agent mid-turn.
 func (a *Agent) Steer(msg AgentMessage) { a.steeringQueue.Enqueue(msg) }
 
+// SteerGroup enqueues steering messages that must reach the model in one turn.
+// See PendingMessageQueue.EnqueueGroup for why a pair cannot be two Steer
+// calls under the one-at-a-time default.
+func (a *Agent) SteerGroup(msgs ...AgentMessage) { a.steeringQueue.EnqueueGroup(msgs...) }
+
 // FollowUp enqueues a follow-up message. Follow-up messages are delivered
 // only after the agent has no more tool calls AND no steering messages,
 // starting a fresh outer-loop iteration.
 func (a *Agent) FollowUp(msg AgentMessage) { a.followUpQueue.Enqueue(msg) }
+
+// FollowUpGroup is FollowUp for messages that must reach the model in one turn.
+func (a *Agent) FollowUpGroup(msgs ...AgentMessage) { a.followUpQueue.EnqueueGroup(msgs...) }
 
 // QueueNextTurn defers a message to the start of the next user turn, where it
 // is injected beside the user message as context for the first model call.

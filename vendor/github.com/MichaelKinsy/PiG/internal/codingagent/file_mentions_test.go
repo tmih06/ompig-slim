@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -200,6 +201,36 @@ func TestFileMentionCardIndent(t *testing.T) {
 	}
 }
 
+// TestFileMentionCardSanitizesPath keeps a mention taken from the prompt from
+// breaking the card: an escape sequence or an embedded newline must not paint
+// colour or add a row, because the rail and the row count assume one row each.
+func TestFileMentionCardSanitizesPath(t *testing.T) {
+	card := &fileMentionCard{outputPad: 1, mentions: []FileMention{
+		{Path: "READ\x1b[31mME\x1b[0m.md", LineCount: 2, Content: "x"},
+		{Path: "evil\npath", LineCount: 1, Content: "x"},
+	}}
+	rows := card.Render(60)
+	if len(rows) != 2 {
+		t.Fatalf("a crafted path produced %d rows; want one row per mention: %v", len(rows), rows)
+	}
+	first := widthx.StripAnsi(rows[0])
+	if !strings.Contains(first, "Read README.md (2 lines)") {
+		t.Fatalf("escape sequence survived: %q", first)
+	}
+	if strings.Contains(widthx.StripAnsi(strings.Join(rows, "\n")), "\x1b[31m") {
+		t.Fatal("raw SGR reached the card")
+	}
+	second := widthx.StripAnsi(rows[1])
+	if !strings.Contains(second, "Read evil path (1 line)") {
+		t.Fatalf("newline was not collapsed: %q", second)
+	}
+	for _, row := range rows {
+		if widthx.VisibleWidth(row) > 60 {
+			t.Fatalf("row exceeds width: %q", row)
+		}
+	}
+}
+
 // TestFileMentionsRoundTrip checks a resumed session rebuilds the card from the
 // entry's details, whether they arrive typed or as decoded JSON.
 func TestFileMentionsRoundTrip(t *testing.T) {
@@ -216,7 +247,7 @@ func TestFileMentionsRoundTrip(t *testing.T) {
 	if len(got) != 2 || got[0] != original[0] || got[1] != original[1] {
 		t.Fatalf("round trip = %+v", got)
 	}
-	if typed := FileMentionsOf([]FileMention(original)); len(typed) != 2 || typed[1].IsDirectory != true {
+	if typed := FileMentionsOf(original); len(typed) != 2 || typed[1].IsDirectory != true {
 		t.Fatalf("typed details = %+v", typed)
 	}
 	if FileMentionsOf(nil) != nil {
@@ -234,15 +265,14 @@ func TestFileMentionsRoundTrip(t *testing.T) {
 // TestPrepareFileMentionsNeedsCwd keeps a session without a working directory
 // from resolving a mention against the process directory.
 func TestPrepareFileMentionsNeedsCwd(t *testing.T) {
-	m := &InteractiveMode{}
-	if m.prepareFileMentions(context.Background(), "@README.md") != nil {
+	if prepareFileMentions(context.Background(), "@README.md", "") != nil {
 		t.Fatal("resolved a mention without a cwd")
 	}
-	m.opts.CWD = mentionFixture(t)
-	if mentions := m.prepareFileMentions(context.Background(), "see @README.md"); mentions == nil || len(mentions.mentions) != 1 {
+	cwd := mentionFixture(t)
+	if mentions := prepareFileMentions(context.Background(), "see @README.md", cwd); mentions == nil || len(mentions.mentions) != 1 {
 		t.Fatalf("mentions = %+v", mentions)
 	}
-	if m.prepareFileMentions(context.Background(), "nothing here") != nil {
+	if prepareFileMentions(context.Background(), "nothing here", cwd) != nil {
 		t.Fatal("unmentioned prompt produced a read")
 	}
 }
@@ -252,7 +282,7 @@ func TestPrepareFileMentionsNeedsCwd(t *testing.T) {
 func TestAppendFileMentionCard(t *testing.T) {
 	mode := &InteractiveMode{opts: InteractiveModeOptions{CWD: mentionFixture(t)}}
 	mode.chatContainer = tui.NewContainer()
-	mentions := mode.readPromptFileMentions(context.Background(), "see @README.md and @src")
+	mentions := readPromptFileMentions(context.Background(), "see @README.md and @src", mode.opts.CWD)
 	if len(mentions) != 2 {
 		t.Fatalf("mentions = %+v", mentions)
 	}
@@ -281,7 +311,7 @@ func TestFileMentionCardFollowsSubmittedPrompt(t *testing.T) {
 	// Production reads this from settings (GetOutputPad defaults to one cell), so
 	// the card is indented with the prompt block it belongs to.
 	mode.outputPad = 1
-	mentions := mode.prepareFileMentions(context.Background(), "please explain @README.md")
+	mentions := prepareFileMentions(context.Background(), "please explain @README.md", mode.opts.CWD)
 	if mentions == nil {
 		t.Fatal("no auto-read produced")
 	}
@@ -315,7 +345,9 @@ func TestReadURLMentions(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprint(w, "alpha\nbeta\ngamma\n")
+		if _, err := fmt.Fprint(w, "alpha\nbeta\ngamma\n"); err != nil {
+			t.Errorf("write body: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -389,53 +421,181 @@ func TestMentionsNeedNetwork(t *testing.T) {
 // against the process directory.
 func TestPrepareFileMentionsKeepsURLWithoutCwd(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, "body\n")
+		if _, err := fmt.Fprint(w, "body\n"); err != nil {
+			t.Errorf("write body: %v", err)
+		}
 	}))
 	defer server.Close()
-	m := &InteractiveMode{}
-	mentions := m.prepareFileMentions(context.Background(), "see @"+server.URL+"/x and @README.md")
+	mentions := prepareFileMentions(context.Background(), "see @"+server.URL+"/x and @README.md", "")
 	if mentions == nil || len(mentions.mentions) != 1 || !mentions.mentions[0].IsURL {
 		t.Fatalf("mentions = %+v", mentions)
 	}
 }
 
-// TestDeliverPromptReadsOffLoop is the routing rule deliverPrompt applies: a
-// URL mention set is read on a worker and reports that it kept the preflight
-// slot, while a local-only set is read inline and releases it at once. The
-// delivery half is covered by TestFileMentionCardFollowsSubmittedPrompt; these
-// cases stop at the routing decision so no turn is started.
+// TestDeliverPromptReadsOffLoop covers deliverPrompt's routing and slot
+// contract: what the return value means, that the worker releases the slot
+// exactly once, that a replaced session drops the delivery but still releases,
+// and that a nil context reads inline. Every case binds the submission to a
+// session that is not the mode's, so a delivery can never start a turn; the
+// delivery itself (a real turn) is covered by
+// TestFileMentionCardFollowsSubmittedPrompt.
 func TestDeliverPromptReadsOffLoop(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, "doc line\n")
+		if _, err := fmt.Fprint(w, "doc line\n"); err != nil {
+			t.Errorf("write body: %v", err)
+		}
 	}))
 	defer server.Close()
+
+	// staleSession is a current-looking session, so a submission bound to a
+	// different value is dropped by the session check rather than by starting a
+	// turn that the fixture cannot support.
+	staleSession := &manualSession{}
+	newSession := &manualSession{}
+
+	// hold occupies the slot as finishPreflight does, so release is observable.
+	hold := func(t *testing.T, mode *InteractiveMode, submission inputPreflight) {
+		t.Helper()
+		mode.preflightMu.Lock()
+		mode.preflight = &submission
+		mode.preflightMu.Unlock()
+	}
+	// awaitRelease drains the owner loop until the slot is free.
+	awaitRelease := func(t *testing.T, mode *InteractiveMode) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for mode.preflightPending() {
+			drainOwnerLoop(mode)
+			if time.Now().After(deadline) {
+				t.Fatal("the worker never released the preflight slot")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	t.Run("local stays inline and reports completion", func(t *testing.T) {
+		mode := resetWiringTest(t, nil)
+		mode.opts.CWD = mentionFixture(t)
+		mode.opts.SessionHandle = newSession
+		submission := inputPreflight{ctx: context.Background(), session: staleSession}
+		hold(t, mode, submission)
+		if kept := mode.deliverPrompt(submission, "read @README.md", nil); kept {
+			t.Fatal("a local mention was routed off the owner loop")
+		}
+		// The inline path delivered, so the caller releases the slot.
+		mode.endPreflightDispatch()
+		if mode.preflightPending() {
+			t.Fatal("the preflight slot is still held")
+		}
+	})
+
+	t.Run("url keeps the slot until the worker delivers", func(t *testing.T) {
+		mode := resetWiringTest(t, nil)
+		mode.opts.CWD = mentionFixture(t)
+		mode.opts.SessionHandle = newSession
+		submission := inputPreflight{ctx: context.Background(), session: staleSession}
+		hold(t, mode, submission)
+		if kept := mode.deliverPrompt(submission, "read @"+server.URL+"/doc", nil); !kept {
+			t.Fatal("a URL prompt was delivered synchronously, freezing the owner loop")
+		}
+		// The worker owns the release now; it must free the slot exactly once.
+		awaitRelease(t, mode)
+		if mode.preflight != nil {
+			t.Fatal("the slot was not cleared")
+		}
+	})
+
+	t.Run("replaced session drops the delivery but still releases", func(t *testing.T) {
+		mode := resetWiringTest(t, nil)
+		mode.opts.CWD = mentionFixture(t)
+		mode.opts.SessionHandle = newSession
+		// A submission bound to a session that is no longer current.
+		submission := inputPreflight{ctx: context.Background(), session: staleSession}
+		hold(t, mode, submission)
+		if kept := mode.deliverPrompt(submission, "read @"+server.URL+"/doc", nil); !kept {
+			t.Fatal("a URL prompt was read inline")
+		}
+		awaitRelease(t, mode)
+	})
+
+	t.Run("nil context reads inline", func(t *testing.T) {
+		mode := resetWiringTest(t, nil)
+		mode.opts.CWD = mentionFixture(t)
+		mode.opts.SessionHandle = newSession
+		// A nil ctx cannot bound a worker fetch, so the URL is read on this
+		// goroutine rather than being dropped; delivery then stops at the
+		// session check, as every case here does.
+		submission := inputPreflight{session: staleSession}
+		hold(t, mode, submission)
+		if kept := mode.deliverPrompt(submission, "read @"+server.URL+"/doc", nil); kept {
+			t.Fatal("a nil context still went to the worker")
+		}
+	})
+}
+
+// TestQueuedPromptMessagesPairing pins the delivery unit: a prompt and its
+// auto-read share one queue slot, so the one-at-a-time default cannot answer
+// the prompt before the model has read the files it named.
+func TestQueuedPromptMessagesPairing(t *testing.T) {
 	cwd := mentionFixture(t)
-	for _, tc := range []struct {
-		name    string
-		prompt  string
-		offLoop bool
-	}{
-		{"local", "read @README.md", false},
-		{"url", "read @" + server.URL + "/doc", true},
-		{"mixed", "read @README.md and @" + server.URL + "/doc", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := mentionsNeedNetwork(tc.prompt); got != tc.offLoop {
-				t.Fatalf("needsNetwork = %t, want %t", got, tc.offLoop)
-			}
-			// The same read either way, so routing cannot change the rows.
-			mentions := ReadFileMentions(context.Background(), ExtractFileMentions(tc.prompt), cwd)
-			if len(mentions) == 0 {
-				t.Fatal("no mentions read")
-			}
-			for _, mention := range mentions {
-				if mention.Content == "" {
-					t.Fatalf("empty content for %q", mention.Path)
-				}
-			}
-		})
+	mentions := prepareFileMentions(context.Background(), "read @README.md", cwd)
+	if mentions == nil {
+		t.Fatal("no auto-read produced")
+	}
+	alone := queuedPromptMessages("plain prompt", nil, nil)
+	if len(alone) != 1 || alone[0].User == nil {
+		t.Fatalf("a prompt without mentions = %+v; want one user message", alone)
+	}
+	paired := queuedPromptMessages("read @README.md", nil, mentions)
+	if len(paired) != 2 || paired[0].User == nil || paired[1].Custom == nil {
+		t.Fatalf("a prompt with mentions = %+v; want the user message then its read", paired)
+	}
+	if paired[1].Custom["customType"] != FileMentionsCustomType {
+		t.Fatalf("second message = %+v; want the mention card", paired[1].Custom)
 	}
 }
+
+// TestQueueGroupDrainsTogether checks the queue slot the pairing relies on: a
+// group is one drain unit under one-at-a-time mode, and separate submissions
+// still drain one at a time.
+func TestQueueGroupDrainsTogether(t *testing.T) {
+	queue := agent.NewPendingMessageQueue(agent.QueueModeOneAtATime)
+	user := agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser}}
+	read := agent.AgentMessage{Custom: map[string]any{"customType": FileMentionsCustomType}}
+	queue.EnqueueGroup(user, read)
+	queue.EnqueueGroup(agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser}})
+
+	if got := queue.Drain(); len(got) != 2 {
+		t.Fatalf("the pair drained as %d messages; want both in one turn", len(got))
+	}
+	if got := queue.Drain(); len(got) != 1 {
+		t.Fatalf("the next submission drained as %d messages; want its own turn", len(got))
+	}
+	if got := queue.Drain(); got != nil {
+		t.Fatalf("drained %+v from an empty queue", got)
+	}
+}
+
+// TestBeginSendMessagesWithKeepsPendingOnRefusal makes sure a refused run does
+// not consume deferred next-turn messages: build runs only after the claim.
+func TestBeginSendMessagesWithKeepsPendingOnRefusal(t *testing.T) {
+	var built bool
+	_, err := (&agent.Agent{}).BeginSendMessagesWith(context.Background(), func() []agent.AgentMessage {
+		built = true
+		return nil
+	})
+	if err == nil {
+		t.Skip("an agent with no model accepted the run")
+	}
+	if built {
+		t.Fatal("the batch was built before the run was claimed")
+	}
+}
+
+// manualSession is an InteractiveSessionHandle stub: the embedded interface
+// makes every method nil-safe, so a test can bind a submission to a distinct
+// session without constructing a real one.
+type manualSession struct{ InteractiveSessionHandle }
 
 // tail returns the last n bytes of s, for failure messages.
 func tail(s string, n int) string {

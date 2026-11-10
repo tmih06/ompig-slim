@@ -116,7 +116,11 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 	midPrompt := false
 	if token, ok := trailingSkillSlash(line[:cursorCol]); ok && (token != before || strings.TrimSpace(strings.Join(lines[:cursorLine], "\n")) != "") {
 		if !AllowsSkillTokens(strings.Join(lines, "\n")) {
-			return nil
+			// A context that forbids skill tokens (shell input, another command's
+			// arguments) still gets that command's own argument completion: leave
+			// `before` as the whole trimmed line and fall through to the argument
+			// branch below, which only matches a registered command name.
+			return p.argumentCompletions(before)
 		}
 		before, midPrompt = token, true
 	}
@@ -179,8 +183,18 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 		return &AutocompleteSuggestions{Items: out, Prefix: before}
 	}
 
-	// `/<cmd> <args>`: argument completion path.
-	name, argText, _ := slashArgumentPrefix(before)
+	return p.argumentCompletions(before)
+}
+
+// argumentCompletions is the `/<cmd> <args>` branch: it delegates to the
+// matched command's synchronous completer. It returns nil for text that is not
+// a registered command with an argument prefix, so a caller can use it as the
+// fallback for a slash token whose command names are not offered.
+func (p *SlashOnlyProvider) argumentCompletions(before string) *AutocompleteSuggestions {
+	name, argText, ok := slashArgumentPrefix(before)
+	if !ok {
+		return nil
+	}
 	for _, c := range p.Commands {
 		if c.commandName() != name {
 			continue

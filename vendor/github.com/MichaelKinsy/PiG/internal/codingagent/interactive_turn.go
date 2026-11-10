@@ -194,9 +194,16 @@ func (m *InteractiveMode) runPromptTurnWithImages(ctx context.Context, prompt st
 		}
 		// SendMessages bypasses SendContent's own nextTurn drain, so take the
 		// deferred messages here: the batch is the user message, its auto-read,
-		// then whatever an extension deferred for this turn.
-		batch := append(promptStartingMessages(prompt, content, mentions), m.agent.TakePendingNextTurn()...)
-		return m.agent.SendMessages(runCtx, batch)
+		// then whatever an extension deferred for this turn. Building the batch
+		// after the claim means a refused run (a busy agent, a missing model)
+		// leaves the deferred messages queued for the next turn.
+		run, err := m.agent.BeginSendMessagesWith(runCtx, func() []agent.AgentMessage {
+			return append(promptStartingMessages(prompt, content, mentions), m.agent.TakePendingNextTurn()...)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return run.Run()
 	})
 }
 

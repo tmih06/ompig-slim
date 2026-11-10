@@ -61,82 +61,19 @@ make test-self-update
 
 ### Skill calls in the composer
 
-The native composer completes skills after whitespace anywhere in a normal
-prompt; only the leading position offers built-in commands. Skill completion
-with Tab, Enter, or the mouse leaves the draft open for more text and skills.
-Registered `/skill:<name>` tokens draw as bold, tinted `◆ name` badges. Their
-source remains slash syntax for history, undo, external editing and submission;
-normal cursor navigation and deletion treat each recognized token atomically.
-Badges occupy only their compact label width, with one cell of pill padding on
-each side; no space is reserved for the hidden slash prefix. Wrapping and mouse
-hit testing use compact segment widths, while vertical navigation translates
-between source and display UTF-16 columns. Tokens wider than the editor may wrap
-as source text.
+The composer offers skill completion after whitespace anywhere in a normal prompt; built-in commands keep the leading-only position. A skill selection leaves the draft open, so one prompt can carry several skills. Registered `/skill:<name>` tokens draw as compact badges instead of raw slash syntax, while the buffer keeps the slash form so history, undo, external editing and submission are unaffected. Cursor navigation and deletion treat a recognized token as one unit, and wrapping and mouse columns are measured in badge cells rather than source cells.
 
-`tui/skill_tokens.go` owns token boundaries and literal-input exclusions shared
-by the composer and `internal/codingagent/skills.go`. On submission, known skills
-are loaded from current resources, once per name in first-appearance order, and
-prepended as the existing XML skill blocks before the remaining user text. An
-unknown token stays literal; a read/parse failure reports the existing diagnostic
-and produces no partial expansion. Other slash-command arguments and local
-execution input remain literal. This multi-skill expansion is shared by
-interactive, Session, print and RPC paths, not an editor-only substitution.
+`tui/skill_tokens.go` owns token boundaries and the literal-input exclusions, and `internal/codingagent/skills.go` shares them (D252), so the editor and the expander cannot disagree about what counts as an invocation. On submission every known token is loaded once, in first-appearance order, ahead of the remaining prompt text. An unknown token stays literal; a read or parse failure expands nothing at all rather than submitting a partial load. Command arguments and local-execution input remain literal throughout. The expansion is shared by interactive, Session, print and RPC paths, so it is a runtime behavior, not an editor feature.
 
 ### `@path` and `@url` mentions in a prompt
 
-A prompt's `@path` and `@url` mentions are auto-read, so the model does not spend
-a turn calling `read`. This ports oh-my-pi's `utils/file-mentions.ts`. Extraction
-requires a whitespace or opening-punctuation boundary, so an email address stays
-prose; `@"quoted path"` and `@'quoted path'` allow spaces, and surrounding
-punctuation is stripped. A mention that is neither an http(s) URL nor an existing
-path is prose and is dropped silently. A trailing `/` and `~` expansion go
-through the read tool's own resolver.
+A prompt's `@path` and `@url` mentions are read before the model runs, so it does not spend a turn calling read. This ports oh-my-pi's mention auto-read, extended with URLs because this runtime's `read` already treats one as its other source. Extraction requires a whitespace or opening-punctuation boundary, so prose such as an email address never becomes a read; quoted mentions may contain spaces. A filesystem mention that is not an existing path is prose and is dropped. A mention that names a URL is fetched through `read`'s own fetch and rendering, so an auto-read and a later `read` of the same URL report the same text; a refused URL keeps a `fetch failed` row because the user named a document. Local content is text only: files truncate with `read`'s limits, directories list as `read` lists them, and non-text files report their size instead of being decoded. See divergence D253.
 
-URLs are an addition to the upstream port, which is filesystem-only: this
-runtime's `read` tool already treats a URL as its other source, so a URL mention
-goes through the same `webtools.Fetch` call and `tui/tools/read_url.go` rendering
-and reports the same `Fetched …` text and continuation notes a `read` would. A
-URL the server refuses keeps its row with `fetch failed` rather than vanishing,
-because the user named a document, unlike a path that turned out to be prose.
+Delivery is one custom message of type `file-mentions` whose content is the `<file path="…">` blocks the model reads and whose details hold the structured rows, so a resumed session rebuilds the transcript card without re-reading. A new turn sends the user message and that message in one batch, and a steer or follow-up enqueues them as one queue slot: the queues drain one slot per turn by default, so separate enqueues would let the model answer the prompt before reading the files it named (D254). The read is therefore atomic with the prompt, and a refused run consumes neither (D255).
 
-Reading local content is text only: a file is decoded and truncated with the read
-tool's own `TruncateHead`, so an auto-read and a later `read` call report
-identical text and the same continuation notice. A directory lists as the read
-tool lists one (directories first, `name/`, capped at 500 entries). Files over
-5MB and files with a NUL byte in their first 8KB are reported by size instead of
-read. Images and other binary formats are not decoded into attachment blocks;
-this runtime has no video contact sheets or document converters.
+A submission is dispatched on the owner loop, where a fetch would freeze the editor for its whole timeout. A mention set containing a URL is read on a worker and delivered back through the loop; that worker holds the preflight slot until it delivers, so submissions stay in order and a later prompt cannot overtake a slower fetch. A local-only set is read inline. The worker receives the working directory captured on the loop, so a `/cd` or session swap cannot race it.
 
-Delivery is one custom message of type `file-mentions` whose content is the
-`<file path="…">` blocks the model reads. A turn that starts from a prompt sends
-the user message and that custom message in one `SendMessages` batch, so the read
-is atomic with the prompt and a refused run leaves nothing queued. A steer or
-follow-up enqueues its own custom message beside the text. The message's
-`details.mentions` is the structured row list, which is why a resumed session
-rebuilds the card without re-reading the files.
-
-A submission is dispatched on the owner loop, where a fetch could freeze the
-editor for its whole 30-second timeout. So a mention set containing a URL is read
-on a worker and delivered back through the owner loop, and that worker keeps the
-preflight slot until it delivers: submissions stay in order and a later prompt
-cannot overtake a slower fetch. A local-only mention set is still read inline,
-keeping its ordering guarantees without a goroutine.
-
-The transcript draws the rows directly under the submitted prompt, replacing
-oh-my-pi's `fileMention` block, which has no message role here. The tree is
-indented by the chat-wide `outputPad` setting, so it reads as one block with the
-prompt above it:
-
-```text
- ├─ Read README.md (123 lines)
- └─ Read src/ (12 entries)
-```
-
-Rows are one line each, truncated at the terminal width after the indent,
-because a tree's `│` rail only stays aligned when every entry is one row. A skipped read shows
-`skipped: <size>` or `skipped: binary, <size>`. See
-`internal/codingagent/file_mentions.go`, `file_mentions_card.go`,
-`interactive_file_mentions.go`, and the tests beside them.
+The transcript draws one indented row per mention under the submitted prompt, replacing oh-my-pi's `fileMention` block, which has no message role here. Rows are one line each and never wrap: a tree rail only stays aligned that way, and a path from the prompt is sanitized to a single display line before it is drawn.
 
 ### The base system prompt
 

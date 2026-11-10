@@ -198,7 +198,12 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
 // It reports whether it kept the preflight slot: true means the delivery is
 // still in flight, so the caller must not release the slot.
 func (m *InteractiveMode) deliverPrompt(submission inputPreflight, text string, images []ai.ImageContent) bool {
-	read := func(ctx context.Context) *fileMentionContext { return m.prepareFileMentions(ctx, text) }
+	// Capture the working directory here, on the owner loop: a fetch runs on a
+	// worker and must not read m.opts, which /cd and session replacement rewrite.
+	cwd := m.opts.CWD
+	read := func(ctx context.Context) *fileMentionContext { return prepareFileMentions(ctx, text, cwd) }
+	// A submission without a context cannot bound a worker, so it is read and
+	// delivered inline. readPromptFileMentions tolerates the nil context.
 	if !mentionsNeedNetwork(text) || submission.ctx == nil {
 		m.deliverPromptWithMentions(submission, text, images, read(submission.ctx))
 		return false
@@ -206,12 +211,9 @@ func (m *InteractiveMode) deliverPrompt(submission inputPreflight, text string, 
 	go func() {
 		mentions := read(submission.ctx)
 		m.runOnMain(m.runCtx, func() {
-			// The session may have been replaced while the fetch ran;
-			// deliverPromptWithMentions is not session-aware for a new turn, so
-			// recheck it here exactly as the synchronous path does.
-			if submission.session == m.opts.SessionHandle {
-				m.deliverPromptWithMentions(submission, text, images, mentions)
-			}
+			// deliverPromptWithMentions rechecks the session itself, so a session
+			// replaced while the fetch ran drops the delivery.
+			m.deliverPromptWithMentions(submission, text, images, mentions)
 			m.endPreflightDispatch()
 		})
 	}()
@@ -221,17 +223,26 @@ func (m *InteractiveMode) deliverPrompt(submission inputPreflight, text string, 
 // deliverPromptWithMentions is deliverPrompt's synchronous half: it queues or
 // starts the prompt once its mentions are read.
 func (m *InteractiveMode) deliverPromptWithMentions(submission inputPreflight, text string, images []ai.ImageContent, mentions *fileMentionContext) {
+	// The session a submission was typed into may have been replaced while its
+	// handlers or its fetch ran (finishPreflight checks this for the synchronous
+	// path; the worker path and a direct call arrive here instead). Upstream
+	// binds a prompt to the AgentSession it was called on, so a stale submission
+	// is dropped.
+	if submission.session != m.opts.SessionHandle {
+		return
+	}
 	// Upstream rechecks streaming after the input await (agent-session.ts
 	// `_queueUserInput`): a run that started while the handlers ran receives
 	// text the user typed while working as a steer or follow-up.
 	if submission.streaming && m.enqueueIfTurnActive(func() {
+		// One slot, so the model reads the prompt and the files it named in the
+		// same turn even under the one-at-a-time queue mode.
 		if submission.followUp {
-			m.followUpMessageWithImages(text, images)
-			m.followUpFileMentions(mentions)
+			m.agent.FollowUpGroup(queuedPromptMessages(text, images, mentions)...)
 		} else {
-			m.steerMessageWithImages(text, images)
-			m.steerFileMentions(mentions)
+			m.agent.SteerGroup(queuedPromptMessages(text, images, mentions)...)
 		}
+		m.updatePendingMessagesDisplay()
 	}) {
 		return
 	}

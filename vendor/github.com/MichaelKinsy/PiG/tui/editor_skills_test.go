@@ -190,6 +190,139 @@ func TestCompactSkillCoordinates(t *testing.T) {
 	}
 }
 
+// TestSkillArgumentCompletionInCommandArgs checks the fallback the skill gate
+// needs: in a command whose arguments forbid skill tokens, a slash-prefixed
+// argument still reaches that command's own synchronous argument completer, and
+// no skill or command name is offered instead.
+func TestSkillArgumentCompletionInCommandArgs(t *testing.T) {
+	p := NewSlashOnlyProvider([]SlashCommand{{
+		Name: "plan",
+		GetArgumentCompletions: func(prefix string) []AutocompleteItem {
+			if prefix != "/pr" {
+				return nil
+			}
+			return []AutocompleteItem{{Value: "/proceed", Label: "/proceed"}}
+		},
+	}, {Name: "skill:review"}})
+	lines := []string{"/plan /pr"}
+	if AllowsSkillTokens(lines[0]) {
+		t.Fatal("a command line should not allow skill tokens")
+	}
+	result := p.GetSuggestions(context.Background(), lines, 0, len(lines[0]), AutocompleteSuggestionOptions{})
+	if result == nil || len(result.Items) == 0 || result.Items[0].Value != "/proceed" {
+		t.Fatalf("slash-prefixed argument lost its completion: %+v", result)
+	}
+	if result.Prefix != "/pr" {
+		t.Fatalf("prefix = %q; want the argument text", result.Prefix)
+	}
+}
+
+// TestSkillGateCachesLeadingRun checks the AllowsSkillTokens cache answers the
+// same as the uncached function for every gate shape, and that text after the
+// leading run cannot change the answer.
+func TestSkillGateCachesLeadingRun(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	for _, text := range []string{
+		"",
+		"plain prompt",
+		"!echo /skill:review",
+		"/model /skill:review",
+		"/skill:review",
+		"/skill:review and more /skill:test",
+		"$$ /skill:review",
+		"${VAR} /skill:review",
+		"$ /skill:review",
+	} {
+		e.SetText(text)
+		if got, want := e.skillTokenGate(), AllowsSkillTokens(text); got != want {
+			t.Errorf("%q: gate = %t, want %t", text, got, want)
+		}
+		// Changing text after the leading run must not change the gate.
+		first := e.lines[0]
+		e.lines[0] = first + " trailing /skill:test"
+		if got, want := e.skillTokenGate(), AllowsSkillTokens(text); got != want {
+			t.Errorf("%q: gate changed with trailing text: %t, want %t", text, got, want)
+		}
+	}
+}
+
+// TestWrapCacheKeepsNonSkillLines checks the wrap cache stays live when the
+// draft holds a skill: other lines keep their cached chunks, and a skill line is
+// recomputed rather than published.
+func TestWrapCacheKeepsNonSkillLines(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	e.SetText("plain one\n/skill:review\nplain two")
+	first := e.wrappedChunks(10)
+	if len(first) != 3 || len(first[1]) == 0 {
+		t.Fatalf("chunks = %+v", first)
+	}
+	// A skill line's chunks must not be stored: the next call recomputes them.
+	if len(e.wrapCacheChunks) == 3 && e.wrapCacheChunks[1] != nil {
+		t.Fatal("a skill line's chunks were cached")
+	}
+	second := e.wrappedChunks(10)
+	if len(second) != 3 {
+		t.Fatalf("chunks = %+v", second)
+	}
+	for i, want := range []string{"plain one", "", "plain two"} {
+		if want == "" {
+			continue
+		}
+		if len(second[i]) == 0 || second[i][0].text != want {
+			t.Fatalf("line %d lost its wrapping: %+v", i, second[i])
+		}
+	}
+}
+
+// TestTabFallsThroughToPathCompletion checks a trailing slash token in prose
+// that names no skill still lets Tab reach path completion.
+func TestTabFallsThroughToPathCompletion(t *testing.T) {
+	e := NewEditor()
+	// No skills registered: the trailing token can never match one.
+	e.SetAutocomplete(NewCombinedProvider([]SlashCommand{{Name: "model"}}, "", ""))
+	e.SetText("look in /prose")
+	e.cursor = [2]int{0, len("/prose") + len("look in ")}
+	if !e.skillSlashContext("look in /prose") {
+		t.Fatal("the trailing token is not a skill context")
+	}
+	e.HandleInput("\t")
+	if e.AutocompleteOpen() {
+		// A skill popup with no candidates must not be left open.
+		for _, item := range e.autocompleteItems {
+			if item.Value != "" && len(item.Value) > 0 && item.Value[0] != '@' {
+				t.Fatalf("Tab opened a command popup for prose: %+v", e.autocompleteItems)
+			}
+		}
+	}
+}
+
+// BenchmarkSkillSpanScanLargeBuffer bounds the repeated-call workload skillSpans
+// adds to a render: a large pasted buffer with /skill: on many lines used to
+// rejoin the whole draft per call through e.Text(). The gate now caches on the
+// leading run, so the cost tracks the token count, not the buffer length.
+func BenchmarkSkillSpanScanLargeBuffer(b *testing.B) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	lines := make([]string, 0, 500)
+	lines = append(lines, "plain opening line")
+	for i := range 500 {
+		if i%10 == 0 {
+			lines = append(lines, "use /skill:review here and /skill:test too")
+			continue
+		}
+		lines = append(lines, "an ordinary prose line with no tokens at all")
+	}
+	e.SetText(strings.Join(lines, "\n"))
+	b.ResetTimer()
+	for range b.N {
+		if spans := e.skillSpans(e.lines[1]); len(spans) == 0 {
+			b.Fatal("no spans found")
+		}
+	}
+}
+
 // TestSkillDraftExclusions keeps unknown skills and literal command arguments unstyled.
 func TestSkillDraftExclusions(t *testing.T) {
 	e := NewEditor()

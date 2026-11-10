@@ -1,27 +1,18 @@
 package codingagent
 
-// Auto-read of `@path` and `@url` mentions in a submitted prompt.
+// Auto-read of `@path` and `@url` mentions in a submitted prompt: a mention is
+// read here and delivered beside the prompt, so the model does not spend a turn
+// calling read. ReadFileMentions owns the reading, FileMentionsMessage the
+// delivery, and file_mentions_card.go the transcript rows.
 //
-// Ports oh-my-pi's packages/coding-agent/src/utils/file-mentions.ts. When a
-// prompt mentions a file, directory or http(s) URL, the mention is read here
-// and delivered to the model beside the prompt, so the agent does not spend a
-// turn calling read. The transcript shows what was read under the submitted
-// prompt.
-//
-// Divergences from the upstream port, all forced by this runtime:
-//   - URLs are read too. Upstream's mention port is filesystem-only, but this
-//     runtime's `read` tool already treats a URL as its other source, so a
-//     URL mention goes through that same fetch and renders identically.
-//   - Only text output is produced. PiG has no video contact sheets or markit
-//     converters, so image files report their attachment in the content and are
-//     not decoded into image blocks here.
-//   - Reading goes through the read tool's own resolver, fetch and truncation so
-//     a mention and a later `read` call report identical text.
+// pig additive (D253).
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -137,6 +128,8 @@ func ExtractFileMentions(text string) []string {
 // isFileMentionURL reports whether a mention is an http(s) document rather than
 // a filesystem path. It is the read tool's own test, so `@https://…` and a
 // `read` of the same URL take the same branch.
+//
+// pig additive (D253): Pi's mention port reads the filesystem only.
 func isFileMentionURL(mention string) bool {
 	return tools.IsReadableURLPath(mention)
 }
@@ -146,12 +139,17 @@ func isFileMentionURL(mention string) bool {
 // manual read would.
 const fileMentionURLTimeout = webtools.DefaultFetchTimeout
 
+// pig additive (D253): a mentioned URL is fetched, which Pi never does.
+//
 // readFileMentionURL fetches a mentioned URL through the read tool's own fetch
 // and rendering, so the auto-read and a later `read` of the same URL report the
 // same text and continuation notes. A fetch failure is reported in the content
 // rather than dropped: a URL the user asked for is worth naming, unlike a path
 // that turned out to be prose.
 func readFileMentionURL(ctx context.Context, mention string) (FileMention, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	fetchCtx, cancel := context.WithTimeout(ctx, fileMentionURLTimeout)
 	defer cancel()
 	result, err := webtools.Fetch(fetchCtx, mention, webtools.FetchOptions{Reader: "native", Timeout: fileMentionURLTimeout})
@@ -259,6 +257,15 @@ func ReadFileMentions(ctx context.Context, mentions []string, cwd string) []File
 			read = append(read, FileMention{Path: mention, Content: content, LineCount: count, IsDirectory: true})
 			continue
 		}
+		// A named pipe, socket or device would block or stream forever, so only a
+		// regular file is read. A directory took the listing branch above.
+		//
+		// pig additive (D253): a non-text file is reported by size instead of
+		// decoded. Pi converts images into image blocks and videos into contact
+		// sheets; this port has neither converter.
+		if !info.Mode().IsRegular() {
+			continue
+		}
 		if info.Size() > fileMentionMaxAutoReadBytes {
 			read = append(read, FileMention{
 				Path:     mention,
@@ -268,7 +275,16 @@ func ReadFileMentions(ctx context.Context, mentions []string, cwd string) []File
 			})
 			continue
 		}
-		data, err := os.ReadFile(absolute)
+		data, err := readFileMentionBounded(absolute)
+		if errors.Is(err, errFileMentionTooLarge) {
+			read = append(read, FileMention{
+				Path:     mention,
+				Content:  "(skipped auto-read: too large, " + tools.FormatSize(int(fileMentionMaxAutoReadBytes)) + ")",
+				ByteSize: fileMentionMaxAutoReadBytes,
+				Skipped:  "tooLarge",
+			})
+			continue
+		}
 		if err != nil {
 			continue
 		}
@@ -289,6 +305,29 @@ func ReadFileMentions(ctx context.Context, mentions []string, cwd string) []File
 	}
 	return read
 }
+
+// readFileMentionBounded reads at most fileMentionMaxAutoReadBytes+1 bytes, so a
+// file that grew between stat and read cannot pull an unbounded buffer into
+// memory. More than the limit reports itself as too large.
+func readFileMentionBounded(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, fileMentionMaxAutoReadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > fileMentionMaxAutoReadBytes {
+		return nil, errFileMentionTooLarge
+	}
+	return data, nil
+}
+
+// errFileMentionTooLarge reports a file that grew past the auto-read limit
+// between the stat and the read.
+var errFileMentionTooLarge = errors.New("file mention exceeds auto-read limit")
 
 // isProbablyBinary reports whether data holds a NUL byte in its first 8KB,
 // which is how git and OMP separate text from binary without a MIME table.

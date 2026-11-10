@@ -288,10 +288,7 @@ func DefaultSkillsDir() string {
 	return filepath.Join(DefaultAgentDir(), "skills")
 }
 
-// ExpandSkillCommand loads every known skill token in source order, once per name,
-// then appends the remaining prompt. Unknown tokens stay literal. Read/parse errors
-// return no expansion so a failed multi-skill load cannot submit a partial result.
-// Command arguments and shell input are never interpreted as skill invocations.
+// ExpandSkillCommand loads every known skill token in source order, once per name, then appends the remaining prompt. Unknown tokens stay literal. Read/parse errors return no expansion so a failed multi-skill load cannot submit a partial result. Command arguments and shell input are never interpreted as skill invocations.
 func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
 	if !tui.AllowsSkillTokens(text) {
 		return "", false, nil
@@ -328,8 +325,7 @@ func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extensi
 	return strings.Join(blocks, "\n\n"), true, nil
 }
 
-// expandSingleSkillCommand preserves the original file-loading and diagnostic contract
-// for a single leading invocation. Resources are read at submission, not selection.
+// expandSingleSkillCommand preserves the original file-loading and diagnostic contract for a single leading invocation. Resources are read at submission, not selection.
 func expandSingleSkillCommand(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
 	if !strings.HasPrefix(text, "/skill:") {
 		return "", false, nil
