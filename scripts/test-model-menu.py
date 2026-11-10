@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Regress PTY packet fragmentation without a terminal, credentials or sleeps."""
+"""Regress PTY packet fragmentation and settings reads without a terminal or credentials."""
 import importlib.util
+import json
 import pathlib
+import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
+
+import settings_fixture
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -79,6 +85,66 @@ class ModelMenuWaitTests(unittest.TestCase):
         """A closed PTY without a frame end must fail even before child reaping."""
         with self.assertRaisesRegex(AssertionError, "complete frame"):
             self.observe([BEGIN + TITLE, b""])
+
+
+class SettledSettingsTests(unittest.TestCase):
+    """Model the unlocked read that made the macOS model-menu smoke flaky.
+
+    The runtime publishes a settings save with one truncating write while it holds
+    the directory lock, so a reader that does not take that lock can observe an
+    empty or partial file. These tests reproduce that window locally instead of
+    relying on a slow runner to hit it.
+    """
+
+    def setUp(self):
+        """Use a real temporary file; settled_settings reads it through the path."""
+        directory = tempfile.TemporaryDirectory(prefix="settled-settings-")
+        self.addCleanup(directory.cleanup)
+        self.path = pathlib.Path(directory.name) / "settings.json"
+
+    def test_settled_file_parses_without_waiting(self):
+        """The ordinary case must not sleep: the file is already complete."""
+        self.path.write_text(json.dumps({"modelRoles": {"default": "p/a"}}))
+        started = time.monotonic()
+        saved = settings_fixture.settled_settings(self.path)
+        self.assertEqual(saved["modelRoles"], {"default": "p/a"})
+        self.assertLess(time.monotonic() - started, 0.05)
+
+    def test_torn_write_is_waited_out_not_reported(self):
+        """An empty and a half-written file are both in-flight saves, not corruption."""
+        complete = json.dumps({"modelRoles": {"default": "p/a"}, "cycleOrder": ["default"]})
+        for torn in ("", complete[:len(complete) // 2]):
+            with self.subTest(torn=len(torn)):
+                self.path.write_text(torn)
+                released = threading.Event()
+
+                def finish_save():
+                    """Land the rest of the save while the reader is polling."""
+                    released.wait(5)
+                    self.path.write_text(complete)
+
+                writer = threading.Thread(target=finish_save)
+                writer.start()
+                timer = threading.Timer(0.05, released.set)
+                timer.start()
+                try:
+                    saved = settings_fixture.settled_settings(self.path)
+                    self.assertEqual(saved["cycleOrder"], ["default"])
+                finally:
+                    released.set()
+                    timer.cancel()
+                    writer.join(5)
+
+    def test_permanently_invalid_content_still_raises(self):
+        """Waiting must not hide real corruption; the parse error is reported."""
+        self.path.write_text("not json at all")
+        with self.assertRaises(json.JSONDecodeError):
+            settings_fixture.settled_settings(self.path, timeout=0.05)
+
+    def test_missing_file_is_not_retried(self):
+        """Only a torn write is transient; an absent profile is a caller error."""
+        with self.assertRaises(FileNotFoundError):
+            settings_fixture.settled_settings(self.path, timeout=0.05)
 
 
 if __name__ == "__main__":

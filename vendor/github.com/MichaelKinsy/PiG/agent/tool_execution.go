@@ -360,6 +360,13 @@ func prepareToolCall(ctx context.Context, tools []AgentTool, hooks ToolCallHooks
 			outcome = immediateOutcome(call, errorToolResult(thrownMessage(recovered)))
 		}
 	}()
+	// A model whose arguments text did not parse has no arguments to prepare or validate: the call carries the empty
+	// object, so preparing it would let a tool repair a call the model never made, and validating it reports the first
+	// missing required member instead of the unreadable text that caused it. Report the parse failure as
+	// ai.ValidateToolArguments does (validation.ts:54-61), before the hook and the schema get a say.
+	if call.argumentsError != "" {
+		return immediateOutcome(call, errorToolResult(fmt.Sprintf("Invalid arguments for tool \"%s\": %s", call.name, call.argumentsError)))
+	}
 	// The tool reads the call's own argument bytes, as Pi passes toolCall.arguments itself; nothing writes them after the call is built.
 	args := json.RawMessage(call.args)
 	if preparer, ok := tool.(ArgumentPreparer); ok {

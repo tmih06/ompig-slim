@@ -2036,9 +2036,14 @@ func (a *toolCallArguments) WriteString(s string) (int, error) {
 func (a toolCallArguments) String() string { return string(a) }
 
 type pendingToolCall struct {
-	id               string
-	name             string
-	args             toolCallArguments
+	id   string
+	name string
+	args toolCallArguments
+	// argumentsError is why the model's own arguments text was not a JSON object (ai.ToolCall.ArgumentsError).
+	// Arguments has no reading of that text, so args is the empty object the call carries: without this member a
+	// call whose JSON failed to parse would be validated as `{}` and reported as a missing required property, naming
+	// a member the model may well have sent inside text the harness could not read.
+	argumentsError   string
 	thoughtSignature string // encrypted reasoning context for replay
 }
 
@@ -2323,7 +2328,7 @@ func newPendingToolCall(call ai.ToolCall) pendingToolCall {
 	if err != nil {
 		arguments = []byte("{}")
 	}
-	pending := pendingToolCall{id: call.ID, name: call.Name, thoughtSignature: call.ThoughtSignature}
+	pending := pendingToolCall{id: call.ID, name: call.Name, argumentsError: call.ArgumentsError, thoughtSignature: call.ThoughtSignature}
 	// ArgumentsJSON returns bytes the call owns; the pending call keeps them, clipped so an append by a reader of the shared bytes copies.
 	pending.args = slices.Clip(arguments)
 	return pending
