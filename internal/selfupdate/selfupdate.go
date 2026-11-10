@@ -34,6 +34,8 @@ import (
 	"time"
 
 	semver "github.com/MichaelKinsy/PiG/third_party/semver"
+
+	"ompig-slim/internal/configroot"
 )
 
 const (
@@ -576,17 +578,10 @@ type marker struct {
 	DownloadBase string
 }
 
-// configRoot mirrors PiG's own resolution: PIG_HOME when set, else ~/.pi.
-func configRoot() (string, error) {
-	if root := strings.TrimSpace(os.Getenv("PIG_HOME")); root != "" {
-		return root, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".pi"), nil
-}
+// configRoot mirrors PiG's own resolution, which internal/configroot owns so the
+// installer marker and the published agent state cannot disagree about where the
+// configuration root is.
+func configRoot() (string, error) { return configroot.Dir() }
 
 // readMarker reads the archive-install marker written by scripts/install.sh.
 // A missing, unreadable, or foreign marker returns an error, which callers read
