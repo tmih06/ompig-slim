@@ -4,15 +4,22 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+    # No Actions status checks are required by the repository ruleset. If one
+    # becomes required, replace workflow filtering with an always-running gate
+    # before requiring it; a path-skipped workflow never reports that check.
+    paths-ignore: ['README.md', 'CONTEXT.md', 'docs/**']
   pull_request:
+    paths-ignore: ['README.md', 'CONTEXT.md', 'docs/**']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Only PRs share a group. Even cancel-in-progress:false replaces an older
+  # pending run, so main/tag/manual runs need unique groups to keep every run.
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: '1.27.3'
@@ -20,43 +27,71 @@ env:
 
 jobs:
   check:
-    needs: release
-    name: Tests, vet, race and smoke (${{ matrix.os }})
+    name: Go ${{ matrix.mode }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        mode: [check, race]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # setup-go only restores exact keys. Vendored source-keyed build results
+      # need role-specific fallbacks so each new commit does not build cold.
+      # Top-level tree IDs include descendants without walking vendor files.
+      - name: Identify the reusable Go cache
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          git ls-tree HEAD | awk '$4 !~ /^(docs|README[.]md|CONTEXT[.]md)$/' > .ci-go-cache-input
+          echo "GOCACHE=$RUNNER_TEMP/go-build-$MODE" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
-      - name: Restore Go build, test and vet caches
+      - name: Restore this Go mode's incremental cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: |
-            ~/.cache/go-build
-            ~/Library/Caches/go-build
-          key: go-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'scripts/**', '.github/workflows/**') }}
+          path: ${{ env.GOCACHE }}
+          key: go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ matrix.mode }}-${{ hashFiles('.ci-go-cache-input') }}
           restore-keys: |
-            go-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
-      # A cache hit never skips commands. Go checks source, dependencies, build
-      # flags and observed test inputs before reusing a successful result.
-      - name: Check script compatibility with the platform Bash
-        run: python3 scripts/test-check-go.py
-      - name: Test benchmark fixtures, accounting and reporting
-        run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
-      - name: Test the curl installer against a loopback release server
-        run: python3 scripts/test-install.py -v
-      - run: make check
-      - run: make race
-      - name: Download the already-built release archives
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+            go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ matrix.mode }}-
+      # Never skip commands on a cache hit: Go validates sources, flags and
+      # observed test inputs before reusing successful results.
+      - name: Run Go tests and platform checks
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          if [[ "$RUNNER_OS" == macOS && "$MODE" == check ]]; then
+            make test
+          else
+            make "$MODE"
+            if [[ "$MODE" == check ]]; then
+              GOOS=darwin GOARCH=arm64 make vet
+            fi
+          fi
+
+  smoke:
+    name: Native ${{ matrix.suite }} (${{ matrix.os }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # Two Go jobs plus three native jobs use at most five macOS slots per
+        # run. Keep native platform coverage; OS-independent checks use Ubuntu.
+        suite: [smoke-0, smoke-1, update]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # These suites only execute the release binary; no Go toolchain/cache.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: native-archives
           path: bin/releases
@@ -69,20 +104,33 @@ jobs:
           mv bin/ompig-slim/ompig-slim bin/ompig-slim-executable
           rm -r bin/ompig-slim
           mv bin/ompig-slim-executable bin/ompig-slim
-      - run: make smoke-built
+      - name: Check script compatibility with the platform Bash
+        if: matrix.suite == 'update'
+        run: python3 scripts/test-check-go.py
+      - name: Test the curl installer against a loopback release server
+        if: matrix.suite == 'update'
+        run: python3 scripts/test-install.py -v
       - name: Prove update and upgrade replace an installed release
+        if: matrix.suite == 'update'
         run: python3 scripts/test-self-update.py ./bin/ompig-slim
+      - name: Run native smoke scenarios
+        if: startsWith(matrix.suite, 'smoke-')
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: python3 scripts/ci-smoke.py "${SUITE#smoke-}"
       - name: Verify startup accepts and paints early input
+        if: matrix.suite == 'smoke-0'
         run: |
           profile="$(mktemp -d)"
           trap 'rm -rf "$profile"' EXIT
           PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 python3 scripts/measure-startup.py ./bin/ompig-slim --agent-dir "$profile" --cwd "$profile" --runs 1
-      - run: ./bin/ompig-slim --version
-      - run: ./bin/ompig-slim --help
+          ./bin/ompig-slim --version
+          ./bin/ompig-slim --help
 
   benchmark:
     name: Serial CLI comparison (median of five long sessions)
-    needs: [release, check, hygiene]
+    # The benchmark consumes only the release artifact, not test/scan outputs.
+    needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -101,13 +149,21 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: |
+            benchmarks/omp/package-lock.json
+            benchmarks/pi/package-lock.json
       - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
         with:
           bun-version: '1.4.4'
       - name: Install pinned OMP and original Pi on the runner
         run: |
-          npm ci --prefix benchmarks/omp --no-audit --no-fund
-          npm ci --prefix benchmarks/pi --no-audit --no-fund
+          npm ci --prefix benchmarks/omp --no-audit --no-fund &
+          omp_pid=$!
+          npm ci --prefix benchmarks/pi --no-audit --no-fund &
+          pi_pid=$!
+          wait "$omp_pid"
+          wait "$pi_pid"
       - name: Benchmark the existing artifact against installed upstream CLIs
         run: >-
           python3 scripts/benchmark.py --slim archives/ompig-slim/ompig-slim
@@ -139,26 +195,23 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-      - name: Restore pinned CI tools
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/ompig-ci-tools
-          key: tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ env.ACTIONLINT_VERSION }}-${{ env.GITLEAKS_VERSION }}
-      - name: Install missing tools
+      - name: Download checksum-verified pinned tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$HOME/.cache/ompig-ci-tools"
-          export GOBIN="$HOME/.cache/ompig-ci-tools"
-          if [[ ! -x "$GOBIN/actionlint" ]]; then
-            go install "github.com/rhysd/actionlint/cmd/actionlint@$ACTIONLINT_VERSION"
-          fi
-          if [[ ! -x "$GOBIN/gitleaks" ]]; then
-            go install "github.com/zricethezav/gitleaks/v8@$GITLEAKS_VERSION"
-          fi
-          echo "$GOBIN" >> "$GITHUB_PATH"
+          tools="$(mktemp -d)"
+          cd "$tools"
+          actionlint="actionlint_${ACTIONLINT_VERSION#v}_linux_amd64.tar.gz"
+          gitleaks="gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz"
+          gh release download "$ACTIONLINT_VERSION" --repo rhysd/actionlint \
+            --pattern "$actionlint" --pattern "actionlint_${ACTIONLINT_VERSION#v}_checksums.txt"
+          gh release download "$GITLEAKS_VERSION" --repo gitleaks/gitleaks \
+            --pattern "$gitleaks" --pattern "gitleaks_${GITLEAKS_VERSION#v}_checksums.txt"
+          sha256sum --check --ignore-missing "actionlint_${ACTIONLINT_VERSION#v}_checksums.txt"
+          sha256sum --check --ignore-missing "gitleaks_${GITLEAKS_VERSION#v}_checksums.txt"
+          tar -xzf "$actionlint" actionlint
+          tar -xzf "$gitleaks" gitleaks
+          echo "$tools" >> "$GITHUB_PATH"
       - run: actionlint -shellcheck= .github/workflows/ci.yml
       - name: Validate scripts and whitespace
         run: |
@@ -169,6 +222,10 @@ jobs:
           for path in pathlib.Path('scripts').glob('*.py'):
               ast.parse(path.read_text(), filename=str(path))
           PY
+      - name: Test benchmark fixtures, accounting and reporting
+        run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
+      - name: Test smoke shard coverage
+        run: python3 -m unittest discover -s scripts -p 'test_ci_smoke.py'
       - name: Scan every commit, including nested archives
         run: gitleaks git --log-opts=--all --max-archive-depth=10 --redact --no-banner .
 
@@ -180,16 +237,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Identify the reusable Go cache
+        run: |
+          git ls-tree HEAD | awk '$4 !~ /^(docs|README[.]md|CONTEXT[.]md)$/' > .ci-go-cache-input
+          echo "GOCACHE=$RUNNER_TEMP/go-build-release" >> "$GITHUB_ENV"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - name: Restore cross-platform release builds only
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/go-build
-          key: release-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'scripts/build-binaries.sh') }}
+          path: ${{ env.GOCACHE }}
+          key: go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-release-${{ hashFiles('.ci-go-cache-input') }}
           restore-keys: |
-            release-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
+            go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-release-
       - run: make release
       - run: python3 scripts/verify-releases.py bin/releases
       - name: Retain verified archives
@@ -231,7 +293,7 @@ jobs:
 
   container-image:
     name: Publish the broker image for linux/amd64 and linux/arm64
-    needs: [release, check, hygiene, container]
+    needs: [release, check, smoke, hygiene, benchmark, container]
     # A release tag is the only trigger that may push an image: the tags it
     # publishes are what deployments pin, so a branch run must never create them.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -299,10 +361,8 @@ jobs:
 
   publish:
     name: Attach verified archives to the release
-    needs: [release, check, hygiene, container]
-    # Only a tag push creates a release; the installer's default
-    # releases/latest/download URL resolves to the newest non-prerelease, so
-    # branch and pull-request runs must never publish.
+    needs: [release, check, smoke, hygiene, benchmark, container]
+    # A tagged release must wait for every check, including the broker contract.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -316,9 +376,7 @@ jobs:
         with:
           name: native-archives
           path: assets
-      # Re-verify before uploading: the checksums that the installer trusts are
-      # only meaningful if the files they describe are the files this workflow
-      # published. verify-releases.py asserts the tree relative to the repo.
+      # Recheck downloaded files: these are the checksums the installer trusts.
       - run: python3 scripts/verify-releases.py assets
       - name: Create the release and attach archives
         env:
