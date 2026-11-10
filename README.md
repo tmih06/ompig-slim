@@ -85,6 +85,33 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 Slash commands: `/login` `/model` `/settings` `/usage` `/subagents` `/compact` `/tree` `/fork` `/resume`
 `/export` `/hotkeys`. `ompig-slim --help` lists every flag.
 
+### For other tools
+
+Every session publishes what the agent is doing, so a multiplexer, status bar, or notifier can watch
+a run without knowing anything about this program:
+
+```sh
+# one document per running agent, rewritten on each change
+ls  <PIG_HOME|~/.pi>/state/agent/*/status.json
+cat <PIG_HOME|~/.pi>/state/agent/$$/status.json
+# {"state": "working", "agent": "ompig-slim", "mode": "tui", "session_id": "...",
+#  "session_file": "...", "cwd": "...", "pid": 1234, "updated_at": "..."}
+```
+
+`state` is `idle`, `working`, `blocked` (with the dialog in `detail`), or `exited`. Check
+`mode == "tui"` if you only care about interactive agents. The files are written atomically; treat a
+missing one, or one whose `pid` is no longer running, as "no information" rather than an error.
+
+The [Herdr](https://herdr.dev) adapter is an installable extension built on that file, not part of the
+binary:
+
+```sh
+ompig-slim install ./extensions/herdr
+```
+
+It gives Herdr a sidebar row, tab and workspace rollups, `herdr agent wait`, and session restore after
+a Herdr server restart.
+
 ## What's inside
 
 | Area | Detail |
@@ -95,6 +122,7 @@ Slash commands: `/login` `/model` `/settings` `/usage` `/subagents` `/compact` `
 | Accounts | Multiple accounts per provider, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub |
 | TUI | omp-style tool cards, prompt-anchored task/quota widget, stop-time todo reminder |
+| Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |
 | Themes | 100 palettes plus `system`/`dark`/`light`, colorful Markdown, palette-aware body color |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
