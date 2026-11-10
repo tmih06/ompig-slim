@@ -147,11 +147,14 @@ def run(binary, server, mode):
                 f"{mode}: the whole validation message reached the terminal\n{bytes(captured[-4000:])!r}"
 
             # The list the call could not change is still the panel's content.
+            # Wait for the last row the reopened panel paints, not the first: a
+            # terminal diff can arrive one row per write, so waiting for the top
+            # row would sample a frame that has not reached the bottom yet.
             os.write(master, b"\x1bw")
             wait("▸ Widgets".encode())
             os.write(master, b"\x1bw")
-            reopened = wait(b"Widget task alpha")
-            for token in (b"op: expected one of", b"Widget task beta"):
+            reopened = wait(b"Widget task beta")
+            for token in (b"op: expected one of", b"Widget task alpha", b"Widget task beta"):
                 assert token in reopened, f"{mode}: reopen lost {token!r}\n{reopened!r}"
             print(f"PASS: {mode} prompt-anchored widget, compact todo receipt, native checkbox renderer, "
                   "first/last-page scrolling, border-only collapse/reopen, one-row rejected-call reason")

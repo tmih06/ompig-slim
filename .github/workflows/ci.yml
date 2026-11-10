@@ -90,7 +90,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # These suites only execute the release binary; no Go toolchain/cache.
+      # The scenarios themselves only execute the release binary, but one of them
+      # loads extensions/herdr with -e, and PiG compiles a Go extension against the
+      # staged SDK before it runs. Ubuntu images ship a Go toolchain; macOS images
+      # do not, so without this the adapter scenario fails on "go is not on PATH"
+      # instead of testing anything. cache: false keeps this a toolchain install,
+      # not a build cache the job would otherwise not have.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: startsWith(matrix.suite, 'smoke-')
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: native-archives
