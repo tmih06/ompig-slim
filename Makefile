@@ -2,10 +2,13 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build run install check test race vet smoke smoke-built release benchmark test-install test-self-update
+.PHONY: build build-broker run install check test race vet smoke smoke-built release benchmark test-install test-self-update
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
+
+build-broker:
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker ./cmd/ompig-slim-broker
 
 run:
 	$(GO) run -mod=vendor . $(ARGS)

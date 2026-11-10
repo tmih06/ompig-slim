@@ -1,0 +1,10 @@
+.git
+bin
+dist
+broker-data
+.env
+.env.*
+**/agent.db
+**/agent.db-*
+benchmarks/node_modules
+**/node_modules

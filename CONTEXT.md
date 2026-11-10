@@ -57,6 +57,45 @@ make test-self-update
 - Treat provider catalogs, auth flows, and quota protocols as provider-specific. Validate protocol changes with local fixtures and keep network/live-service assumptions out of deterministic tests.
 - Update this section when an enduring technical ruling changes; keep transient task notes and details discoverable directly from source out of this file.
 
+## Remote broker
+
+`internal/broker` owns hosted document storage and opt-in client synchronization;
+`cmd/ompig-slim-broker` owns the storage-only executable. This is explicitly NOT
+an inference gateway or OMP snapshot-protocol port. Provider configuration is
+copied unchanged. All provider traffic, login and OAuth refresh execute locally.
+Setup, wire routes, conflicts and security boundaries are canonical in
+[docs/remote-broker.md](docs/remote-broker.md).
+
+`main.go` starts synchronization before PiG reads preferences when a saved
+`remote-broker.json` connection or `OMPIG_BROKER_URL` is configured. The native
+`/login` entry is installed through `MainOptions.ProfileLogin`, reuses the typed
+URL/secret dialog prompts and verifies access before saving the connection with
+mode 0600. It never stores the broker secret in provider credentials or shared
+files. Activation requires restart; replacing the global credential-sync callback
+inside a running session would race its workers. An unreachable or refusing
+service degrades to local-only operation with one stderr line instead of failing
+startup, so the CLI and the `/login` repair path stay usable. The existing profile receives allowlisted settings,
+keybindings, model definition files and logical multi-account credential records.
+Preferences reconcile on startup, five-second polling and normal CLI exit via
+`MainOptions.BeforeExit`; local files and hosted revisions retain common-ancestor
+hashes for conflict detection. First-adoption backups and interrupted credential
+writes must not be discarded. Idle polling pulls credentials without the hosted
+lease, because inference never needs one and an idle session must not block the
+machine that is rotating a token; a pull with unsent local state stops and reports
+instead of discarding the pending rotation. Keep sessions, project configuration
+and arbitrary SQLite tables out of the synchronization allowlist.
+
+Vendored `ai/credential_sync.go` provides raw logical export/import and an optional
+`CredentialStoreSync` mutation seam. Its root-owned callback obtains a hosted
+lease, reconciles pending local writes, pulls, runs the local mutation once and
+publishes with CAS. The original SQLite refresh/account logic still owns the
+mutation. IDs, blocks and leases stay local; identity, selection and tombstones
+travel. Configure the callback before opening runtimes, never concurrently with
+requests. A failed/conflicting upload retains the local rotation and must never
+trigger a blind replay. A hosted lease is not an atomic transaction with the
+OAuth provider; the crash/partition limits are documented. The service and all
+clients are trusted with plaintext secrets; there is no end-to-end encryption.
+
 ## Feature behavior notes
 
 ### The base system prompt

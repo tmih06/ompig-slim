@@ -48,6 +48,26 @@ To install in `~/.local/bin`:
 make install
 ```
 
+### Remote broker
+
+Run one hosted storage service to synchronize sign-in, custom providers,
+settings, model roles and keybindings across your machines. **All inference,
+OAuth refresh and tools still run on each client**; this is not a traffic proxy.
+
+```sh
+make build-broker
+export OMPIG_BROKER_TOKEN="$(openssl rand -hex 32)" # keep this secret
+./bin/ompig-slim-broker
+```
+
+On each client, open `/login`, choose **Remote ompig-slim broker**, and enter
+the service URL and secret. The secret is masked and the connection is saved
+locally; restart to activate sync. The first configured client seeds storage,
+and other clients download the profile. Sign in and edit preferences on any
+client; changes synchronize with revision checks. Use HTTPS or a private
+encrypted network: stored credentials, including refresh tokens, sync too.
+See [broker setup and containers](docs/remote-broker.md) for deployment and limits.
+
 ## What it includes
 
 - PiG's native Go runtime and full CLI, including interactive, print, JSON, and RPC modes.
@@ -66,7 +86,7 @@ make install
 - OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.
 - Native Linux and macOS releases for x64 and arm64.
 
-Codemode and other agent tools run with your user permissions; codemode is not an OS security sandbox. Account credentials are stored locally in SQLite and are not encrypted at rest.
+Codemode and other agent tools run with your user permissions; codemode is not an OS security sandbox. Account credentials are stored locally in SQLite and are not encrypted at rest. Enabling remote broker sync also stores a plaintext hosted copy; protect its volume and use TLS.
 
 ## Development
 

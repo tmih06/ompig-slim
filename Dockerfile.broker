@@ -1,0 +1,22 @@
+FROM golang:1.27.3-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags="-s -w" -o /out/ompig-slim-broker ./cmd/ompig-slim-broker
+# Preserve dependency notices in binary distributions, including SPDX texts.
+RUN mkdir /licenses && cp LICENSE NOTICE /licenses/ \
+ && find vendor -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' -o -iname 'NOTICE*' -o -iname '*NOTICES*' -o -iname 'PATENTS*' \) -exec cp --parents -t /licenses {} + \
+ && cp -R vendor/github.com/MichaelKinsy/PiG/LICENSES /licenses/vendor/github.com/MichaelKinsy/PiG/ \
+ && cp vendor/github.com/MichaelKinsy/PiG/REUSE.toml /licenses/vendor/github.com/MichaelKinsy/PiG/
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --uid 10001 --create-home broker \
+ && mkdir /data && chown broker:broker /data
+COPY --from=build /out/ /usr/local/bin/
+COPY --from=build /licenses/ /usr/share/doc/ompig-slim-broker/
+USER 10001:10001
+VOLUME /data
+EXPOSE 8765
+ENTRYPOINT ["ompig-slim-broker"]
+CMD ["--bind=:8765", "--data-dir=/data"]
