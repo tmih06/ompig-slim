@@ -48,7 +48,7 @@ make test-self-update
 make test-broker-container
 ```
 
-`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make test-broker-container` runs `scripts/test-broker-container.py`, which builds `Dockerfile.broker` and drives the running container: image identity, the missing-secret refusal, unprivileged UID, private data directory, authorization on every data route, the absence of any inference route, the document allowlist, revision conflicts, the credential lease, restart durability, the volume contents, and two real clients synchronizing through it. It needs a Docker daemon and skips no check when one is available. Because the suite builds the image from the checkout, CI tests the same Dockerfile the release workflow publishes, and the release job reuses that job's result rather than trusting an untested build. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
+`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make test-broker-container` runs `scripts/test-broker-container.py`, which builds `Dockerfile.broker` and drives the running container: image identity, the missing-secret refusal, unprivileged UID, private data directory, authorization on every data route, the absence of any inference route, the document allowlist, revision conflicts, the credential lease, restart durability, the volume contents, and two real clients synchronizing through it. It needs a Docker daemon and skips no check when one is available. `make test-broker-cluster` runs `scripts/test-broker-cluster.py`, which covers the deployed shape rather than the HTTP surface: one broker container and two client containers on a private Docker network, with no published ports, so the clients reach the service by its network name exactly as a composed deployment does. It builds the broker image and a client image from the binary under test, then drives profile seeding, preference propagation in both directions, an independent document, deletion tombstones, a same-document conflict that is reported and preserves both copies, credential synchronization as logical records, the credential lease under contention, the device-local connection file staying private and unsynchronized, a restart revoking the lease, a wrong secret, hosting nothing but allowlisted documents, a late joiner downloading the whole profile, the non-interactive `ompig-slim broker setup` path a provisioned machine uses, and degraded local-only operation. Because both suites build their images from the checkout, CI tests the same Dockerfile the release workflow publishes, and the release job reuses that job's result rather than trusting an untested build. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
 
 ## Project-specific rulings
 
@@ -72,7 +72,27 @@ Setup, wire routes, conflicts and security boundaries are canonical in
 `/login` entry is installed through `MainOptions.ProfileLogin`, reuses the typed
 URL/secret dialog prompts and verifies access before saving the connection with
 mode 0600. It never stores the broker secret in provider credentials or shared
-files. Activation requires restart; replacing the global credential-sync callback
+files.
+
+`ompig-slim broker setup|show|clear` is the non-interactive path for a container,
+a CI job or a machine provisioned by configuration management, which cannot answer
+a prompt. `main.go` claims the subcommand at the same point as the archive
+self-updater and for the same reason: PiG has no `broker` word, so it would read it
+as a prompt and fail on the missing model. `broker.Setup` writes the same
+device-local file `/login` writes, applying the same URL and secret validation, so
+a scripted setup cannot save a connection the next startup would reject. The secret
+resolves from `--token-file`, `--token`, `OMPIG_BROKER_TOKEN_FILE`,
+`OMPIG_BROKER_TOKEN`, then stdin, keeping the value out of argv whenever the caller
+chooses a file or a pipe. `--verify` contacts the service first; omitting it lets a
+deployment provision before the broker exists, and startup then reports the
+unreachable service rather than failing the machine. A destination different from
+the saved one requires `--force`, so a converge step cannot silently repoint a
+machine that is already synchronized elsewhere, and an identical setup is a no-op
+that leaves the file's mtime alone. `broker show` prints the URL and that a secret
+is stored, never the secret itself; `broker clear` disconnects and leaves the
+downloaded profile in place. A `OMPIG_BROKER_TOKEN_FILE` that cannot be read is an
+error rather than a fallback to the saved secret: silent fallback would sync to a
+different destination than the operator believes the mount configures. Activation requires restart; replacing the global credential-sync callback
 inside a running session would race its workers. An unreachable or refusing
 service degrades to local-only operation with one stderr line instead of failing
 startup, so the CLI and the `/login` repair path stay usable. The existing profile receives allowlisted settings,
@@ -101,7 +121,7 @@ clients are trusted with plaintext secrets; there is no end-to-end encryption.
 
 `Dockerfile.broker` is the deployable storage image, separate from the archives because it ships a different binary for a different purpose. Its build stage is `--platform=$BUILDPLATFORM` and cross-compiles with Go, so a `linux/amd64` and `linux/arm64` build needs no emulated compiler and only the small runtime stage runs under emulation. `VERSION` reaches the binary through `-X main.version`, so `ompig-slim-broker --version` reports the tag an operator pulled. The runtime image creates `/data` as mode 0700, and `internal/broker` re-tightens that mode at every start because the directory holds every synchronized secret.
 
-The `container-image` job publishes to GHCR only on a `v*` tag push, needs the same gates as the archives, and derives the image name from `github.repository_owner` so a fork publishes to its own namespace. It requests `packages: write` and nothing else. `container` is the test job that runs `make test-broker-container` on every push and pull request; it builds the image from the checkout, so the tested Dockerfile is the published one, and `container-image` and `publish` both depend on it rather than trusting an untested build.
+The `container-image` job publishes to GHCR only on a `v*` tag push, needs the same gates as the archives, and derives the image name from `github.repository_owner` so a fork publishes to its own namespace. It requests `packages: write` and nothing else. `container` is the test job that runs `make test-broker-container` and `make test-broker-cluster` on every push and pull request; both build their images from the checkout, so the tested Dockerfile is the published one, and `container-image` and `publish` both depend on it rather than trusting an untested build.
 
 `curl` is in the runtime image only for the declared `HEALTHCHECK`, which probes `/healthz` — the single unauthenticated route. Do not widen that health check to a data route; it would need the bearer and would leak it into image metadata.
 

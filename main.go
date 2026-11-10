@@ -32,6 +32,14 @@ func main() {
 	} else if delegated != nil {
 		args = delegated
 	}
+	// Claimed here for the same reason as the self-updater above: PiG has no
+	// `broker` subcommand, so it would read the word as a prompt and fail on the
+	// missing model instead of configuring the hosted profile store. This is the
+	// non-interactive provisioning path for containers, CI jobs and machines
+	// configured by configuration management, which cannot answer /login.
+	if handled, code := broker.HandleSetup(context.Background(), args, coding.DefaultAgentDir(), os.Stdin, os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
 	// Load the saved /login connection (or environment override) and synchronize
 	// local profile storage before PiG loads configuration. Provider
 	// requests and OAuth exchanges remain on this machine; no gateway is used.

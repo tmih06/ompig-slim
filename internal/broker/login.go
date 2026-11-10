@@ -25,11 +25,42 @@ type connection struct {
 	Secret string `json:"secret"`
 }
 
-// loadConnection prefers an explicit environment URL/token pair; otherwise it
-// reads the locally saved login. A token-only override supports token rotation.
+// Environment variables that configure the connection. They exist for
+// unattended clients: a container, a CI job, or a machine provisioned by
+// configuration management, none of which can answer the login dialog.
+const (
+	// EnvURL is the broker origin. Setting it selects environment configuration
+	// and overrides a saved connection, because an explicit value in the
+	// environment is a deliberate choice for this process.
+	EnvURL = "OMPIG_BROKER_URL"
+	// EnvToken is the shared secret. Its meaning depends on what else is set: with
+	// EnvURL it completes an environment connection, alone it rotates the secret of
+	// the saved URL, and with EnvTokenFile it is ignored.
+	EnvToken = "OMPIG_BROKER_TOKEN"
+	// EnvTokenFile names a file holding the secret, for deployments that mount a
+	// secret as a file rather than an environment variable. The filename form keeps
+	// the value out of `docker inspect` and a process's environment.
+	EnvTokenFile = "OMPIG_BROKER_TOKEN_FILE"
+)
+
+// loadConnection resolves the connection from the environment, then the saved
+// login. Precedence, in order:
+//
+//  1. EnvURL plus a secret (EnvToken or EnvTokenFile): a complete override for
+//     this process, which never borrows the saved secret.
+//  2. EnvToken or EnvTokenFile alone: the saved URL with a rotated secret.
+//  3. The saved login file.
+//
+// A file that cannot be read is an error rather than an empty secret: a client
+// configured to read a mounted secret must fail loudly when the mount is missing,
+// not silently fall back to the saved connection.
 func loadConnection(dir string) (connection, error) {
-	if endpoint := os.Getenv("OMPIG_BROKER_URL"); endpoint != "" {
-		return connection{URL: endpoint, Secret: os.Getenv("OMPIG_BROKER_TOKEN")}, nil
+	secret, err := environmentSecret()
+	if err != nil {
+		return connection{}, err
+	}
+	if endpoint := os.Getenv(EnvURL); endpoint != "" {
+		return connection{URL: endpoint, Secret: secret}, nil
 	}
 	data, err := readLocal(filepath.Join(dir, connectionFile))
 	if err != nil {
@@ -45,10 +76,25 @@ func loadConnection(dir string) (connection, error) {
 	if saved.URL == "" {
 		return saved, fmt.Errorf("local broker connection has no URL")
 	}
-	if secret := os.Getenv("OMPIG_BROKER_TOKEN"); secret != "" {
+	if secret != "" {
 		saved.Secret = secret
 	}
 	return saved, nil
+}
+
+// environmentSecret reads the secret from EnvToken or, when set, EnvTokenFile.
+// The file form wins because an operator mounting a secret is rotating it without
+// changing the process definition. Surrounding whitespace is trimmed: a secret
+// written with a trailing newline is the normal case for a mounted file.
+func environmentSecret() (string, error) {
+	if path := strings.TrimSpace(os.Getenv(EnvTokenFile)); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read broker secret file: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+	return os.Getenv(EnvToken), nil
 }
 
 // newClient validates connection details without fetching or changing shared

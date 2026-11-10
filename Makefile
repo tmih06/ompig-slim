@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-extensions
+.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -66,6 +66,12 @@ test-self-update: build
 # image and the client executable first, and touches no user profile.
 test-broker-container: build
 	python3 scripts/test-broker-container.py --binary ./bin/ompig-slim
+
+# The deployed shape: one broker host and two client containers on a private
+# network. Needs a Docker daemon; builds the broker image and a client image from
+# this checkout, then drives synchronization, credentials and connection setup.
+test-broker-cluster: build
+	python3 scripts/test-broker-cluster.py --binary ./bin/ompig-slim
 
 # Install the pinned baselines first; benchmark never rebuilds the measured CLI.
 benchmark:
