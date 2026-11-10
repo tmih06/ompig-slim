@@ -175,7 +175,12 @@ func (m *InteractiveMode) limitsModel() *ai.Model {
 // message_start event, as upstream interactive mode renders it: output that
 // the caller, a compaction, or a before_agent_start handler produces before
 // the run starts precedes it, and a prompt the run rejects is never shown.
-func (m *InteractiveMode) runPromptTurnWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
+//
+// mentions, when non-nil, is the auto-read of the prompt's `@path` mentions. It
+// joins the run's starting batch beside the user message, so the model sees the
+// prompt and its file contents in one request and a refused run leaves no stale
+// auto-read behind (see interactive_file_mentions.go).
+func (m *InteractiveMode) runPromptTurnWithImages(ctx context.Context, prompt string, images []ai.ImageContent, mentions *fileMentionContext) {
 	m.startTurn(ctx, prompt, images, true, nil, func(runCtx context.Context) ([]agent.AgentMessage, error) {
 		content := promptContent(prompt, images)
 		autoResize := true
@@ -184,7 +189,21 @@ func (m *InteractiveMode) runPromptTurnWithImages(ctx context.Context, prompt st
 		}
 		content = NormalizePromptContent(content, autoResize, m.limitsModel(), imageprocessing.ProcessImage)
 		// upstream: packages/coding-agent/src/core/agent-session.ts:_startRun
-		return m.agent.SendContent(runCtx, content)
+		if mentions == nil {
+			return m.agent.SendContent(runCtx, content)
+		}
+		// SendMessages bypasses SendContent's own nextTurn drain, so take the
+		// deferred messages here: the batch is the user message, its auto-read,
+		// then whatever an extension deferred for this turn. Building the batch
+		// after the claim means a refused run (a busy agent, a missing model)
+		// leaves the deferred messages queued for the next turn.
+		run, err := m.agent.BeginSendMessagesWith(runCtx, func() []agent.AgentMessage {
+			return append(promptStartingMessages(prompt, content, mentions), m.agent.TakePendingNextTurn()...)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return run.Run()
 	})
 }
 

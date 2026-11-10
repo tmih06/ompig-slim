@@ -53,10 +53,11 @@ type inputPreflight struct {
 
 // heldPrompt is one idle submission waiting for the active run to settle.
 type heldPrompt struct {
-	ctx     context.Context
-	text    string
-	images  []ai.ImageContent
-	session InteractiveSessionHandle
+	ctx      context.Context
+	text     string
+	images   []ai.ImageContent
+	mentions *fileMentionContext
+	session  InteractiveSessionHandle
 }
 
 // inputPreflightResult is what the handlers returned for one submission.
@@ -152,7 +153,14 @@ func (m *InteractiveMode) preflightPending() bool {
 // starts the next queued submission. It is also the synchronous path's whole
 // body, so both strategies deliver a result the same way.
 func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inputPreflightResult) {
-	defer m.endPreflightDispatch()
+	// The slot is released exactly once: here, unless deliverPrompt moved the
+	// delivery to a worker, which then releases it when the prompt is delivered.
+	released := false
+	defer func() {
+		if !released {
+			m.endPreflightDispatch()
+		}
+	}()
 	switch {
 	case submission.session != m.opts.SessionHandle:
 		// The Session was replaced while the handlers ran; the result belonged
@@ -173,30 +181,82 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
 				text = expanded
 			}
 		}
-		// Upstream rechecks streaming after the input await (agent-session.ts
-		// `_queueUserInput`): a run that started while the handlers ran receives
-		// text the user typed while working as a steer or follow-up.
-		if submission.streaming && m.enqueueIfTurnActive(func() {
-			if submission.followUp {
-				m.followUpMessageWithImages(text, result.images)
-			} else {
-				m.steerMessageWithImages(text, result.images)
-			}
-		}) {
-			break
-		}
-		// Text typed while idle never joins another run. Upstream holds it in
-		// pendingUserInputs (interactive-mode.ts onSubmit) and its main loop
-		// prompts each entry only after the previous prompt settled
-		// (getUserInput / session.prompt), so it waits here, behind any text
-		// already held, and runs as its own prompt.
-		if m.runStreaming() || len(m.heldPrompts) > 0 {
-			m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: result.images, session: submission.session})
-			m.runHeldPrompts()
-			break
-		}
-		m.runPromptTurnWithImages(submission.ctx, text, result.images)
+		released = m.deliverPrompt(submission, text, result.images)
 	}
+}
+
+// deliverPrompt auto-reads the submission's mentions and delivers the prompt
+// with them: as a steer or follow-up when a run took the submission, or as a
+// new turn (directly or behind the held prompts).
+//
+// The read happens here, after expansion, as agent-session.ts:9484 does. A
+// mention set that fetches a URL is read on a worker, because a fetch would
+// otherwise freeze the editor for its whole timeout on this loop; the delivery
+// is posted back and runs in submission order because the worker keeps the
+// preflight slot until it delivers. A local-only mention set is read inline.
+//
+// It reports whether it kept the preflight slot: true means the delivery is
+// still in flight, so the caller must not release the slot.
+func (m *InteractiveMode) deliverPrompt(submission inputPreflight, text string, images []ai.ImageContent) bool {
+	// Capture the working directory here, on the owner loop: a fetch runs on a
+	// worker and must not read m.opts, which /cd and session replacement rewrite.
+	cwd := m.opts.CWD
+	read := func(ctx context.Context) *fileMentionContext { return prepareFileMentions(ctx, text, cwd) }
+	// A submission without a context cannot bound a worker, so it is read and
+	// delivered inline. readPromptFileMentions tolerates the nil context.
+	if !mentionsNeedNetwork(text) || submission.ctx == nil {
+		m.deliverPromptWithMentions(submission, text, images, read(submission.ctx))
+		return false
+	}
+	go func() {
+		mentions := read(submission.ctx)
+		m.runOnMain(m.runCtx, func() {
+			// deliverPromptWithMentions rechecks the session itself, so a session
+			// replaced while the fetch ran drops the delivery.
+			m.deliverPromptWithMentions(submission, text, images, mentions)
+			m.endPreflightDispatch()
+		})
+	}()
+	return true
+}
+
+// deliverPromptWithMentions is deliverPrompt's synchronous half: it queues or
+// starts the prompt once its mentions are read.
+func (m *InteractiveMode) deliverPromptWithMentions(submission inputPreflight, text string, images []ai.ImageContent, mentions *fileMentionContext) {
+	// The session a submission was typed into may have been replaced while its
+	// handlers or its fetch ran (finishPreflight checks this for the synchronous
+	// path; the worker path and a direct call arrive here instead). Upstream
+	// binds a prompt to the AgentSession it was called on, so a stale submission
+	// is dropped.
+	if submission.session != m.opts.SessionHandle {
+		return
+	}
+	// Upstream rechecks streaming after the input await (agent-session.ts
+	// `_queueUserInput`): a run that started while the handlers ran receives
+	// text the user typed while working as a steer or follow-up.
+	if submission.streaming && m.enqueueIfTurnActive(func() {
+		// One slot, so the model reads the prompt and the files it named in the
+		// same turn even under the one-at-a-time queue mode.
+		if submission.followUp {
+			m.agent.FollowUpGroup(queuedPromptMessages(text, images, mentions)...)
+		} else {
+			m.agent.SteerGroup(queuedPromptMessages(text, images, mentions)...)
+		}
+		m.updatePendingMessagesDisplay()
+	}) {
+		return
+	}
+	// Text typed while idle never joins another run. Upstream holds it in
+	// pendingUserInputs (interactive-mode.ts onSubmit) and its main loop
+	// prompts each entry only after the previous prompt settled
+	// (getUserInput / session.prompt), so it waits here, behind any text
+	// already held, and runs as its own prompt.
+	if m.runStreaming() || len(m.heldPrompts) > 0 {
+		m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: images, mentions: mentions, session: submission.session})
+		m.runHeldPrompts()
+		return
+	}
+	m.runPromptTurnWithImages(submission.ctx, text, images, mentions)
 }
 
 // runHeldPrompts starts the oldest held prompt when no run is active, or waits
@@ -227,7 +287,7 @@ func (m *InteractiveMode) runHeldPrompts() {
 	m.heldPrompts[0] = heldPrompt{}
 	m.heldPrompts = m.heldPrompts[1:]
 	if next.session == m.opts.SessionHandle {
-		m.runPromptTurnWithImages(next.ctx, next.text, next.images)
+		m.runPromptTurnWithImages(next.ctx, next.text, next.images, next.mentions)
 	}
 	m.runHeldPrompts()
 }
