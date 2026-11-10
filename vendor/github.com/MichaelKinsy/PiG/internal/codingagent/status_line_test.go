@@ -35,7 +35,13 @@ func footerTheme(t *testing.T) *tui.Theme {
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatalf("write fixture theme: %v", err)
 	}
-	theme, err := tui.LoadThemeFile(path)
+	// LoadThemeFromPath with an explicit mode, not LoadThemeFile: the latter reads
+	// GetTerminalColorMode(), so this fixture would resolve in truecolor on a
+	// developer's terminal and in 256-color on a CI runner with no COLORTERM. The
+	// #NNNNNN grey ramp below is only distinct in truecolor -- 256-color spaces its
+	// grey ramp 10 levels apart, so 63 steps collapse onto ~24 entries and tokens a
+	// test expects to differ share an escape sequence.
+	theme, err := tui.LoadThemeFromPath(path, tui.TerminalColorModeTrueColor)
 	if err != nil {
 		t.Fatalf("load fixture theme: %v", err)
 	}

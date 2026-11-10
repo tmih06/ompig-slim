@@ -373,7 +373,10 @@ func TestPaletteForegroundIsAdopted(t *testing.T) {
 // section keeps the terminal default it asked for.
 func TestThemeNamingTextKeepsIt(t *testing.T) {
 	for _, name := range []string{"light", "dark"} {
-		theme, err := LoadBuiltinTheme(name)
+		// loadBuiltinThemeWithMode, not LoadBuiltinTheme: the latter resolves in
+		// whatever mode the ambient terminal reports, so the assertions below would
+		// mean different things on a truecolor terminal and on a CI runner.
+		theme, err := loadBuiltinThemeWithMode(name, TerminalColorModeTrueColor)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
