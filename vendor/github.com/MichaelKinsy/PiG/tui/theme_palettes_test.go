@@ -125,6 +125,8 @@ func TestThemeSchemaAcceptsOMPSections(t *testing.T) {
 				"spinnerFrames": []any{"⠋", "⠙"},
 			}
 		}),
+		// symbols is carried through untouched: this engine renders no glyph table of
+		// its own, so the section is only checked to be an object.
 		"symbols spinner object": document(func(values map[string]any) {
 			values["symbols"] = map[string]any{"spinnerFrames": map[string]any{"status": []any{"⠋"}}}
 		}),
@@ -141,14 +143,11 @@ func TestThemeSchemaAcceptsOMPSections(t *testing.T) {
 		"unknown terminal member": document(func(values map[string]any) {
 			values["terminal"] = map[string]any{"chromeColor": "#101010"}
 		}),
-		"unknown symbols member": document(func(values map[string]any) {
-			values["symbols"] = map[string]any{"icons": map[string]any{"a": "b"}}
+		"symbols not an object": document(func(values map[string]any) {
+			values["symbols"] = []any{"unicode"}
 		}),
-		"bad symbols preset": document(func(values map[string]any) {
-			values["symbols"] = map[string]any{"preset": "emoji"}
-		}),
-		"empty spinner frame": document(func(values map[string]any) {
-			values["symbols"] = map[string]any{"spinnerFrames": []any{""}}
+		"terminal not an object": document(func(values map[string]any) {
+			values["terminal"] = "#101010"
 		}),
 	} {
 		if err := ValidateThemeJSON(name, data); err == nil {

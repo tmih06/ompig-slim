@@ -404,12 +404,12 @@ type footerUsageTotals struct {
 // "(sub)"; otherwise a zero total shows no cost segment.
 func footerUsageParts(u footerUsageTotals, usingSubscription bool) []string {
 	var parts []string
-	spend := string(tui.ThemeColorStatusLineSpend)
+	spend := tui.ThemeColorStatusLineSpend
 	if u.input != 0 {
 		parts = append(parts, footerToken(spend, "↑"+formatTokens(u.input)))
 	}
 	if u.output != 0 {
-		parts = append(parts, footerToken(string(tui.ThemeColorStatusLineOutput), "↓"+formatTokens(u.output)))
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineOutput, "↓"+formatTokens(u.output)))
 	}
 	if u.cacheRead != 0 {
 		parts = append(parts, footerToken(spend, "R"+formatTokens(u.cacheRead)))
@@ -425,7 +425,7 @@ func footerUsageParts(u footerUsageTotals, usingSubscription bool) []string {
 		if usingSubscription {
 			costStr += " (sub)"
 		}
-		parts = append(parts, footerToken(string(tui.ThemeColorStatusLineCost), costStr))
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineCost, costStr))
 	}
 	return parts
 }
@@ -462,17 +462,17 @@ func formatCwdForFooter(cwd, home string) string {
 // footerToken is `theme.fg(token, text)` for the active theme, read when the
 // line is drawn so a theme switch repaints the footer. An empty text stays
 // empty: styling it would emit escape sequences for nothing.
-func footerToken(token string, text string) string {
+func footerToken(token tui.ThemeColor, text string) string {
 	if text == "" {
 		return ""
 	}
-	return tui.ActiveTheme().Fg(token, text)
+	return tui.ActiveTheme().Fg(string(token), text)
 }
 
 // footerSeparator is the ` · ` between two footer segments, in the theme's
 // statusLineSep. It is its own color because a separator drawn in the next
 // segment's color reads as part of that segment.
-func footerSeparator() string { return footerToken(string(tui.ThemeColorStatusLineSep), " \u2022 ") }
+func footerSeparator() string { return footerToken(tui.ThemeColorStatusLineSep, " \u2022 ") }
 
 // renderFooter produces the 2-line footer matching upstream footer.ts.
 // Line 1: pwd (branch) • name
@@ -493,14 +493,14 @@ func renderFooter(d footerData, width int) []string {
 	// resolves only the branch name, so coloring it clean or dirty would claim a
 	// working-tree state it never read. OMP reads staged, modified and untracked
 	// counts on its status line, and that is where those two colors belong.
-	pwd := footerToken(string(tui.ThemeColorStatusLinePath), footerCwd(d.cwd))
+	pwd := footerToken(tui.ThemeColorStatusLinePath, footerCwd(d.cwd))
 	if d.gitBranch != "" {
-		pwd += footerToken(string(tui.ThemeColorStatusLineSep), " (") +
-			footerToken(string(tui.ThemeColorStatusLineContext), d.gitBranch) +
-			footerToken(string(tui.ThemeColorStatusLineSep), ")")
+		pwd += footerToken(tui.ThemeColorStatusLineSep, " (") +
+			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
+			footerToken(tui.ThemeColorStatusLineSep, ")")
 	}
 	if d.sessionName != "" {
-		pwd += footerSeparator() + footerToken(string(tui.ThemeColorStatusLineModel), d.sessionName)
+		pwd += footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
 	}
 	line1 := widthx.TruncateToWidth(pwd, width, dim("..."), false)
 
@@ -535,28 +535,28 @@ func renderFooter(d footerData, width int) []string {
 	// When multiple providers are available, prepend "(provider) ".
 	// Mirrors upstream footer.ts:165-174.
 	modelName, modelProvider, thinkingLevel := footerModel(d)
-	rightSide := footerToken(string(tui.ThemeColorStatusLineModel), modelName)
+	rightSide := footerToken(tui.ThemeColorStatusLineModel, modelName)
 	switch thinkingLevel {
 	case "":
 	case "off":
-		rightSide += footerSeparator() + footerToken(string(tui.ThemeColorStatusLineSep), "thinking "+thinkingLevel)
+		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineSep, "thinking "+thinkingLevel)
 	default:
-		rightSide += footerSeparator() + footerToken(string(tui.ThemeColorStatusLineContext), thinkingLevel)
+		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, thinkingLevel)
 	}
 
 	// A virtual model routes each request; show where the latest response went (footer.ts:237-243).
 	if d.routed != nil && d.routed.Model != nil {
-		rightSide += footerToken(string(tui.ThemeColorStatusLineSep), " \u2192 ") +
-			footerToken(string(tui.ThemeColorStatusLineContext), d.routed.Model.ID)
+		rightSide += footerToken(tui.ThemeColorStatusLineSep, " \u2192 ") +
+			footerToken(tui.ThemeColorStatusLineContext, d.routed.Model.ID)
 		if d.routed.ThinkingLevel != "" {
-			rightSide += footerSeparator() + footerToken(string(tui.ThemeColorStatusLineContext), string(d.routed.ThinkingLevel))
+			rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, string(d.routed.ThinkingLevel))
 		}
 	}
 
 	// Prepend the provider in parentheses when multiple providers are active.
 	rightSideWithProvider := rightSide
 	if d.providerCount > 1 && modelProvider != "" {
-		rightSideWithProvider = footerToken(string(tui.ThemeColorStatusLineSep), "("+modelProvider+") ") + rightSide
+		rightSideWithProvider = footerToken(tui.ThemeColorStatusLineSep, "("+modelProvider+") ") + rightSide
 	}
 
 	// Compose line 2 with right-alignment.
@@ -725,13 +725,13 @@ func colorContextDisplay(pct float64, display string) string {
 func applyContextColor(pct float64, body string) string {
 	switch {
 	case pct > 90:
-		return footerToken(string(tui.ThemeColorError), body)
+		return footerToken(tui.ThemeColorError, body)
 	case pct > 70:
-		return footerToken(string(tui.ThemeColorThinkingHigh), body)
+		return footerToken(tui.ThemeColorThinkingHigh, body)
 	case pct > 50:
-		return footerToken(string(tui.ThemeColorWarning), body)
+		return footerToken(tui.ThemeColorWarning, body)
 	default:
-		return footerToken(string(tui.ThemeColorStatusLineContext), body)
+		return footerToken(tui.ThemeColorStatusLineContext, body)
 	}
 }
 

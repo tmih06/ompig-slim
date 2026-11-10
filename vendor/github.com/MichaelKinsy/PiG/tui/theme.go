@@ -101,9 +101,6 @@ type Theme struct {
 	// ─── Misc ────────────────────────────────────────────────
 	BashMode   string // bash mode indicator
 	PythonMode string // python mode indicator
-	// AssistantMessageText colors the assistant reply's plain prose; empty when the
-	// theme leaves it to the terminal's default foreground.
-	AssistantMessageText string
 
 	// ─── Status line segment colors ─────────────────────────────
 	StatusLineSep       string
@@ -1035,8 +1032,7 @@ func (t *Theme) populateFields() {
 		"thinkingText": &t.ThinkingText, "thinkingOff": &t.ThinkingOff, "thinkingMinimal": &t.ThinkingMinimal,
 		"thinkingLow": &t.ThinkingLow, "thinkingMedium": &t.ThinkingMedium, "thinkingHigh": &t.ThinkingHigh,
 		"thinkingXhigh": &t.ThinkingXhigh, "bashMode": &t.BashMode, "pythonMode": &t.PythonMode,
-		"assistantMessageText": &t.AssistantMessageText,
-		"statusLineSep":        &t.StatusLineSep, "statusLineModel": &t.StatusLineModel, "statusLinePath": &t.StatusLinePath,
+		"statusLineSep": &t.StatusLineSep, "statusLineModel": &t.StatusLineModel, "statusLinePath": &t.StatusLinePath,
 		"statusLineGitClean": &t.StatusLineGitClean, "statusLineGitDirty": &t.StatusLineGitDirty,
 		"statusLineContext": &t.StatusLineContext, "statusLineSpend": &t.StatusLineSpend,
 		"statusLineStaged": &t.StatusLineStaged, "statusLineDirty": &t.StatusLineDirty,

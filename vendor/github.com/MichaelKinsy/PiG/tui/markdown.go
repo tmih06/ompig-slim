@@ -1561,19 +1561,24 @@ func (m *Markdown) headingInline(text string, depth int) string {
 		}
 	}
 	context := inlineStyleContext{applyText: style, stylePrefix: markdownStylePrefix(style)}
-	result := m.renderInlineMarkdownIn(text, context, headingEmphasis(theme))
+	result := m.renderHeadingInline(text, context, theme)
 	if depth >= 3 {
 		result = style(strings.Repeat("#", depth)+" ") + result
 	}
 	return result
 }
 
-// headingEmphasis is theme with plain emphasis: the stock bold and italic decorations, without the colorful roles that
-// would compete with the heading's own color.
-func headingEmphasis(theme MarkdownTheme) *MarkdownTheme {
+// renderHeadingInline renders a heading's inline markdown with plain emphasis: the stock bold and italic decorations,
+// without the colorful roles that would compete with the heading's own color. It borrows a child Markdown carrying the
+// override, the way renderQuote borrows one for its style context, so the inline renderer needs no theme parameter.
+func (m *Markdown) renderHeadingInline(text string, style inlineStyleContext, theme MarkdownTheme) string {
 	theme.Bold = markdownBold
 	theme.Italic = markdownItalic
-	return &theme
+	child := m.childMarkdown(text)
+	child.theme = &theme
+	// The one-pass span writer recognizes the stock emphasis functions by identity, and an overridden theme is a
+	// deliberate change to them, so take the per-level path.
+	return child.renderInlineTokensSequential(lexMarkedInline(text, child.lexerState()), style)
 }
 
 type inlineStyleContext struct {
@@ -1611,12 +1616,6 @@ func ansiSpan(open, close, text string) string {
 // renderInlineMarkdown lexes one inline source with marked's rules and the document's lexer state, then renders the tokens.
 func (m *Markdown) renderInlineMarkdown(s string, style inlineStyleContext) string {
 	return m.renderInlineTokens(lexMarkedInline(s, m.lexerState()), style)
-}
-
-// renderInlineMarkdownIn is renderInlineMarkdown with theme in place of the document's Markdown theme, for the inline
-// renderings that need one role suppressed (a heading's emphasis; see headingInline).
-func (m *Markdown) renderInlineMarkdownIn(s string, style inlineStyleContext, theme *MarkdownTheme) string {
-	return m.renderInlineTokensIn(lexMarkedInline(s, m.lexerState()), style, theme)
 }
 
 // lexerState is the document's marked lexer state, created for a component used outside Render.

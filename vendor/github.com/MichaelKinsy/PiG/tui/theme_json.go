@@ -131,11 +131,10 @@ func ThemeColorTokens() []ThemeColorToken {
 // themeExportTokens lists ThemeJsonSchema.export in schema order.
 var themeExportTokens = []string{"pageBg", "cardBg", "infoBg"}
 
-// themeTerminalTokens lists ThemeJsonSchema.terminal's color members in schema order; ansi is checked separately because it is an array.
-var themeTerminalTokens = []string{"background", "foreground", "chrome", "widget"}
-
-// themeSymbolPresets are ThemeJsonSchema.symbols.preset's allowed values.
-var themeSymbolPresets = []string{"unicode", "nerd", "ascii"}
+// themeTerminalTokens lists the ThemeJsonSchema.terminal color members this engine
+// reads. The section's other members (background, chrome, widget) describe a
+// terminal it never paints, so they are accepted and ignored.
+var themeTerminalTokens = []string{"foreground"}
 
 type themeSchemaError struct {
 	path, keyword, message string
@@ -227,7 +226,9 @@ func checkThemeDocument(errs *themeSchemaErrors, root any, data []byte) {
 		checkThemeTerminal(errs, value, themeObjectKeys(data, "terminal"))
 	}
 	if value, present := object["symbols"]; present {
-		checkThemeSymbols(errs, value)
+		if _, ok := value.(map[string]any); !ok {
+			errs.add(themeSchemaError{path: "/symbols", message: "must be object"})
+		}
 	}
 	if value, present := object["export"]; present {
 		exports, ok := value.(map[string]any)
@@ -310,7 +311,7 @@ func checkThemeTerminal(errs *themeSchemaErrors, value any, keys []string) {
 		return
 	}
 	checkAdditionalProperties(errs, "/terminal", keys, func(key string) bool {
-		return slices.Contains(append(slices.Clone(themeTerminalTokens), "ansi"), key)
+		return slices.Contains([]string{"background", "foreground", "chrome", "widget", "ansi"}, key)
 	})
 	for _, token := range themeTerminalTokens {
 		if member, present := terminal[token]; present {
@@ -331,103 +332,6 @@ func checkThemeTerminal(errs *themeSchemaErrors, value any, keys []string) {
 			checkThemeColorValue(errs, "/terminal/ansi/"+strconv.Itoa(index), entry)
 		}
 	}
-}
-
-// checkThemeSymbols checks ThemeJsonSchema.symbols: an optional preset name, a
-// string map of glyph overrides, and optional spinner frames. Override keys are
-// reported in sorted order because this check reads the decoded object, not the
-// document, and a stable order keeps the error text diffable.
-func checkThemeSymbols(errs *themeSchemaErrors, value any) {
-	symbols, ok := value.(map[string]any)
-	if !ok {
-		errs.add(themeSchemaError{path: "/symbols", message: "must be object"})
-		return
-	}
-	checkAdditionalProperties(errs, "/symbols", sortedObjectKeys(symbols), func(key string) bool {
-		return slices.Contains([]string{"preset", "overrides", "spinnerFrames"}, key)
-	})
-	if preset, present := symbols["preset"]; present {
-		name, isString := preset.(string)
-		if !isString {
-			errs.add(themeSchemaError{path: "/symbols/preset", message: "must be string"})
-		} else if !slices.Contains(themeSymbolPresets, name) {
-			errs.add(themeSchemaError{path: "/symbols/preset", message: "must be equal to one of the allowed values"})
-		}
-	}
-	if overrides, present := symbols["overrides"]; present {
-		entries, isObject := overrides.(map[string]any)
-		if !isObject {
-			errs.add(themeSchemaError{path: "/symbols/overrides", message: "must be object"})
-			return
-		}
-		for _, key := range sortedObjectKeys(entries) {
-			if _, isString := entries[key].(string); !isString {
-				errs.add(themeSchemaError{path: "/symbols/overrides/" + key, message: "must be string"})
-			}
-		}
-	}
-	if frames, present := symbols["spinnerFrames"]; present {
-		checkThemeSpinnerFrames(errs, "/symbols/spinnerFrames", frames)
-	}
-}
-
-// checkThemeSpinnerFrames checks symbols.spinnerFrames: one non-empty string array
-// for both spinner kinds, or an object naming either kind.
-func checkThemeSpinnerFrames(errs *themeSchemaErrors, path string, value any) {
-	if entries, ok := value.([]any); ok {
-		checkThemeFrameArray(errs, path, entries)
-		return
-	}
-	framing, ok := value.(map[string]any)
-	if !ok {
-		errs.add(themeSchemaError{path: path, message: "must match a schema in anyOf"})
-		return
-	}
-	checkAdditionalProperties(errs, path, sortedObjectKeys(framing), func(key string) bool {
-		return key == "status" || key == "activity"
-	})
-	named := false
-	for _, key := range []string{"status", "activity"} {
-		member, present := framing[key]
-		if !present {
-			continue
-		}
-		named = true
-		if entries, ok := member.([]any); ok {
-			checkThemeFrameArray(errs, path+"/"+key, entries)
-		} else {
-			errs.add(themeSchemaError{path: path + "/" + key, message: "must be array"})
-		}
-	}
-	if !named {
-		errs.add(themeSchemaError{path: path, message: "must have required properties status, activity"})
-	}
-}
-
-// checkThemeFrameArray requires a spinner frame list to hold at least one non-empty string.
-func checkThemeFrameArray(errs *themeSchemaErrors, path string, entries []any) {
-	if len(entries) == 0 {
-		errs.add(themeSchemaError{path: path, message: "must not have fewer than 1 items"})
-	}
-	for index, entry := range entries {
-		frame, isString := entry.(string)
-		if !isString {
-			errs.add(themeSchemaError{path: path + "/" + strconv.Itoa(index), message: "must be string"})
-		} else if frame == "" {
-			errs.add(themeSchemaError{path: path + "/" + strconv.Itoa(index), message: "must not have fewer than 1 characters"})
-		}
-	}
-}
-
-// sortedObjectKeys returns object's keys in sorted order, the deterministic
-// stand-in for insertion order where the raw document is unavailable.
-func sortedObjectKeys(object map[string]any) []string {
-	keys := make([]string, 0, len(object))
-	for key := range object {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	return keys
 }
 
 func checkRequired(errs *themeSchemaErrors, path string, object map[string]any, required []string) {

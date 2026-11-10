@@ -148,12 +148,11 @@ type ThemeJSON struct {
 	Vars       map[string]ThemeColorValue `json:"vars"`
 	Colors     map[string]ThemeColorValue `json:"colors"`
 	Export     map[string]ThemeColorValue `json:"export,omitempty"`
-	// Terminal and Symbols describe the terminal the theme was made for, as
-	// ThemeJsonSchema declares them. This engine never paints the terminal, so only
-	// Terminal.ANSI is read: it is the palette colorful Markdown draws its hues from
-	// (see Theme.ANSIFg).
+	// Terminal describes the terminal the theme was made for, as ThemeJsonSchema
+	// declares it. This engine never paints the terminal, so only Foreground (the
+	// body color a palette designed against a terminal default) and ANSI (the palette
+	// colorful Markdown draws its hues from) are read.
 	Terminal *ThemeTerminalJSON `json:"terminal,omitempty"`
-	Symbols  *ThemeSymbolsJSON  `json:"symbols,omitempty"`
 	// colorKeys preserves the insertion order of keys in the "colors"
 	// JSON object. Populated by extractColorKeyOrder after decoding.
 	colorKeys []string
@@ -167,15 +166,6 @@ type ThemeTerminalJSON struct {
 	Chrome     ThemeColorValue   `json:"chrome,omitempty"`
 	Widget     ThemeColorValue   `json:"widget,omitempty"`
 	ANSI       []ThemeColorValue `json:"ansi,omitempty"`
-}
-
-// ThemeSymbolsJSON is ThemeJsonSchema.symbols. It is decoded so a theme that
-// carries one round-trips through [ThemeJSON] unchanged; the glyph table itself is
-// not part of this engine's rendering.
-type ThemeSymbolsJSON struct {
-	Preset        string            `json:"preset,omitempty"`
-	Overrides     map[string]string `json:"overrides,omitempty"`
-	SpinnerFrames json.RawMessage   `json:"spinnerFrames,omitempty"`
 }
 
 // LoadThemeFile reads a theme JSON file and returns the resolved Theme in the terminal's color mode, reporting invalid JSON with ECMAScript SyntaxError text.
@@ -219,14 +209,6 @@ type ThemeColorValue struct {
 	Index   int
 	IsIndex bool
 	isSet   bool
-}
-
-// ColorValueOf is the ThemeColorValue a color string denotes. A caller outside
-// this package needs it to build a Theme in code: ThemeColorValue's unset flag is
-// private, so a struct literal would read as "no color" and the token would
-// silently follow the terminal default.
-func ColorValueOf(text string) ThemeColorValue {
-	return ThemeColorValue{Text: text, isSet: true}
 }
 
 // UnmarshalJSON accepts a JSON string or an integral JSON number. The 0..255

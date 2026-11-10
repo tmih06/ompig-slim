@@ -1,6 +1,9 @@
 package codingagent
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,25 +13,31 @@ import (
 )
 
 // footerTheme is a theme whose every token is a distinct color, so a test can
-// tell which token a segment was drawn with. NewTheme requires every token a
-// component draws with, so the whole table is supplied rather than a subset.
+// tell which token a segment was drawn with. It is built from theme JSON, the
+// public path, so the fixture cannot drift from how a real theme is resolved.
 func footerTheme(t *testing.T) *tui.Theme {
 	t.Helper()
-	var foregrounds, backgrounds []tui.ThemeTokenValue
 	brightness := 0
-	add := func(name string) tui.ThemeColorValue {
+	color := func() string {
 		brightness++
-		return tui.ColorValueOf("#" + twoHex(brightness) + twoHex(brightness) + twoHex(brightness))
+		return "#" + twoHex(brightness) + twoHex(brightness) + twoHex(brightness)
 	}
+	document := map[string]any{"name": "footer-test", "colors": map[string]any{}}
+	colors := document["colors"].(map[string]any)
 	for _, token := range tui.ThemeColorTokens() {
-		foregrounds = append(foregrounds, tui.ThemeTokenValue{Token: token.Name, Value: add(token.Name)})
+		colors[token.Name] = color()
 	}
-	for _, token := range []string{"selectedBg", "searchMatchBg", "userMessageBg", "customMessageBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg"} {
-		backgrounds = append(backgrounds, tui.ThemeTokenValue{Token: token, Value: add(token)})
-	}
-	theme, err := tui.NewTheme(foregrounds, backgrounds, tui.TerminalColorModeTrueColor, tui.ThemeOptions{Name: "footer-test"})
+	encoded, err := json.Marshal(document)
 	if err != nil {
-		t.Fatalf("build theme: %v", err)
+		t.Fatalf("encode fixture theme: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "footer-test.json")
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatalf("write fixture theme: %v", err)
+	}
+	theme, err := tui.LoadThemeFile(path)
+	if err != nil {
+		t.Fatalf("load fixture theme: %v", err)
 	}
 	return theme
 }

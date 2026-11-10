@@ -1421,47 +1421,42 @@ func (m *Markdown) renderInlineTokens(tokens []markedToken, style inlineStyleCon
 	return m.renderInlineTokensSequential(tokens, style)
 }
 
-// renderInlineTokensIn is renderInlineTokens with theme in place of the document's Markdown theme. It takes the per-level
-// path unconditionally: the one-pass span writer recognizes the stock emphasis functions by name, and a caller that
-// substitutes a theme is doing so precisely to change them.
-func (m *Markdown) renderInlineTokensIn(tokens []markedToken, style inlineStyleContext, theme *MarkdownTheme) string {
-	return m.renderInlineTokensSequentialIn(tokens, style, theme)
-}
-
 // renderInlineTokensSequential is markdown.ts renderInlineTokens applied level by level, each theme function receiving the complete rendering of its children.
 func (m *Markdown) renderInlineTokensSequential(tokens []markedToken, style inlineStyleContext) string {
-	return m.renderInlineTokensSequentialIn(tokens, style, nil)
-}
-
-// renderInlineTokensSequentialIn is renderInlineTokensSequential with theme in place of the document's, nil for the document's own.
-func (m *Markdown) renderInlineTokensSequentialIn(tokens []markedToken, style inlineStyleContext, override *MarkdownTheme) string {
 	var resolved *MarkdownTheme
 	theme := func() *MarkdownTheme {
 		if resolved == nil {
 			t := m.markdownTheme()
-			if override != nil {
-				t = *override
-			}
 			resolved = &t
 		}
 		return resolved
 	}
 	var out strings.Builder
-	// applyText writes a text run in the context's text style. The style's opening
-	// codes (stylePrefix) are written after every inline token instead, so a run that
-	// already starts with them is written without them: otherwise each run after a
-	// token would open the same color twice, which is invisible but doubles the
-	// escape bytes of every line carrying emphasis or a code span.
+	// pending reports that the context's opening codes are already at the end of the
+	// output, because every inline token writes stylePrefix after itself. A text run
+	// then starts with the same codes from applyText, so they are written once
+	// instead of twice: invisible, but it doubles the escape bytes of every line
+	// carrying emphasis or a code span.
+	pending := false
+	// writeToken writes an inline token's rendering followed by the context's opening
+	// codes, which the next text run then reuses instead of opening them again.
+	writeToken := func(styled string) {
+		out.WriteString(styled)
+		out.WriteString(style.stylePrefix)
+		pending = style.stylePrefix != ""
+	}
 	applyText := func(text string) {
 		for i, segment := range strings.Split(text, "\n") {
 			if i > 0 {
 				out.WriteByte('\n')
+				pending = false
 			}
 			styled := style.applyText(segment)
-			if style.stylePrefix != "" && strings.HasPrefix(styled, style.stylePrefix) && strings.HasSuffix(out.String(), style.stylePrefix) {
-				styled = strings.TrimPrefix(styled, style.stylePrefix)
+			if pending && strings.HasPrefix(styled, style.stylePrefix) {
+				styled = styled[len(style.stylePrefix):]
 			}
 			out.WriteString(styled)
+			pending = styled != ""
 		}
 	}
 	for _, token := range tokens {
@@ -1483,22 +1478,18 @@ func (m *Markdown) renderInlineTokensSequentialIn(tokens []markedToken, style in
 		case markedHTML:
 			applyText(token.raw)
 		case markedStrong:
-			out.WriteString(theme().Bold(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Bold(m.renderInlineTokensSequential(token.tokens, style)))
 		case markedEm:
-			out.WriteString(theme().Italic(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Italic(m.renderInlineTokensSequential(token.tokens, style)))
 		case markedCodespan:
-			out.WriteString(theme().Code(token.text))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Code(token.text))
 		case markedLink:
-			out.WriteString(m.styleMarkdownLink(m.renderInlineTokensSequential(token.tokens, style), token.text, token.href))
-			out.WriteString(style.stylePrefix)
+			writeToken(m.styleMarkdownLink(m.renderInlineTokensSequential(token.tokens, style), token.text, token.href))
 		case markedBr:
 			out.WriteByte('\n')
+			pending = false
 		case markedDel:
-			out.WriteString(theme().Strikethrough(m.renderInlineTokensSequential(token.tokens, style)))
-			out.WriteString(style.stylePrefix)
+			writeToken(theme().Strikethrough(m.renderInlineTokensSequential(token.tokens, style)))
 		}
 	}
 	result := out.String()
