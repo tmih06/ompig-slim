@@ -117,6 +117,61 @@ The final cache review found setup-go's exact-key limitation, so the final pass
 restores custom role-specific Go caches across revisions instead. A validation
 run caught unsupported Git exclusion pathspecs in `ls-tree`; filtering top-level
 records instead was executed and checked locally before another remote run.
+The final cold-cache run
+[42824431457](https://github.com/tmih06/ompig-slim/actions/runs/42824431457) passed
+in **9m10s**. A **different source revision**, including full cross-target Darwin
+vet on Ubuntu, then passed in **4m17s** on
+[42826316270](https://github.com/tmih06/ompig-slim/actions/runs/42826316270):
+**77.7% less wall time** than the historical successful median. This is one warm
+sample versus a mixed-cache historical population, not a controlled speedup
+claim for every future run. All five Go jobs restored their own previous source
+key (`89f495e…`) and saved a new key (`c83ecaa…`), proving cross-revision reuse.
+
+| Wall time | Before | Final cold | Final new-revision warm |
+| --- | ---: | ---: | ---: |
+| Complete successful CI | 19m15s median (22 runs) | 9m10s | 4m17s |
+
+Final new-revision job timings in seconds, using the same phase definitions:
+
+| Job | Dependency wait | Queue | Setup | Checks | Job total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Hygiene/full-history secrets | 2 | 2 | 7 | 12 | 21 |
+| Go race, macOS | 2 | 3 | 46 | 48 | 98 |
+| Go race, Ubuntu | 2 | 2 | 20 | 29 | 53 |
+| Four-archive release | 2 | 3 | 34 | 67 | 106 |
+| Go tests, macOS | 2 | 3 | 65 | 25 | 97 |
+| Go check + Linux/Darwin vet, Ubuntu | 2 | 3 | 27 | 119 | 149 |
+| Native smoke 0, macOS | 111 | 3 | 14 | 91 | 108 |
+| Serial CLI benchmark | 111 | 2 | 24 | 115 | 142 |
+| Native smoke 1, macOS | 111 | 2 | 11 | 49 | 62 |
+| Native update, Ubuntu | 111 | 2 | 7 | 37 | 46 |
+| Native smoke 1, Ubuntu | 111 | 2 | 10 | 7 | 19 |
+| Native smoke 0, Ubuntu | 111 | 2 | 10 | 10 | 22 |
+| Native update, macOS | 111 | 3 | 17 | 109 | 128 |
+
+The final revision's five Go cache entries total **2.01 GiB** (313–593 MiB each);
+the initial inspection included individual mixed test caches as large as
+2.04 GiB. Only reusable role-specific build data is retained. Obsolete setup-go
+experiment caches created on this branch were removed; other branches' caches
+were not explicitly deleted. GitHub may still evict old revisions within the
+repository's shared quota.
+
+Local validation passed: actionlint v1.7.12, `make check`, `make race`, cross-target
+Darwin `make vet`, the platform Bash contract tests, benchmark fixture tests,
+shard unit tests (including failure propagation), both native shards and
+`git diff --check`. The remote result additionally verifies both native OSes,
+release contents, installer/updater behavior and the full benchmark workload.
+
+### Further changes deliberately not applied
+
+- **Measured:** splitting release builds across four runners would target only
+  21 seconds of warm `make release` work, adding artifact fan-in and setup to a
+  path already dominated by verification and the benchmark. Retain one build.
+- **Measured:** five serial benchmark samples remain the final critical path;
+  reducing samples/turns or running competing CLIs simultaneously would weaken
+  the existing measurement contract, so neither was done.
+- **Hypothesis:** removing macOS scenarios or narrowing the full-history secret
+  scan could reduce cost, but would remove existing coverage. Keep both.
 
 The prebuilt gitleaks scanned 92 commits / 212.27 MB in **10.6s**, versus the
 previous compiled tool's 89 commits / 212.23 MB in **159s** on run 42814272640.
