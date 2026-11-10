@@ -32,15 +32,11 @@ func todoTranscriptRenderers(card *tui.ToolExecutionComponent) *tui.ToolDefiniti
 // todoCardMeta reads only presentation counts from authoritative result details.
 // JSON accepts both the native builtin value and a resumed wire snapshot without
 // importing the builtin package (which imports codingagent). Error results must
-// not claim successful counts; their first diagnostic stays visible when closed.
+// not claim successful counts; their condensed diagnostic stays visible when
+// closed.
 func todoCardMeta(result agent.AgentToolResult) []string {
 	if result.IsError {
-		for _, line := range strings.Split(result.Text(), "\n") {
-			if line = strings.TrimSpace(widthx.StripAnsi(line)); line != "" {
-				return []string{widthx.TruncateToWidth(line, 48, "…", false)}
-			}
-		}
-		return []string{"failed"}
+		return []string{widthx.TruncateToWidth(todoErrorSummary(result.Text()), 48, "…", false)}
 	}
 	var details struct {
 		Phases *[]struct {
@@ -88,17 +84,59 @@ type todoCardError struct{ message string }
 // Render returns local themed diagnostics without mutating the persisted result.
 func (e todoCardError) Render(width int) []string {
 	var rows []string
-	for _, line := range strings.Split(e.message, "\n") {
-		line = strings.TrimSpace(widthx.StripAnsi(line))
-		if line == "" {
-			continue
-		}
+	for _, line := range todoErrorLines(e.message) {
 		rows = append(rows, tui.ActiveTheme().Fg(string(tui.ThemeColorError), widthx.TruncateToWidth(line, max(1, width), "…", false)))
 		if len(rows) == 6 {
 			break
 		}
 	}
 	return rows
+}
+
+// todoArgumentsEcho marks the line the harness puts before a rejected call's
+// arguments: ai.validateToolArgsSchema and ai.parseToolCallArguments both end
+// their message with it, then the payload pretty-printed or verbatim. Everything
+// from it on is a copy of what the model sent, so a receipt or a widget row
+// spends no space repeating it.
+const todoArgumentsEcho = "Received arguments:"
+
+// todoErrorLines returns the diagnostic lines of a failed result, in order, with
+// the argument echo removed. Blank lines and ANSI styling are dropped because
+// every caller re-styles the text in its own token.
+func todoErrorLines(message string) []string {
+	var lines []string
+	for _, line := range strings.Split(message, "\n") {
+		line = strings.TrimSpace(widthx.StripAnsi(line))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, todoArgumentsEcho) {
+			break
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// todoErrorSummary condenses a failed result to the one line a closed receipt or
+// a Tasks widget row can hold.
+//
+// A schema rejection reads `Validation failed for tool "todo":` followed by one
+// `- <failure>` bullet per problem, so the header carries no information and the
+// first bullet is the reason. The header is recognized by its bullet, not by its
+// wording: a tool-level failure whose first line is its own diagnostic (for
+// example `Errors: Missing phase name for append operation`) keeps that line.
+// Returns "failed" for a result with no text at all, so a row always renders.
+func todoErrorSummary(message string) string {
+	lines := todoErrorLines(message)
+	if len(lines) == 0 {
+		return "failed"
+	}
+	first := lines[0]
+	if len(lines) > 1 && strings.HasSuffix(first, ":") && strings.HasPrefix(lines[1], "- ") {
+		first = lines[1]
+	}
+	return strings.TrimPrefix(first, "- ")
 }
 
 // Invalidate has no cached rendering to discard.

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
@@ -146,6 +147,13 @@ func failure(current []Phase, message string) extension.AgentToolResult {
 //     reading that cannot destroy a list it was wrong about.
 //   - a non-empty `items` with no `phase` is init: append rejects a missing phase
 //     (see appendItems), so init is the only op that can succeed.
+//   - a non-empty `init` is init, lifted into `list`: the member is the op's own
+//     name, so nothing else can be meant. Models write `{"init": [...]}` when
+//     they mistake the op for a call signature, and the payload arrives either as
+//     the phase array or as that array's JSON text. `list` wins when both are
+//     present: it is the documented member, so it is what the model meant.
+//   - an `op` of null or "" is treated as absent, so a payload that also names its
+//     arguments still resolves.
 //   - an empty object is view: view is the only op that takes no argument at all,
 //     so a bare `todo` call can only be asking to see the list. It is read-only,
 //     which is what makes the guess safe.
@@ -157,16 +165,29 @@ func prepareArguments(raw json.RawMessage) (json.RawMessage, error) {
 		// Not an object: validation reports the arguments it received.
 		return raw, nil
 	}
-	if op, present := args.Get("op"); present && string(op) != "null" {
+	if op, present := args.Get("op"); present && !opOmitted(op) {
 		// The model named its op; an unknown one is validation's to reject.
 		return raw, nil
 	}
-	// A `null` op is the same omission: the model wrote the member but no operation.
+	// An omitted, null or empty op names no operation: the model wrote the member
+	// but no value for it, so the rest of the payload has to determine the op.
+	// The member is not one of the payload's arguments either way.
 	members := args.Len()
 	if _, present := args.Get("op"); present {
 		members--
 	}
 	list, _ := args.Get("list")
+	if phases := initMember(args); hasList(phases) {
+		// `init` is the op's own name, not an argument, so a payload carrying it is
+		// consumed here rather than passed on as a member the schema does not
+		// declare. A usable `list` is the documented member and still wins.
+		args.Delete("init")
+		members--
+		if !hasList(list) {
+			args.Set("list", phases)
+			list = phases
+		}
+	}
 	items, _ := args.Get("items")
 	phase, _ := args.Get("phase")
 	var phaseName string
@@ -184,22 +205,62 @@ func prepareArguments(raw json.RawMessage) (json.RawMessage, error) {
 	default:
 		return raw, nil
 	}
+	return marshalWithOp(raw, args, op), nil
+}
+
+// opOmitted reports whether a present `op` member names no operation: JSON null,
+// which is how a model writes a member it has no value for, or an empty string,
+// which is how it writes a member it meant to fill in. Either way the rest of the
+// payload has to determine the op, so both read as an omission.
+func opOmitted(op json.RawMessage) bool {
+	if string(op) == "null" {
+		return true
+	}
+	var text string
+	return json.Unmarshal(op, &text) == nil && text == ""
+}
+
+// initMember returns the phases a model wrote under the op name itself, as a
+// `list` value. It accepts the phase array and, because a model sometimes quotes
+// the payload it means to send inline, that array's JSON text. Absent, null,
+// empty, or unreadable values return nil so the shape stays ambiguous.
+func initMember(args *orderedjson.Object) json.RawMessage {
+	value, present := args.Get("init")
+	if !present {
+		return nil
+	}
+	var text string
+	if json.Unmarshal(value, &text) != nil {
+		return value
+	}
+	text = strings.TrimSpace(text)
+	if !json.Valid([]byte(text)) {
+		return nil
+	}
+	return json.RawMessage(text)
+}
+
+// marshalWithOp returns args with op assigned, in the member order JSON.stringify
+// writes: the members the model sent, then op. Any failure returns raw, so
+// validation reports the payload the model sent rather than a repair that only
+// half applied.
+func marshalWithOp(raw json.RawMessage, args *orderedjson.Object, op Op) json.RawMessage {
 	encoded, err := json.Marshal(op)
 	if err != nil {
-		return raw, nil
+		return raw
 	}
 	// Assigning args.op appends it after the members the model sent, as a JS object does.
 	args.Set("op", encoded)
 	out, err := args.MarshalJSON()
 	if err != nil {
-		return raw, nil
+		return raw
 	}
 	// JSON.stringify form: no HTML escaping, integer-like members first.
 	canonical, err := jsonstringify.Canonicalize(out)
 	if err != nil {
-		return raw, nil
+		return raw
 	}
-	return canonical, nil
+	return canonical
 }
 
 // hasList reports whether raw is a non-empty JSON array.

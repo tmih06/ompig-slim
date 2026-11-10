@@ -108,26 +108,45 @@ func (m *InteractiveMode) restoreTodoWidget(entries []SessionEntry) {
 
 // renderTodoWidget uses the existing renderer's task styling and windowing;
 // the host keeps only its summary row when the section is collapsed.
+//
+// A failed call contributes exactly one row, placed directly under the plan's
+// summary and above its tasks. The panel is a capped overlay beside the prompt,
+// and a schema rejection's full text is a header, a bullet and a pretty-printed
+// copy of the model's own arguments: condensing it keeps the panel's row count
+// stable and still says what to fix, and the position keeps both facts — which
+// plan, and why the last call did not change it — in view above a long task list.
+// With no plan yet the reason is simply the first row. The untouched result stays
+// in the transcript and the session log.
 func (m *InteractiveMode) renderTodoWidget(width int, expanded bool) []string {
-	var rows []string
-	if m.todoWidget != nil {
-		m.todoWidget.SetExpanded(expanded)
-		rows = m.todoWidget.Render(width)
-		// Tool cards may add outside spacing; the widget supplies its own
-		// frame and needs the first row to be the collapsed summary.
-		for len(rows) > 0 && strings.TrimSpace(widthx.StripAnsi(rows[0])) == "" {
-			rows = rows[1:]
-		}
-		for len(rows) > 0 && strings.TrimSpace(widthx.StripAnsi(rows[len(rows)-1])) == "" {
-			rows = rows[:len(rows)-1]
-		}
-	}
+	var rows, reason []string
 	if m.todoWidgetError != "" {
 		// Errors own the error token; nothing else in the panel uses it, so a
 		// failed call stays distinguishable from a warning-styled caveat.
-		rows = append(rows, tui.NewPaddedText(tui.ActiveTheme().Fg(string(tui.ThemeColorError), m.todoWidgetError), 0, 0, nil).Render(width)...)
+		// Truncation happens on the plain text: cutting styled text can split
+		// an escape sequence.
+		line := widthx.TruncateToWidth(todoErrorSummary(m.todoWidgetError), max(1, width), "…", false)
+		reason = []string{tui.ActiveTheme().Fg(string(tui.ThemeColorError), line)}
 	}
-	return rows
+	if m.todoWidget != nil {
+		m.todoWidget.SetExpanded(expanded)
+		body := m.todoWidget.Render(width)
+		// Tool cards may add outside spacing; the widget supplies its own
+		// frame and needs the first row to be the collapsed summary.
+		for len(body) > 0 && strings.TrimSpace(widthx.StripAnsi(body[0])) == "" {
+			body = body[1:]
+		}
+		for len(body) > 0 && strings.TrimSpace(widthx.StripAnsi(body[len(body)-1])) == "" {
+			body = body[:len(body)-1]
+		}
+		if len(body) > 0 {
+			rows = append(rows, body[0])
+			body = body[1:]
+		}
+		rows = append(rows, reason...)
+		rows = append(rows, body...)
+		return rows
+	}
+	return append(rows, reason...)
 }
 
 // renderQuotaWidget reads the existing minute-refreshed, tier-aware quota cache.

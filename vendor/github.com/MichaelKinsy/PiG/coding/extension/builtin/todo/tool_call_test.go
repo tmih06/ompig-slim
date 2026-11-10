@@ -131,3 +131,76 @@ func TestOmittedOpPayloadKeepsItsMembers(t *testing.T) {
 		t.Fatalf("the repair lost items: %s", prepared)
 	}
 }
+
+// TestObservedCallShapesReachTheTool replays the payloads that failed in real
+// sessions through the agent's own call path, so each is proven to become a
+// mutation rather than a `Validation failed for tool "todo"` result.
+//
+// The shapes come from this project's session logs: the op written as a member
+// (`{"init": [...]}`) both as an array and as its JSON text, an op of null or "",
+// and a bare `{}` call. The last case below is the part the repair must not do:
+// a payload that names no operation and no arguments still has to be rejected
+// with a message the model can act on, and must not be shown as a dump of its
+// own argument text.
+func TestObservedCallShapesReachTheTool(t *testing.T) {
+	tool := tools.DefinitionAgentTool(Definition())
+	phases := `[{"phase":"Verify","items":["Check the finding"]}]`
+	cases := map[string]struct {
+		args   string
+		wantOp Op
+	}{
+		"op name as the member":             {args: `{"init":` + phases + `}`, wantOp: OpInit},
+		"op name holding the array as text": {args: `{"init":"` + strings.ReplaceAll(phases, `"`, `\"`) + `"}`, wantOp: OpInit},
+		"null op beside a list":             {args: `{"op":null,"list":` + phases + `}`, wantOp: OpInit},
+		"empty op beside items":             {args: `{"op":"","items":["a"]}`, wantOp: OpInit},
+		"no members at all":                 {args: `{}`, wantOp: OpView},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var call ai.ToolCall
+			if err := call.SetArgumentsJSON([]byte(c.args)); err != nil {
+				t.Fatalf("SetArgumentsJSON(%s): %v", c.args, err)
+			}
+			call.ID, call.Name = "call", ToolName
+			outcome, err := agent.RunToolCall(t.Context(), call, agent.RunToolCallOptions{
+				Tools:    []agent.AgentTool{tool},
+				OnUpdate: func(agent.AgentToolResult) error { return nil },
+			})
+			if err != nil {
+				t.Fatalf("RunToolCall: %v", err)
+			}
+			if outcome.IsError {
+				t.Fatalf("%s must be repaired, not rejected: %s", c.args, outcome.Result.Text())
+			}
+			if details := outcome.Result.Details.(Details); details.Op != c.wantOp {
+				t.Fatalf("%s ran as %q, want %q", c.args, details.Op, c.wantOp)
+			}
+		})
+	}
+}
+
+// TestAmbiguousCallKeepsItsMessage shortens nothing on the model-facing side: a
+// call the arguments cannot resolve still reaches the model with the schema's
+// own explanation, because that is the text it has to correct against.
+func TestAmbiguousCallKeepsItsMessage(t *testing.T) {
+	tool := tools.DefinitionAgentTool(Definition())
+	var call ai.ToolCall
+	if err := call.SetArgumentsJSON([]byte(`{"items":[]}`)); err != nil {
+		t.Fatalf("SetArgumentsJSON: %v", err)
+	}
+	call.ID, call.Name = "call", ToolName
+	outcome, err := agent.RunToolCall(t.Context(), call, agent.RunToolCallOptions{
+		Tools:    []agent.AgentTool{tool},
+		OnUpdate: func(agent.AgentToolResult) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("RunToolCall: %v", err)
+	}
+	if !outcome.IsError {
+		t.Fatal("an ambiguous payload must still fail")
+	}
+	message := outcome.Result.Text()
+	if !strings.Contains(message, "op: missing") || !strings.Contains(message, "Received arguments:") {
+		t.Fatalf("the model must receive the schema's own explanation, got:\n%s", message)
+	}
+}
