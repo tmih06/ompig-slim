@@ -1,101 +1,119 @@
-# ompig-slim
-
 <p align="center">
   <img src="assets/ompig-banner.svg" alt="OMPi in GO-slim startup logo" width="800">
 </p>
 
-[![CI](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg)](https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/tmih06/ompig-slim/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square"></a>
+  <a href="go.mod"><img alt="Go 1.27" src="https://img.shields.io/github/go-mod/go-version/tmih06/ompig-slim?style=flat-square&logo=go&logoColor=white"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS-2ea44f?style=flat-square">
+  <a href="https://github.com/MichaelKinsy/PiG"><img alt="PiG pin" src="https://img.shields.io/badge/PiG-v0.7.0-8A2BE2?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/tmih06/ompig-slim?style=flat-square"></a>
+  <a href="CONTRIBUTING.md"><img alt="Contributions" src="https://img.shields.io/badge/PRs-discuss%20first-orange?style=flat-square"></a>
+</p>
 
-A native Go coding assistant built on [PiG](https://github.com/MichaelKinsy/PiG), with personal `omp-slim` features integrated into the library runtime. It provides PiG's interactive terminal and CLI with shared Pi/OMP configuration and added account routing, provider support, built-in web tools, codemode, and subagents.
+<p align="center">
+  A native Go coding agent: <a href="https://github.com/MichaelKinsy/PiG">PiG</a>'s runtime plus a curated set of
+  <a href="https://github.com/can1357/oh-my-pi">omp</a>'s features, in one self-contained binary.
+</p>
 
-This is an independent personal project, not an official PiG, Pi, or oh-my-pi release. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for license and attribution details.
+## How it compares
 
-## Get started
+| | **ompig-slim** | [omp](https://github.com/can1357/oh-my-pi) | [pi](https://github.com/earendil-works/pi) |
+|---|:--|:--|:--|
+| Runtime | one Go binary | Bun + JS + native addon | Node + JS |
+| Startup, median | **121 ms** | 2,176 ms | 1,129 ms |
+| Turn, median | **21 ms** | 44 ms | 36 ms |
+| Peak RSS | **179 MiB** | 499 MiB | 446 MiB |
+| Installed | **73 MB** | 419 MB | 271 MB |
+| Config | `~/.pi/agent`, `.pi` | `~/.omp/agent`, `.omp` | `~/.pi/agent`, `.pi` |
+| Extensions | TS, Go, Rust, Python, Lisp | TypeScript | TypeScript |
+| `todo`, `web_search` | built in | built in | — |
+| Subagents, Agent Hub | opt-in | built in | — |
+| LSP, debugger | — | built in | — |
 
-Install the latest release into `~/.local/bin` with one command:
+<sub>Five 120-turn sessions plus five 12-turn resumes, Linux arm64, 4 vCPUs, synthetic loopback model.
+Startup/turn/RSS are long-session medians; "installed" adds entrypoint, dependencies, and interpreter.
+Baselines: omp 18.18.0, pi 0.73.1. Measures harness overhead, not model quality; feature rows describe
+shipped code, not defaults. Details: [benchmarks/COMPARISON.md](benchmarks/COMPARISON.md).</sub>
+
+## Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash
 ```
 
-The installer downloads the prebuilt binary for your OS and CPU, verifies its
-published SHA-256 checksum, and replaces `~/.local/bin/ompig-slim` atomically. It
-needs `bash`, `tar`, and `curl` or `wget`; it does not need Go or `sudo`. Use
-`curl ... | bash -s -- --version v0.1.0` for a specific release, or `--dir` to
-install elsewhere. Prebuilt binaries cover Linux and macOS on x64 and arm64.
-
-On a terminal it shows the startup mark and a progress bar while it downloads.
-Redirect its output and you get plain lines instead, with no escape sequences.
-
-Run `ompig-slim --help` for CLI options. Sign in with `/login` in the interactive app or `ompig-slim login` in the terminal. Provider API-key environment variables are also supported.
-
-Keep an installed copy current with `ompig-slim update`, or its synonym `ompig-slim upgrade`. Both show the same mark and progress bar, verify the checksum, and replace the executable in place. `update --all` also refreshes installed packages and `update --models` refreshes model catalogs.
-
-### Build from source
-
-Requires Go 1.27 or newer. The repository pins Go 1.27.3 and vendors its dependencies.
+Installs to `~/.local/bin/ompig-slim` (Linux and macOS, x64 or arm64), verifies the published SHA-256, and
+needs no Go or `sudo`. Pass `--version v0.1.0` to pin a release or `--dir` to install elsewhere. Then:
 
 ```sh
-git clone https://github.com/tmih06/ompig-slim.git
-cd ompig-slim
-make build
-./bin/ompig-slim
+ompig-slim update           # replace the installed binary
+ompig-slim update --all     # packages first, then the binary
+ompig-slim update --models  # refresh model catalogs
 ```
 
-To install in `~/.local/bin`:
+From source with Go 1.27+ (dependencies are vendored): `make build && ./bin/ompig-slim`, or `make install`.
+
+## Usage
 
 ```sh
-make install
+cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 ```
 
-## What it includes
+| Command | What it does |
+|---|---|
+| `ompig-slim "list the failing tests"` | start interactive with an opening prompt |
+| `ompig-slim -p "review this diff"` | print one answer and exit |
+| `ompig-slim --mode json` / `--mode rpc` | JSONL event stream, or an RPC loop over stdio |
+| `ompig-slim -c` / `-r` / `--session <id>` | continue the last session, pick one, open by id |
+| `ompig-slim --model openai/gpt-4o:high` | pick `provider/id` with a thinking level |
+| `ompig-slim --model @review` | run on a saved [model role](docs/model-roles.md) |
+| `ompig-slim @src/a.ts "explain"` | attach files or images to the prompt |
+| `ompig-slim --tools read,grep,find` | restrict the tool set for one run |
 
-- PiG's native Go runtime and full CLI, including interactive, print, JSON, and RPC modes.
-- Shared Pi configuration under `~/.pi/agent` and project settings under `.pi`.
-- Multiple provider accounts with account selection, quota-aware routing, and credential migration.
-- Built-in `web_search` and persistent codemode tools. `read` fetches http(s)
-  URLs as well as files, matching oh-my-pi, which has no separate fetch tool.
-- Tool cards rendered like oh-my-pi's: stream tools draw a rounded output block,
-  file and search tools a single inline status row (`✔ Read path:70-95`), each
-  naming the tool, its target, and exit code or elapsed time, with a filled
-  phase background on every card and grep/find results drawn as a file tree. Write and edit
-  stream their content while the arguments arrive, with diffs, highlighting,
-  and Ctrl+O expansion.
-- oh-my-pi's theme collection: its 100 bundled palettes plus `system`, `dark`
-  and `light`, selectable with `/theme` or in settings. The default is Titanium
-  on a dark terminal and `light` on a light one, so a fresh install is colored
-  before the terminal reports anything, and a custom theme from `~/.pi/agent/themes`
-  drops in unchanged, including its `terminal.ansi` palette.
-- Colorful Markdown drawn from the theme's palette: a distinct hue per heading
-  depth, colored emphasis, inline code and table headers, as in oh-my-pi.
-- Reply prose, dialog descriptions, list rows and settings labels draw the
-  palette's own body color, so the interface stays colored on a terminal whose
-  default foreground is hard to tell from its background.
-- A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
-- The widget shows one item at a time: Tasks take priority; Quota appears
-  when there is no todo list. It opens upward at the bottom-right, anchored to
-  a Widgets control beside quota on the prompt's top border, without reserving space.
-  Alt+W folds the entire overlay back into that border so responses stay easy
-  to select/copy; the border control reopens it. Section headers toggle details;
-  scroll or use Alt+PageUp / Alt+PageDown for long lists. Todo tool calls retain
-  compact transcript receipts showing the action, status and progress—not the list.
-- Optional native subagents, model metadata, usage views, and terminal model selectors.
-- OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.
-- Native Linux and macOS releases for x64 and arm64.
+| Key | Action |
+|---|---|
+| `Ctrl+O` | expand or collapse tool output |
+| `Ctrl+P` | cycle to the next model in the role cycle |
+| `Alt+P` | model picker for this session |
+| `Shift+Tab` | cycle thinking level |
+| `Ctrl+Q` | queue a follow-up behind the current task |
+| `Alt+W` | fold the task/quota widget to its border control |
+| `Alt+A` | Agent Hub (live subagents) |
+| `Esc` | interrupt |
 
-Codemode and other agent tools run with your user permissions; codemode is not an OS security sandbox. Account credentials are stored locally in SQLite and are not encrypted at rest.
+Slash commands: `/login` `/model` `/settings` `/usage` `/subagents` `/compact` `/tree` `/fork` `/resume`
+`/export` `/hotkeys`. `ompig-slim --help` lists every flag.
+
+## What's inside
+
+| Area | Detail |
+|---|---|
+| Tools | `read` (files, dirs, URLs), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
+| Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
+| Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
+| Accounts | Multiple accounts per provider, quota-aware routing, imported credentials, rate-limit resets |
+| Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub |
+| TUI | omp-style tool cards, prompt-anchored task/quota widget, stop-time todo reminder |
+| Themes | 100 palettes plus `system`/`dark`/`light`, colorful Markdown, palette-aware body color |
+| State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
+
+Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live
+in local SQLite, unencrypted at rest.
 
 ## Development
 
 ```sh
-make check    # tests and vet, including the patched PiG library
-make race     # race-enabled checks
-make smoke    # real model-menu PTY, codemode, subagent, and web-tool scenarios
-make test-install     # the curl installer against a loopback release server
-make test-self-update # update/upgrade against a loopback release server
-make release  # build supported platform archives
+make check             # tests and vet, patched PiG library included
+make race              # the same with the race detector
+make smoke             # model menu, widget, codemode, subagent, web-tool PTY scenarios
+make test-install      # curl installer against a loopback release server
+make test-self-update  # update/upgrade against a loopback release server
+make release           # build the four platform archives
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before changing the code or vendored runtime. In particular, the vendored PiG library contains project-specific patches; a routine `go mod vendor` would replace them.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the vendored PiG tree carries project-specific patches that
+`go mod vendor` would drop. Architecture and maintenance rulings live in [CONTEXT.md](CONTEXT.md).
 
-For technical architecture, project conventions, and maintenance guidance, see [CONTEXT.md](CONTEXT.md).
+Independent personal project, not an official PiG, Pi, or omp release. MIT — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE) for attribution.
