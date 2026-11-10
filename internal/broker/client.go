@@ -212,6 +212,11 @@ func (c *Client) SyncFiles(ctx context.Context) error {
 				return err
 			}
 			localHash := hashData(local)
+			// The loaded ancestor is already durable; an idle poll must not
+			// replace and fsync it again when neither side has changed.
+			if known && localHash == state.Local && remote.Revision == state.Remote {
+				continue
+			}
 			if !known {
 				if remote.Data != nil && !bytes.Equal(local, remote.Data) {
 					if local != nil {

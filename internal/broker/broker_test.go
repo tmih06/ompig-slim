@@ -20,7 +20,7 @@ import (
 
 // testClients creates two independent local machines and a storage-only host;
 // every fixture uses temporary profiles and no real provider credentials.
-func testClients(t *testing.T) (*Client, *Client, *httptest.Server) {
+func testClients(t testing.TB) (*Client, *Client, *httptest.Server) {
 	t.Helper()
 	handler, err := NewHandler(t.TempDir(), "sync-secret")
 	if err != nil {
@@ -35,7 +35,7 @@ func testClients(t *testing.T) (*Client, *Client, *httptest.Server) {
 }
 
 // openStore gives tests real SQLite credentials while preserving the user's DB.
-func openStore(t *testing.T, dir string) *ai.SQLiteAuthStorage {
+func openStore(t testing.TB, dir string) *ai.SQLiteAuthStorage {
 	t.Helper()
 	s, err := ai.OpenCredentialStore(dir)
 	if err != nil {
@@ -131,6 +131,38 @@ func TestPreferencesSync(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(a.dir, "keybindings.json")); !os.IsNotExist(err) {
 		t.Fatal("deletion not propagated")
+	}
+}
+
+// TestUnchangedPreferencesKeepAncestry pins idle reconciliation's no-write path
+// for both present documents and tombstones; initial sync must still persist all
+// ancestors so later edits and deletions retain three-way conflict detection.
+func TestUnchangedPreferencesKeepAncestry(t *testing.T) {
+	client, _, _ := testClients(t)
+	ctx := context.Background()
+	mustWrite(t, filepath.Join(client.dir, "settings.json"), `{"base":true}`)
+	if err := client.SyncFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := make(map[string]os.FileInfo, len(SharedFiles))
+	for _, name := range SharedFiles {
+		info, err := os.Stat(client.statePath(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = info
+	}
+	if err := client.SyncFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range SharedFiles {
+		after, err := os.Stat(client.statePath(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !os.SameFile(before[name], after) || !before[name].ModTime().Equal(after.ModTime()) {
+			t.Errorf("unchanged %s ancestry rewritten", name)
+		}
 	}
 }
 

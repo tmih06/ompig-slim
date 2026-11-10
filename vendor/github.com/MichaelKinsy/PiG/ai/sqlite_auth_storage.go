@@ -423,11 +423,7 @@ func (s *SQLiteAuthStorage) selectedID(ctx context.Context, providerID string) (
 	if err != nil || !present {
 		return 0, false, err
 	}
-	id, ok, err := selectedIDOn(ctx, s.db, providerID)
-	if err != nil || !ok {
-		return 0, false, err
-	}
-	return enabledRow(ctx, s.db, id)
+	return selectedIDOn(ctx, s.db, providerID)
 }
 
 // selectedIDOn reads the selection through q, so a caller holding a transaction

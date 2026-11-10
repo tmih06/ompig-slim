@@ -95,8 +95,7 @@ func (s *Store) read(name string) (Item, error) {
 	} else if err != nil {
 		return Item{}, err
 	}
-	sum := sha256.Sum256(data)
-	return Item{Data: data, Revision: hex.EncodeToString(sum[:])}, nil
+	return Item{Data: data, Revision: hashData(data)}, nil
 }
 
 // get returns a consistent document without logging or interpreting its secrets.
