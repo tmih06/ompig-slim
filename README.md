@@ -142,10 +142,12 @@ docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
   ghcr.io/tmih06/ompig-slim-broker:<version>
 ```
 
-On each client, open `/login`, choose **Remote ompig-slim broker**, and enter the URL and secret. The first
-client seeds storage; the rest download it. Editing preferences or signing in anywhere synchronizes with
-revision checks instead of overwriting. Use HTTPS or a private network: stored credentials, including
-refresh tokens, sync too. See [broker setup and containers](docs/remote-broker.md) for deployment and limits.
+On each client, open `/login`, choose **Remote ompig-slim broker**, and enter the URL and secret. Unattended
+machines can skip the dialog: `ompig-slim broker setup --url <origin> --token-file <path>` writes the same
+connection. The first client seeds storage; the rest download it. Editing preferences or signing in anywhere
+synchronizes with revision checks instead of overwriting. Use HTTPS or a private network: stored credentials,
+including refresh tokens, sync too. See [broker setup and containers](docs/remote-broker.md) for deployment
+and limits.
 
 ## Development
 
@@ -156,6 +158,7 @@ make smoke             # model menu, widget, codemode, subagent, web-tool PTY sc
 make test-install      # curl installer against a loopback release server
 make test-self-update  # update/upgrade against a loopback release server
 make test-broker-container  # the broker image and two clients, needs Docker
+make test-broker-cluster    # one broker host plus two client containers, needs Docker
 make release           # build the four platform archives
 ```
 

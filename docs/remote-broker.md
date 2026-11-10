@@ -73,24 +73,52 @@ a previous saved connection untouched. The login entry is a storage setup flow,
 not a synthetic inference provider; existing provider/model selections and direct
 API endpoints remain unchanged.
 
-Environment variables remain available for unattended clients:
+### Provisioning without the dialog
+
+A container, a CI job or a machine built by configuration management cannot answer
+a prompt. `ompig-slim broker setup` writes the same device-local connection the
+`/login` dialog writes, validated the same way:
+
+```sh
+# A secret mounted as a file is the recommended form: the value never reaches argv.
+printf '%s' "$BROKER_SECRET" > /run/secrets/broker
+ompig-slim broker setup --url https://sync.example.com \
+  --token-file /run/secrets/broker --verify
+
+ompig-slim broker show    # prints the URL and that a secret is stored, never the secret
+ompig-slim broker clear   # disconnects this device; the downloaded profile stays
+```
+
+The secret is resolved from `--token-file`, then `--token`, then
+`OMPIG_BROKER_TOKEN_FILE`, then `OMPIG_BROKER_TOKEN`, then stdin, so
+`--token-stdin` works for a pipe. `--verify` contacts the service before saving,
+which is what the dialog always does; omit it to provision before the broker
+exists, and the next startup reports the unreachable service instead of failing.
+A setup that points somewhere other than the saved connection needs `--force`, so
+a converge step cannot silently repoint a machine that is already synchronized.
+Re-running an identical setup changes nothing.
+
+### Environment variables
+
+The environment remains available for unattended clients, and needs no command:
 
 ```sh
 export OMPIG_BROKER_URL=https://sync.example.com
-export OMPIG_BROKER_TOKEN='<same secret as the server>'
+export OMPIG_BROKER_TOKEN='<same secret as the server>'   # or:
+export OMPIG_BROKER_TOKEN_FILE=/run/secrets/broker
 ompig-slim
 ```
 
-An explicit environment URL requires an environment token and overrides the saved
-connection without borrowing its secret. A token-only override rotates the secret
+An explicit environment URL requires an environment secret and overrides the saved
+connection without borrowing its secret. A secret-only override rotates the secret
 for the saved URL. Continue using `/login` for provider accounts, configuring keys
 and editing roles as usual: everything executes **on the client**.
 
 `OMPIG_BROKER_URL` must be an origin (scheme and host, optionally a port), with no
 path/query/user credentials. HTTP is supported for loopback, tunnels and private
 networks; use HTTPS for ordinary remote connections. Store the bearer in a secret
-manager, the local login file or a protected environment file rather than
-committing it to shared settings.
+manager, the local login file, `OMPIG_BROKER_TOKEN_FILE`, or a protected
+environment file rather than committing it to shared settings.
 
 ## Synchronized state
 

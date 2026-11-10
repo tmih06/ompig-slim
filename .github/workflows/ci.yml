@@ -276,8 +276,11 @@ jobs:
     # The storage service is a deployable artifact, so its image is exercised as
     # a container rather than only compiled: authorization, document revisions,
     # the credential lease, restart durability, the volume contents, and two real
-    # clients against it. The suite builds the image itself from this checkout.
-    name: Broker container storage contract
+    # clients against it. The cluster suite then runs the deployment shape itself:
+    # a broker host plus two client containers on a private network, including the
+    # non-interactive connection setup a provisioned machine uses. Both suites
+    # build their images from this checkout.
+    name: Broker storage contract and client cluster
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -297,9 +300,19 @@ jobs:
             broker-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
       - name: Test the image and the clients that use it
         run: make test-broker-container
-      - name: Keep the container log on failure
+      # The cluster suite covers the deployed shape rather than the HTTP surface:
+      # one broker and two clients as separate containers on a private network, so
+      # what is exercised is what a user runs. It builds both images itself.
+      - name: Test one broker host and two client containers
+        run: make test-broker-cluster
+      - name: Keep the container logs on failure
         if: failure()
-        run: docker logs ompig-slim-broker-test 2>&1 || true
+        run: |
+          for name in ompig-slim-broker-test ompig-slim-cluster-host \
+              ompig-slim-cluster-a ompig-slim-cluster-b; do
+            echo "--- $name"
+            docker logs "$name" 2>&1 || true
+          done
 
   container-image:
     name: Publish the broker image for linux/amd64 and linux/arm64
