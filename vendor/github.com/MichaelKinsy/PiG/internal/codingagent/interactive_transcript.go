@@ -549,6 +549,16 @@ func (m *InteractiveMode) addCustomEntryToChat(entry CustomEntry) {
 // appendCustomMessage mounts a CustomMessageComponent for a displayed custom message, as upstream interactive-mode.ts:3861-3872
 // does: the registered renderer (if any) is handed to the component, which rebuilds it when expansion or padding changes.
 func (m *InteractiveMode) appendCustomMessage(message CustomMessageEntry) {
+	// An auto-read of @path mentions draws its own tree under the prompt it
+	// accompanied, without the custom-message box: the card is a status block,
+	// as oh-my-pi's fileMention block is, and a resumed session rebuilds it
+	// from the entry's details.
+	if message.CustomType == FileMentionsCustomType {
+		if mentions := FileMentionsOf(message.Details); len(mentions) > 0 {
+			m.chatContainer.Add(&fileMentionCard{mentions: mentions})
+		}
+		return
+	}
 	var renderer tui.MessageRenderer
 	if m.newRunner != nil {
 		if registered := m.newRunner.MessageRenderer(message.CustomType); registered != nil {

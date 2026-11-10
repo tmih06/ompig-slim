@@ -54,6 +54,9 @@ make install
 - Shared Pi configuration under `~/.pi/agent` and project settings under `.pi`.
 - Skill badges in the prompt box: select a skill with `/`, keep typing, and select
   more skills anywhere in the same prompt. Enter accepts a skill without sending.
+- `@path` mentions in a prompt are read before the model runs, with a
+  `├─ Read path (N lines)` tree under the submitted prompt, so the agent does not
+  spend a turn calling `read`. Long files are truncated; directories list.
 - Multiple provider accounts with account selection, quota-aware routing, and credential migration.
 - Built-in `web_search` and persistent codemode tools. `read` fetches http(s)
   URLs as well as files, matching oh-my-pi, which has no separate fetch tool.

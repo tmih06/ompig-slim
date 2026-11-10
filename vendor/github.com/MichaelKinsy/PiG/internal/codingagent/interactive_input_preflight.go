@@ -53,10 +53,11 @@ type inputPreflight struct {
 
 // heldPrompt is one idle submission waiting for the active run to settle.
 type heldPrompt struct {
-	ctx     context.Context
-	text    string
-	images  []ai.ImageContent
-	session InteractiveSessionHandle
+	ctx      context.Context
+	text     string
+	images   []ai.ImageContent
+	mentions *fileMentionContext
+	session  InteractiveSessionHandle
 }
 
 // inputPreflightResult is what the handlers returned for one submission.
@@ -173,14 +174,19 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
 				text = expanded
 			}
 		}
+		// Auto-read @path mentions after expansion, as agent-session.ts:9484 does: the
+		// read is inserted beside the prompt instead of costing the model a read call.
+		mentions := m.prepareFileMentions(text)
 		// Upstream rechecks streaming after the input await (agent-session.ts
 		// `_queueUserInput`): a run that started while the handlers ran receives
 		// text the user typed while working as a steer or follow-up.
 		if submission.streaming && m.enqueueIfTurnActive(func() {
 			if submission.followUp {
 				m.followUpMessageWithImages(text, result.images)
+				m.followUpFileMentions(mentions)
 			} else {
 				m.steerMessageWithImages(text, result.images)
+				m.steerFileMentions(mentions)
 			}
 		}) {
 			break
@@ -191,11 +197,11 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
 		// (getUserInput / session.prompt), so it waits here, behind any text
 		// already held, and runs as its own prompt.
 		if m.runStreaming() || len(m.heldPrompts) > 0 {
-			m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: result.images, session: submission.session})
+			m.heldPrompts = append(m.heldPrompts, heldPrompt{ctx: submission.ctx, text: text, images: result.images, mentions: mentions, session: submission.session})
 			m.runHeldPrompts()
 			break
 		}
-		m.runPromptTurnWithImages(submission.ctx, text, result.images)
+		m.runPromptTurnWithImages(submission.ctx, text, result.images, mentions)
 	}
 }
 
@@ -227,7 +233,7 @@ func (m *InteractiveMode) runHeldPrompts() {
 	m.heldPrompts[0] = heldPrompt{}
 	m.heldPrompts = m.heldPrompts[1:]
 	if next.session == m.opts.SessionHandle {
-		m.runPromptTurnWithImages(next.ctx, next.text, next.images)
+		m.runPromptTurnWithImages(next.ctx, next.text, next.images, next.mentions)
 	}
 	m.runHeldPrompts()
 }
