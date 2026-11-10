@@ -700,7 +700,16 @@ type MainOptions struct {
 	// running keeps the text it read. pig additive: upstream has one program and
 	// no need for this seam.
 	SystemPromptPreamble string
+	// BeforeExit flushes embedder-owned profile synchronization after runtime
+	// cleanup, including explicit CLI exits. Return an error to fail the exit.
+	// The callback must be idempotent; Main may be unwinding through a panic.
+	BeforeExit func() error
+	// ProfileLogin adds an embedder-owned storage setup entry to /login.
+	ProfileLogin *ProfileLoginOption
 }
+
+// ProfileLoginOption configures a local-only profile-storage login dialog.
+type ProfileLoginOption = codingagent.ProfileLoginOption
 
 // processCwd is process.cwd(). It is a variable so that a test can make the working directory fail the way Pi's deleted-cwd.test.ts
 // stubs process.cwd().
@@ -708,6 +717,17 @@ var processCwd = nodepath.Cwd
 
 // Main runs the pig command line for args, the arguments after the program name, as Pi's main(args, options) does (main.ts:573). The default and experimental executables call it with args and no options.
 func Main(args []string, options *MainOptions) {
+	profileSyncBeforeExit = nil
+	codingagent.ProfileLogin = nil
+	if options != nil {
+		profileSyncBeforeExit = options.BeforeExit
+		codingagent.ProfileLogin = options.ProfileLogin
+	}
+	defer func() {
+		if code := flushProfileSync(0); code != 0 {
+			os.Exit(code)
+		}
+	}()
 	// pig additive (D174): at most procpolicy.Cap Ps unless the environment sets GOMAXPROCS; set before anything reads the width.
 	procpolicy.Apply()
 	// Upstream's theme.bold, italic, underline, inverse and strikethrough are chalk calls: they draw only when chalk's stdout color level is above zero.

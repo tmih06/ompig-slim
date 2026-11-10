@@ -68,8 +68,12 @@ const authSelectorMaxVisible = 8
 
 // FormatAuthSelectorProviderType mirrors upstream formatAuthSelectorProviderType(authType, subscription?)
 // (oauth-selector.ts:27-33): an OAuth sign-in is a "subscription" unless subscription is false, which makes it an
-// "account". Omitting subscription is Pi's undefined.
+// "account". Omitting subscription is Pi's undefined. The embedder's storage
+// setup entry uses "profile sync" rather than pretending to be model authentication.
 func FormatAuthSelectorProviderType(authType string, subscription ...bool) string {
+	if authType == "profile" {
+		return "profile sync"
+	}
 	if authType == "api_key" {
 		return "API key"
 	}

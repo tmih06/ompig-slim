@@ -28,9 +28,19 @@ type authPromptRequest struct {
 	reply  chan authPromptReply
 }
 
-// runAPIKeyLogin keeps the editor replaced until every provider prompt and credential write has settled. Only the modal loop handles terminal input; provider callbacks and persistence run on its joined worker.
+// runAPIKeyLogin keeps the editor replaced until provider or profile-storage
+// prompts and persistence settle. Only the modal loop handles terminal input;
+// callbacks run on its joined worker. Profile secrets bypass credential storage.
 func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 	method := m.providerAuth(provider.ID).APIKey
+	profile := ProfileLogin
+	if profile != nil && provider.ID == profile.ID && provider.AuthType == "profile" {
+		method = &ai.APIKeyAuth{Name: profile.Name, Login: func(ctx context.Context, interaction ai.AuthInteraction) (ai.Credential, error) {
+			return ai.Credential{}, profile.Login(ctx, m.opts.AgentDir, interaction)
+		}}
+	} else {
+		profile = nil
+	}
 	if method == nil {
 		return fmt.Errorf("%s does not support api_key login", provider.Name)
 	}
@@ -40,6 +50,11 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 	ctx, cancel := context.WithCancelCause(m.loginContext())
 	defer cancel(nil)
 	dialog := m.newLoginDialog(provider.Name, func() { cancel(errLoginAborted) })
+	if profile != nil {
+		// Storage secrets must stay hidden even if provider-key masking was
+		// disabled in the user's general login preferences.
+		dialog.SetMaskSecretInput(true)
+	}
 	requests := make(chan authPromptRequest)
 	notifications := make(chan ai.AuthEvent)
 	done := make(chan error, 1)
@@ -97,7 +112,7 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 		if ctx.Err() != nil {
 			err = context.Cause(ctx)
 		}
-		if err == nil {
+		if err == nil && profile == nil {
 			var credentials ai.CredentialStore
 			if registry != nil {
 				credentials = registryCredentials{registry}
@@ -127,7 +142,15 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 		if loginErr.Error() == errLoginCancelled.Error() {
 			return errLoginCancelled
 		}
-		m.showError(dialog.Redact(fmt.Sprintf("Failed to save API key for %s: %v", provider.Name, loginErr)))
+		if profile != nil {
+			m.showError(dialog.Redact(fmt.Sprintf("Failed to connect to %s: %v", provider.Name, loginErr)))
+		} else {
+			m.showError(dialog.Redact(fmt.Sprintf("Failed to save API key for %s: %v", provider.Name, loginErr)))
+		}
+		return nil
+	}
+	if profile != nil {
+		m.showStatus("Saved " + provider.Name + " connection locally. Restart ompig-slim to activate synchronization.")
 		return nil
 	}
 	if m.synchronizeLoginCredential(ctx, provider.ID, provider.Name, ai.CredentialAPIKey, dialog.Redact) {
