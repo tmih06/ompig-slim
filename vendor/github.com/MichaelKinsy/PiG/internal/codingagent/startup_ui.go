@@ -217,7 +217,7 @@ func runStartupComponentWith(component startupComponent, opts StartupUIOptions, 
 		tui.SetTerminalColors(colors)
 		name, ok := tui.ResolveThemeSettingPresence(themeSetting, tui.GetTerminalTheme())
 		if !ok {
-			name = tui.SystemThemeName
+			name = tui.DefaultThemeName(tui.GetTerminalTheme())
 		}
 		if themed != nil {
 			name = themed.startupTheme()

@@ -213,16 +213,22 @@ func parseColorString(value string) (Color, error) {
 	return nil, fmt.Errorf("Invalid color value: %s", value)
 }
 
-// colorHexDigits matches upstream's /^#([\da-f]{3}|[\da-f]{6})$/i and returns the digits.
+// colorHexDigits matches upstream's /^#([\da-f]{3}|[\da-f]{6})$/i and returns the digits. It also
+// accepts #rrggbbaa, dropping the alpha the way Bun (which parses upstream's theme colors) does: a
+// terminal cell has nothing to blend against. 32 of OMP's 100 built-in palettes name one, so
+// rejecting the form would drop those palettes.
 func colorHexDigits(value string) (string, bool) {
 	//portlint:allow utf16units a match is '#' plus ASCII hex digits, so its byte length is its .length; any other text fails the hex loop below as it fails the regex
-	if len(value) != 4 && len(value) != 7 || value[0] != '#' {
+	if len(value) != 4 && len(value) != 7 && len(value) != 9 || value[0] != '#' {
 		return "", false
 	}
 	for i := 1; i < len(value); i++ {
 		if !isHexDigit(value[i]) {
 			return "", false
 		}
+	}
+	if len(value) == 9 {
+		return value[1:7], true
 	}
 	return value[1:], true
 }

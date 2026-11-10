@@ -82,6 +82,28 @@ var themeColorTokens = []themeColorToken{
 	{"thinkingXhigh", false, "Thinking level border: xhigh"},
 	{"thinkingMax", true, "Thinking level border: max (falls back to thinkingXhigh when omitted)"},
 	{"bashMode", false, "Editor border color in bash mode"},
+	{"pythonMode", true, "Editor border color in python mode (falls back to bashMode when omitted)"},
+
+	// Status line segments. Upstream's schema has these tokens in the same object;
+	// they are optional here so a theme written before the status line existed
+	// still loads, and themeColorFallbacks gives each one a token to borrow.
+	{"statusLineSep", true, "Status line separators (falls back to dim when omitted)"},
+	{"statusLineModel", true, "Status line model name (falls back to accent when omitted)"},
+	{"statusLinePath", true, "Status line working directory (falls back to border when omitted)"},
+	{"statusLineGitClean", true, "Status line git branch, clean tree (falls back to success when omitted)"},
+	{"statusLineGitDirty", true, "Status line git branch, dirty tree (falls back to warning when omitted)"},
+	{"statusLineContext", true, "Status line context window (falls back to muted when omitted)"},
+	{"statusLineSpend", true, "Status line token counters (falls back to accent when omitted)"},
+	{"statusLineStaged", true, "Status line staged-file counter (falls back to success when omitted)"},
+	{"statusLineDirty", true, "Status line modified-file counter (falls back to warning when omitted)"},
+	{"statusLineUntracked", true, "Status line untracked-file counter (falls back to error when omitted)"},
+	{"statusLineOutput", true, "Status line output-token counter (falls back to muted when omitted)"},
+	{"statusLineCost", true, "Status line spend (falls back to success when omitted)"},
+	{"statusLineSubagents", true, "Status line subagent counter (falls back to accent when omitted)"},
+
+	// The assistant reply's prose. Upstream has it as OPTIONAL_THEME_COLOR_RECORD's
+	// only member, so it is optional here too; unset keeps the terminal default.
+	{"assistantMessageText", true, "Assistant reply prose (unset keeps the terminal default foreground)"},
 }
 
 // ThemeColorToken is one token of the theme "colors" object: its description and whether a theme may omit it.
@@ -108,6 +130,11 @@ func ThemeColorTokens() []ThemeColorToken {
 
 // themeExportTokens lists ThemeJsonSchema.export in schema order.
 var themeExportTokens = []string{"pageBg", "cardBg", "infoBg"}
+
+// themeTerminalTokens lists the ThemeJsonSchema.terminal color members this engine
+// reads. The section's other members (background, chrome, widget) describe a
+// terminal it never paints, so they are accepted and ignored.
+var themeTerminalTokens = []string{"foreground"}
 
 type themeSchemaError struct {
 	path, keyword, message string
@@ -169,7 +196,7 @@ func checkThemeDocument(errs *themeSchemaErrors, root any, data []byte) {
 	}
 	checkRequired(errs, "", object, []string{"name", "colors"})
 	checkAdditionalProperties(errs, "", rawObjectKeys(data), func(key string) bool {
-		return slices.Contains([]string{"$schema", "name", "appearance", "vars", "colors", "export"}, key)
+		return slices.Contains([]string{"$schema", "name", "appearance", "vars", "colors", "export", "terminal", "symbols"}, key)
 	})
 	if value, present := object["$schema"]; present {
 		checkString(errs, "/$schema", value)
@@ -191,6 +218,17 @@ func checkThemeDocument(errs *themeSchemaErrors, root any, data []byte) {
 	}
 	if value, present := object["colors"]; present {
 		checkThemeColors(errs, value, themeObjectKeys(data, "colors"))
+	}
+	// ThemeJsonSchema.terminal and .symbols describe the terminal a theme was made for rather than anything this engine draws,
+	// but OMP writes them into every built-in palette and into custom themes saved from one. They are checked and then ignored:
+	// rejecting them made every OMP palette unreadable here, and silently dropping unknown keys would hide a real typo.
+	if value, present := object["terminal"]; present {
+		checkThemeTerminal(errs, value, themeObjectKeys(data, "terminal"))
+	}
+	if value, present := object["symbols"]; present {
+		if _, ok := value.(map[string]any); !ok {
+			errs.add(themeSchemaError{path: "/symbols", message: "must be object"})
+		}
 	}
 	if value, present := object["export"]; present {
 		exports, ok := value.(map[string]any)
@@ -260,6 +298,38 @@ func checkThemeColors(errs *themeSchemaErrors, value any, keys []string) {
 	for _, key := range jsPropertyOrder(keys) {
 		if !themeTokenKnown(key) {
 			checkThemeColorValue(errs, "/colors/"+key, colors[key])
+		}
+	}
+}
+
+// checkThemeTerminal checks ThemeJsonSchema.terminal: five color members, with ansi
+// being exactly sixteen color values when it is present.
+func checkThemeTerminal(errs *themeSchemaErrors, value any, keys []string) {
+	terminal, ok := value.(map[string]any)
+	if !ok {
+		errs.add(themeSchemaError{path: "/terminal", message: "must be object"})
+		return
+	}
+	checkAdditionalProperties(errs, "/terminal", keys, func(key string) bool {
+		return slices.Contains([]string{"background", "foreground", "chrome", "widget", "ansi"}, key)
+	})
+	for _, token := range themeTerminalTokens {
+		if member, present := terminal[token]; present {
+			checkThemeColorValue(errs, "/terminal/"+token, member)
+		}
+	}
+	if member, present := terminal["ansi"]; present {
+		entries, ok := member.([]any)
+		if !ok {
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must be array"})
+			return
+		}
+		if len(entries) != ANSISlotCount {
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must not have fewer than 16 items"})
+			errs.add(themeSchemaError{path: "/terminal/ansi", message: "must not have more than 16 items"})
+		}
+		for index, entry := range entries {
+			checkThemeColorValue(errs, "/terminal/ansi/"+strconv.Itoa(index), entry)
 		}
 	}
 }

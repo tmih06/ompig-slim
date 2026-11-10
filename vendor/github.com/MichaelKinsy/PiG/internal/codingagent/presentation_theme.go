@@ -74,15 +74,18 @@ func (theme presentationTheme) getThemeSelection() *string {
 	return nil
 }
 
-// resolveThemeName is the theme for the current setting and terminal appearance. Without a setting the system theme applies.
+// resolveThemeName is the theme for the current setting and terminal appearance.
+// Without a setting the default theme for that appearance applies (tui.DefaultThemeName),
+// which is a bundled palette rather than the generated system theme, so a fresh
+// install looks the same as oh-my-pi's does.
 func (theme presentationTheme) resolveThemeName() string {
 	if name, ok := tui.ResolveThemeSettingPresence(theme.getThemeSetting(), tui.GetTerminalTheme()); ok {
 		return name
 	}
-	return tui.SystemThemeName
+	return tui.DefaultThemeName(tui.GetTerminalTheme())
 }
 
-// initTheme applies the initial theme, as the theme controller's constructor does. The system theme starts in grayscale; color follows once the terminal reports its colors.
+// initTheme applies the initial theme, as the theme controller's constructor does. The system theme starts in grayscale; color follows once the terminal reports its colors. A default palette is complete before any color arrives, so only an explicit system selection waits.
 func (theme presentationTheme) initTheme() {
 	theme.attach()
 	name := theme.resolveThemeName()
@@ -91,11 +94,13 @@ func (theme presentationTheme) initTheme() {
 	tui.SetThemeByName(name, true)
 }
 
-// applyFromSettings applies the theme setting now and queries the terminal's colors, which update the theme when they arrive. Theme pairs and the system theme follow terminal appearance changes.
+// applyFromSettings applies the theme setting now and queries the terminal's colors, which update the theme when they arrive. Theme pairs, the system theme and the appearance-dependent default follow terminal appearance changes.
 func (theme presentationTheme) applyFromSettings() {
 	setting := theme.getThemeSetting()
 	name := theme.resolveThemeName()
-	auto := false
+	// No setting means the default theme for the terminal's appearance, which has
+	// to follow a light/dark switch for the same reason the system theme does.
+	auto := setting == nil
 	if setting != nil {
 		_, _, auto = tui.ParseAutoThemeSetting(*setting)
 	}

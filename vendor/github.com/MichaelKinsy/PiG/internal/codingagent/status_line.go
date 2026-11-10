@@ -397,32 +397,35 @@ type footerUsageTotals struct {
 	latestCacheHitRate                   *float64
 }
 
-// footerUsageParts renders footer.ts's token, cache-hit, and cost stats.
-// Kimi Coding and OAuth subscription logins show the cost even at zero, with
+// footerUsageParts renders footer.ts's token, cache-hit, and cost stats, each in
+// the statusLine* token OMP's status line uses for it: spend counters in
+// statusLineSpend, output in statusLineOutput, cost in statusLineCost. Kimi
+// Coding and OAuth subscription logins show the cost even at zero, with
 // "(sub)"; otherwise a zero total shows no cost segment.
 func footerUsageParts(u footerUsageTotals, usingSubscription bool) []string {
 	var parts []string
+	spend := tui.ThemeColorStatusLineSpend
 	if u.input != 0 {
-		parts = append(parts, "↑"+formatTokens(u.input))
+		parts = append(parts, footerToken(spend, "↑"+formatTokens(u.input)))
 	}
 	if u.output != 0 {
-		parts = append(parts, "↓"+formatTokens(u.output))
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineOutput, "↓"+formatTokens(u.output)))
 	}
 	if u.cacheRead != 0 {
-		parts = append(parts, "R"+formatTokens(u.cacheRead))
+		parts = append(parts, footerToken(spend, "R"+formatTokens(u.cacheRead)))
 	}
 	if u.cacheWrite != 0 {
-		parts = append(parts, "W"+formatTokens(u.cacheWrite))
+		parts = append(parts, footerToken(spend, "W"+formatTokens(u.cacheWrite)))
 	}
 	if (u.cacheRead > 0 || u.cacheWrite > 0) && u.latestCacheHitRate != nil {
-		parts = append(parts, "CH"+jsstring.ToFixed(*u.latestCacheHitRate, 1)+"%")
+		parts = append(parts, footerToken(spend, "CH"+jsstring.ToFixed(*u.latestCacheHitRate, 1)+"%"))
 	}
 	if (u.cost != 0 && !math.IsNaN(u.cost)) || usingSubscription {
 		costStr := "$" + jsstring.ToFixed(u.cost, 3)
 		if usingSubscription {
 			costStr += " (sub)"
 		}
-		parts = append(parts, costStr)
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineCost, costStr))
 	}
 	return parts
 }
@@ -456,29 +459,57 @@ func formatCwdForFooter(cwd, home string) string {
 	return "~" + string(filepath.Separator) + relativeToHome
 }
 
+// footerToken is `theme.fg(token, text)` for the active theme, read when the
+// line is drawn so a theme switch repaints the footer. An empty text stays
+// empty: styling it would emit escape sequences for nothing.
+func footerToken(token tui.ThemeColor, text string) string {
+	if text == "" {
+		return ""
+	}
+	return tui.ActiveTheme().Fg(string(token), text)
+}
+
+// footerSeparator is the ` · ` between two footer segments, in the theme's
+// statusLineSep. It is its own color because a separator drawn in the next
+// segment's color reads as part of that segment.
+func footerSeparator() string { return footerToken(tui.ThemeColorStatusLineSep, " \u2022 ") }
+
 // renderFooter produces the 2-line footer matching upstream footer.ts.
 // Line 1: pwd (branch) • name
 // Line 2: ↑in ↓out [Rcache] [Wcache] $cost context%/window (auto)   model • thinking
+//
+// Every segment carries its own statusLine* token, as OMP's status line does:
+// path, branch, session name, the token counters, cost, context window and the
+// model each have a hue, so no part of the line depends on the terminal's default
+// foreground.
 func renderFooter(d footerData, width int) []string {
 	if width <= 0 {
 		width = 80
 	}
 
-	// ── Line 1: pwd ──────────────────────────────────────────────────
-	pwd := footerCwd(d.cwd)
+	// ── Line 1: pwd (branch) • name ──────────────────────────────────
+	// The branch is statusLineContext, not statusLineGitClean/Dirty: this footer
+	// resolves only the branch name, so coloring it clean or dirty would claim a
+	// working-tree state it never read. OMP reads staged, modified and untracked
+	// counts on its status line, and that is where those two colors belong.
+	pwd := footerToken(tui.ThemeColorStatusLinePath, footerCwd(d.cwd))
 	if d.gitBranch != "" {
-		pwd += " (" + d.gitBranch + ")"
+		pwd += footerToken(tui.ThemeColorStatusLineSep, " (") +
+			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
+			footerToken(tui.ThemeColorStatusLineSep, ")")
 	}
 	if d.sessionName != "" {
-		pwd += " \u2022 " + d.sessionName
+		pwd += footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
 	}
-	line1 := widthx.TruncateToWidth(dim(pwd), width, dim("..."), false)
+	line1 := widthx.TruncateToWidth(pwd, width, dim("..."), false)
 
 	// ── Line 2: stats (left) + model (right) ─────────────────────────
 	// Left side: ↑in ↓out [Rcache] [Wcache] $cost context%/window (auto)
 	leftParts := footerUsageParts(d.usage, d.usingSubscription)
 
-	// Context usage: context%/window (auto)
+	// Context usage: context%/window (auto). The percentage takes over the
+	// segment's color as the window fills, because at that point the number is
+	// the message and the window size is context.
 	contextWindow, pct := footerContextUsage(d)
 	autoTag := ""
 	if d.autoCompactEnabled {
@@ -497,41 +528,34 @@ func renderFooter(d footerData, width int) []string {
 		leftParts = append(leftParts, dim("•")+" "+boldWarning("xp"))
 	}
 
-	// Upstream footer.ts does NOT show a spinner or elapsed timer.
-	// The working indicator lives in the statusContainer Loader
-	// (between chat and editor), not the footer.
-
-	statsLeft := strings.Join(leftParts, " ")
+	statsLeft := strings.Join(leftParts, footerSeparator())
 
 	// Right side: [provider] model • thinking
-	// When multiple providers are available, prepend "(provider)" prefix.
+	// When multiple providers are available, prepend "(provider) ".
 	// Mirrors upstream footer.ts:165-174.
 	modelName, modelProvider, thinkingLevel := footerModel(d)
-	rightSide := modelName
-	// Upstream footer.ts:160-162 renders the thinking level as plain
-	// text: no per-level color. The entire right side is wrapped in
-	// dim() with the rest of line 2, so it appears in dim grey.
+	rightSide := footerToken(tui.ThemeColorStatusLineModel, modelName)
 	switch thinkingLevel {
 	case "":
 	case "off":
-		rightSide = modelName + " \u2022 thinking " + thinkingLevel
+		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineSep, "thinking "+thinkingLevel)
 	default:
-		rightSide = modelName + " \u2022 " + thinkingLevel
+		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, thinkingLevel)
 	}
 
 	// A virtual model routes each request; show where the latest response went (footer.ts:237-243).
 	if d.routed != nil && d.routed.Model != nil {
-		level := ""
+		rightSide += footerToken(tui.ThemeColorStatusLineSep, " \u2192 ") +
+			footerToken(tui.ThemeColorStatusLineContext, d.routed.Model.ID)
 		if d.routed.ThinkingLevel != "" {
-			level = " \u2022 " + string(d.routed.ThinkingLevel)
+			rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, string(d.routed.ThinkingLevel))
 		}
-		rightSide += " \u2192 " + d.routed.Model.ID + level
 	}
 
-	// Prepend provider in parentheses when multiple providers are active.
+	// Prepend the provider in parentheses when multiple providers are active.
 	rightSideWithProvider := rightSide
 	if d.providerCount > 1 && modelProvider != "" {
-		rightSideWithProvider = "(" + modelProvider + ") " + rightSide
+		rightSideWithProvider = footerToken(tui.ThemeColorStatusLineSep, "("+modelProvider+") ") + rightSide
 	}
 
 	// Compose line 2 with right-alignment.
@@ -558,7 +582,7 @@ func renderFooter(d footerData, width int) []string {
 	totalNeeded := statsLeftWidth + minPad + chosenRightWidth
 	if totalNeeded <= width {
 		padding := strings.Repeat(" ", width-statsLeftWidth-chosenRightWidth)
-		line2 = dim(statsLeft) + dim(padding+chosenRight)
+		line2 = statsLeft + padding + chosenRight
 	} else {
 		// Right side doesn't fit at full width; truncate or omit
 		avail := width - statsLeftWidth - minPad
@@ -566,10 +590,10 @@ func renderFooter(d footerData, width int) []string {
 			truncRight := widthx.TruncateToWidth(chosenRight, avail, "", false)
 			truncWidth := widthx.VisibleWidth(truncRight)
 			padding := strings.Repeat(" ", max(0, width-statsLeftWidth-truncWidth))
-			line2 = dim(statsLeft) + dim(padding+truncRight)
+			line2 = statsLeft + padding + truncRight
 		} else {
 			// The remainder after the stats is empty but still dimmed (footer.ts:262-263).
-			line2 = dim(statsLeft) + dim("")
+			line2 = statsLeft + dim("")
 		}
 	}
 
@@ -686,22 +710,27 @@ func sanitizeStatusText(text string) string {
 	return jsstring.Trim(b.String())
 }
 
-// colorContextDisplay wraps the full `pct%/window (auto)` display
-// string in the color appropriate to the percent, matching upstream
-// footer.ts which applies theme.fg("warning"/"error", contextPercentDisplay)
-// to the entire token, not just the number.
+// colorContextDisplay wraps the full `pct%/window (auto)` display string in the
+// color appropriate to the percent.
 func colorContextDisplay(pct float64, display string) string {
 	return applyContextColor(pct, display)
 }
 
+// applyContextColor colors the context display by OMP's four usage levels
+// (chrome/context-thresholds.ts): error above 90%, thinkingHigh in the 70-90%
+// "purple" band, warning above 50%, and statusLineContext below that. The level
+// is the message, so the whole `pct%/window (auto)` token takes the color
+// rather than only the number.
 func applyContextColor(pct float64, body string) string {
 	switch {
 	case pct > 90:
-		return tui.ActiveTheme().Fg("error", body)
+		return footerToken(tui.ThemeColorError, body)
 	case pct > 70:
-		return tui.ActiveTheme().Fg("warning", body)
+		return footerToken(tui.ThemeColorThinkingHigh, body)
+	case pct > 50:
+		return footerToken(tui.ThemeColorWarning, body)
 	default:
-		return body // no color
+		return footerToken(tui.ThemeColorStatusLineContext, body)
 	}
 }
 

@@ -38,3 +38,8 @@ permission notice are reproduced in LICENSE.
 Bundled model identities, limits, pricing, kinds, and provider environment
 names are imported from @oh-my-pi/pi-catalog 18.14.2 (MIT). Source hashes
 are retained in vendor/github.com/MichaelKinsy/PiG/ai/omp_catalog_data/manifest.json.
+
+The bundled theme palettes in
+vendor/github.com/MichaelKinsy/PiG/tui/theme_palettes.json are copied from
+oh-my-pi's packages/tui/src/theme/defaults.json (MIT). The upstream copyright
+and permission notice are reproduced in LICENSE.

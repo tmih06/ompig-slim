@@ -61,6 +61,16 @@ make install
   phase background on every card and grep/find results drawn as a file tree. Write and edit
   stream their content while the arguments arrive, with diffs, highlighting,
   and Ctrl+O expansion.
+- oh-my-pi's theme collection: its 100 bundled palettes plus `system`, `dark`
+  and `light`, selectable with `/theme` or in settings. The default is Titanium
+  on a dark terminal and `light` on a light one, so a fresh install is colored
+  before the terminal reports anything, and a custom theme from `~/.pi/agent/themes`
+  drops in unchanged, including its `terminal.ansi` palette.
+- Colorful Markdown drawn from the theme's palette: a distinct hue per heading
+  depth, colored emphasis, inline code and table headers, as in oh-my-pi.
+- Reply prose, dialog descriptions, list rows and settings labels draw the
+  palette's own body color, so the interface stays colored on a terminal whose
+  default foreground is hard to tell from its background.
 - A `todo` tool that records multi-step work, and a stop-time reminder that continues a run while the list still has open tasks.
 - Optional native subagents, model metadata, usage views, and terminal model selectors.
 - OMP-style model roles, per-role fallback chains, auto thinking, and a fullscreen `/model` manager, plus an Alt+P session picker. See [model roles](docs/model-roles.md) for controls and configuration.
