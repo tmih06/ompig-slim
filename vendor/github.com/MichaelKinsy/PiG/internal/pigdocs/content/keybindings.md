@@ -39,7 +39,7 @@ tables.
 | `app.exit` | `ctrl+d` | Exit when editor is empty |
 | `app.interrupt` | `escape` | Cancel or abort |
 | `app.session.delete` | `ctrl+d` | Delete session |
-| `app.session.deleteNoninvasive` | `ctrl+backspace` | Delete session when query is empty |
+| `app.session.deleteNoninvasive` | `ctrl+delete` | Delete session when query is empty |
 | `app.session.fork` | none | Fork current session |
 | `app.session.new` | none | Start a new session |
 | `app.session.rename` | `ctrl+r` | Rename session |
@@ -64,7 +64,7 @@ tables.
 
 | Action | Default key | Effect |
 |---|---|---|
-| `app.model.cycleBackward` | `shift+ctrl+p` | Cycle to previous model |
+| `app.model.cycleBackward` | `ctrl+shift+left` | Cycle to previous model |
 | `app.model.cycleForward` | `ctrl+p` | Cycle to next model |
 | `app.model.select` | `ctrl+l` | Open model selector |
 | `app.models.clearAll` | `ctrl+x` | Clear all models |
@@ -89,7 +89,7 @@ tables.
 |---|---|---|
 | `app.tree.editLabel` | `shift+l` | Edit tree label |
 | `app.tree.filter.all` | `ctrl+a` | Tree filter: show all entries |
-| `app.tree.filter.cycleBackward` | `shift+ctrl+o` | Tree filter: cycle backward |
+| `app.tree.filter.cycleBackward` | `ctrl+shift+right` | Tree filter: cycle backward |
 | `app.tree.filter.cycleForward` | `ctrl+o` | Tree filter: cycle forward |
 | `app.tree.filter.default` | `ctrl+d` | Tree filter: default view |
 | `app.tree.filter.labeledOnly` | `ctrl+l` | Tree filter: labeled entries only |
@@ -181,12 +181,17 @@ working.
 | `tui.altScreen.lineDown` | none | Scroll the transcript down one line |
 | `tui.altScreen.previousPrompt` | `ctrl+shift+up`, `ctrl+up` | Jump to the previous prompt |
 | `tui.altScreen.nextPrompt` | `ctrl+shift+down`, `ctrl+down` | Jump to the next prompt |
-| `tui.altScreen.search` | `ctrl+shift+f` | Search the transcript |
+| `tui.altScreen.search` | `ctrl+f` | Search the transcript |
 | `tui.altScreen.searchNext` | `enter`, `ctrl+g` | Select the next match while searching |
-| `tui.altScreen.searchPrevious` | `shift+enter`, `ctrl+shift+g` | Select the previous match while searching |
+| `tui.altScreen.searchPrevious` | `shift+enter`, `f3` | Select the previous match while searching |
 | `tui.altScreen.searchClose` | `escape` | Close transcript search |
 | `tui.altScreen.top` | `ctrl+home` | Scroll to the start of the transcript |
 | `tui.altScreen.bottom` | `ctrl+end` | Scroll to the end of the transcript and follow new output |
+
+In fullscreen mode the transcript consumes its viewport keys before the editor
+sees them, so `ctrl+f` searches the transcript there while `ctrl+f` in the
+editor moves the cursor right. Outside fullscreen mode the editor's meaning
+applies.
 
 ## Platform differences
 
@@ -200,13 +205,13 @@ or `WSL_INTEROP`.
 | `app.clipboard.pasteImage` | `ctrl+v` | `ctrl+v` | `alt+v` | `alt+v` |
 | `app.suspend` | `ctrl+z` | `ctrl+z` | `ctrl+z` | none |
 | `app.message.dequeue` | `alt+up` | `alt+up` | `alt+q` | `alt+q` |
-| `app.model.cycleBackward` | `shift+ctrl+p` | `shift+ctrl+p` | `alt+p` | `alt+p` |
+| `app.model.cycleBackward` | `ctrl+shift+left` | `ctrl+shift+left` | `alt+p` | `alt+p` |
 | `app.tree.foldOrUp` | `alt+left, ctrl+left` | `ctrl+left, alt+left` | `ctrl+left, alt+left` | `ctrl+left, alt+left` |
 | `app.tree.unfoldOrDown` | `alt+right, ctrl+right` | `ctrl+right, alt+right` | `ctrl+right, alt+right` | `ctrl+right, alt+right` |
 | `tui.editor.undo` | `ctrl+-` | `ctrl+-` | `alt+z` | `ctrl+z` |
 | `tui.altScreen.previousPrompt` | `ctrl+shift+up, ctrl+up` | `ctrl+shift+up, ctrl+up` | `ctrl+up` | `ctrl+up` |
 | `tui.altScreen.nextPrompt` | `ctrl+shift+down, ctrl+down` | `ctrl+shift+down, ctrl+down` | `ctrl+down` | `ctrl+down` |
-| `tui.altScreen.search` | `ctrl+shift+f` | `ctrl+shift+f` | `ctrl+f` | `ctrl+f` |
+| `tui.altScreen.search` | `ctrl+f` | `ctrl+f` | `ctrl+f` | `ctrl+f` |
 
 ## Actions with no default key
 
@@ -223,8 +228,8 @@ slash command, or bind them in `keybindings.json`.
 ## Key names
 
 Write a key as its name, or as modifiers joined to the name with `+`. Use
-`ctrl`, `alt` and `shift` for modifiers. Examples: `ctrl+o`, `shift+ctrl+p`,
-`ctrl+q`, `escape`, `ctrl+backspace`.
+`ctrl`, `alt` and `shift` for modifiers. Examples: `ctrl+o`, `ctrl+shift+left`,
+`ctrl+q`, `escape`, `ctrl+delete`.
 
 Terminals do not all report the same keys. If a binding does not respond, the
 terminal usually consumed the key before PiG saw it. See

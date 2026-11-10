@@ -632,7 +632,9 @@ func settingsConfig(sc *SlashContext) (SettingsConfig, error) {
 	if sc.AvailableThinkingLevels != nil {
 		thinkingLevels = sc.AvailableThinkingLevels()
 	}
-	currentTheme := tui.SystemThemeName
+	// The settings UI's current theme: the stored selection, else the default
+	// palette for the terminal, matching what the theme controller selects.
+	currentTheme := tui.DefaultThemeName(tui.GetTerminalTheme())
 	if sc.ThemeSelection != nil {
 		if selection := sc.ThemeSelection(); selection != "" {
 			currentTheme = selection

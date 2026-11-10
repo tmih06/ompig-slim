@@ -33,9 +33,15 @@ type Editor struct {
 	EmbedWorkingStatus     bool
 	workingStatusIndicator *StatusIndicator
 	// TopRightStatus supplies an optional single-line border label within the available cells. It runs on the editor owner loop.
-	TopRightStatus   func(int) string
-	topRightBudget   int
-	topRightRendered string
+	TopRightStatus func(int) string
+	// TopRightControl adds a clickable control to the right of the status label.
+	// It receives the available cell budget; OnTopRightControl runs on a left
+	// click without moving the text cursor or taking selection ownership.
+	TopRightControl                          func(int) string
+	OnTopRightControl                        func()
+	topRightControlStart, topRightControlEnd int
+	topRightBudget                           int
+	topRightRendered                         string
 	// BorderColor colors a complete border after layout and truncation. Nil selects the application-derived default.
 	BorderColor func(string) string
 	// Focused emits widthx.CursorMarker so the TUI can position the hardware cursor for IME candidate windows.
@@ -1070,6 +1076,14 @@ func (e *Editor) Render(width int) []string {
 func (e *Editor) HandleMouse(event TuiMouseEvent) *TuiMouseEventResult {
 	if e.forwards() {
 		return e.remoteMouse(event)
+	}
+	if event.Y == 0 && event.X >= e.topRightControlStart && event.X < e.topRightControlEnd &&
+		e.OnTopRightControl != nil && event.Button == MouseButtonLeft {
+		if event.Type == MouseClick {
+			e.OnTopRightControl()
+			e.Invalidate()
+		}
+		return &TuiMouseEventResult{Handled: true}
 	}
 	autocompleteStartRow := e.renderedVisibleLineCount + 2
 	if len(e.autocompleteItems) > 0 && event.Y >= autocompleteStartRow && event.Y < autocompleteStartRow+e.renderedAutocompleteHeight {

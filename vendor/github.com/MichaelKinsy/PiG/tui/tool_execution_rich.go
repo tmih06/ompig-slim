@@ -57,6 +57,8 @@ func richToolName(name string) string {
 		return "Web Search"
 	case "codemode":
 		return "Codemode"
+	case "todo":
+		return "Todo"
 	case "Agent", "subagent":
 		return "Agent"
 	default:
@@ -70,7 +72,7 @@ func richToolName(name string) string {
 // glob.ts. write.ts and edit.ts return framed boxes, so they keep the block.
 func richInline(name string) bool {
 	switch name {
-	case "read", "grep", "find", "ls":
+	case "read", "grep", "find", "ls", "todo":
 		return true
 	}
 	return false
@@ -574,6 +576,9 @@ func ToolDetailFields(name string, fields map[string]any) string {
 		detail = stringOf("query")
 	case "ls":
 		detail = stringOf("path")
+	case "todo":
+		// The list belongs to the widget; the transcript names only this op.
+		detail = strings.TrimSpace(stringOf("op") + " " + stringOf("task", "phase"))
 	}
 	return text.SanitizeBinaryOutput(text.StripANSIString(detail))
 }

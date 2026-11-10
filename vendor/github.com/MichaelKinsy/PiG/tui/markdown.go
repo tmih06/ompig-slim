@@ -1388,7 +1388,7 @@ func (m *Markdown) renderMarkdownTable(table markdownTable, availableWidth int) 
 			if lineIdx < len(headerWrapped[col]) {
 				text = headerWrapped[col][lineIdx]
 			}
-			parts[col] = theme.Bold(padTableCell(text, columnWidths[col]))
+			parts[col] = theme.tableHeader()(padTableCell(text, columnWidths[col]))
 		}
 		lines = append(lines, "│ "+strings.Join(parts, " │ ")+" │")
 	}
@@ -1543,18 +1543,42 @@ func lineDisplayWidth(s string) int {
 }
 
 // headingInline uses a heading-specific context so inline token resets restore heading styles without leaking them into padding.
+// The color comes from the theme's per-depth HeadingAt, so H1, H2 and H3+ can carry distinct hues as they do in OMP; upstream
+// styles H1 bold+underline and H3+ bold with a `###` prefix, which stays the same here.
+//
+// Emphasis inside a heading keeps the heading's own weight and underline rather than gaining a second hue: a heading is
+// already the strongest text on the row, and upstream's heading calls its theme's plain bold, not the colorful role body
+// prose uses. headingEmphasis below substitutes that plain pair for exactly this render.
 func (m *Markdown) headingInline(text string, depth int) string {
 	theme := m.markdownTheme()
-	style := func(text string) string { return theme.Heading(theme.Bold(text)) }
+	heading := theme.heading(depth)
+	// The heading's own weight is the plain bold decoration, not the theme's colorful Bold role: upstream's
+	// #styleHeading calls its chalk-bold, so a heading never gains a second hue from its own styling.
+	style := func(text string) string { return heading(markdownBold(text)) }
 	if depth == 1 {
-		style = func(text string) string { return theme.Heading(theme.Bold(theme.Underline(text))) }
+		style = func(text string) string {
+			return heading(markdownBold(markdownDecoration("\x1b[4m", SGRUnderlineReset, text)))
+		}
 	}
 	context := inlineStyleContext{applyText: style, stylePrefix: markdownStylePrefix(style)}
-	result := m.renderInlineMarkdown(text, context)
+	result := m.renderHeadingInline(text, context, theme)
 	if depth >= 3 {
 		result = style(strings.Repeat("#", depth)+" ") + result
 	}
 	return result
+}
+
+// renderHeadingInline renders a heading's inline markdown with plain emphasis: the stock bold and italic decorations,
+// without the colorful roles that would compete with the heading's own color. It borrows a child Markdown carrying the
+// override, the way renderQuote borrows one for its style context, so the inline renderer needs no theme parameter.
+func (m *Markdown) renderHeadingInline(text string, style inlineStyleContext, theme MarkdownTheme) string {
+	theme.Bold = markdownBold
+	theme.Italic = markdownItalic
+	child := m.childMarkdown(text)
+	child.theme = &theme
+	// The one-pass span writer recognizes the stock emphasis functions by identity, and an overridden theme is a
+	// deliberate change to them, so take the per-level path.
+	return child.renderInlineTokensSequential(lexMarkedInline(text, child.lexerState()), style)
 }
 
 type inlineStyleContext struct {

@@ -10,7 +10,23 @@
 		"green": "okhsl(159 59% 67%)",
 		"red": "okhsl(20 72% 67%)",
 		"yellow": "okhsl(83 88% 67%)",
-		"blueBg": "okhsl(233 41% 24%)"
+		"blueBg": "okhsl(233 41% 24%)",
+		"ansi_black": "okhsl(234 6% 16%)",
+		"ansi_red": "okhsl(20 72% 67%)",
+		"ansi_green": "okhsl(159 59% 67%)",
+		"ansi_yellow": "okhsl(83 88% 67%)",
+		"ansi_blue": "okhsl(232 54% 67%)",
+		"ansi_magenta": "okhsl(295 50% 67%)",
+		"ansi_cyan": "okhsl(202 58% 67%)",
+		"ansi_white": "okhsl(234 3% 89%)",
+		"ansi_brightBlack": "okhsl(229 6% 60%)",
+		"ansi_brightRed": "okhsl(20 85% 74%)",
+		"ansi_brightGreen": "okhsl(159 70% 74%)",
+		"ansi_brightYellow": "okhsl(83 95% 74%)",
+		"ansi_brightBlue": "okhsl(232 68% 74%)",
+		"ansi_brightMagenta": "okhsl(295 62% 74%)",
+		"ansi_brightCyan": "okhsl(202 70% 74%)",
+		"ansi_brightWhite": "okhsl(234 5% 95%)"
 	},
 	"colors": {
 		"accent": "violet",
@@ -74,5 +90,27 @@
 		"pageBg": "okhsl(262 14% 16%)",
 		"cardBg": "okhsl(264 13% 19%)",
 		"infoBg": "okhsl(53 51% 24%)"
+	},
+	"terminal": {
+		"background": "blueBg",
+		"foreground": "text",
+		"ansi": [
+			"ansi_black",
+			"ansi_red",
+			"ansi_green",
+			"ansi_yellow",
+			"ansi_blue",
+			"ansi_magenta",
+			"ansi_cyan",
+			"ansi_white",
+			"ansi_brightBlack",
+			"ansi_brightRed",
+			"ansi_brightGreen",
+			"ansi_brightYellow",
+			"ansi_brightBlue",
+			"ansi_brightMagenta",
+			"ansi_brightCyan",
+			"ansi_brightWhite"
+		]
 	}
 }

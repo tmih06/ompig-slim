@@ -45,6 +45,7 @@ func themedScrollbarThumbStyle(text string) string {
 func (m *InteractiveMode) buildChatViewport() ChatViewport {
 	m.ensureLoadedResourcesContainer()
 	return CreateChatViewport(ChatViewportOptions{
+		InfoWidgets:         m.ensureInfoWidgets(),
 		Document:            tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer),
 		PendingMessages:     m.pendingMessagesContainer,
 		Status:              m.statusContainer,
@@ -69,6 +70,7 @@ func (m *InteractiveMode) ensureLoadedResourcesContainer() {
 // mountInteractiveTui builds the mode-appropriate layout from the shared component tree and, when start is set, starts and paints the renderer at once, as a live tui-mode switch needs. Init starts the renderer with startInteractiveTui instead. Fullscreen arranges the transcript scroll view over the dock and enters the alt screen; regular adds the flat layout to the main screen. The initial paint does not depend on a welcome header or input. Run and live tui-mode switching reuse the same containers across renderer mounts.
 func (m *InteractiveMode) mountInteractiveTui(start bool) {
 	m.bindSubagentUI()
+	m.bindInfoWidgetControl()
 	m.ensureLoadedResourcesContainer()
 	if m.widgetContainerBelow == nil {
 		m.widgetContainerBelow = tui.NewContainer()
@@ -91,7 +93,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		// pig additive (D91): the frontend draws the transcript and the
 		// dock as separate regions of the same component tree.
 		m.surface.SetLayout(
-			tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer),
+			&tui.InfoWidgetLayout{Content: tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer), Widgets: m.ensureInfoWidgets()},
 			tui.NewContainer(m.pendingMessagesContainer, m.statusContainer, m.widgetContainer, m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine),
 		)
 		if start {
@@ -100,6 +102,12 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		return
 	}
 	if m.altScreen == nil {
+		if renderer, ok := m.tuiInst.(*tui.TuiMainScreen); ok {
+			// Anchor directly to the prompt, including when other status or
+			// extension widgets occupy rows between it and the transcript.
+			renderer.SetInfoWidgets(m.ensureInfoWidgets(), tui.NewContainer(
+				m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine))
+		}
 		m.tuiInst.Add(m.layout)
 		if !start {
 			return

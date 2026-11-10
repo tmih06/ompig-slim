@@ -198,6 +198,7 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 		m.altScreen.ResetTextSelection()
 	}
 	m.previousThinkingDroppedCount = 0
+	m.restoreTodoWidget(entries)
 	m.disposeMarkdownBlocks()
 	defer m.refreshFooterContextUsage()
 	// Reset all component tracking: all are stale after a branch navigation.
@@ -445,6 +446,11 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 			m.addBranchSummary(summary, nil)
 		case msg.ToolResult != nil:
 			r := msg.ToolResult
+			if r.ToolName == "todo" {
+				if len(branch) == 0 {
+					m.updateTodoWidget(r.Result())
+				}
+			}
 			call, pending := pendingCalls[r.ToolCallID]
 			if !pending {
 				return
@@ -468,6 +474,9 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 			final.DurationMs = r.DurationMs
 			if comp.Rich && (call.Name == "bash" || call.Name == "powershell") {
 				comp.SetExitCode(shellExitCode(result))
+			}
+			if call.Name == "todo" {
+				comp.SetResultMeta(todoCardMeta(result))
 			}
 			comp.UpdateResult(final, false)
 		}
