@@ -2,13 +2,18 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-broker run install check test race vet smoke smoke-built release benchmark test-install test-self-update
+.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
 
 build-broker:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker ./cmd/ompig-slim-broker
+
+# The image is the deployable artifact for the storage service. Building it is
+# separate from testing it so CI can test the exact image it publishes.
+build-broker-image:
+	docker build -f Dockerfile.broker -t ompig-slim-broker .
 
 run:
 	$(GO) run -mod=vendor . $(ARGS)
@@ -45,6 +50,12 @@ test-install:
 # Builds no Go code and reaches no network beyond loopback.
 test-self-update: build
 	python3 scripts/test-self-update.py ./bin/ompig-slim
+
+# Drive the deployable container: authorization, revisions, the credential lease,
+# restart durability and two real clients. Needs a Docker daemon; builds the
+# image and the client executable first, and touches no user profile.
+test-broker-container: build
+	python3 scripts/test-broker-container.py --binary ./bin/ompig-slim
 
 # Install the pinned baselines first; benchmark never rebuilds the measured CLI.
 benchmark:

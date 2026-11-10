@@ -528,3 +528,27 @@ func TestStartDegradesToLocal(t *testing.T) {
 		t.Fatal("degradation leaked the secret")
 	}
 }
+
+// TestNewHandlerTightensDataDirectory covers the deployed layout: an image or an
+// operator may create the directory with a wider mode, and the service must not
+// serve plaintext credentials out of a world-readable path.
+func TestNewHandlerTightensDataDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Mkdir is masked by the umask, so assert from a known wide mode.
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHandler(dir, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0700 {
+		t.Fatalf("data directory mode %o, want 700", perm)
+	}
+}

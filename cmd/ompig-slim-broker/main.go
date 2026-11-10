@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,13 +18,22 @@ import (
 	"ompig-slim/internal/broker"
 )
 
-// main reports startup/storage failures without printing any credentials.
+// main reports startup/storage failures without printing any credentials. A
+// published image must be able to identify itself, so a release build injects
+// its version with -ldflags "-X main.version=…"; the default marks a local build.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Printf("ompig-slim-broker %s\n", version)
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
+
+// version is the build identity reported by --version and the release tag.
+var version = "dev"
 
 // run owns one data directory and drains HTTP handlers before releasing its
 // process lock. TLS/public ingress is the deployment operator's responsibility.
@@ -33,6 +43,12 @@ func run() error {
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments")
+	}
+	// Validate configuration before touching the filesystem: a missing secret is an
+	// operator mistake, and failing here leaves no data directory or lock behind.
+	token := os.Getenv("OMPIG_BROKER_TOKEN")
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("OMPIG_BROKER_TOKEN is required: set it to a long random secret and keep it out of committed files")
 	}
 	if err := os.MkdirAll(*dir, 0700); err != nil {
 		return err
@@ -46,7 +62,7 @@ func run() error {
 		return fmt.Errorf("broker data directory already in use")
 	}
 	defer lock.Unlock()
-	handler, err := broker.NewHandler(*dir, os.Getenv("OMPIG_BROKER_TOKEN"))
+	handler, err := broker.NewHandler(*dir, token)
 	if err != nil {
 		return err
 	}

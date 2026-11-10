@@ -45,9 +45,10 @@ make smoke
 make build
 make test-install
 make test-self-update
+make test-broker-container
 ```
 
-`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
+`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make test-broker-container` runs `scripts/test-broker-container.py`, which builds `Dockerfile.broker` and drives the running container: image identity, the missing-secret refusal, unprivileged UID, private data directory, authorization on every data route, the absence of any inference route, the document allowlist, revision conflicts, the credential lease, restart durability, the volume contents, and two real clients synchronizing through it. It needs a Docker daemon and skips no check when one is available. Because the suite builds the image from the checkout, CI tests the same Dockerfile the release workflow publishes, and the release job reuses that job's result rather than trusting an untested build. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
 
 ## Project-specific rulings
 
@@ -95,6 +96,14 @@ requests. A failed/conflicting upload retains the local rotation and must never
 trigger a blind replay. A hosted lease is not an atomic transaction with the
 OAuth provider; the crash/partition limits are documented. The service and all
 clients are trusted with plaintext secrets; there is no end-to-end encryption.
+
+### The broker image
+
+`Dockerfile.broker` is the deployable storage image, separate from the archives because it ships a different binary for a different purpose. Its build stage is `--platform=$BUILDPLATFORM` and cross-compiles with Go, so a `linux/amd64` and `linux/arm64` build needs no emulated compiler and only the small runtime stage runs under emulation. `VERSION` reaches the binary through `-X main.version`, so `ompig-slim-broker --version` reports the tag an operator pulled. The runtime image creates `/data` as mode 0700, and `internal/broker` re-tightens that mode at every start because the directory holds every synchronized secret.
+
+The `container-image` job publishes to GHCR only on a `v*` tag push, needs the same gates as the archives, and derives the image name from `github.repository_owner` so a fork publishes to its own namespace. It requests `packages: write` and nothing else. `container` is the test job that runs `make test-broker-container` on every push and pull request; it builds the image from the checkout, so the tested Dockerfile is the published one, and `container-image` and `publish` both depend on it rather than trusting an untested build.
+
+`curl` is in the runtime image only for the declared `HEALTHCHECK`, which probes `/healthz` — the single unauthenticated route. Do not widen that health check to a data route; it would need the bearer and would leak it into image metadata.
 
 ## Feature behavior notes
 

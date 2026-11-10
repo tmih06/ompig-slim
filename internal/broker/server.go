@@ -52,6 +52,12 @@ func NewHandler(dir, token string) (http.Handler, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
+	// The directory holds every synchronized secret, so its mode is enforced even
+	// for a directory an image or an operator created with a wider mode; a host
+	// that cannot tighten it must be repaired rather than served from.
+	if err := os.Chmod(dir, 0700); err != nil {
+		return nil, fmt.Errorf("make data directory private: %w", err)
+	}
 	s := &Store{dir: dir}
 	digest := sha256.Sum256([]byte(token))
 	routes := http.NewServeMux()

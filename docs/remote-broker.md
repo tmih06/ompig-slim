@@ -22,21 +22,35 @@ It starts empty; the first connecting client seeds the stored profile.
 
 ### Container
 
+Every `v*` release publishes a multi-architecture image for `linux/amd64` and
+`linux/arm64` to the GitHub Container Registry:
+
 ```sh
-docker build -f Dockerfile.broker -t ompig-slim-broker .
 docker volume create ompig-profile
 export OMPIG_BROKER_TOKEN="$(openssl rand -hex 32)"
 docker run -d --name ompig-broker \
   -p 127.0.0.1:8765:8765 \
   -e OMPIG_BROKER_TOKEN \
   -v ompig-profile:/data \
-  ompig-slim-broker
+  ghcr.io/tmih06/ompig-slim-broker:<version>
+```
+
+`<version>` is the release tag, for example `v0.1.0`; the `0.1` and `0` moving
+tags follow it. A fork publishes under its own owner, because the workflow
+derives the image name from the repository. To build locally instead:
+
+```sh
+make build-broker-image
 ```
 
 The image contains only the storage executable, runs as UID/GID 10001, and saves
-profile documents under `/data`. Bind mounts must be writable by that UID.
-Back up this volume and keep it across upgrades. Run only one server process per
-data directory; a filesystem lock rejects accidental duplicate owners.
+profile documents under `/data`, which is created as mode 0700 and re-tightened
+at every start. Bind mounts must be writable by that UID. The image declares a
+`HEALTHCHECK` against the public `/healthz` route, and `--version` reports the
+release tag it was built from. Back up this volume and keep it across upgrades.
+Run only one server process per data directory; a filesystem lock rejects
+accidental duplicate owners. A missing `OMPIG_BROKER_TOKEN` stops the process
+before it creates any files.
 
 ## Connect clients
 

@@ -66,6 +66,15 @@ locally; restart to activate sync. The first configured client seeds storage,
 and other clients download the profile. Sign in and edit preferences on any
 client; changes synchronize with revision checks. Use HTTPS or a private
 encrypted network: stored credentials, including refresh tokens, sync too.
+
+Each release also publishes a multi-architecture broker image:
+
+```sh
+docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
+  -e OMPIG_BROKER_TOKEN -v ompig-profile:/data \
+  ghcr.io/tmih06/ompig-slim-broker:<version>
+```
+
 See [broker setup and containers](docs/remote-broker.md) for deployment and limits.
 
 ## What it includes
@@ -96,6 +105,7 @@ make race     # race-enabled checks
 make smoke    # real model-menu PTY, codemode, subagent, and web-tool scenarios
 make test-install     # the curl installer against a loopback release server
 make test-self-update # update/upgrade against a loopback release server
+make test-broker-container # the broker image and two clients, needs Docker
 make release  # build supported platform archives
 ```
 

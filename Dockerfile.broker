@@ -1,22 +1,36 @@
-FROM golang:1.27.3-bookworm AS build
+# The storage service image. Build with buildx for multi-architecture releases:
+# the build stage runs natively on the builder and cross-compiles with Go, so no
+# emulated compiler is needed for the other architectures.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
+ARG TARGETOS
+ARG TARGETARCH
+# The release workflow passes the tag, so a pulled image can report its version.
+ARG VERSION=dev
 WORKDIR /src
 COPY . .
-RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags="-s -w" -o /out/ompig-slim-broker ./cmd/ompig-slim-broker
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /out/ompig-slim-broker ./cmd/ompig-slim-broker
 # Preserve dependency notices in binary distributions, including SPDX texts.
 RUN mkdir /licenses && cp LICENSE NOTICE /licenses/ \
  && find vendor -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' -o -iname 'NOTICE*' -o -iname '*NOTICES*' -o -iname 'PATENTS*' \) -exec cp --parents -t /licenses {} + \
  && cp -R vendor/github.com/MichaelKinsy/PiG/LICENSES /licenses/vendor/github.com/MichaelKinsy/PiG/ \
  && cp vendor/github.com/MichaelKinsy/PiG/REUSE.toml /licenses/vendor/github.com/MichaelKinsy/PiG/
-
+# Readiness needs an HTTP client, and an operator debugging a deployment wants
+# one in the image. curl is the only added package beyond CA roots.
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 10001 --create-home broker \
- && mkdir /data && chown broker:broker /data
+ && install -d -m 0700 -o broker -g broker /data
 COPY --from=build /out/ /usr/local/bin/
 COPY --from=build /licenses/ /usr/share/doc/ompig-slim-broker/
 USER 10001:10001
 VOLUME /data
 EXPOSE 8765
+# /healthz is the documented public liveness route; it is the only unauthenticated
+# endpoint, so it is safe to probe without a secret.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8765/healthz || exit 1
 ENTRYPOINT ["ompig-slim-broker"]
 CMD ["--bind=:8765", "--data-dir=/data"]
