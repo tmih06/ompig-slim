@@ -20,6 +20,8 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
+	"github.com/MichaelKinsy/PiG/internal/orderedjson"
 )
 
 // description is the model-facing prompt. It carries only the rules a model
@@ -36,6 +38,9 @@ const description = "Track multi-step work in a session todo list. One op per ca
 
 // params is the JSON schema the model sees. It mirrors Params: every
 // member but `op` is optional, and a member an op ignores is not an error.
+// `op` stays required here because prepareArguments supplies one for the
+// payload shapes that pin exactly one op, so `required` still holds a call the
+// arguments leave genuinely ambiguous to naming its operation.
 const params = `{"type":"object","required":["op"],"properties":{
 "op":{"type":"string","enum":["init","start","done","drop","block","unblock","rm","append","view"],"description":"Operation to apply."},
 "list":{"type":"array","description":"init: phases to create; replaces the list.","items":{"type":"object","required":["phase","items"],"properties":{"phase":{"type":"string"},"items":{"type":"array","items":{"type":"string"}}}}},
@@ -54,6 +59,11 @@ func Definition() extension.ToolDefinition {
 		// longer snippet: the tool is self-describing at the point of use.
 		PromptSnippet: "Track multi-step work in a session todo list",
 		Parameters:    json.RawMessage(params),
+		// Repairs an omitted `op` before the schema's `required` check sees it. The fork
+		// lives here, not only in execute, because validation runs first: a call the
+		// arguments already determine would otherwise die as `op: missing` (see
+		// prepareArguments).
+		PrepareArguments: prepareArguments,
 		// The op mutates one shared list, so calls must not interleave.
 		ExecutionMode: "sequential",
 		Execute:       execute,
@@ -78,9 +88,6 @@ func execute(ctx context.Context, _ string, raw json.RawMessage, _ extension.Age
 	var p Params
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return failure(current, fmt.Sprintf("Invalid todo arguments: %s", err)), nil
-	}
-	if repaired, ok := inferOp(raw, p, len(current) > 0); ok {
-		p = repaired
 	}
 
 	// A view is a read: it must not normalize, rewrite, or report transitions.
@@ -119,36 +126,80 @@ func failure(current []Phase, message string) extension.AgentToolResult {
 	}
 }
 
-// inferOp repairs an omitted `op` when the payload can only mean one operation.
+// prepareArguments supplies an `op` the model left out, before the schema's
+// `required` check runs.
 //
-// Models routinely send `{list:[...]}` or `{items:[...]}` with no op. Rejecting
-// that costs a whole round trip to fix a shape the arguments already determine,
-// so the unambiguous cases are repaired here and everything else is left to the
-// normal validation error.
-func inferOp(raw json.RawMessage, p Params, hasExisting bool) (Params, bool) {
-	if p.Op != "" {
-		return p, false
+// The hook is the only place this repair can happen. agent.prepareToolCall calls
+// ArgumentPreparer ahead of ai.ValidateToolArgumentsJSON, so an op returned here
+// is the op validation and execute both see; the same repair written inside
+// execute is unreachable, because validation rejects the call first. (It used to
+// live there, and every op-less call died as `op: missing`.)
+//
+// Models routinely drop `op` from a payload that already determines it, and
+// rejecting one costs a whole round trip to fix a shape the arguments name. So
+// exactly the shapes that pin one op are repaired:
+//
+//   - a non-empty `list` is init: init is the only op that reads a list.
+//   - a non-empty `items` beside a `phase` is append: append is the only op that
+//     requires a phase. Flat init tolerates one too, but a model that names a
+//     phase is adding to it rather than restating the plan, and append is the
+//     reading that cannot destroy a list it was wrong about.
+//   - a non-empty `items` with no `phase` is init: append rejects a missing phase
+//     (see appendItems), so init is the only op that can succeed.
+//   - an empty object is view: view is the only op that takes no argument at all,
+//     so a bare `todo` call can only be asking to see the list. It is read-only,
+//     which is what makes the guess safe.
+//
+// Everything else comes back unchanged and validation reports the missing op.
+func prepareArguments(raw json.RawMessage) (json.RawMessage, error) {
+	args, err := orderedjson.Parse(raw)
+	if err != nil {
+		// Not an object: validation reports the arguments it received.
+		return raw, nil
 	}
-	var probe struct {
-		List  json.RawMessage `json:"list"`
-		Items json.RawMessage `json:"items"`
-		Phase string          `json:"phase"`
+	if op, present := args.Get("op"); present && string(op) != "null" {
+		// The model named its op; an unknown one is validation's to reject.
+		return raw, nil
 	}
-	if json.Unmarshal(raw, &probe) != nil {
-		return p, false
+	// A `null` op is the same omission: the model wrote the member but no operation.
+	members := args.Len()
+	if _, present := args.Get("op"); present {
+		members--
 	}
+	list, _ := args.Get("list")
+	items, _ := args.Get("items")
+	phase, _ := args.Get("phase")
+	var phaseName string
+	_ = json.Unmarshal(phase, &phaseName)
+	var op Op
 	switch {
-	case hasList(probe.List):
-		p.Op = OpInit
-	case hasList(probe.Items) && probe.Phase != "":
-		p.Op = OpAppend
-	case hasList(probe.Items) && !hasExisting:
-		// Nothing to overwrite, so a bare items list can only be an init.
-		p.Op = OpInit
+	case hasList(list):
+		op = OpInit
+	case hasList(items) && phaseName != "":
+		op = OpAppend
+	case hasList(items):
+		op = OpInit
+	case members == 0:
+		op = OpView
 	default:
-		return p, false
+		return raw, nil
 	}
-	return p, true
+	encoded, err := json.Marshal(op)
+	if err != nil {
+		return raw, nil
+	}
+	// Assigning args.op appends it after the members the model sent, as a JS object does.
+	args.Set("op", encoded)
+	out, err := args.MarshalJSON()
+	if err != nil {
+		return raw, nil
+	}
+	// JSON.stringify form: no HTML escaping, integer-like members first.
+	canonical, err := jsonstringify.Canonicalize(out)
+	if err != nil {
+		return raw, nil
+	}
+	return canonical, nil
 }
 
 // hasList reports whether raw is a non-empty JSON array.
