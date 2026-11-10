@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
@@ -64,11 +65,50 @@ func modelSegmentPalette(count int) []string {
 	return palette
 }
 
-// modelSegmentTrack paints the shared track and returns display-column chip
-// ranges so mouse activation and visible colored caps use identical geometry.
-func modelSegmentTrack(labels []string, active int) (string, [][2]int) {
+// modelRoleColor resolves a role to the SGR sequence of its own catalog color, the
+// token RoleInfo reports and the model manager's role rows use. An unknown token,
+// or one the theme leaves undefined, falls back to muted: RoleInfo can inherit a
+// color from user-authored modelTags, and GetFgAnsi panics on a token the theme
+// does not define.
+//
+// Roles that share a token therefore draw in the same color -- plan, task and
+// judge are all muted -- which is the point: one role has one color, and two roles
+// that are the same color in the catalog are the same color here.
+func modelRoleColor(config modelroles.Config, role string) string {
 	th := modelOverlayTheme()
-	palette := modelSegmentPalette(len(labels))
+	if token := config.RoleInfo(role).Color; th.HasFgToken(token) {
+		return th.GetFgAnsi(token)
+	}
+	return th.GetFgAnsi("muted")
+}
+
+// modelRoleTrack paints a track whose segments are roles, each in its own catalog
+// color instead of the positional palette. OMP colors its cycle track by position;
+// this runtime colors it by role so the cycle reads as the same roles the manager
+// and the footer show, rather than recoloring them whenever the order changes.
+func modelRoleTrack(config modelroles.Config, roles []string, active int) (string, [][2]int) {
+	labels := make([]string, len(roles))
+	colors := make([]string, len(roles))
+	for i, role := range roles {
+		labels[i] = SanitizeModelText(role)
+		colors[i] = modelRoleColor(config, role)
+	}
+	return modelSegmentTrackColors(labels, colors, active)
+}
+
+// modelSegmentTrack paints a non-role track (the kind and role tab strips) with
+// OMP's positional palette and returns display-column chip ranges so mouse
+// activation and visible colored caps use identical geometry.
+func modelSegmentTrack(labels []string, active int) (string, [][2]int) {
+	return modelSegmentTrackColors(labels, modelSegmentPalette(len(labels)), active)
+}
+
+// modelSegmentTrackColors is the shared painter. colors supplies one SGR opening
+// sequence per segment; a shorter slice repeats, which is what the positional
+// palette relies on. The active segment turns its color into a background chip and
+// picks a black or white label for contrast.
+func modelSegmentTrackColors(labels, colors []string, active int) (string, [][2]int) {
+	th := modelOverlayTheme()
 	out := ""
 	ranges := make([][2]int, len(labels))
 	for i, label := range labels {
@@ -80,7 +120,7 @@ func modelSegmentTrack(labels []string, active int) (string, [][2]int) {
 			}
 		}
 		ranges[i][0] = widthx.VisibleWidth(out)
-		color := palette[i%len(palette)]
+		color := colors[i%len(colors)]
 		if i != active {
 			out += color + label + SGRFgReset
 		} else {

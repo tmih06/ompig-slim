@@ -77,7 +77,15 @@ it can expose an inherited assignment. Project writes require a trusted project.
 Role assignment scope and `modelRoleStorage` do not change the global scope used
 by the manager's fallback-chain and cycle-order controls.
 
-Ctrl+P follows the configured role cycle. Removed custom-role names are ignored.
+Ctrl+P follows the configured role cycle, shown at the bottom of the Roles pane.
+Each entry there carries its role's own color — the same token the role's row, the
+quick picker, and the footer use — so a role keeps one color no matter where it
+sits in the order. OMP colors that track by position instead; this diverges on
+purpose, because a positional color made a role change hue when reordered and told
+you nothing about which role a segment was. Roles sharing a token (`plan`, `task`,
+`judge` are all muted) deliberately share a color.
+
+Removed custom-role names are ignored.
 If a nonempty saved cycle contains only removed roles (for example old
 `scoped-N` entries), it recovers to explicitly assigned chat roles, preferring
 Smol, Default, and Slow; if none are assigned it uses the built-in default cycle.

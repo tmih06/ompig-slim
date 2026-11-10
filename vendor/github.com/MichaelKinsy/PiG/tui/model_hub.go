@@ -1762,11 +1762,10 @@ func (h *ModelHub) roleBody(width, height int) []string {
 		if h.cursor < len(h.rows) {
 			selectedRole = h.rows[h.cursor].key
 		}
-		labels := make([]string, len(cycle))
-		for i, role := range cycle {
-			labels[i] = SanitizeModelText(role)
-		}
-		track, _ := modelSegmentTrack(labels, slices.Index(cycle, selectedRole))
+		// Colored by role, not by position: the cycle track names the same roles the
+		// manager's rows and the footer show, so a role keeps one color here even
+		// when reordering the cycle with [ and ].
+		track, _ := modelRoleTrack(h.config, cycle, slices.Index(cycle, selectedRole))
 		lines = append(lines, fg(th.Dim, "  Ctrl+P cycle: ")+track)
 	}
 	return lines

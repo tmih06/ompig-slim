@@ -255,13 +255,9 @@ func (b *ModelBrowser) Render(width, height int) []string {
 			label = fg(th.Dim, SanitizeModelText(item.Provider)+"/") + name
 		}
 		if item.Role != "" {
-			order := b.roleConfig.Order()
-			index := slices.Index(order, item.Role)
-			if index < 0 {
-				index = i
-			}
-			palette := modelSegmentPalette(max(len(order), index+1))
-			label = palette[index%len(palette)] + "@" + SanitizeModelText(item.Role) + SGRFgReset
+			// A role row carries the role's own catalog color, so the same role reads
+			// the same in this list, the manager, the cycle track and the footer.
+			label = modelRoleColor(b.roleConfig, item.Role) + "@" + SanitizeModelText(item.Role) + SGRFgReset
 		}
 		if item.FQ() == b.current {
 			label += " " + fg(th.Success, "●")

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -195,6 +196,75 @@ func TestModelHubWheelDoesNotSelect(t *testing.T) {
 	h.HandleMouse(TuiMouseEvent{Type: MouseWheel, X: 80, Y: 4, WheelDelta: 1})
 	if h.browser.cursor != cursor {
 		t.Fatal("wheel changed selection")
+	}
+}
+
+// distinctTokenTheme installs a theme whose every token resolves to a different
+// color, so a rendered segment identifies the token that painted it. A source path
+// is set because modelOverlayTheme hands back the active theme unchanged for an
+// explicit custom theme, which keeps this fixture authoritative for both the
+// catalog and anything that reads the catalog's palette.
+func distinctTokenTheme(t *testing.T) *Theme {
+	t.Helper()
+	previous := ActiveTheme()
+	t.Cleanup(func() { SetThemeInstance(previous) })
+	theme := &Theme{Name: "distinct-tokens", SourcePath: "/fixture/distinct.json", mode: TerminalColorModeTrueColor, ownAppearance: "dark", fgAnsi: map[string]string{}, bgAnsi: map[string]string{}, dimTokens: map[string]bool{}}
+	for i, token := range ThemeColorTokens() {
+		// Distinct greys: 3 + i per channel keeps every token distinguishable.
+		value := 3 + i%200
+		theme.fgAnsi[token.Name] = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", value, value, value)
+		theme.bgAnsi[token.Name] = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", value, value, value)
+	}
+	theme.populateFields()
+	SetThemeInstance(theme)
+	return theme
+}
+
+// TestModelHubCycleTrackColorsByRole diverges from OMP deliberately: OMP paints the
+// cycle track from a positional palette, so the same role changes color when the
+// order changes. This runtime colors each segment with the role's own catalog token
+// instead, so the cycle reads as the same roles the manager rows, the quick picker
+// and the footer show. The assertion is that a role's color is independent of its
+// position, which is exactly what the positional palette could not provide.
+func TestModelHubCycleTrackColorsByRole(t *testing.T) {
+	theme := distinctTokenTheme(t)
+	config := modelroles.Config{ModelRoles: map[string]string{"default": "p/a", "smol": "p/b", "slow": "p/c", "task": "@default"}}
+	for _, tc := range []struct{ order []string }{
+		{[]string{"default", "smol", "slow", "task"}},
+		{[]string{"task"}},
+		{[]string{"task", "default"}},
+		{[]string{"slow", "task", "default"}},
+	} {
+		track, _ := modelRoleTrack(config, tc.order, -1)
+		// Every role in the order draws in its own token, at any position.
+		for _, role := range tc.order {
+			token := config.RoleInfo(role).Color
+			if !strings.Contains(track, theme.GetFgAnsi(token)+role) {
+				t.Fatalf("order %v: role %s not drawn in %s: %q", tc.order, role, token, track)
+			}
+		}
+	}
+	// A role whose color comes from a modelTags override follows the tag, and an
+	// undefined token falls back to muted instead of panicking in GetFgAnsi.
+	config.ModelTags = map[string]modelroles.Tag{"slow": {Color: "error"}, "odd": {Color: "not-a-token"}}
+	if track, _ := modelRoleTrack(config, []string{"slow"}, -1); !strings.Contains(track, theme.GetFgAnsi("error")+"slow") {
+		t.Fatalf("tag override ignored: %q", track)
+	}
+	if track, _ := modelRoleTrack(config, []string{"odd"}, -1); !strings.Contains(track, theme.GetFgAnsi("muted")+"odd") {
+		t.Fatalf("undefined token did not fall back: %q", track)
+	}
+	// The active segment keeps its chip treatment: caps around a padded bold label,
+	// and the next segment is separated without a divider (OMP's active-spacing rule).
+	active, ranges := modelRoleTrack(config, []string{"default", "task"}, 0)
+	visible := widthx.StripTerminalSequences(active)
+	if !strings.Contains(visible, "◀ default ▶") {
+		t.Fatalf("active role chip missing: %q", visible)
+	}
+	if strings.Contains(visible, "┆") {
+		t.Fatalf("active segment still drew a divider: %q", visible)
+	}
+	if len(ranges) != 2 || ranges[0][0] != 0 || ranges[1][0] <= ranges[0][0] {
+		t.Fatalf("mouse ranges unusable for the chip geometry: %v", ranges)
 	}
 }
 
