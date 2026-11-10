@@ -269,7 +269,7 @@ Two visual fixes came with it. `renderInlineTokensSequential` no longer writes t
 - Codex spends the available credit expiring soonest; Claude rechecks inventory and spends the grant selected by its endpoint. A confirmed spend invalidates the account's quota cache and clears only matching quota blocks, preserving unrelated auth and policy blocks. A Claude 5h-only reset leaves weekly blocks intact.
 - Reset redemption is an irreversible mutation and is not automatically retried. If its outcome is uncertain, check `/usage` before trying again. `Session.DispatchSlash("/usage reset")` returns the inventory without opening a picker; print-mode prompts do not dispatch built-in slash commands. See `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/usage_reset.go`, `vendor/github.com/MichaelKinsy/PiG/ai/usage_reset.go`, and `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/interactive_usage_reset.go`.
 
-### The follow-up key
+### Keybindings a legacy terminal cannot report
 
 `app.message.followUp` — queue a message behind the current task — defaults to `ctrl+q` on **every** platform column. Upstream keys it by platform (`alt+enter` outside Windows and WSL, `ctrl+q` inside), which leaves the action on a different key per OS and on none at all in terminals that cannot report Option+Return. `ctrl+q` is the Windows default already, so the change only widens it.
 
@@ -278,3 +278,20 @@ The single source of truth is the `appKeybindingRows` entry in `vendor/github.co
 `ctrl+q` is the XON flow-control byte. It reaches the process because raw mode clears `IXON` in the same ioctl that clears line editing (`golang.org/x/term` `MakeRaw`), so no terminal capability is being assumed; `ctrl+s` (XOFF) is bound the same way by `app.session.toggleSort`, `app.session.rename` and `app.thinking.save`. A terminal that intercepts `ctrl+q` outright — a multiplexer prefix, or an OS shortcut — never sends the byte, which is the general terminal-mapping problem in [keybindings](vendor/github.com/MichaelKinsy/PiG/internal/pigdocs/content/keybindings.md) and is why the action stays rebindable.
 
 Two consequences are deliberate and recorded as divergence D234: `alt+enter`/ESC+Return now reaches the editor, where the editor inserts a newline, so Apple Terminal (which cannot report Option+Return separately) loses its follow-up key entirely unless the user rebinds; and a `keybindings.json` entry for `app.message.followUp` replaces the default rather than adding to it, so `"app.message.followUp": ["alt+enter"]` restores upstream's macOS/Linux key in one line. Do not add `alt+enter` back as a second default key — a multi-key default is rendered as `ctrl+q/alt+enter` in every hint and row that formats the binding.
+
+The same failure mode applied to four other defaults, which are retargeted with D234. The decisive property of the wire format is that a terminal with **neither** the Kitty keyboard protocol **nor** xterm `modifyOtherKeys` (mode 4) sends `Ctrl+Shift+letter` as the same C0 byte as `Ctrl+letter`. So `shift+ctrl+p` fired `ctrl+p`'s action (cycle **forward**), `shift+ctrl+o` fired `ctrl+o` (expand tools), and `ctrl+shift+g` fired `ctrl+g` (next match) — each binding pointed at its own neighbour. Option-based keys are the other half: with Terminal.app's default "Use Option as Meta key" off, `Option+letter` types a layout character, so those send nothing. The shipped bindings after the fix:
+
+| Action | Was | Now | Why the new key arrives |
+|---|---|---|---|
+| `app.message.followUp` | `alt+enter` / `ctrl+q` | `ctrl+q` | XON byte; raw mode clears `IXON` |
+| `app.model.cycleBackward` | `shift+ctrl+p` | `ctrl+shift+left` | `CSI 1;6D` is a fixed sequence, not extended reporting |
+| `app.tree.filter.cycleBackward` | `shift+ctrl+o` | `ctrl+shift+right` | `CSI 1;6C`, as above |
+| `app.session.deleteNoninvasive` | `ctrl+backspace` | `ctrl+delete` | `CSI 3;5~` |
+| `tui.altScreen.search` | `ctrl+shift+f` | `ctrl+f` | plain byte; already Pi's Windows column |
+| `tui.altScreen.searchPrevious` | `shift+enter`, `ctrl+shift+g` | `shift+enter`, `f3` | `f3` is `ESC[13~`; `shift+enter` kept — native modifier detection rewrites Return to `CSI 13;2u` on Apple Terminal and Windows |
+
+`Ctrl+Shift+arrow` is the useful discovery here: it is **not** subject to the Ctrl+Shift+letter collapse, because xterm has emitted `CSI 1;6<final>` for modified arrows since long before the Kitty protocol existed, so it is deliverable on a stock Terminal.app profile. Prefer it over `Ctrl+Shift+letter` for any future binding. `ctrl+home`/`ctrl+end` (`CSI 1;5H`/`1;5F`) and every `ctrl+<single letter>` are equally safe; `Ctrl+Alt+letter` is **not** safe on Apple Terminal with Option-as-Meta off.
+
+Two properties to keep. The `tui.*` rows live in `vendor/github.com/MichaelKinsy/PiG/tui/keybindings.go` and the `app.*` rows in `internal/codingagent/keybindings.go`; nothing else hardcodes a default. And `extensions/sdk` carries a **pinned copy** of the `tui` table for extension-authored UIs — it is a separate module whose `.gz` bundle needs `automation/gen/embed-bundle.go`, which is not vendored, so it is deliberately left at upstream's values. That copy never drives the built-in TUI.
+
+`keybindings_default_test.go` guards the set: `TestDefaultsAreReachableWithoutExtendedKeys` walks every platform column and fails when a listed action has no default reachable from a legacy repertoire (C0 bytes, printable ASCII, `ESC`-prefixed Meta, `CSI 1;N<final>`, `CSI <n>;<m>~`, and `CSI 13;2u`). Reverting any of the five retargeted rows to its upstream key fails the test.
