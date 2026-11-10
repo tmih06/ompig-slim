@@ -40,20 +40,22 @@ func (w *InfoWidgets) Toggle() {
 }
 
 // ControlLabel is the persistent prompt-border source point. It stays available
-// even with no data; narrow borders fall back to the disclosure glyph alone.
+// even with no data; narrow borders fall back to the disclosure glyph alone. The
+// accent token marks it as the panel's control rather than another readout, and
+// the marker carries the open/collapsed state on its own.
 func (w *InfoWidgets) ControlLabel(width int) string {
 	marker := "▾"
 	if w.hidden {
 		marker = "▸"
 	}
+	if width < 1 {
+		return ""
+	}
 	label := marker + " Widgets"
 	if widthx.VisibleWidth(label) > width {
 		label = marker
 	}
-	if width < 1 {
-		return ""
-	}
-	return label
+	return ActiveTheme().Fg(string(ThemeColorAccent), label)
 }
 
 // Render bounds standalone previews to twelve rows, just like the overlay.
@@ -86,14 +88,32 @@ func (w *InfoWidgets) render(width, height int) []string {
 		w.viewHeight = min(12, height, w.lastHeight)
 		w.Scroll(0) // Clamp after content changes or viewport resizing.
 		rows := make([]string, w.viewHeight)
+		// Frame lines take `border`, the title `accent` bold and the keyboard
+		// hints `dim`, as every other framed surface does. Segments are colored
+		// separately because each Fg closes the foreground it opened: wrapping
+		// the whole row would drop the trailing frame back to the default color.
+		// The title must not live in `border` either — the bundled palettes aim
+		// that token at lines, and titanium's is a near-background gray.
 		theme := ActiveTheme()
-		title := widthx.TruncateToWidth(marker+s.Title+" · Alt+W", width-4, "…", false)
-		rows[0] = theme.Fg("border", "╭─"+title+strings.Repeat("─", max(0, width-3-widthx.VisibleWidth(title)))+"╮")
-		left, right := theme.Fg("border", "│")+" ", " "+theme.Fg("border", "│")
+		border := func(text string) string { return theme.Fg(string(ThemeColorBorder), text) }
+		// Truncate the plain label first: the escapes below have no width, and
+		// cutting colored text can split a sequence.
+		inner := max(0, width-3)
+		title, hint := marker+s.Title, " · Alt+W"
+		if widthx.VisibleWidth(title)+widthx.VisibleWidth(hint) > inner {
+			hint = "" // Drop the shortcut before the widget's own name.
+		}
+		title = widthx.TruncateToWidth(title, max(0, inner-widthx.VisibleWidth(hint)), "…", false)
+		rows[0] = border("╭─") + theme.Bold(theme.Fg(string(ThemeColorAccent), title)) +
+			theme.Fg(string(ThemeColorDim), hint) +
+			border(strings.Repeat("─", max(0, inner-widthx.VisibleWidth(title)-widthx.VisibleWidth(hint)))+"╮")
+		left, right := border("│")+" ", " "+border("│")
 		for i, line := range body[w.offset : w.offset+w.viewHeight-2] {
 			rows[i+1] = left + widthx.TruncateToWidth(line, width-4, "…", true) + right
 		}
-		hint := ""
+		// Navigation hints live inside the bottom border; only a scrolling panel
+		// shows them, so a short list keeps a clean edge.
+		footer := ""
 		if w.viewHeight < w.lastHeight {
 			directions := ""
 			if w.offset > 0 {
@@ -102,9 +122,10 @@ func (w *InfoWidgets) render(width, height int) []string {
 			if w.offset+w.viewHeight < w.lastHeight {
 				directions += "↓"
 			}
-			hint = widthx.TruncateToWidth(" "+directions+" Alt+PgUp/PgDn ", width-2, "…", false)
+			footer = widthx.TruncateToWidth(" "+directions+" Alt+PgUp/PgDn ", width-2, "…", false)
 		}
-		rows[len(rows)-1] = theme.Fg("border", "╰"+hint+strings.Repeat("─", max(0, width-2-widthx.VisibleWidth(hint)))+"╯")
+		rows[len(rows)-1] = border("╰") + theme.Fg(string(ThemeColorDim), footer) +
+			border(strings.Repeat("─", max(0, width-2-widthx.VisibleWidth(footer)))+"╯")
 		return rows
 	}
 	w.activeKey, w.offset = "", 0

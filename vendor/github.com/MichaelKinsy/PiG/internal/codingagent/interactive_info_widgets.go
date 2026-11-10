@@ -123,7 +123,9 @@ func (m *InteractiveMode) renderTodoWidget(width int, expanded bool) []string {
 		}
 	}
 	if m.todoWidgetError != "" {
-		rows = append(rows, tui.NewPaddedText(tui.ActiveTheme().Fg("error", m.todoWidgetError), 0, 0, nil).Render(width)...)
+		// Errors own the error token; nothing else in the panel uses it, so a
+		// failed call stays distinguishable from a warning-styled caveat.
+		rows = append(rows, tui.NewPaddedText(tui.ActiveTheme().Fg(string(tui.ThemeColorError), m.todoWidgetError), 0, 0, nil).Render(width)...)
 	}
 	return rows
 }
@@ -143,9 +145,14 @@ func (m *InteractiveMode) renderQuotaWidget(width int, expanded bool) []string {
 		return nil
 	}
 	if !expanded {
-		return []string{fmt.Sprintf("%s · %.0f%% left", windows[0].label, (1-windows[0].used)*100)}
+		// One summary row: window label muted, pressure colored, as the usage
+		// dashboard reads. The percentage stays in a single span so its text is
+		// still contiguous for callers that match on it.
+		return []string{fmt.Sprintf("%s · %s", tui.ActiveTheme().Fg(string(tui.ThemeColorMuted), windows[0].label),
+			quotaPercentFg(windows[0].used, (1-windows[0].used)*100))}
 	}
-	rows := []string{provider}
+	theme := tui.ActiveTheme()
+	rows := []string{theme.Fg(string(tui.ThemeColorAccent), provider)}
 	for _, window := range windows {
 		status := ai.UsageStatusOK
 		if window.used >= 1 {
@@ -153,16 +160,17 @@ func (m *InteractiveMode) renderQuotaWidget(width int, expanded bool) []string {
 		} else if window.used >= .8 {
 			status = ai.UsageStatusWarning
 		}
-		rows = append(rows, fmt.Sprintf("%s · %.0f%% left", window.label, (1-window.used)*100))
+		rows = append(rows, theme.Fg(string(tui.ThemeColorMuted), window.label)+" · "+quotaPercentFg(window.used, (1-window.used)*100))
 		rows = append(rows, renderPromptQuotaBar(window.used, status, min(20, width)))
 		if window.resetsAt > 0 {
 			remaining := max(time.Minute, time.Until(time.UnixMilli(window.resetsAt))).Round(time.Minute)
-			rows = append(rows, tui.ActiveTheme().Fg("dim", "Resets in "+remaining.String()))
+			rows = append(rows, theme.Fg(string(tui.ThemeColorDim), "Resets in "+remaining.String()))
 		}
 	}
 	for _, account := range snapshot.UnavailableAccounts {
 		if account.Provider == provider {
-			rows = append(rows, "Partial quota · /usage for details")
+			// Partial data is a caveat, not a failure: warning, not error.
+			rows = append(rows, theme.Fg(string(tui.ThemeColorWarning), "Partial quota · /usage for details"))
 			break
 		}
 	}
@@ -171,4 +179,20 @@ func (m *InteractiveMode) renderQuotaWidget(width int, expanded bool) []string {
 		rows[i] = strings.ReplaceAll(strings.ReplaceAll(row, "\n", " "), "\r", " ")
 	}
 	return rows
+}
+
+// quotaPercentFg colors a remaining percentage by pressure, using the same
+// thresholds and tokens as the quota bar and the usage dashboard: exhausted is
+// an error, 80% used a warning, and a healthy window follows its bar's success
+// color. The text keeps `% left` so it matches the border label's wording.
+func quotaPercentFg(used, remaining float64) string {
+	theme := tui.ActiveTheme()
+	token := tui.ThemeColorSuccess
+	switch {
+	case used >= 1:
+		token = tui.ThemeColorError
+	case used >= .8:
+		token = tui.ThemeColorWarning
+	}
+	return theme.Fg(string(token), fmt.Sprintf("%.0f%% left", remaining))
 }

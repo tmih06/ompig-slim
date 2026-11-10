@@ -233,3 +233,62 @@ func TestInfoWidgetEmptyAndTiny(t *testing.T) {
 		t.Fatal("empty host reserved rows")
 	}
 }
+
+// TestInfoWidgetPaletteTokens pins the widget frame to the theme tokens the rest
+// of the TUI uses after the palette port: border for lines, accent bold for the
+// title, dim for the keyboard hints. It matters because the token names are easy
+// to get subtly wrong — titanium's border is #2a3038, so a title drawn in border
+// would nearly vanish on a dark terminal while every width assertion still held.
+func TestInfoWidgetPaletteTokens(t *testing.T) {
+	theme := paletteTheme("titanium")
+	if theme == nil {
+		t.Skip("titanium palette unavailable")
+	}
+	swapTheme(t, theme)
+	accent, border, dim := theme.GetFgAnsi("accent"), theme.GetFgAnsi("border"), theme.GetFgAnsi("dim")
+	if accent == border || accent == dim {
+		t.Fatal("fixture theme aliases its tokens; the test would prove nothing")
+	}
+
+	w := &InfoWidgets{Sections: []InfoWidget{{Key: "tasks", Title: "Tasks", Render: func(int, bool) []string {
+		var rows []string
+		for i := 0; i < 30; i++ {
+			rows = append(rows, fmt.Sprint("task ", i))
+		}
+		return rows
+	}}}}
+	rows := w.Render(40)
+	if len(rows) != 12 {
+		t.Fatalf("want a bounded viewport, got %d rows", len(rows))
+	}
+	top, bottom := rows[0], rows[len(rows)-1]
+	if !strings.Contains(top, accent) || !strings.Contains(top, "\x1b[1m") {
+		t.Fatalf("title is not accent bold: %q", top)
+	}
+	if !strings.Contains(top, border) || !strings.Contains(bottom, border) {
+		t.Fatal("frame lines are not drawn in border")
+	}
+	// The title must not borrow the border color; that is the visible regression
+	// this pins.
+	if strings.Contains(top, border+accent) && !strings.Contains(top, accent) {
+		t.Fatal("title lost its accent color")
+	}
+	if !strings.Contains(bottom, dim) {
+		t.Fatalf("scroll hints are not dim: %q", bottom)
+	}
+	for _, row := range rows {
+		if widthx.VisibleWidth(row) != 40 {
+			t.Fatalf("styled frame broke the width: %q", row)
+		}
+	}
+
+	// The border control is the panel's one interactive affordance, so it takes
+	// accent rather than the quota label's default color.
+	label := w.ControlLabel(40)
+	if !strings.Contains(label, accent) || !strings.Contains(widthx.StripAnsi(label), "▾ Widgets") {
+		t.Fatalf("control label is not accent: %q", label)
+	}
+	if got := w.ControlLabel(1); widthx.VisibleWidth(got) != 1 {
+		t.Fatalf("narrow border did not fall back to the glyph alone: %q", got)
+	}
+}

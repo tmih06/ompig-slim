@@ -93,7 +93,7 @@ func (e todoCardError) Render(width int) []string {
 		if line == "" {
 			continue
 		}
-		rows = append(rows, tui.ActiveTheme().Fg("error", widthx.TruncateToWidth(line, max(1, width), "…", false)))
+		rows = append(rows, tui.ActiveTheme().Fg(string(tui.ThemeColorError), widthx.TruncateToWidth(line, max(1, width), "…", false)))
 		if len(rows) == 6 {
 			break
 		}
