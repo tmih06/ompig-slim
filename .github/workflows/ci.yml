@@ -41,6 +41,7 @@ jobs:
           persist-credentials: false
       # setup-go only restores exact keys. Vendored source-keyed build results
       # need role-specific fallbacks so each new commit does not build cold.
+      # Top-level tree IDs include descendants without walking vendor files.
       - name: Identify the reusable Go cache
         env:
           MODE: ${{ matrix.mode }}
@@ -68,6 +69,9 @@ jobs:
             make test
           else
             make "$MODE"
+            if [[ "$MODE" == check ]]; then
+              GOOS=darwin GOARCH=arm64 make vet
+            fi
           fi
 
   smoke:
