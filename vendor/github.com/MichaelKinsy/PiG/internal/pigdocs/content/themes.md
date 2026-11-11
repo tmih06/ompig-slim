@@ -1,16 +1,16 @@
 # Themes
 
-PiG uses themes to style its terminal interface. Select a theme through `/settings` or the `theme` setting.
+ompig-slim uses themes to style its terminal interface. Select a theme through `/settings` or the `theme` setting.
 
 ## Select a theme
 
-Start PiG and open settings:
+Start ompig-slim and open settings:
 
 ```text
 /settings
 ```
 
-Select the active theme. PiG writes the choice to the applicable settings file.
+Select the active theme. ompig-slim writes the choice to the applicable settings file.
 
 You can also set the name directly in `~/.pi/agent/settings.json`:
 
@@ -30,7 +30,7 @@ Choose **Automatic** in the theme submenu to select separate themes for light an
 }
 ```
 
-The first name is the light theme. The second name is the dark theme. Live switching requires terminal support for color-scheme notifications (DEC mode 2031). PiG preserves the pair when the terminal appearance changes. Selecting a single theme, including through an extension, disables automatic switching.
+The first name is the light theme. The second name is the dark theme. Live switching requires terminal support for color-scheme notifications (DEC mode 2031). ompig-slim preserves the pair when the terminal appearance changes. Selecting a single theme, including through an extension, disables automatic switching.
 
 ## Create a custom theme
 
@@ -52,17 +52,17 @@ A minimal file:
 }
 ```
 
-This file is not complete. The `colors` object needs all 51 required roles that the next sections list. Name the file after the theme. PiG reloads the active user theme at once only from `~/.pi/agent/themes/<name>.json`. Run `/reload` after you change a theme from any other source. To test a file without installing it, run `ompig-slim --theme ./my-theme.json`.
+This file is not complete. The `colors` object needs all 51 required roles that the next sections list. Name the file after the theme. ompig-slim reloads the active user theme at once only from `~/.pi/agent/themes/<name>.json`. Run `/reload` after you change a theme from any other source. To test a file without installing it, run `ompig-slim --theme ./my-theme.json`.
 
 ## Understand the theme file
 
 | Property | Required | Responsibility |
 |---|---|---|
 | `name` | Yes | Names the theme in selectors and settings. It must be unique. It cannot contain `/`, because `light/dark` pairs use that mark. |
-| `appearance` | No | `"dark"` or `"light"`: the background the theme is made for. PiG detects it from the colors when you omit it. |
+| `appearance` | No | `"dark"` or `"light"`: the background the theme is made for. ompig-slim detects it from the colors when you omit it. |
 | `vars` | No | Reusable color values. A variable can refer to another variable. |
 | `colors` | Yes | One color for each terminal UI role. |
-| `export` | No | `pageBg`, `cardBg`, and `infoBg` for HTML exports. PiG derives them from `userMessageBg` when you omit them. |
+| `export` | No | `pageBg`, `cardBg`, and `infoBg` for HTML exports. ompig-slim derives them from `userMessageBg` when you omit them. |
 | `$schema` | No | A schema URL for editor completion. |
 
 A color can have one of six forms:
@@ -105,7 +105,7 @@ These are the 51 required roles. Five more roles are optional and use a fallback
 
 ## Theme sources
 
-PiG can load theme Resources from:
+ompig-slim can load theme Resources from:
 
 - `~/.pi/agent/themes/`;
 - trusted project Resources;
@@ -145,9 +145,9 @@ A theme is data, but the Package that distributes it can also contain executable
 
 ## Upstream compatibility
 
-PiG follows Pi theme behavior where the Go TUI exposes the same observable contract. The TypeScript package `@earendil-works/pi-tui` remains an upstream Pi package, not a PiG Go API.
+ompig-slim follows Pi theme behavior where the Go TUI exposes the same observable contract. The TypeScript package `@earendil-works/pi-tui` remains an upstream Pi package, not an ompig-slim Go API.
 
-The theme file format above is the same as upstream Pi's, with PiG paths.
+The theme file format above is the same as upstream Pi's, with ompig-slim paths.
 
 ## Related documentation
 

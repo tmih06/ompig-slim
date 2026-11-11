@@ -1,6 +1,6 @@
 # Go SDK
 
-PiG exposes its coding agent as Go packages. Use the SDK when a Go application needs to create and control PiG sessions without starting the command-line interface as a child process.
+ompig-slim exposes its coding agent as Go packages. Use the SDK when a Go application needs to create and control ompig-slim sessions without starting the command-line interface as a child process.
 
 Use RPC mode when the caller is not a Go program or when a process boundary is required.
 
@@ -10,7 +10,7 @@ Use RPC mode when the caller is not a Go program or when a process boundary is r
 github.com/MichaelKinsy/PiG
 ```
 
-PiG is under active development. Pin an exact release or commit when you embed it. Do not assume API stability before the first public release.
+ompig-slim is under active development. Pin an exact release or commit when you embed it. Do not assume API stability before the first public release.
 
 After the repository and version tags are public, use the generated API reference
 on pkg.go.dev:
@@ -118,7 +118,7 @@ Subscribe to Session events before sending when your application needs streaming
 
 ### Supply an Agent or a cache warmer
 
-`SessionOptions.Agent` is an `*agent.Agent` you built. The Session drives it instead of building its own, as Pi's `AgentSessionConfig.agent` does (`agent-session.ts:253,486`). The Session installs its hooks into it: it chains a `FinishTurn`, `PrepareRequest`, `PrepareNextTurn` and `TransformLLMMessages` hook the Agent already had, replaces `BeforeToolCall`, `AfterToolCall`, `PreparePrompt`, `PrepareToolResult` and `SessionFile`, and sets the tools and session ID. You own the rest of the Agent's configuration: the stream function, `TransformContext`, `OnPayload` and header hooks (so no `before_provider_request` or `before_provider_headers` event fires unless your hooks emit it), steering and follow-up modes, thinking budgets, transport and image conversion. A nil `Model` and `ThinkingLevel` take the Agent's, so the Session does not restore them from history. An Agent serves one Session: `Clone` and replacements build their own. Without it the Session builds its Agent with the cache-warming stream function. Pi's `extensionRunnerRef` cell does not exist in PiG (D113): read `Session.ExtensionRunner()` after construction.
+`SessionOptions.Agent` is an `*agent.Agent` you built. The Session drives it instead of building its own, as Pi's `AgentSessionConfig.agent` does (`agent-session.ts:253,486`). The Session installs its hooks into it: it chains a `FinishTurn`, `PrepareRequest`, `PrepareNextTurn` and `TransformLLMMessages` hook the Agent already had, replaces `BeforeToolCall`, `AfterToolCall`, `PreparePrompt`, `PrepareToolResult` and `SessionFile`, and sets the tools and session ID. You own the rest of the Agent's configuration: the stream function, `TransformContext`, `OnPayload` and header hooks (so no `before_provider_request` or `before_provider_headers` event fires unless your hooks emit it), steering and follow-up modes, thinking budgets, transport and image conversion. A nil `Model` and `ThinkingLevel` take the Agent's, so the Session does not restore them from history. An Agent serves one Session: `Clone` and replacements build their own. Without it the Session builds its Agent with the cache-warming stream function. Pi's `extensionRunnerRef` cell does not exist in ompig-slim (D113): read `Session.ExtensionRunner()` after construction.
 
 `SessionOptions.CacheWarmer` is a `coding.CacheWarmer` you built, as Pi's `AgentSessionConfig.cacheWarmer` is (`agent-session.ts:266,494-497`). The Session wires its `OnWarmed` to the `entry_appended` event, reports its `Status`, forwards `OnAgentSettled` and `OnModeChanged`, and cancels it when the Session closes. Your stream function starts it. A Session replacement builds its own warmer for the new Session.
 
@@ -171,7 +171,7 @@ Do not replay a failed extension operation automatically unless the application 
 
 ## RPC alternative
 
-Start PiG in RPC mode when the caller needs a language-neutral process boundary:
+Start ompig-slim in RPC mode when the caller needs a language-neutral process boundary:
 
 ```bash
 ompig-slim --mode rpc
@@ -182,18 +182,18 @@ See [RPC mode](rpc.md).
 ## TypeScript extension declarations
 
 Node extensions use the TypeScript API from
-`@earendil-works/pi-coding-agent`. PiG maps those imports to compatible runtime
+`@earendil-works/pi-coding-agent`. ompig-slim maps those imports to compatible runtime
 modules when it starts the extension.
 
 The source tree includes `extensions/sdk-ts`, a declaration-only package that
-pins the exact Pi version and adds types for PiG-only APIs such as
+pins the exact Pi version and adds types for ompig-slim-only APIs such as
 `ui.setLogin`. It does not contain a second TypeScript runtime. Install it from
-the source tree during development until PiG publishes a versioned package.
+the source tree during development until ompig-slim publishes a versioned package.
 
 ## Upstream distinction
 
 The npm package `@earendil-works/pi-coding-agent` remains the canonical
-TypeScript SDK. PiG's Go SDK and non-TypeScript bridges do not replace it.
+TypeScript SDK. ompig-slim's Go SDK and non-TypeScript bridges do not replace it.
 
 See the [upstream Pi SDK documentation](https://pi.dev/docs/latest/sdk) when you are integrating Pi itself.
 
@@ -201,5 +201,5 @@ See the [upstream Pi SDK documentation](https://pi.dev/docs/latest/sdk) when you
 
 - [Extensions](extensions.md)
 - [Piglets](piglets.md)
-- [Extend and modify PiG](extend-pig.md)
+- [Extend and modify ompig-slim](extend-pig.md)
 - [RPC mode](rpc.md)

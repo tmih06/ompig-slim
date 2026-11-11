@@ -1,8 +1,8 @@
 # Terminal UI
 
-PiG provides a Go-native terminal interface that follows the observable behavior of upstream Pi. The interactive application includes the startup header, transcript, editor, overlays, and footer.
+ompig-slim provides a Go-native terminal interface that follows the observable behavior of upstream Pi. The interactive application includes the startup header, transcript, editor, overlays, and footer.
 
-This page describes the PiG user and extension boundary. It does not expose PiG's internal TUI packages as a stable application SDK.
+This page describes the ompig-slim user and extension boundary. It does not expose ompig-slim's internal TUI packages as a stable application SDK.
 
 ## Start the TUI
 
@@ -39,7 +39,7 @@ See [Keybindings](keybindings.md) for the complete binding list.
 
 ## Modes
 
-PiG supports regular and fullscreen terminal modes. Configure `tuiMode` in settings or use the corresponding interactive setting.
+ompig-slim supports regular and fullscreen terminal modes. Configure `tuiMode` in settings or use the corresponding interactive setting.
 
 The TUI responds to terminal resize. It calculates width in terminal cells and preserves Unicode and ANSI rendering boundaries.
 
@@ -69,7 +69,7 @@ Extensions can contribute:
 - terminal input handlers;
 - theme changes.
 
-Source extensions send bounded serializable state through the extension host. PiG keeps socket and JSON work off the TUI render loop and renders from local cached state.
+Source extensions send bounded serializable state through the extension host. ompig-slim keeps socket and JSON work off the TUI render loop and renders from local cached state.
 
 ## Focused custom components
 
@@ -78,35 +78,35 @@ A focused component owns keyboard input until it completes or is cancelled.
 For subprocess extensions:
 
 1. the extension builds and renders the component locally;
-2. PiG waits for exclusive terminal focus without blocking the TUI loop;
-3. PiG opens a native focus-owning shell;
+2. ompig-slim waits for exclusive terminal focus without blocking the TUI loop;
+3. ompig-slim opens a native focus-owning shell;
 4. the extension sends replaceable line snapshots;
-5. PiG sends ordered input to the extension;
+5. ompig-slim sends ordered input to the extension;
 6. the host rejects stale-width, out-of-order, or late frames;
 7. close, cancellation, reload, disconnect, or shutdown stops the worker;
 8. the SDK detaches invalidation before it disposes the component.
 
-PiG suppresses identical frames. The host render path reads only the latest completed local frame.
+ompig-slim suppresses identical frames. The host render path reads only the latest completed local frame.
 
-A custom component does not report PiG as waiting for the user, because `ui.custom` also hosts loaders and other non-blocking UI. When an inline component waits for an answer, pass `blocked: { kind: "question", message: "Pick a color" }` (Go SDK `RemoteOverlayOptions.Blocked`; the options object of the Rust and Python SDKs) so terminals that support OSC 7501 program status show PiG as blocked while the component is visible. `kind` is `"question"`, `"permission"`, or `"auth"`. Overlays ignore this option.
+A custom component does not report ompig-slim as waiting for the user, because `ui.custom` also hosts loaders and other non-blocking UI. When an inline component waits for an answer, pass `blocked: { kind: "question", message: "Pick a color" }` (Go SDK `RemoteOverlayOptions.Blocked`; the options object of the Rust and Python SDKs) so terminals that support OSC 7501 program status show ompig-slim as blocked while the component is visible. `kind` is `"question"`, `"permission"`, or `"auth"`. Overlays ignore this option.
 
 ## Timer-driven components
 
-Go, Rust, Python, and Node custom components can request a new frame after timer-owned state changes. PiG coalesces requests, limits timer frames to the 16 ms TUI interval, and preserves immediate input frames.
+Go, Rust, Python, and Node custom components can request a new frame after timer-owned state changes. ompig-slim coalesces requests, limits timer frames to the 16 ms TUI interval, and preserves immediate input frames.
 
-PiG Standard uses this public contract for PiG Runner. The Runner is an ordinary fused Go extension. Stock PiG has no Runner-specific callback or launcher.
+A composition can use this public contract for timer-driven custom UI. ompig-slim itself has no such callback or launcher.
 
 ## Login and header identity
 
 The startup header shows this product's mark where Pi shows its logo (D2): a four-row white `OM` prefix, Pi's coral-and-blue `P` with its yellow `i`, then cyan block-letter `in GO` and the light-purple `-slim` tag, with the version after the tag and the key hints on the second line, as Pi lays its first lines beside its 2-line logo. A terminal that cannot align half blocks, such as Apple Terminal, gets the one-line `OM` + `Pi` wordmark with the tag, and the hints below it. The first-time setup dialog draws the same mark. `quietStartup` hides the header as in Pi, and non-interactive modes have none.
 
-In fullscreen mode (`tuiMode: fullscreen`), clicking the header's mark plays this build's version of Pi's logo animation (D87): the mark is the OM + Pi logo, and the egg's mascot is the active sprite: the screen dissolves into braille dust, the pig flies to the center, grows and spins, then turns into a big side-view pig in the sprite's colors that runs in place, and Escape or Ctrl+C sends it back to the header (press again to skip). Pi plays the same animation with its own logo. `/arminsayshi`, and its PiG alias `/pigsayhi`, plays Pi's fullscreen 3D egg with the sprite's pig head in place of Armin: the pig grows out of the center, spins and slides its blocks around as a puzzle (D87). Outside fullscreen mode it draws a pig head labeled `pigsayhi` with Pi's Armin effects (D87).
+In fullscreen mode (`tuiMode: fullscreen`), clicking the header's mark plays this build's version of Pi's logo animation (D87): the mark is the OM + Pi logo, and the egg's mascot is the active sprite: the screen dissolves into braille dust, the pig flies to the center, grows and spins, then turns into a big side-view pig in the sprite's colors that runs in place, and Escape or Ctrl+C sends it back to the header (press again to skip). Pi plays the same animation with its own logo. `/arminsayshi`, and its ompig-slim alias `/pigsayhi`, plays Pi's fullscreen 3D egg with the sprite's pig head in place of Armin: the pig grows out of the center, spins and slides its blocks around as a puzzle (D87). Outside fullscreen mode it draws a pig head labeled `pigsayhi` with Pi's Armin effects (D87).
 
 `/sprite` chooses the mascot from fifteen built-in sprites: `pig-default` (the default), the color variants `pink`, `green`, `mint`, `sandy`, `grey`, `blush`, `lavender` and `cloud`, and the characters `pigrogu`, `darth-vader`, `kratos`, `piglet`, `spider-ham` and `sheriff`. The color sprites are the standard mascot recolored; the characters are their original pixel art. `/sprite list` lists them, `/sprite set <id>` chooses one, `/sprite` alone opens a picker, and `/sprite preview [id]` shows a sprite's 16-by-14 mascot with its name and tagline in an overlay that any key closes. The choice is saved in `$PIG_HOME/state/pig-standard/login.json`, where the Pigpen games read it. The command comes from the built-in `pig-login` extension, so `--no-extensions` and `-builtin:pig-login` leave it out.
 
 An extension or Piglet adds sprites with `ctx.ui.registerSprite({ id, name, tagline, mascot, palette })` (D2): `mascot` is the 16-by-14 pig the header draws and `/sprite preview` shows beside the wordmark, each row a string of palette symbols, `.` transparent, and `palette` maps each symbol to a `#RRGGBB` color. The id is a lowercase slug of at most 32 characters and must not be a built-in id. A registered sprite appears after the built-in ones in `/sprite list` and the picker and is saved like any other. When the extension is not loaded, the header draws `pig-default` and the saved choice stays. Pi has no sprites.
 
-An extension replaces the header with `ctx.ui.setHeader` as in Pi, and `setHeader(undefined)` and `/reload` restore the PiG header. An extension or Piglet can also replace it with its own native login through `ctx.ui.setLogin`, a validated login definition drawn in the same header slot. PiG Standard's `piglogin` extension uses that contract with its own artwork and `/sprite` command, and replaces the built-in one.
+An extension replaces the header with `ctx.ui.setHeader` as in Pi, and `setHeader(undefined)` and `/reload` restore the ompig-slim header. An extension or Piglet can also replace it with its own native login through `ctx.ui.setLogin`, a validated login definition drawn in the same header slot. A composition's login extension can use that contract with its own artwork and `/sprite` command, replacing the built-in one.
 
 Preview one login extension without starting a model Session:
 
@@ -116,31 +116,31 @@ ompig-slim extension preview-login ./my-login-extension
 
 ## Themes
 
-Use `/settings` to select the active theme. PiG can load additional theme Resources from trusted user, project, Package, and Piglet sources.
+Use `/settings` to select the active theme. ompig-slim can load additional theme Resources from trusted user, project, Package, and Piglet sources.
 
 See [Themes](themes.md).
 
 ## Rendering failures
 
-A renderer generation has a bounded inactivity contract. If it stalls, PiG cancels that generation and keeps the last valid frame.
+A renderer generation has a bounded inactivity contract. If it stalls, ompig-slim cancels that generation and keeps the last valid frame.
 
 A failed extension must not perform blocking IPC on the TUI render loop. Connection failure closes state owned by that extension and leaves unrelated UI available where possible.
 
 ## Accessibility and terminal behavior
 
-PiG supports keyboard operation for its interactive surfaces. Theme and extension authors must preserve readable contrast, focus indication, terminal-cell width, and reduced-motion expectations.
+ompig-slim supports keyboard operation for its interactive surfaces. Theme and extension authors must preserve readable contrast, focus indication, terminal-cell width, and reduced-motion expectations.
 
 Use a supported terminal and verify behavior at narrow and wide widths. See [Terminal setup](terminal-setup.md).
 
 ## Upstream distinction
 
-The package `@earendil-works/pi-tui` is the TypeScript TUI package for upstream Pi. It is not PiG's Go API.
+The package `@earendil-works/pi-tui` is the TypeScript TUI package for upstream Pi. It is not ompig-slim's Go API.
 
 Use the [upstream TUI documentation](https://pi.dev/docs/latest/tui) when you are writing an in-process TypeScript extension for Pi itself.
 
 ## Related documentation
 
-- [Using PiG](usage.md)
+- [Using ompig-slim](usage.md)
 - [Extensions](extensions.md)
 - [Keybindings](keybindings.md)
 - [Terminal setup](terminal-setup.md)

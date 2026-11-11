@@ -7,13 +7,13 @@
 > - Pi's `--tools read,grep,find,ls` works with a Piglet only inside the ceiling.
 
 Use this page when a tool, command, extension, or model is missing, or when you
-write a Piglet that must offer less than PiG offers by default. It is the
+write a Piglet that must offer less than ompig-slim offers by default. It is the
 reference for the `tools` and `strip` fields in [Piglets](piglets.md).
 
 ## Tool scope: `tools` is a ceiling
 
 Root `tools` limits which built-in tools can be active. It does not turn any
-tool on. The active set starts from PiG's default tools, your `defaultTools`
+tool on. The active set starts from ompig-slim's default tools, your `defaultTools`
 setting, or `--tools`. The Piglet then removes every tool outside its list.
 
 | Piglet | Tools the model receives |
@@ -21,7 +21,7 @@ setting, or `--tools`. The Piglet then removes every tool outside its list.
 | `tools: [read, grep]`, `grep` not in the default set | `read` only |
 | `tools: [read, grep]` and `--tools read,grep` | `read`, `grep` |
 | `tools: []` | no built-in tool |
-| no `tools` field | PiG's normal built-in tools |
+| no `tools` field | ompig-slim's normal built-in tools |
 
 Extension tools follow `extensions[].tools`. Omit it to offer all tools of that
 extension. Use `[]` to offer none. Command-line options and platform policy can
@@ -29,7 +29,7 @@ narrow these lists. They never widen a Piglet.
 
 ## Strip built-ins
 
-`strip` removes PiG built-ins by stable ID. A run without a Piglet strip list
+`strip` removes ompig-slim built-ins by stable ID. A run without a Piglet strip list
 is unchanged.
 
 ```yaml
@@ -55,8 +55,8 @@ tool and `/quit` together.
 
 ### Keep mode
 
-`strip.keep.<list>` names the built-ins that stay. PiG strips every other ID of
-that list, including IDs that a later PiG adds. One list is in deny mode or
+`strip.keep.<list>` names the built-ins that stay. ompig-slim strips every other ID of
+that list, including IDs that a later ompig-slim adds. One list is in deny mode or
 keep mode, never both. `keep.<list>: []` keeps nothing.
 
 ```yaml
@@ -90,7 +90,7 @@ set `extends.allowWiden: true`. Without `allowWiden`, resolution fails.
 An overlay on a Piglet Binary can undo some strips. See
 [Accept overlay Piglets](piglets.md#accept-overlay-piglets) for what an overlay may change.
 
-## `systemPrompt` replaces PiG's prompt
+## `systemPrompt` replaces ompig-slim's prompt
 
-A Piglet `systemPrompt` is the prompt. It does not add to PiG's prompt. PiG
-appends the working directory to it. Omit `systemPrompt` to keep PiG's prompt.
+A Piglet `systemPrompt` is the prompt. It does not add to ompig-slim's prompt. ompig-slim
+appends the working directory to it. Omit `systemPrompt` to keep ompig-slim's prompt.

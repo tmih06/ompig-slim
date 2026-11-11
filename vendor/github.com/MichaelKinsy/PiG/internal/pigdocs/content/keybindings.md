@@ -1,7 +1,7 @@
 # Keybindings
 
-PiG reads keybindings from `~/.pi/agent/keybindings.json`. The file is optional.
-If it is absent, PiG uses the defaults in this page.
+ompig-slim reads keybindings from `~/.pi/agent/keybindings.json`. The file is optional.
+If it is absent, ompig-slim uses the defaults in this page.
 
 Each entry maps one action to one or more keys. To change a binding, write the
 action name and the keys you want:
@@ -17,13 +17,13 @@ A binding in the file replaces the default for that action. It does not add to
 it. Bindings you do not name keep their defaults. Set an action to `[]` to leave
 the action with no key.
 
-Set `PIG_CODING_AGENT_DIR` to read the file from a different directory.
+Set `OMPIG_SLIM_CODING_AGENT_DIR` to read the file from a different directory.
 
 Use `/hotkeys` to list the keys that are active in the current session.
 
 A custom `tui.input.submit` binding submits messages and slash commands through the normal interactive handler. Enabling `PIG_DEBUG_KEYS` does not change that binding.
 
-If two actions claim the same key, PiG records the conflict and keeps both
+If two actions claim the same key, ompig-slim records the conflict and keeps both
 bindings. Both actions then answer that key, so give one of them a different key.
 
 ## Defaults
@@ -197,7 +197,7 @@ applies.
 
 Some actions use a different key on each platform, because the terminal or the
 operating system reserves the macOS key. WSL uses the Windows keys, except that
-`ctrl+z` still suspends and `alt+z` undoes. PiG detects WSL from `WSL_DISTRO_NAME`
+`ctrl+z` still suspends and `alt+z` undoes. ompig-slim detects WSL from `WSL_DISTRO_NAME`
 or `WSL_INTEROP`.
 
 | Action | macOS | Linux | WSL | Windows |
@@ -232,11 +232,11 @@ Write a key as its name, or as modifiers joined to the name with `+`. Use
 `ctrl+q`, `escape`, `ctrl+delete`.
 
 Terminals do not all report the same keys. If a binding does not respond, the
-terminal usually consumed the key before PiG saw it. See
+terminal usually consumed the key before ompig-slim saw it. See
 [terminal setup](terminal-setup.md).
 
 ## Related
 
 - [Commands](commands.md) lists the slash commands.
-- [Config](config.md) lists the files PiG reads.
+- [Config](config.md) lists the files ompig-slim reads.
 - [Terminal setup](terminal-setup.md) covers keys the terminal intercepts.

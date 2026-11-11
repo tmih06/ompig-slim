@@ -1,20 +1,19 @@
-# Extend and modify PiG
+# Extend and modify ompig-slim
 
-Use this page when a user wants PiG to do something it does not do. Pick the lowest rung of the ladder that solves the task. Do not change PiG source before every lower rung is ruled out.
+Use this page when a user wants ompig-slim to do something it does not do. Pick the lowest rung of the ladder that solves the task. Do not change ompig-slim source before every lower rung is ruled out.
 
 ## The ladder
 
-<!-- This table is generated from docs/site/fragments/customize-chooser.md, which the site quickstart also shows. Edit that file and run `make generate`. -->
 <!-- gen:begin customize-chooser -->
 | Rung | Pick it when | Where files go | Verify | If you know Pi |
 |---|---|---|---|---|
-| 1. [Context files](config.md#context-files), [settings](settings.md) and [keybindings](keybindings.md) | You want standing instructions for a folder, or a built-in behavior needs a different value or key. | `AGENTS.md` in the folder or a parent, or `<agent-dir>/AGENTS.md` for every project. `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`. A project file `.pi/settings.json` loads only in a trusted project. | The `[Context]` line of the startup banner. `/settings` and `/hotkeys`. `ompig-slim status --json` and `ompig-slim diagnose` show the trust decision as a print run resolves it (`trust.state`, `ignored`). `ompig-slim status` has no `--approve`, so pass the same flag to the real run. | `~/.pi` and `.pi/` are never read (D2). |
+| 1. [Context files](config.md#context-files), [settings](settings.md) and [keybindings](keybindings.md) | You want standing instructions for a folder, or a built-in behavior needs a different value or key. | `AGENTS.md` in the folder or a parent, or `<agent-dir>/AGENTS.md` for every project. `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`. A project file `.pi/settings.json` loads only in a trusted project. | The `[Context]` line of the startup banner. `/settings` and `/hotkeys`. `ompig-slim status --json` and `ompig-slim diagnose` show the trust decision as a print run resolves it (`trust.state`, `ignored`). `ompig-slim status` has no `--approve`, so pass the same flag to the real run. | The same files, except Pi's `~/.pi` and `.pi/` are exactly where this build keeps them (D2). |
 | 2. [Prompt templates](prompt-templates.md), [skills](skills.md) and [themes](themes.md) | The task needs a saved prompt, task instructions with supporting files, or colors, and no code. | `~/.pi/agent/prompts/`; `~/.pi/agent/skills/<name>/SKILL.md` or `~/.agents/skills/<name>/SKILL.md`; `~/.pi/agent/themes/`. | `ompig-slim status --json`: the resource has `enabled: true`, no `ignored` and an empty `health`. Then `/reload`. | `~/.pi/skills/` is not scanned. |
 | 3. [Extensions](extensions.md), [terminal UI](tui.md) and [custom providers](custom-provider.md) | The task needs a new tool, command, hook, terminal component, provider, or UI. | A project folder from `ompig-slim extension init <dir> --lang go\|python\|rust\|lisp`. Load it with `ompig-slim -e <dir>` or `ompig-slim install <dir>`. | `ompig-slim install <dir> --validate-only --json`, then `ompig-slim -e <dir>` and `/reload`. | Pi extensions are TypeScript files. Prefer Go, then Rust, then Python. |
 | 4. [Packages](packages.md) | Other people or projects need the same Resources. | A folder with `package.json`; install with `ompig-slim install <source>`. | `ompig-slim list`, `ompig-slim package validate`. | A Package never activates a Piglet. |
 | 5. [Piglets](piglets.md) | One named agent needs its own tools, skills, prompt, or built-in limits. | One YAML file anywhere; `ompig-slim piglet add <file>` registers it. | `ompig-slim piglet validate`, `ompig-slim piglet show`, `ompig-slim --piglet <file>`. | `tools:` is a ceiling, not a list to turn on ([strip built-ins](piglet-strip.md)). |
 | 6. [Piglet Binaries](piglets.md#piglet-binary) | Someone must run the agent as one executable. | `ompig-slim piglet build <name> --format binary --out <path>`. | `ompig-slim piglet verify`, then run the executable. | A Binary is not always self-contained: see its prerequisites. |
-| 7. PiG source | A generic host feature is missing and no lower rung can supply it. | The PiG source repository, under its own `AGENTS.md`. | The repository gates. | Do not fork PiG to register an extension. |
+| 7. ompig-slim source | A generic host feature is missing and no lower rung can supply it. | The ompig-slim source repository, under its own `AGENTS.md`. | The repository gates. | Do not fork ompig-slim to register an extension. |
 <!-- gen:end customize-chooser -->
 
 ## Pick a rung
@@ -28,7 +27,7 @@ Use this page when a user wants PiG to do something it does not do. Pick the low
 
 ## From extension to Binary
 
-This is the linear recipe for an application built on PiG.
+This is the linear recipe for an application built on ompig-slim.
 
 1. Create one focused extension per capability:
 
@@ -78,11 +77,11 @@ A Binary is the heaviest delivery form. Try the lighter forms first:
 | The same extensions and skills on other machines | A Package: `ompig-slim install <source>`. |
 | A named agent that teammates start with one command | The Piglet source. Publish it with `ompig-slim piglet publish <name> --to npm`. Recipients run `ompig-slim piglet add npm:<name>`. |
 | A launcher for one Piglet | `ompig-slim piglet build <name> --format script --out <file>`. |
-| One signed executable, no PiG install needed | A Piglet Binary. |
+| One signed executable, no ompig-slim install needed | A Piglet Binary. |
 
 ## Binary prerequisites and risks
 
-- The native builder needs Go (`ompig-slim setup go`) and the PiG source of the same version. A release `ompig-slim` fetches its own source. A development build reports `source-unavailable`: set `PIG_SOURCE_ROOT` to a checkout.
+- The native builder needs Go (`ompig-slim setup go`) and the ompig-slim source of the same version. A release `ompig-slim` fetches its own source. A development build reports `source-unavailable`: set `PIG_SOURCE_ROOT` to a checkout.
 - Without a native builder, the container builder needs Docker or Podman. It builds Linux targets only. Run `ompig-slim setup` to see what is missing.
 - Build one Binary for each target. `ompig-slim piglet publish --targets os/arch,...` builds several.
 - `ompig-slim piglet add <file>` copies only local Resources inside the Piglet directory. A relative origin such as `local:./x.mjs` is refused. Use a Resource directory.
@@ -90,9 +89,9 @@ A Binary is the heaviest delivery form. Try the lighter forms first:
 - A Binary can still need things it does not contain: MCP services, Node 22.13 or newer for TypeScript extensions, secrets, and credentials. Do not call it self-contained when it has such requirements.
 - Strips that name a compiled-in built-in cannot be undone by an overlay: see [piglets](piglets.md#accept-overlay-piglets).
 
-## Change PiG source
+## Change ompig-slim source
 
-Change PiG only for generic needs: Pi parity, a stable public extension capability, Package, Piglet, or Binary infrastructure, or provider and session behavior that all compositions use. A product command, product login, or application workflow belongs in an extension and a Piglet. A source task follows the repository's own `AGENTS.md`.
+Change ompig-slim only for generic needs: Pi parity, a stable public extension capability, Package, Piglet, or Binary infrastructure, or provider and session behavior that all compositions use. A product command, product login, or application workflow belongs in an extension and a Piglet. A source task follows the repository's own `AGENTS.md`.
 
 ## Related
 

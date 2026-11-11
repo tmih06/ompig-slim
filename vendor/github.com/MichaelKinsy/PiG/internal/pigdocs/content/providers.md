@@ -1,12 +1,12 @@
 # Providers
 
-PiG speaks to inference providers through the provider registry shared with its Pi compatibility model. Each built-in provider has a Go implementation under `ai/` that handles authentication, request shaping, and stream parsing. Extensions can register additional providers through the public extension API. See [Extensions](extensions.md).
+ompig-slim speaks to inference providers through the provider registry shared with its Pi compatibility model. Each built-in provider has a Go implementation under `ai/` that handles authentication, request shaping, and stream parsing. Extensions can register additional providers through the public extension API. See [Extensions](extensions.md).
 
 Most hosted providers accept an API key, and some also accept a browser or device sign-in through OAuth. Amazon Bedrock and Google Vertex AI can also use ambient cloud credentials. Run `/login` or `ompig-slim login --list` to see the sign-in methods for each provider.
 
 ## Built-in providers
 
-PiG ships the same built-in chat providers and classifier models as Pi 1.5.0. `typesafe` has only classifier models, and `cloudflare-workers-ai`, `openai`, `opencode`, `openrouter` and `vercel-ai-gateway` list them beside their chat models. The provider key is the first part of a `provider/model` spec. The wire column lists the APIs that the provider's built-in chat models use.
+ompig-slim ships the same built-in chat providers and classifier models as Pi 1.5.0. `typesafe` has only classifier models, and `cloudflare-workers-ai`, `openai`, `opencode`, `openrouter` and `vercel-ai-gateway` list them beside their chat models. The provider key is the first part of a `provider/model` spec. The wire column lists the APIs that the provider's built-in chat models use.
 
 | Provider key | Name | Wire | Credential |
 |---|---|---|---|
@@ -58,20 +58,20 @@ To add an endpoint that is not in this table, such as a local Ollama, LM Studio 
 
 ## Use an API key from the environment
 
-Set the provider's variable before you start PiG:
+Set the provider's variable before you start ompig-slim:
 
 ```bash
 export GEMINI_API_KEY=...
 ompig-slim --model google/gemini-2.5-flash
 ```
 
-Each provider in the table above reads the variable in its credential column. Use `GEMINI_API_KEY` for `google`. PiG does not treat `GOOGLE_API_KEY` as a `google` credential: `ompig-slim auth check`, `/login` and `--list-models` ignore it, as Pi does.
+Each provider in the table above reads the variable in its credential column. Use `GEMINI_API_KEY` for `google`. ompig-slim does not treat `GOOGLE_API_KEY` as a `google` credential: `ompig-slim auth check`, `/login` and `--list-models` ignore it, as Pi does.
 
 `anthropic` reads three variables. `ANTHROPIC_AUTH_TOKEN` is sent as an `Authorization: Bearer` token and takes precedence over the other two. `ANTHROPIC_OAUTH_TOKEN` is used as an API key and takes precedence over `ANTHROPIC_API_KEY`. Subscription tokens (`sk-ant-oat`) are sent with the Claude Code identity, and subscription auth shows a warning at session start.
 
 `github-copilot` reads only `COPILOT_GITHUB_TOKEN`. A general `GITHUB_TOKEN` is not a Copilot credential.
 
-`PI_CACHE_RETENTION` sets the prompt cache retention that PiG passes to the provider.
+`PI_CACHE_RETENTION` sets the prompt cache retention that ompig-slim passes to the provider.
 
 Mistral requests include `prompt_cache_key` and an automatic `x-affinity` header when the request has a session ID and cache retention is not `none`. Explicit affinity headers remain unchanged, including an empty header. Replayed assistant messages use `prefix: false`; they are completed turns, not completion prefixes.
 
@@ -85,11 +85,11 @@ Bedrock prompts for a bearer token, an AWS profile, or the existing credential c
 
 Escape in a key or text prompt aborts login without replacing an existing credential. As in Pi, the error reads `Failed to save API key for <Name>: This operation was aborted`. `/logout` lists only stored credentials and does not change environment variables or `models.json`. With nothing stored, it reports that there are no credentials to remove. Matching login options retain their credential-source labels, such as `stored`; logout uses `configured` for the stored credentials it lists.
 
-PiG stores credentials in `~/.pi/agent/auth.json`. Agent startup creates a missing file containing `{}` with owner-only permissions (mode `0600` on POSIX; an owner-only DACL on Windows, D68). Startup leaves existing contents and permissions unchanged. Stored credentials take precedence over environment fallback; a runtime API key can override them for the current process.
+ompig-slim stores credentials in `~/.pi/agent/auth.json`. Agent startup creates a missing file containing `{}` with owner-only permissions (mode `0600` on POSIX; an owner-only DACL on Windows, D68). Startup leaves existing contents and permissions unchanged. Stored credentials take precedence over environment fallback; a runtime API key can override them for the current process.
 
 `auth.json` can contain API keys and OAuth tokens. Keep it private and do not commit it.
 
-Interactive login prompts marked as secret use PiG's `maskSecretInput` setting (default `true`). **Mask secret input** in `/settings` shows dots, a character count and the last four characters while typing, then retains only the masked preview after submission. Inputs shorter than five characters show no suffix. Set `maskSecretInput` to `false` to restore Pi 1.5.0's plain-text behavior. This configurable feature is recorded as divergence D80. Ordinary text and manual-code prompts remain visible. Credentials still belong in `auth.json` or the provider's credential store; the setting protects dialog and authentication-diagnostic output, not credential storage.
+Interactive login prompts marked as secret use ompig-slim's `maskSecretInput` setting (default `true`). **Mask secret input** in `/settings` shows dots, a character count and the last four characters while typing, then retains only the masked preview after submission. Inputs shorter than five characters show no suffix. Set `maskSecretInput` to `false` to restore Pi 1.5.0's plain-text behavior. This configurable feature is recorded as divergence D80. Ordinary text and manual-code prompts remain visible. Credentials still belong in `auth.json` or the provider's credential store; the setting protects dialog and authentication-diagnostic output, not credential storage.
 
 ### Load an API key from a command
 
@@ -104,7 +104,7 @@ To use a secret manager without writing the key to disk, set a stored key to a c
 }
 ```
 
-PiG runs the command when the key is first needed and uses its standard output as the key.
+ompig-slim runs the command when the key is first needed and uses its standard output as the key.
 
 ### Provider settings in a credential
 
@@ -124,7 +124,7 @@ A stored API-key credential can include an `env` object. Its values take precede
 
 ### OAuth providers
 
-On Windows, PiG passes browser login URLs directly to the Windows URL handler without a command shell. URL parameters and shell metacharacters remain part of the URL.
+On Windows, ompig-slim passes browser login URLs directly to the Windows URL handler without a command shell. URL parameters and shell metacharacters remain part of the URL.
 
 Device-code login shows the verification URL, user code, and waiting status without opening a browser. Open the displayed link yourself. Browser authorization URL events still open the default browser.
 
@@ -133,7 +133,7 @@ Built-in OAuth targets are `anthropic`, `github-copilot`, `kimi-coding`, `meta`,
 A failed Copilot refresh reports an explicit reauthentication instruction:
 
 ```
-github-copilot: refresh failed - run 'pig login' to re-authenticate
+github-copilot: refresh failed - run 'ompig-slim login' to re-authenticate
 ```
 
 ### `ompig-slim login` shapes
@@ -159,9 +159,9 @@ ompig-slim auth print-bearer-token --provider openai-codex --min-expiry 1h
 
 Credential-printing commands write secrets to stdout. `auth check` prints a credential only with `--credentials`.
 
-Use `ompig-slim auth check` to confirm that PiG sees a credential before you start a session.
+Use `ompig-slim auth check` to confirm that ompig-slim sees a credential before you start a session.
 
-An OAuth login can wait for device authorization or a browser callback. This wait belongs to the provider flow. PiG does not start a model Session while `ompig-slim login` runs.
+An OAuth login can wait for device authorization or a browser callback. This wait belongs to the provider flow. ompig-slim does not start a model Session while `ompig-slim login` runs.
 
 ## Cloud providers
 
@@ -188,7 +188,7 @@ export AZURE_OPENAI_RESOURCE_NAME=your-resource
 
 The `azure` provider serves the OpenAI Responses API and, for Foundry deployments, Chat Completions. The built-in `azure/deepseek-v4-pro` uses Chat Completions. Add other Foundry models to the `azure` provider in `models.json` with `"api": "openai-completions"` and a `"baseUrl"` on the provider or the model, because the built-in Azure models have none. Without one, the `azure` entry of `models.json` is rejected with `"baseUrl" is required when defining custom models.`
 
-The provider ID was `azure-openai-responses` in Pi before 1.0.3. The API ID and the `AZURE_OPENAI_*` variables are unchanged. PiG does not migrate old entries. Rename the provider key in `auth.json` (or run `/login` again), in `models.json`, and in `settings.json` (`defaultProvider`, `modelRoles` assignments, and `modelThinkingLevels` keys). A session that used the old provider falls back to another model when resumed, and its prompt cache is not reused.
+The provider ID was `azure-openai-responses` in Pi before 1.0.3. The API ID and the `AZURE_OPENAI_*` variables are unchanged. ompig-slim does not migrate old entries. Rename the provider key in `auth.json` (or run `/login` again), in `models.json`, and in `settings.json` (`defaultProvider`, `modelRoles` assignments, and `modelThinkingLevels` keys). A session that used the old provider falls back to another model when resumed, and its prompt cache is not reused.
 
 ### Amazon Bedrock
 
@@ -214,8 +214,8 @@ ECS task credentials and IRSA work through the standard `AWS_CONTAINER_CREDENTIA
 
 Two differences from Pi involve `AWS_BEARER_TOKEN_BEDROCK`:
 
-- An empty `AWS_BEARER_TOKEN_BEDROCK` (exported with no value, as a workflow does for an unset secret) counts as no token: PiG signs with the credentials it finds. Pi's AWS SDK treats the variable as set and fails the request before sending it (D195).
-- With `AWS_BEDROCK_SKIP_AUTH=1`, a token in the process environment is not sent over an `http://` endpoint: PiG's request fails with "bearer token with HTTP request requires HTTPS". Pi sends the `Authorization: Bearer` header in clear text there (D196). Use an `https://` endpoint or unset the variable.
+- An empty `AWS_BEARER_TOKEN_BEDROCK` (exported with no value, as a workflow does for an unset secret) counts as no token: ompig-slim signs with the credentials it finds. Pi's AWS SDK treats the variable as set and fails the request before sending it (D195).
+- With `AWS_BEDROCK_SKIP_AUTH=1`, a token in the process environment is not sent over an `http://` endpoint: ompig-slim's request fails with "bearer token with HTTP request requires HTTPS". Pi sends the `Authorization: Bearer` header in clear text there (D196). Use an `https://` endpoint or unset the variable.
 
 ### Cloudflare AI Gateway
 
@@ -258,11 +258,11 @@ To use a service-account key file, set `GOOGLE_APPLICATION_CREDENTIALS` with the
 
 ### Radius
 
-Radius is a gateway that speaks Pi's own message protocol, `pi-messages`: PiG posts the conversation to `<baseUrl>/messages` and reads the reply as a stream of Pi events. `/login` → **Sign in with an account** → **Radius** offers a browser sign-in (a callback on `127.0.0.1:1456`) or a device code for signing in from another machine. You can also paste a key with **Sign in with an API key** or set `RADIUS_API_KEY`.
+Radius is a gateway that speaks Pi's own message protocol, `pi-messages`: ompig-slim posts the conversation to `<baseUrl>/messages` and reads the reply as a stream of Pi events. `/login` → **Sign in with an account** → **Radius** offers a browser sign-in (a callback on `127.0.0.1:1456`) or a device code for signing in from another machine. You can also paste a key with **Sign in with an API key** or set `RADIUS_API_KEY`.
 
-PiG ships Radius's published model list. With credentials configured, PiG fetches the gateway's current list from `<gateway>/v1/config` in the background when interactive or RPC mode starts and after you sign in with `/login`, and caches it in `~/.pi/agent/models-store.json`. Print mode and `--list-models` use the cached list. `PI_OFFLINE` (any value) or `PIG_OFFLINE` (`1`, `true` or `yes`) turns the fetch off. Without Radius credentials, PiG contacts the gateway only while you sign in.
+ompig-slim ships Radius's published model list. With credentials configured, ompig-slim fetches the gateway's current list from `<gateway>/v1/config` in the background when interactive or RPC mode starts and after you sign in with `/login`, and caches it in `~/.pi/agent/models-store.json`. Print mode and `--list-models` use the cached list. `PI_OFFLINE` (any value) or `PIG_OFFLINE` (`1`, `true` or `yes`) turns the fetch off. Without Radius credentials, ompig-slim contacts the gateway only while you sign in.
 
-To use another Radius gateway, add a provider with `"oauth": "radius"` to `models.json`. `baseUrl` is required; PiG drops a trailing `v1` path segment to find the gateway. The published model list applies only to the default gateway.
+To use another Radius gateway, add a provider with `"oauth": "radius"` to `models.json`. `baseUrl` is required; ompig-slim drops a trailing `v1` path segment to find the gateway. The published model list applies only to the default gateway.
 
 ```json
 {
@@ -277,7 +277,7 @@ Any backend that implements `pi-messages` works as a `models.json` provider with
 ## Provider resolution
 
 When you select a model through `--model`, `/model`, `Ctrl+P`, or `setModel()`,
-PiG parses `provider/model`. Always use provider-qualified model specs from
+ompig-slim parses `provider/model`. Always use provider-qualified model specs from
 extensions and helpers; bare IDs default to `openai` and can route incorrectly.
 
 For Copilot models the model ID itself may contain a slash (e.g. `github-copilot/openai/gpt-5.5`); pig's `generatedModelSpec` helper preserves trailing slashes when rebuilding specs from generated model objects.

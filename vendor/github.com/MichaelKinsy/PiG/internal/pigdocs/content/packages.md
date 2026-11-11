@@ -1,8 +1,8 @@
 # Packages
 
-A package is a versioned PiG/Pi distribution envelope for resources: extensions,
+A package is a versioned ompig-slim/Pi distribution envelope for resources: extensions,
 skills, prompts, themes, hooks, MCP definitions, agent environments, and
-compatible cross-tool agents. Install packages to add capabilities to PiG. Use
+compatible cross-tool agents. Install packages to add capabilities to ompig-slim. Use
 an independent [piglet](piglets.md) to select and scope capabilities into one
 named agent.
 
@@ -56,7 +56,7 @@ upstream-compatible `package.json` `pi` block may select explicit members:
 }
 ```
 
-PiG-specific membership uses the additive `ompig-slim` block without changing Pi's
+ompig-slim-specific membership uses the additive `ompig-slim` block without changing Pi's
 fields. As in Pi, a package with a `pi` block loads only what it declares: its
 hooks, MCP servers, and agent environments come from the `ompig-slim` block, not from
 conventional directories.
@@ -74,7 +74,7 @@ conventional directories.
 ## Author and validate
 
 Author Package membership directly in ordinary `package.json`, using the standard
-`pi` block and optional PiG Resource fields above. Validate without installing:
+`pi` block and optional ompig-slim Resource fields above. Validate without installing:
 
 ```bash
 ompig-slim package validate ./base-coding
@@ -94,11 +94,11 @@ mutating global/project settings; only explicit member selections activate.
 
 ## Show a changelog
 
-After a Package update, PiG can show what changed. On the next fresh launch it reads the Package changelog and shows entries newer than the last seen version under "Extension Updates", the way it shows its own changelog. The first time PiG sees a Package, it records the version without showing anything. The last seen versions are stored in the `extensionChangelogVersions` setting.
+After a Package update, ompig-slim can show what changed. On the next fresh launch it reads the Package changelog and shows entries newer than the last seen version under "Extension Updates", the way it shows its own changelog. The first time ompig-slim sees a Package, it records the version without showing anything. The last seen versions are stored in the `extensionChangelogVersions` setting.
 
 This applies to Packages that load at least one extension. Packages that only provide skills, prompt templates, or themes do not show a changelog.
 
-By default PiG reads `CHANGELOG.md` from the Package root. Point `pi.changelogPath` at another file inside the Package, or set it to `""` to disable the changelog. A path that leaves the Package root, directly or through a symbolic link, is ignored:
+By default ompig-slim reads `CHANGELOG.md` from the Package root. Point `pi.changelogPath` at another file inside the Package, or set it to `""` to disable the changelog. A path that leaves the Package root, directly or through a symbolic link, is ignored:
 
 ```json
 {
@@ -110,7 +110,7 @@ By default PiG reads `CHANGELOG.md` from the Package root. Point `pi.changelogPa
 }
 ```
 
-A `pi` object that holds only metadata such as `changelogPath` does not make the manifest an explicit resource list: the Package's resources are still found by directory auto-discovery. Use version headings in the same format as PiG's changelog, such as `## [1.2.0]` or `## 1.2.0 - 2026-01-01`. Entries are matched against the `version` field in `package.json`, so a git Package only shows a changelog when that field increases. The `collapseChangelog` setting condenses the section to one line per Package.
+A `pi` object that holds only metadata such as `changelogPath` does not make the manifest an explicit resource list: the Package's resources are still found by directory auto-discovery. Use version headings in the same format as ompig-slim's changelog, such as `## [1.2.0]` or `## 1.2.0 - 2026-01-01`. Entries are matched against the `version` field in `package.json`, so a git Package only shows a changelog when that field increases. The `collapseChangelog` setting condenses the section to one line per Package.
 
 ## Install
 
@@ -124,25 +124,25 @@ ompig-slim install 'npm:@example/private@1.2.3?registry=https%3A%2F%2Fnpm.exampl
 
 Use `npm:` for registry sources and `git:` for Git shorthand such as `github.com/user/repo` or `git@github.com:user/repo`. Without a prefix, those spellings are local paths, even when the path does not exist. Explicit HTTPS and SSH URLs do not require `git:`.
 
-A Git subdirectory selector is `#subdirectory=<URL-escaped-relative-path>`. PiG
+A Git subdirectory selector is `#subdirectory=<URL-escaped-relative-path>`. ompig-slim
 clones one repository checkout under the canonical Git root, resolves the
 selected Package root inside it, rejects missing or symlink-escaping selections,
 and keeps the checkout while another configured Package still uses a sibling
 subdirectory.
 
 A custom npm registry selector is
-`?registry=<URL-escaped-absolute-HTTPS-URL>`. PiG gives each registry a distinct
+`?registry=<URL-escaped-absolute-HTTPS-URL>`. ompig-slim gives each registry a distinct
 managed root and passes the non-secret URL to npm, pnpm, or Bun. Registry URLs
 with embedded credentials, query strings, or fragments are rejected. Configure
 tokens and custom CAs through that package manager's normal `.npmrc`, environment,
-or certificate mechanism; PiG never accepts or writes a registry token.
+or certificate mechanism; ompig-slim never accepts or writes a registry token.
 
 For user-scoped packages, version metadata lookups run from managed package storage and do not consult the invoking project's `.npmrc` (security divergence D79). Your user configuration and explicit `npmCommand` arguments still apply. Trusted project-scoped packages keep Pi's project `.npmrc` behavior.
 
-PiG chooses npm, pnpm, or Bun flags from the `npmCommand` executable name, or the name after its last `--` separator. It removes only a `.cmd` or `.exe` suffix and preserves case. It does not run a version probe to identify the package manager.
+ompig-slim chooses npm, pnpm, or Bun flags from the `npmCommand` executable name, or the name after its last `--` separator. It removes only a `.cmd` or `.exe` suffix and preserves case. It does not run a version probe to identify the package manager.
 
-Products may add source schemes through PiG's install-resolver contract. For
-example, a product-enabled PiG may accept a `marketplace:` source. Raw PiG does
+Products may add source schemes through ompig-slim's install-resolver contract. For
+example, a product-enabled ompig-slim may accept a `marketplace:` source. Raw ompig-slim does
 not need to know that product's HTTP or authentication protocol.
 
 ## Validate without installing
@@ -173,7 +173,7 @@ word (D216). npm and git entries are not checked, because that needs the
 network.
 
 ```json
-{"valid": false, "checked": 2, "missing": [{"source": "/abs/gone", "scope": "user", "path": "/abs/gone", "error": "Path does not exist: /abs/gone", "remove": "pig remove /abs/gone"}]}
+{"valid": false, "checked": 2, "missing": [{"source": "/abs/gone", "scope": "user", "path": "/abs/gone", "error": "Path does not exist: /abs/gone", "remove": "ompig-slim remove /abs/gone"}]}
 ```
 
 `valid` is true when `missing` is empty, `checked` counts the local entries
@@ -191,27 +191,27 @@ Installs are user-scoped by default. `--local` records a workspace dependency in
 ompig-slim install ./workspace-extension --local
 ```
 
-PiG materializes managed sources once:
+ompig-slim materializes managed sources once:
 
 | Scope/source | Root |
 |---|---|
-| user npm | `$PIG_CODING_AGENT_DIR/npm` (default `~/.pi/agent/npm`) |
-| user Git | `$PIG_CODING_AGENT_DIR/git` |
-| downloaded catalog bundle | `$PIG_CODING_AGENT_DIR/catalog` |
+| user npm | `<agent-dir>/npm` (default `~/.pi/agent/npm`) |
+| user Git | `<agent-dir>/git` |
+| downloaded catalog bundle | `<agent-dir>/catalog` |
 | project npm | `<workspace>/.pi/npm` |
 | project Git | `<workspace>/.pi/git` |
 | local path | remains at its authored path |
 
-Plugin and Package records may refer to the same materialized source root; PiG
+Plugin and Package records may refer to the same materialized source root; ompig-slim
 does not duplicate it into separate caches.
 
-## Listing a PiG package
+## Listing an ompig-slim package
 
 ### Publish to npm
 
 Add the keyword `pig-package` and a description to `package.json`, then run `npm publish`. The pi-in-go.dev catalog finds packages by npm keyword when its site builds each day, labels community listings as unreviewed, and accepts no uploads.
 
-`ompig-slim package publish [<dir>] --to npm` is optional sugar over `npm publish`. It validates the Package, checks the fields the catalog reads and that `name@version` is free on npm, shows npm's dry run, and publishes only with `--yes`. PiG never edits `package.json` and never handles an npm token. See [Publishing](publishing.md).
+`ompig-slim package publish [<dir>] --to npm` is optional sugar over `npm publish`. It validates the Package, checks the fields the catalog reads and that `name@version` is free on npm, shows npm's dry run, and publishes only with `--yes`. ompig-slim never edits `package.json` and never handles an npm token. See [Publishing](publishing.md).
 
 ## Editors and ACP: pig-acp
 
@@ -230,7 +230,7 @@ Then point the editor at it. In Zed `settings.json`:
 ```json
 {
   "agent_servers": {
-    "PiG": {
+    "ompig-slim": {
       "type": "custom",
       "command": "pig-acp",
       "args": ["--pig", "/path/to/pig"],
@@ -244,7 +244,7 @@ Then point the editor at it. In Zed `settings.json`:
 
 ## Manage installed Packages
 
-PiG retains upstream Pi's top-level Package verbs:
+ompig-slim retains upstream Pi's top-level Package verbs:
 
 ```bash
 ompig-slim package list
@@ -267,11 +267,11 @@ Package commands show `Installing`, `Removing`, or `Updating` before work starts
 
 npm updates batch eligible Packages by scope. Git updates reconcile the configured ref and reinstall dependencies when the checkout changes or dependencies are missing. Installing another ref of an already configured Package replaces its source without discarding resource filters. A failed new Git installation removes its incomplete checkout.
 
-Bare update, `--self`, and the `self`/`ompig-slim` positional targets update PiG.
+Bare update, `--self`, and the `self`/`ompig-slim` positional targets update ompig-slim.
 `--extensions` updates installed Packages only; `--all` updates Packages before
-PiG. `--extension` names one Package and `--force` reinstalls the current PiG
+ompig-slim. `--extension` names one Package and `--force` reinstalls the current ompig-slim
 release. `--models` forces a model-catalog refresh through the shared model
-runtime without updating PiG or installed Packages. It cannot be combined with
+runtime without updating ompig-slim or installed Packages. It cannot be combined with
 another update target. Conflicting targets fail before either update path starts.
 
 At startup, an npm Package needs an installed manifest version that satisfies its
@@ -282,7 +282,7 @@ With the global `extensionsAutoUpgrade` setting on, `ompig-slim update` also run
 `ompig-slim extension upgrade` rules on Go extensions written for an older SDK
 ([Extensions](extensions.md)).
 
-PiG's owned management surface uses full-word noun/verb commands such as
+ompig-slim's owned management surface uses full-word noun/verb commands such as
 `ompig-slim package list`, while retaining upstream-compatible install, remove, and
 update behavior. Bare `ompig-slim list` retains upstream-compatible Package listing.
 Use `ompig-slim --help` as the authority for the binary you are running.

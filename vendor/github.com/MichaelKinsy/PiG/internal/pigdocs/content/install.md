@@ -1,113 +1,65 @@
-# Install and use PiG
+# Install and use ompig-slim
 
 Use this page to get from a fresh binary to a working session. Return to the
 [docs router](README.md) for focused tasks.
 
 ## 1. Build or install the binary
 
-On macOS, Linux or Android with Termux (arm64 only), install the latest release with
-`curl -fsSL https://pi-in-go.dev/install.sh | sh`; in Termux it installs the
-`android-arm64` release into `$PREFIX/bin`. Or download an archive from
-[GitHub Releases](https://github.com/MichaelKinsy/PiG/releases). Windows
-support is a preview. From a source checkout, build it with Go 1.27.3. Go 1.27 release binaries for macOS require macOS 13 or later:
+Install the latest release into `~/.local/bin` (Linux and macOS, x64 or arm64).
+The installer verifies the published SHA-256 and needs no Go and no `sudo`:
 
 ```bash
-go build -o bin/pig ./cmd/pig
-./bin/pig --version
+curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash
 ```
 
-Install the command with npm (Node.js 18 or newer):
+Pass `--version v0.1.0` to pin a release, or `--dir` to install elsewhere.
+Archives are also on [GitHub Releases](https://github.com/tmih06/ompig-slim/releases).
+
+From a source checkout with Go 1.27 or newer, the dependencies are vendored:
 
 ```bash
-npm install -g @pi-in-go/pig
-ompig-slim --version
+make build          # writes ./bin/ompig-slim
+./bin/ompig-slim --version
+make install        # or install into ~/.local/bin
 ```
 
-Or run it once without installing:
+`ompig-slim update` replaces a binary the installer placed. A build from source
+and a `go install` are not installer receipts, so update those by rebuilding.
+`go install` is not supported for this module: the entry point is the repository
+root, so build it from a checkout instead.
 
-```bash
-npx @pi-in-go/pig --version
-```
-
-`ompig-slim` itself is the native binary: npm installs the matching platform package
-(`@pi-in-go/pig-<os>-<cpu>`, for macOS, Linux and Windows on x64 and arm64, and Android on arm64 for
-Termux) as
-an optional dependency, and Node.js runs only a small launcher. Do not install
-with `--omit=optional` or `--no-optional`, which leaves the binary out. Update
-with `npm update -g @pi-in-go/pig` and uninstall with
-`npm uninstall -g @pi-in-go/pig`. `ompig-slim update` does not replace an
-npm-installed binary; update through npm.
-
-Install the command with Go 1.26 or newer, without a source checkout:
-
-```bash
-go install github.com/MichaelKinsy/PiG/cmd/pig@latest
-```
-
-Use an exact version for a reproducible installation:
-
-```bash
-go install github.com/MichaelKinsy/PiG/cmd/pig@v0.2.0
-```
-
-Go writes the `ompig-slim` executable to `GOBIN`, or to the `bin` directory below the
-first `GOPATH` entry when `GOBIN` is empty: `$(go env GOPATH)/bin`, which is
-`~/go/bin` by default (`%USERPROFILE%\go\bin` on Windows). Add that directory to
-`PATH`. With an older Go 1.21 or later and the default `GOTOOLCHAIN=auto`, Go
-downloads a new enough toolchain automatically. Update this installation by
-running `go install` again. PiG does not treat a Go-installed executable as a
-standalone release download, so `ompig-slim update` refuses to replace it without a
-matching installation receipt.
-
-Each release tags the root module (`v0.2.0`) and the nested Go extension SDK
-module (`extensions/sdk/v0.2.0`) on the same commit; `go install` needs both.
-
-Install or run the command with Nix:
-
-```bash
-nix run github:MichaelKinsy/PiG -- --version
-nix profile add github:MichaelKinsy/PiG
-```
-
-Nix before 2.30 and Lix spell the second command `nix profile install`.
-
-The Nix package wraps the command with `fd`, `ripgrep` and the clipboard
-commands. Extensions build and run with the toolchains on `PATH`, as in any
-other installation. Update the flake input to update it.
-
-After the project publishes a release, you can also download an artifact from
-its release page. Verify the published checksum before you place `ompig-slim` on
-`PATH`.
-
-ompig-slim stores user state under `~/.pi`. Set `PIG_HOME` only for an isolated config
-root, tests, or CI.
+ompig-slim stores user state under `~/.pi`, and the agent directory is
+`~/.pi/agent`. Set `OMPIG_SLIM_CODING_AGENT_DIR` to move the agent directory, or
+`PIG_HOME` for an isolated configuration root in tests and CI. Only the first
+moves settings, credentials and sessions.
 
 ### Change what the install script does
 
-`install.sh` reads these environment variables. Set them on the `sh` side of the pipe, for example `curl -fsSL https://pi-in-go.dev/install.sh | PIG_VERSION=0.5.0 sh`.
+`install.sh` reads these environment variables. Set them on the `sh` side of the
+pipe, for example:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh \
+  | OMPIG_SLIM_VERSION=v0.1.0 bash
+```
 
 | Variable | Meaning |
 |---|---|
-| `PIG_VERSION` | Install this release (for example `0.5.0`) instead of the latest. |
-| `PIG_INSTALL_DIR` | Directory that receives `ompig-slim`. The default is `$HOME/.local/bin`, or `$PREFIX/bin` in Termux. |
-| `PIG_HOME` | The settings directory, where the install receipt goes. The default is `~/.pi`. |
-| `PIG_API_BASE` | The API that names the latest release. The default is `https://pi-in-go.dev/api`. |
-| `PIG_LATEST_RELEASE_URL` | The page that redirects to the latest release, used when the API does not answer. |
-| `PIG_DOWNLOAD_BASE` | The release download root. The default is the GitHub Releases download URL of this repository. |
-| `PIG_UPDATE_URL` | The update manifest that `ompig-slim update` uses. The default is the latest release's `update.json`. |
+| `OMPIG_SLIM_VERSION` | Install this release tag instead of the latest stable. |
+| `OMPIG_SLIM_INSTALL_DIR` | Directory that receives `ompig-slim`. The default is `$HOME/.local/bin`. |
+| `OMPIG_SLIM_DOWNLOAD_BASE` | Release download root, for a mirror or a test server. The default is this repository's GitHub Releases URL. |
 
-The script verifies the archive against the release's `SHA256SUMS` before it writes anything to the install directory, whichever mirror these variables select.
+The script verifies the archive's SHA-256 before it writes anything to the
+install directory, whichever mirror these variables select.
 
 ### macOS Gatekeeper after a manual download
 
-A browser download can add the local `com.apple.quarantine` attribute to a PiG
-archive. First verify the published SHA-256 checksum. For a verified PiG binary,
-run:
+A browser download can add the local `com.apple.quarantine` attribute to an
+archive. Verify the published SHA-256 first, then clear it on that one file:
 
 ```bash
-xattr -p com.apple.quarantine /path/to/pig
-xattr -d com.apple.quarantine /path/to/pig
-/path/to/pig --version
+xattr -d com.apple.quarantine /path/to/ompig-slim
+/path/to/ompig-slim --version
 ```
 
 Do not recursively remove quarantine attributes from a broad directory.
@@ -131,7 +83,7 @@ Use `ompig-slim login --help`/`ompig-slim --help` for the targets available in y
 
 ## 3. Install packages
 
-Raw PiG accepts local, git, npm, and HTTP package sources:
+Raw ompig-slim accepts local, git, npm, and HTTP package sources:
 
 ```bash
 ompig-slim install ./my-package
@@ -141,9 +93,9 @@ ompig-slim install npm:@example/package
 
 An installed product extension may add another resolver scheme, such as a
 private marketplace. Its authentication and catalog commands are product
-features, not assumptions in raw PiG.
+features, not assumptions in raw ompig-slim.
 
-## 4. Run PiG
+## 4. Run ompig-slim
 
 ```bash
 ompig-slim                              # interactive TUI
@@ -173,8 +125,8 @@ See [Piglets](piglets.md) for schema and resolution.
 
 ## 6. Build an explicit Piglet entry point or Binary
 
-A source script is a thin Host Piglet entry point. It is not managed by PiG and
-creates no PiG state or record:
+A source script is a thin Host Piglet entry point. It is not managed by ompig-slim and
+creates no ompig-slim state or record:
 
 ```bash
 ompig-slim piglet build my-agent --format script --out ~/.local/bin/my-agent
@@ -195,7 +147,7 @@ ompig-slim piglet build my-agent --format binary --out ./pig-my-agent
 The Piglet artifact lifecycle lives under `ompig-slim piglet`.
 
 A Piglet Binary may fuse compatible Go components and host exact subprocess
-components through PiG's ordinary subprocess extension host. Its registered
+components through ompig-slim's ordinary subprocess extension host. Its registered
 Piglet release records where each component comes from: binary, release
 closure, required `agentEnv`, or external mapping. Subprocess use does not create
 a different binary kind.

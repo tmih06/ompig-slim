@@ -1,10 +1,10 @@
 # Skills
 
 > **Differs from Pi, or easy to get wrong**
-> - User skills live in `~/.pi/agent/skills/` or `~/.agents/skills/`. PiG does not scan `~/.pi/skills/` or `~/.pi`.
+> - User skills live in `~/.pi/agent/skills/` or `~/.agents/skills/`. ompig-slim does not scan `skills/` directly under the config root.
 > - Project skills (`.pi/skills/`, `.agents/skills/`) load only in a trusted project. With `-p` pass `--approve`.
 
-A skill is a block of task-specific instructions for a session. An extension adds a *capability* (a tool, a command); a skill adds *knowledge*: how to do a particular job well, in your own words, without writing code. PiG tells the model each skill's name, description, and path. The model reads the full instructions only when the task needs them.
+A skill is a block of task-specific instructions for a session. An extension adds a *capability* (a tool, a command); a skill adds *knowledge*: how to do a particular job well, in your own words, without writing code. ompig-slim tells the model each skill's name, description, and path. The model reads the full instructions only when the task needs them.
 
 Use a skill when the thing you want to reuse is a procedure or a convention, not a new tool: your commit-message format, how to run this repo's tests, the steps for cutting a release.
 
@@ -30,7 +30,7 @@ Explain *why* in the body, not what. Never mention tooling.
 
 - **`name`** - the skill's identifier (defaults to the directory name). Use lowercase letters, digits, and hyphens, at most 64 characters, with no leading, trailing, or doubled hyphen.
 - **`description`** - required. It says what the skill does and when it applies. The model uses it to decide when to read the skill, so write both parts. A skill with no description, or an empty one, is left out of the prompt, and the session still starts. Keep it to 1024 characters or fewer.
-- **body** - the instructions. PiG does not put the body in the system prompt. The model reads this file when the description matches the task.
+- **body** - the instructions. ompig-slim does not put the body in the system prompt. The model reads this file when the description matches the task.
 
 ## Load a skill
 
@@ -59,14 +59,14 @@ config tree (`~/.pi/agent/skills/<name>/SKILL.md`).
 
 Beyond explicit `--skill` and piglet entries, pig can discover skills already sitting in a project or your home dir. Treat discovery as a local convenience, not as the dependency contract for an agent you hand to someone else: portable piglets should declare skill origins.
 
-PiG scans:
+ompig-slim scans:
 
 - `~/.pi/agent/skills/` for user-level skills,
 - `~/.agents/skills/` for user-level skills in the Agent Skills location,
 - `.agents/skills/` at each directory from the workspace up to its root,
 - `.pi/skills/` in the workspace.
 
-PiG does not scan `~/.pi/skills/`. Project locations load only in a trusted project ([project trust](trust.md)).
+ompig-slim does not scan `~/.pi/skills/`, which sits outside the agent directory. Project locations load only in a trusted project ([project trust](trust.md)).
 
 A piglet controls whether this scan runs, so a locked-down agent picks up nothing it did not declare:
 

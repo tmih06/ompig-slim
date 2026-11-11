@@ -1,6 +1,6 @@
 # Commands
 
-PiG commands include top-level CLI verbs, slash commands inside the TUI, and
+ompig-slim commands include top-level CLI verbs, slash commands inside the TUI, and
 `ompig-slim docs` commands for the embedded reference bundle.
 
 ## CLI verbs
@@ -21,7 +21,7 @@ ompig-slim [options] [prompt]
 | `ompig-slim --models <patterns>` | Scope Ctrl+P model cycling to comma-separated model patterns. It is not an allow list. Without `--model`, a new session starts on the saved default model when the scope includes it, and otherwise on the first matching model. |
 | `ompig-slim --session-id <id>` | Use an exact session ID; may be combined with `--no-session` for provider cache affinity without disk persistence. |
 | `ompig-slim --mode rpc` | Start the JSONL RPC command loop on stdin/stdout. |
-| `ompig-slim --version` | Print the composite version `<PiG version>+<pinned Pi version>`. Pi prints only its own version (D63). |
+| `ompig-slim --version` | Print the composite version `<ompig-slim version>+<pinned Pi version>`. Pi prints only its own version (D63). |
 | `ompig-slim version` | Detailed pig/pi/Go/platform/build banner. |
 | `ompig-slim diagnose` | Print resolved config + binary identity. |
 
@@ -38,11 +38,11 @@ Product distributions may contribute additional top-level or nested command path
 | `ompig-slim auth print-bearer-token --provider <provider> [--model <model>] [--min-expiry <duration>]` | Print an OAuth bearer token, refreshing it when less than `--min-expiry` (default `30m`; units `ms`, `s`, `m`, `h`) remains. Refuses a provider configured with an API key. |
 | `ompig-slim install <source> [-l]` | Install a package through a core or contributed resolver. `-l` installs into the project. |
 | `ompig-slim remove <source> [-l]` | Remove a package from settings. `ompig-slim uninstall` is an alias. |
-| `ompig-slim update [self\|pig\|<source>] [--self\|--extensions\|--models\|--all] [--extension <source>] [--force]` | Bare `ompig-slim update` updates the pig binary, as `pi update` does. `<source>` (or `--extension <source>`) updates one package, `--extensions` updates every package, `--models` refreshes the model catalogs, and `--all` updates packages and then pig. `--force` reinstalls pig even when it is the latest version. |
+| `ompig-slim update [self\|pig\|<source>] [--self\|--extensions\|--models\|--all] [--extension <source>] [--force]` | Bare `ompig-slim update` updates the ompig-slim binary, as `pi update` does. `<source>` (or `--extension <source>`) updates one package, `--extensions` updates every package, `--models` refreshes the model catalogs, and `--all` updates packages and then ompig-slim. `--force` reinstalls ompig-slim even when it is the latest version. |
 | `ompig-slim install <path> --validate-only [--json]` | Validate without installing; emits structured diagnostics. |
 | `ompig-slim install --validate-only [--json]` | With no source, check that every configured local Package path resolves; exit 1 and name each missing one (D216). |
 | `ompig-slim install --validate-only --set "<p1>,<p2>"` | Validate a piglet-style extension set. |
-| `ompig-slim extension init <path> [--name <matching-name>] [--lang go\|python\|rust\|lisp] [--login] [--isolated] [--force] [--json]` | Scaffold an extension that resolves the staged SDK offline (Go default). `--login` scaffolds a Go login factory with standard PiG art. |
+| `ompig-slim extension init <path> [--name <matching-name>] [--lang go\|python\|rust\|lisp] [--login] [--isolated] [--force] [--json]` | Scaffold an extension that resolves the staged SDK offline (Go default). `--login` scaffolds a Go login factory with standard ompig-slim art. |
 | `ompig-slim extension upgrade [<name\|path>...] [--all] [--dry-run] [--summary]` | Rewrite Go extensions written for an older SDK with the SDK's tested rules: back up, show a diff, rebuild, report per extension (D109). See [Upgrade a Go extension](extensions.md). |
 | `ompig-slim extension preview-login <path>` | Start exactly one extension and render the login set during `session_start`; no model session starts. |
 | `ompig-slim extensions cache stats [--json]` | Inspect extension and runtime-cell cache classifications without changing use metadata. |
@@ -51,16 +51,16 @@ Product distributions may contribute additional top-level or nested command path
 | `ompig-slim list` | List installed Packages with Pi-compatible output. |
 | `ompig-slim package list [--json]` | Inspect configured Package state without starting runtimes. |
 | `ompig-slim package validate <dir> [--json]` | Validate ordinary Package source and Resource membership without installing. |
-| `ompig-slim package publish [<dir>] --to npm [--yes] [--tag <dist-tag>] [--access public\|restricted] [--otp <code>]` | Optional sugar over `npm publish` for a Package: validate it, check the catalog fields and that `name@version` is free, show npm's dry run, and publish only with `--yes`. PiG never handles an npm token. |
+| `ompig-slim package publish [<dir>] --to npm [--yes] [--tag <dist-tag>] [--access public\|restricted] [--otp <code>]` | Optional sugar over `npm publish` for a Package: validate it, check the catalog fields and that `name@version` is free, show npm's dry run, and publish only with `--yes`. ompig-slim never handles an npm token. |
 | `ompig-slim status [--json]` | Side-effect-free Package/Resource/Piglet health and canonical path overview; invalid state exits non-zero. It shows the project trust decision, marks resources that a run ignores (`ignored: untrusted` or `ignored: piglet-discovery`), and gives a skill or theme that the loader rejects a `health` text and `enabled: false`. |
 | `ompig-slim login --list [--json]` | List generic built-in and contributed authentication targets without reading credentials. |
 | `ompig-slim piglet list\|show\|validate\|schema\|add\|pull\|update\|publish\|remove\|prune\|build\|keygen\|verify\|tree\|lineage\|trust` | Current Piglet source, signed release distribution, inspection, build, and Binary-signing surface (D18). Owned verbs use full words. |
 | `ompig-slim piglet prune [--keep <n>] [--max-size <size>] [--dry-run]` | Remove old built Piglet Binaries, keeping the newest `n` of each Piglet and target (default 2). Pulled installs always remain. |
-| `ompig-slim piglet build <name> --format script --out <path\|->` | Write an explicit source-bound entry script: a POSIX shell script, or a cmd.exe batch file on Windows (D69). Creates no PiG state or records. |
+| `ompig-slim piglet build <name> --format script --out <path\|->` | Write an explicit source-bound entry script: a POSIX shell script, or a cmd.exe batch file on Windows (D69). Creates no ompig-slim state or records. |
 | `ompig-slim piglet build <name> --format binary --out <path> [--sign-key <private-key>]` | Build a Piglet Binary and managed v1 resolution/Binary records. The optional Ed25519 signature is checked before command dispatch. |
 | `ompig-slim piglet keygen <private-key>` | Create an Ed25519 private key and `<private-key>.pub` without replacing existing files. |
 | `ompig-slim piglet publish <name\|path> --to github --repo <owner/repo> --sign-key <key> [--targets os/arch,...] [--artifacts <dir>] [--tag-prefix <name>/] [--dry-run\|--yes]` | Publish signed per-target Piglet Binaries, `SHA256SUMS`, and a signed release index as one GitHub Release. Dry run until `--yes`. See `ompig-slim docs show piglets`. |
-| `ompig-slim piglet publish <name\|path> --to npm [--yes] [--tag <dist-tag>] [--access public\|restricted] [--otp <code>] [--npm-name <name>] [--package-map <alias>=<ref>] [--binaries github:<owner/repo>\|--no-binaries]` | Publish Piglet source to npm so `ompig-slim piglet add npm:<name>` installs it. Local Packages become `npm:` references. Dry run until `--yes`; refuses an existing `name@version`; PiG never handles an npm token. See `ompig-slim docs show publishing`. |
+| `ompig-slim piglet publish <name\|path> --to npm [--yes] [--tag <dist-tag>] [--access public\|restricted] [--otp <code>] [--npm-name <name>] [--package-map <alias>=<ref>] [--binaries github:<owner/repo>\|--no-binaries]` | Publish Piglet source to npm so `ompig-slim piglet add npm:<name>` installs it. Local Packages become `npm:` references. Dry run until `--yes`; refuses an existing `name@version`; ompig-slim never handles an npm token. See `ompig-slim docs show publishing`. |
 | `ompig-slim piglet verify <binary> [--source <name\|path>] [--workspace <dir>]` | Verify a Piglet Binary signature offline without running it. An unsigned Binary reports unsigned and exits non-zero. With `--source`, also bake that source as the build does and fail when the Binary records a different source or Piglet digest. `--workspace` names the workspace the build used (default: the current directory). |
 | `ompig-slim piglet tree [name] [--depth <n>] [--json]` | Show the installed Piglets arranged by `extends`; `*` marks the selected one and `[installed]` one with a built Binary. |
 | `ompig-slim piglet lineage <name\|path\|binary> [--source <name\|path>] [--json]` | Show an `extends` chain root first with what each link adds, removes or alters, or a signed Binary's recorded identity. Reads local files only. |
@@ -70,7 +70,7 @@ Product distributions may contribute additional top-level or nested command path
 | `ompig-slim config [--local]` | Open the Resource filter TUI. Press Tab to switch global and project scope. |
 | `ompig-slim setup [status\|go\|container]` | Show the toolchains that extensions and Piglet builds use (default), install a verified Go toolchain under `$PIG_HOME/toolchains/go`, or show how to install a container runtime. |
 | `ompig-slim verify [--json] [--checksums <file>] [--provenance] [--packages] [path...]` | Verify this binary, downloaded files, Piglet files, Packages, and extension directories by SHA-256 digest. Piglet Binary signatures are checked offline against the local trust policy. |
-| `ompig-slim docs [sync\|path\|list\|show <name>]` | Materialize and read the documentation bundled with Stock PiG. |
+| `ompig-slim docs [sync\|path\|list\|show <name>]` | Materialize and read the documentation bundled with ompig-slim. |
 
 ### Options
 
@@ -90,7 +90,7 @@ These options apply to `ompig-slim [options] [prompt]`. Run `ompig-slim --help` 
 | `--no-session` | Do not save the session. |
 | `--name`, `-n <name>` | Set the session display name. |
 | `--no-mcp` | Turn off the built-in MCP support for this run: no servers connect, and there are no MCP tools or `/mcp`. It does not affect an extension that replaces the built-in MCP support. |
-| `--no-stdin` | Ignore piped stdin. Use it when the process that starts PiG leaves the stdin pipe open and never closes it. Without it, PiG waits for end of input, as Pi does. |
+| `--no-stdin` | Ignore piped stdin. Use it when the process that starts ompig-slim leaves the stdin pipe open and never closes it. Without it, ompig-slim waits for end of input, as Pi does. |
 | `--no-skills`, `-ns` | Turn off skill discovery and loading. |
 | `--prompt-template <path>` | Load a prompt template file or directory. Repeat it for more. |
 | `--no-prompt-templates`, `-np` | Turn off prompt template discovery and loading. |
@@ -119,12 +119,12 @@ The tool options select the tools the model can call for one run. See [Settings]
 
 | Option | Effect |
 |---|---|
-| `--tools`, `-t <list>` | Replace the default selection with a comma-separated allowlist. It applies to built-in, extension, and custom tools. Entries are tool names or patterns where `*` matches any characters. MCP tools are kept unless an entry starts with `mcp__` (see [MCP tools](#mcp-tools)). A list of only `+name` and `-name` entries is not an allowlist: it adds tools to or removes them from the default selection, for example `ompig-slim --tools +codemode,-write`. These entries take exact tool names, not patterns, and cannot be mixed with plain names. A tool removed with `-name` stays removed after `/reload`. |
+| `--tools`, `-t <list>` | Replace the default selection with a comma-separated allowlist. It applies to built-in, extension, and custom tools. Entries are tool names or patterns where `*` matches any characters. MCP tools are kept unless an entry starts with `mcp__` (see [Tools](#tools) and [MCP servers](mcp.md)). A list of only `+name` and `-name` entries is not an allowlist: it adds tools to or removes them from the default selection, for example `ompig-slim --tools +codemode,-write`. These entries take exact tool names, not patterns, and cannot be mixed with plain names. A tool removed with `-name` stays removed after `/reload`. |
 | `--exclude-tools`, `-xt <list>` | Turn off the named tools or patterns after all other selection options, MCP tools included. It applies to built-in, extension, and custom tools. An excluded tool cannot be called. |
 | `--no-builtin-tools`, `-nbt` | Turn off the default built-in tools and keep extension and custom tools. |
 | `--no-tools`, `-nt` | Start with every built-in, extension, custom, and MCP tool turned off. |
 
-Without these options, PiG enables `read`, `bash`, `edit`, and `write`, unless the `defaultTools` setting changes the set. Extension tools stay enabled.
+Without these options, ompig-slim enables `read`, `bash`, `edit`, and `write`, unless the `defaultTools` setting changes the set. Extension tools stay enabled.
 
 | Built-in tool | Purpose | On by default |
 |---|---|---|
@@ -161,7 +161,7 @@ ompig-slim --exclude-tools bash
 
 ### `ompig-slim docs`
 
-Stock PiG materializes its reference docs under `~/.pi/docs/` so the coding
+ompig-slim materializes its reference docs under `~/.pi/docs/` so the coding
 agent can read the API implemented by the running binary.
 
 ```
@@ -173,17 +173,17 @@ ompig-slim docs show <name>  # print one doc to stdout
 ```
 
 Each build writes its bundle to its own directory, `~/.pi/docs/bundle-<hash>/`,
-named by the content hash of its pages. Two PiG builds that share a config root
-(two installed versions, or stock PiG beside a Piglet Binary) each keep their
+named by the content hash of its pages. Two ompig-slim builds that share a config root
+(two installed versions, or the plain binary beside a Piglet Binary) each keep their
 own bundle, so neither rewrites the other's docs and a running session's docs
 never change. A sync keeps the four most recently used bundles and removes
-older ones. Pages an older PiG wrote directly in `~/.pi/docs/` stay for that
+older ones. Pages an older ompig-slim wrote directly in `~/.pi/docs/` stay for that
 version. `EnsureSynced` runs at startup; a warm start reads one marker file.
 
 When the config root cannot be written and holds no bundle of the running
 build, startup writes nothing and prints nothing. The system prompt then has no
 docs section, and no other text names a docs page, because Pi's docs always
-exist and PiG does not name files that are not there (D22). `ompig-slim docs show`
+exist and ompig-slim does not name files that are not there (D22). `ompig-slim docs show`
 still prints the embedded pages. To give a read-only image its docs, run
 `ompig-slim docs sync` while the config root is still writable.
 
@@ -212,7 +212,7 @@ The dispatcher is exhaustive - every command here is a parity-mirrored upstream 
 | `/export [path]` | Export session (default HTML; specify `.jsonl`). |
 | `/import <path>` | Import and resume a JSONL session. |
 | `/share` | Upload an unlisted Session share that expires after 30 days. |
-| `/bug [description]` | Write a bug report archive to the current directory and print a prefilled PiG issue link to attach it to. Nothing is uploaded (D62). |
+| `/bug [description]` | Write a bug report archive to the current directory and print a prefilled ompig-slim issue link to attach it to. Nothing is uploaded (D62). |
 | `/copy` | Copy the last agent message to clipboard. |
 | `/name <text>` | Set the session display name. |
 | `/session` | Show session info and stats. |
@@ -223,7 +223,7 @@ The dispatcher is exhaustive - every command here is a parity-mirrored upstream 
 | `/sprite [list\|set <id>\|preview [id]\|create]` | Choose the pig the startup header shows, preview a sprite's full art, or design your own with the model (`create`; the picker's last item, "Create your own...", shows how). Registered by the built-in `pig-login` extension, so it is absent with `--no-extensions` or `-builtin:pig-login`. [pig] |
 | `/llama` | Manage a local llama.cpp server. |
 
-There is no `/exit` or `/clear` command. Pi has neither, and PiG matches Pi. To
+There is no `/exit` or `/clear` command. Pi has neither, and ompig-slim matches Pi. To
 leave, use `/quit`. To clear the editor, press the `app.clear` key (`ctrl+c` by
 default). `/hotkeys` lists the current bindings.
 
@@ -233,8 +233,8 @@ default). `/hotkeys` lists the current bindings.
 |---|---|
 | `/piglet` | Inspect the Piglet active in this process. |
 
-PiG Standard and other Piglets can add commands through selected extension
-Resources. Stock PiG does not register `/runner`, `/pig-runner`, or other
+A Composition and other Piglets can add commands through selected extension
+Resources. ompig-slim does not register `/runner`, `/pig-runner`, or other
 product commands.
 
 ### Parity harness (only when `PIG_PARITY_HARNESS=1`)
