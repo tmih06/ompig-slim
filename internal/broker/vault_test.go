@@ -115,6 +115,44 @@ func TestVaultAccountOperations(t *testing.T) {
 	}
 }
 
+// TestBulkAccountReadPreservesSelectionAndCredentials pins the broker's single-pass account
+// export: every enabled account remains visible, the selected flag is preserved, and the host
+// still holds the real refresh token while the HTTP snapshot redacts it.
+func TestBulkAccountReadPreservesSelectionAndCredentials(t *testing.T) {
+	client, _, server := testClients(t)
+	host := server.Config.Handler.(*Store)
+	ctx := context.Background()
+	for _, key := range []string{"one", "two"} {
+		if _, err := host.vault.SaveAccount(ctx, "fixture", &key, ai.Credential{Type: ai.CredentialOAuth, Access: key, Refresh: "private-" + key}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := host.vault.SelectAccount(ctx, "fixture", "one"); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := host.vault.ReadAccounts(ctx)
+	if err != nil || len(accounts) != 2 {
+		t.Fatalf("bulk account read: %d accounts, %v", len(accounts), err)
+	}
+	for _, account := range accounts {
+		if account.Credential.Refresh != "private-"+*account.Info.AccountKey {
+			t.Fatalf("bulk read lost host credential: %+v", account)
+		}
+		if account.Info.Active != (*account.Info.AccountKey == "one") {
+			t.Fatalf("bulk read lost selection: %+v", account.Info)
+		}
+	}
+	entries, err := (&remoteStore{client: client}).snapshot(ctx)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("remote snapshot: %d entries, %v", len(entries), err)
+	}
+	for _, entry := range entries {
+		if entry.Credential.Refresh != remoteRefreshSentinel {
+			t.Fatalf("snapshot leaked host refresh: %+v", entry.Credential)
+		}
+	}
+}
+
 // TestVaultRefreshCoalesces proves the host spends a refresh token once for
 // concurrent requests that observed the same access token, and redacts replies.
 func TestVaultRefreshCoalesces(t *testing.T) {
