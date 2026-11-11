@@ -56,19 +56,40 @@ func Extension(api extension.API) error {
 			return extension.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: render(state)}}, Details: state}, nil
 		},
 	})
-	api.RegisterCommand("goal", extension.CommandOptions{Description: "Set, inspect, pause, resume, complete, or drop the autonomous goal.", Handler: func(_ context.Context, args string) error {
+	api.RegisterCommand("goal", extension.CommandOptions{Description: "Set, inspect, pause, resume, complete, or drop the autonomous goal.", Handler: func(ctx context.Context, args string) error {
 		parts := strings.Fields(args)
 		op := "show"
 		if len(parts) > 0 {
 			op, parts = strings.ToLower(parts[0]), parts[1:]
+			if op == "show" && len(parts) > 0 {
+				// `show` only acts as a command when it is used alone; with
+				// arguments it is a perfectly valid prompt.
+				parts = append([]string{"show"}, parts...)
+				op = "__prompt"
+			}
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		switch op {
-		case "set", "create":
-			if err := tracker.Create(strings.Join(parts, " "), 0); err != nil {
+		start := func(objective string) error {
+			if err := tracker.Create(objective, 0); err != nil {
 				return err
 			}
+			// Creating the tracker must submit the objective too; otherwise the
+			// user waits for an unrelated turn before goal mode starts.
+			commandContext := extension.CommandContextFromContext(ctx)
+			if commandContext == nil {
+				_ = tracker.Drop()
+				return fmt.Errorf("goal command context is unavailable")
+			}
+			if err := commandContext.SendUserMessage(objective, nil); err != nil {
+				_ = tracker.Drop()
+				return err
+			}
+			return nil
+		}
+		switch op {
+		case "set", "create":
+			return start(strings.Join(parts, " "))
 		case "show":
 			fmt.Println(render(tracker.Get()))
 		case "pause":
@@ -88,7 +109,12 @@ func Extension(api extension.API) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("usage: /goal [set <objective>|show|pause|resume|complete|drop]")
+			// `/goal <prompt>` is the short form of `/goal set <prompt>`.
+			objective := strings.Join(append([]string{op}, parts...), " ")
+			if op == "__prompt" {
+				objective = strings.Join(parts, " ")
+			}
+			return start(objective)
 		}
 		return nil
 	}})
