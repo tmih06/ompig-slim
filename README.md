@@ -151,6 +151,17 @@ a private encrypted network. See [broker setup and containers](docs/remote-broke
 deployment and limits. Broker and standalone mode use the same `agent.db`, so a closed database can
 [transfer directly between them](docs/remote-broker.md#back-up-or-switch-to-standalone-mode).
 
+### Workspace image
+
+Each release also publishes a small multi-architecture workspace image with `ompig-slim`, `git`, `fd`,
+`rg`, `jq`, `curl`, SSH, Python, and common archive/patch tools. It is intentionally runtime-only; add
+language toolchains in a project-specific image when needed.
+
+```sh
+docker run --rm -it -v "$PWD:/workspace" \
+  ghcr.io/tmih06/ompig-slim-workspace:<version>
+```
+
 ## Development
 
 ```sh
@@ -161,6 +172,7 @@ make test-install      # curl installer against a loopback release server
 make test-self-update  # update/upgrade against a loopback release server
 make test-broker-container  # the broker image and two clients, needs Docker
 make test-broker-cluster    # one broker host plus two client containers, needs Docker
+make build-workspace-image   # build the lightweight agent workspace image
 make release           # build the four platform archives
 ```
 

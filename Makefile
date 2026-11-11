@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-broker build-broker-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
+.PHONY: build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -14,6 +14,10 @@ build-broker:
 # separate from testing it so CI can test the exact image it publishes.
 build-broker-image:
 	docker build -f Dockerfile.broker -t ompig-slim-broker .
+
+# The workspace image is the lightweight agent environment published with releases.
+build-workspace-image:
+	docker build -f Dockerfile.workspace -t ompig-slim-workspace .
 
 run:
 	$(GO) run -mod=vendor . $(ARGS)
