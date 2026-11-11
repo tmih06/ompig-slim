@@ -365,6 +365,11 @@ func DefaultAgentDir() string {
 	return icodingagent.DefaultAgentDir()
 }
 
+// ConfigRoot returns the shared Pi/OMP configuration root used for staged SDKs,
+// settings, credentials, and session state. It is exported so a small
+// pre-start command can prepare embedded assets without entering the full CLI.
+func ConfigRoot() string { return icodingagent.ConfigRoot() }
+
 // ErrNoServices is returned by APIs that require a Services instance
 // when the caller passed nil.
 var ErrNoServices = errors.New("coding: nil Services")

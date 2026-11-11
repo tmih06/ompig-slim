@@ -136,7 +136,7 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the release archives cover Linux and macOS only")
 	}
-	archive := archiveFor(t, map[string]string{archiveMember: "#!/bin/sh\necho 2.0.0\n"})
+	archive := archiveFor(t, map[string]string{archiveMember: "#!/bin/sh\nif [ \"$1\" != \"--internal-stage-extension-sdks\" ]; then exit 2; fi\necho 2.0.0\n"})
 	server := releaseServer(t, "v2.0.0", archive, digestOf(archive))
 
 	dir := t.TempDir()
