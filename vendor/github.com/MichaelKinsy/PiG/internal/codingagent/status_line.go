@@ -546,6 +546,8 @@ func renderFooter(d footerData, width int) []string {
 func footerLines(d footerData, width int) (string, string) {
 	stats := footerStats(d)
 	withProvider, plain := footerModelSide(d)
+	path := footerCwd(d.cwd)
+	branch, name := footerProjectDecorations(d)
 	minPad := 2
 	// Prefer the provider-qualified model; a narrower terminal keeps the model and
 	// loses only the qualifier, which names where it comes from rather than what it
@@ -554,7 +556,7 @@ func footerLines(d footerData, width int) (string, string) {
 	// budget twice.
 	for _, model := range slices.Compact([]string{withProvider, plain}) {
 		modelWidth := widthx.VisibleWidth(model)
-		project, ok := footerProject(d, width-minPad-modelWidth)
+		project, ok := footerProject(path, branch, name, width-minPad-modelWidth)
 		if !ok {
 			continue
 		}
@@ -565,11 +567,11 @@ func footerLines(d footerData, width int) (string, string) {
 	// rows carry one fact each: the project on line 1 and the model on line 2 beside
 	// the stats. Upstream's layout, reached only by terminals this narrow because a
 	// shared row is what keeps both visible at phone widths.
-	project, _ := footerProject(d, width)
+	project, _ := footerProject(path, branch, name, width)
 	if project == "" {
 		// Widths too small for the compacted path still get its head: an empty row
 		// would read as a rendering fault rather than as a truncated footer.
-		project = widthx.TruncateToWidth(footerToken(tui.ThemeColorStatusLinePath, footerCwd(d.cwd)), width, dim("..."), false)
+		project = widthx.TruncateToWidth(footerToken(tui.ThemeColorStatusLinePath, path), width, dim("..."), false)
 	}
 	return project, footerStatsWithModel(stats, withProvider, plain, width)
 }
@@ -586,22 +588,7 @@ func footerLines(d footerData, width int) (string, string) {
 // The bool reports whether the segment fit at all: false means budget cannot
 // show even the path's leaf, and the caller must widen it by taking line 1 for the
 // project alone.
-func footerProject(d footerData, budget int) (string, bool) {
-	// The branch is statusLineContext, not statusLineGitClean/Dirty: this footer
-	// resolves only the branch name, so coloring it clean or dirty would claim a
-	// working-tree state it never read. OMP reads staged, modified and untracked
-	// counts on its status line, and that is where those two colors belong.
-	branch := ""
-	if d.gitBranch != "" {
-		branch = footerToken(tui.ThemeColorStatusLineSep, " (") +
-			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
-			footerToken(tui.ThemeColorStatusLineSep, ")")
-	}
-	name := ""
-	if d.sessionName != "" {
-		name = footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
-	}
-	path := footerCwd(d.cwd)
+func footerProject(path, branch, name string, budget int) (string, bool) {
 	// The decorations are already styled, and VisibleWidth ignores the escapes, so
 	// the suffix width is what it costs the path.
 	//
@@ -627,6 +614,25 @@ func footerProject(d footerData, budget int) (string, bool) {
 		return footerToken(tui.ThemeColorStatusLinePath, compacted) + stage.suffix, true
 	}
 	return "", false
+}
+
+// footerProjectDecorations builds the styled suffix shared by every project-width
+// attempt in one render. Keeping it outside footerProject avoids reapplying theme
+// styles when the model fallback tries multiple budgets.
+func footerProjectDecorations(d footerData) (branch, name string) {
+	// The branch is statusLineContext, not statusLineGitClean/Dirty: this footer
+	// resolves only the branch name, so coloring it clean or dirty would claim a
+	// working-tree state it never read. OMP reads staged, modified and untracked
+	// counts on its status line, and that is where those two colors belong.
+	if d.gitBranch != "" {
+		branch = footerToken(tui.ThemeColorStatusLineSep, " (") +
+			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
+			footerToken(tui.ThemeColorStatusLineSep, ")")
+	}
+	if d.sessionName != "" {
+		name = footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
+	}
+	return branch, name
 }
 
 // compactFooterPath fits path into budget columns by eliding its middle. The first
