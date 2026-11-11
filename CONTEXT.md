@@ -10,6 +10,27 @@ Technical orientation and maintenance rulings for coding agents working in this 
 - Project-specific runtime changes live in the vendored PiG tree. Source provenance and the upstream baseline are recorded in `README.md`'s history; check current git history and diffs before relying on a commit reference.
 - Build and test commands use `-mod=vendor`. The dependency lock is `go.mod`/`go.sum`; do not run `go mod vendor` without preserving and deliberately reapplying the personal runtime patches. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Repeated tool-call guard
+
+`internal/loopguard` ports OMP's tool-call detector and corrective message.
+`main.go` loads it as a hidden inline factory, including with `--no-extensions`,
+for the primary session in every CLI mode. It has fixed upstream defaults:
+threshold five, exempt tool `wait`; no settings UI or subagent integration.
+State is per factory and resets on agent start, failed/aborted turns, no-call
+turns and all-exempt turns. Sorted whole-turn call sets ignore call IDs,
+argument key order and recursive `i`/`__intent` metadata, but retain duplicates
+and array ordering. Changed results do not reset an identical call sequence.
+PiG has no OMP `useless` result flag, so even idle exempt waits reset the count.
+
+At and beyond the threshold, the awaited `turn_end` handler proposes a hidden
+`tool-call-loop-redirect` custom-message draft, preserving earlier drafts and
+continuation decisions. The Session persists it and refreshes model context
+before the next request. Arguments/results are bounded diagnostic summaries.
+This is a corrective steer, not a tool block or a hard cap: alternating calls,
+changed arguments and repetition hidden inside one codemode call are not caught.
+The integration test uses a local SSE provider and real read calls to verify
+next-request visibility and persistence with extensions disabled.
+
 ## Repository map
 
 - `main.go`: executable entry point and library registrations.

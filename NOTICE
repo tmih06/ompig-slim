@@ -15,6 +15,12 @@ translations of oh-my-pi 18.16.0 code, Copyright (c) 2025 Mario Zechner,
 Copyright (c) 2025-2026 Can Bölük, Copyright (c) 2026 Stencil Labs, Inc., MIT.
 The full permission notice is reproduced in LICENSE.
 
+The repeated-tool-call guard and corrective steer translate can1357/oh-my-pi
+at commit 38be7382c55c44e51c88f0c9833bbd5214c6456e (MIT), from
+packages/ai/src/utils/tool-call-loop-guard.ts and
+packages/coding-agent/src/prompts/system/tool-call-loop-redirect.md.
+The upstream copyright and permission notice are reproduced in LICENSE.
+
 This project is not an official release of PiG, Pi, or oh-my-pi. Their
 maintainers do not endorse this personal distribution. Other dependency
 license notices remain alongside their sources in vendor/. Release archives
