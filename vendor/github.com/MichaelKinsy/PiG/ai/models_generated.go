@@ -35,6 +35,12 @@ type GeneratedModel struct {
 	Providers            []ModelCatalogProvider
 	// Record is the entry's JSON as Pi's catalog data spells it: the model object Pi serializes, member order included.
 	Record string
+	// Kind and the display metrics are populated for the runtime-imported OMP
+	// catalog; generated legacy rows retain the zero-value chat kind.
+	Kind        ModelType
+	Description string
+	Int, TPS    *float64
+	Priority    *float64
 }
 
 // GeneratedModels is the static catalog (1592 entries). generatedCatalog gives its rows the shared maps the tables below hold.

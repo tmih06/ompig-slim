@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/MichaelKinsy/PiG/ai"
 )
@@ -21,6 +22,15 @@ func (s *remoteStore) snapshot(ctx context.Context) ([]vaultEntry, error) {
 	var entries []vaultEntry
 	err := s.client.request(ctx, "GET", "/v1/snapshot", "", nil, &entries)
 	return entries, err
+}
+
+// accountInfos fetches only non-secret metadata for callers that do not need
+// a credential. The server keeps token-bearing snapshots on the credential
+// paths so list and presence checks stay small.
+func (s *remoteStore) accountInfos(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
+	var accounts []ai.CredentialAccountInfo
+	err := s.client.request(ctx, "GET", "/v1/accounts", "", nil, &accounts)
+	return accounts, err
 }
 
 // sameKey distinguishes a NULL identity from every named account, including "".
@@ -54,17 +64,17 @@ func (s *remoteStore) ReadAccount(ctx context.Context, provider string, key *str
 
 // List lists enabled provider/type pairs without exposing tokens.
 func (s *remoteStore) List(ctx context.Context) ([]ai.CredentialInfo, error) {
-	entries, err := s.snapshot(ctx)
+	accounts, err := s.accountInfos(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]ai.CredentialInfo, 0, len(entries))
-	seen := map[ai.CredentialInfo]bool{}
-	for _, entry := range entries {
-		info := ai.CredentialInfo{ProviderID: entry.Info.ProviderID, Type: entry.Info.Type}
-		if !seen[info] {
+	result := make([]ai.CredentialInfo, 0, len(accounts))
+	seen := make(map[ai.CredentialInfo]struct{}, len(accounts))
+	for _, account := range accounts {
+		info := ai.CredentialInfo{ProviderID: account.ProviderID, Type: account.Type}
+		if _, ok := seen[info]; !ok {
 			result = append(result, info)
-			seen[info] = true
+			seen[info] = struct{}{}
 		}
 	}
 	return result, nil
@@ -72,15 +82,7 @@ func (s *remoteStore) List(ctx context.Context) ([]ai.CredentialInfo, error) {
 
 // ListAccounts lists the broker's live selected-account metadata.
 func (s *remoteStore) ListAccounts(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
-	entries, err := s.snapshot(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ai.CredentialAccountInfo, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, entry.Info)
-	}
-	return result, nil
+	return s.accountInfos(ctx)
 }
 
 // operation sends one explicit vault mutation and waits for durable persistence.
@@ -193,11 +195,9 @@ func (s *remoteStore) ClearAccountBlocks(ctx context.Context, provider string, k
 
 // AccountCount reports enabled broker accounts, never the stale local count.
 func (s *remoteStore) AccountCount() (int, error) {
-	entries, err := s.snapshot(context.Background())
-	if err != nil {
-		return 0, err
-	}
-	return len(entries), nil
+	var count int
+	err := s.client.request(context.Background(), "GET", "/v1/account-count", "", nil, &count)
+	return count, err
 }
 
 // GetRaw returns the active access credential as exposed by the broker.
@@ -211,16 +211,9 @@ func (s *remoteStore) GetRaw(provider string) (ai.Credential, bool, error) {
 
 // HasProvider reports whether any enabled account exists on the host.
 func (s *remoteStore) HasProvider(ctx context.Context, provider string) (bool, error) {
-	entries, err := s.snapshot(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if entry.Info.ProviderID == provider {
-			return true, nil
-		}
-	}
-	return false, nil
+	var present bool
+	err := s.client.request(ctx, "GET", "/v1/provider?name="+url.QueryEscape(provider), "", nil, &present)
+	return present, err
 }
 
 // Close releases no resources: the connection is owned by the application.

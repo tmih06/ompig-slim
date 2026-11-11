@@ -243,10 +243,13 @@ func (m *GeneratedModel) ToModel() *Model {
 
 // catalogView is ToModel without its copies: the model's slices, maps and pointers are the catalog's own. A caller that keeps the model or hands it out must copy them first.
 func (m *GeneratedModel) catalogView() *Model {
-	// Every entry of Pi's built-in catalog data carries "type":"chat", so the RPC model objects of built-in models do too.
+	kind := m.Kind
+	if kind == "" {
+		kind = ModelTypeChat
+	}
 	return &Model{
 		catalogRecord:    m.Record,
-		Type:             ModelTypeChat,
+		Type:             kind,
 		ID:               m.ID,
 		DisplayName:      m.DisplayName,
 		Capabilities:     m.ToCapabilities(),
@@ -255,6 +258,10 @@ func (m *GeneratedModel) catalogView() *Model {
 		SamplingParams:   m.SamplingParams,
 		PromptCache:      m.PromptCache,
 		InputLimits:      m.InputLimits,
+		Int:              m.Int,
+		TPS:              m.TPS,
+		Priority:         m.Priority,
+		Description:      m.Description,
 		ProviderMeta: ProviderMetadata{
 			ProviderID: m.Provider,
 			API:        m.API,

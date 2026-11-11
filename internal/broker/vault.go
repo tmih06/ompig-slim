@@ -36,27 +36,17 @@ type vaultRequest struct {
 	UntilMs    int64          `json:"untilMs,omitempty"`
 }
 
-// redact reconstructs OAuth JSON before replacing refresh, so an opaque stored
-// representation cannot re-emit its original refresh token during marshaling.
+// redact returns a decoded credential with its OAuth refresh replaced by a
+// non-secret sentinel; the caller marshals only this projected value.
 func redact(credential ai.Credential) (ai.Credential, error) {
-	data, err := json.Marshal(credential)
-	if err != nil {
-		return ai.Credential{}, err
+	if credential.Type != ai.CredentialOAuth {
+		return credential, nil
 	}
-	var fields map[string]json.RawMessage
-	if err = json.Unmarshal(data, &fields); err != nil {
-		return ai.Credential{}, err
-	}
-	if credential.Type == ai.CredentialOAuth {
-		fields["refresh"], _ = json.Marshal(remoteRefreshSentinel)
-	}
-	data, err = json.Marshal(fields)
-	if err != nil {
-		return ai.Credential{}, err
-	}
-	var result ai.Credential
-	err = json.Unmarshal(data, &result)
-	return result, err
+	// Credential is already decoded by the vault. Copying the value avoids a
+	// marshal/unmarshal round trip for every account in a snapshot while
+	// retaining Extra and the provider's exact expiry representation.
+	credential.Refresh = remoteRefreshSentinel
+	return credential, nil
 }
 
 // entries reads enabled credentials from the canonical vault. API-key config
