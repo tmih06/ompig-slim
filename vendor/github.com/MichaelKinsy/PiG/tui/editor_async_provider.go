@@ -105,8 +105,9 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 			}
 			if done != nil {
 				done(strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:"))
-			} else if strings.HasPrefix(prefix, "/") {
+			} else if strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:") {
 				// Tab has no submit continuation: query arguments after applying the name.
+				// Skills remain prose tokens; refreshing here would reopen file completion.
 				e.refreshAutocomplete()
 			}
 		}, nil
@@ -163,7 +164,7 @@ const autocompleteTokenWrappers = "([{<`"
 func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
 	before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
 	triggered := autocompleteTriggered(before, e.asyncAutocomplete.TriggerCharacters)
-	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
+	slash := e.commandSlashContext(before)
 	return triggered || slash || e.skillSlashContext(before) || e.AutocompleteOpen(), triggered
 }
 

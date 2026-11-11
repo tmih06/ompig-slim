@@ -1454,7 +1454,10 @@ func (e *Editor) applySingleForcedCompletion(item AutocompleteItem, prefix strin
 	if e.OnChange != nil {
 		e.OnChange(e.Text())
 	}
-	if strings.HasPrefix(prefix, "/") {
+	// Skill completion leaves the prompt in prose mode; refreshing it as a
+	// slash command would immediately fall through to file completion and
+	// reopen a directory list after Tab.
+	if strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:") {
 		e.refreshAutocomplete()
 	}
 }
@@ -1469,7 +1472,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
 	if e.skillSlashContext(before) {
 		return true
 	}
-	if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") {
+	if e.commandSlashContext(before) {
 		return true
 	}
 	previousBoundary := true

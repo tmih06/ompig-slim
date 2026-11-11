@@ -3,6 +3,8 @@ package tui
 // Ports packages/coding-agent/src/modes/interactive/components/user-message.ts.
 
 import (
+	"strings"
+
 	"github.com/MichaelKinsy/PiG/coding/extension/markdowntransform"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 )
@@ -20,6 +22,10 @@ type UserMessageComponent struct {
 	outputPad     int
 	markdownTheme *MarkdownTheme
 	transform     func(string, int) string
+	// skills come from persisted expansion blocks, not the current registry, so
+	// resumed messages retain their badges even if a skill is later removed.
+	skills   []ParsedSkillBlock
+	expanded bool
 	// images are the message's image blocks, which only a frontend draws,
 	// and decoded those images as frontendImages decodes them once.
 	images  []ImageBlock
@@ -93,6 +99,53 @@ func (u *UserMessageComponent) SetOutputPad(padding int) {
 
 // Dispose releases this message's pending Markdown generation.
 func (u *UserMessageComponent) Dispose() { u.inner.Dispose() }
+
+// SetSkills associates loaded bodies with the source tokens in this bubble.
+// Bodies are hidden by default and never create separate transcript entries.
+func (u *UserMessageComponent) SetSkills(skills []ParsedSkillBlock) {
+	u.skills = skills
+	u.inner.decorate = u.skillContent
+	u.Invalidate()
+}
+
+// SetExpanded discloses skill bodies inside the same user submission under the
+// global expansion key. Messages without skills retain their ordinary display.
+func (u *UserMessageComponent) SetExpanded(expanded bool) {
+	if u.expanded != expanded {
+		u.expanded = expanded
+		u.Invalidate()
+	}
+}
+
+// skillContent renders only loaded tokens as badges after extension transforms
+// and before wrapping. The source stays untouched for persistence and transforms.
+func (u *UserMessageComponent) skillContent(content string) string {
+	if len(u.skills) == 0 {
+		return content
+	}
+	known := make(map[string]bool, len(u.skills))
+	for _, skill := range u.skills {
+		known[skill.Name] = true
+	}
+	var out strings.Builder
+	offset := 0
+	for _, token := range SkillTokens(content) {
+		if !known[token.Name] {
+			continue
+		}
+		out.WriteString(content[offset:token.Start])
+		out.WriteString(skillBadge(token.Name))
+		out.WriteString(UserMessageBgOpen() + ActiveTheme().UserMessageText)
+		offset = token.End
+	}
+	out.WriteString(content[offset:])
+	if u.expanded {
+		for _, skill := range u.skills {
+			out.WriteString("\n\n" + skillBadge(skill.Name) + "\n\n" + skill.Content)
+		}
+	}
+	return out.String()
+}
 
 func (u *UserMessageComponent) Render(width int) []string {
 	u.inner.SetDefaultColor(ActiveTheme().UserMessageText)

@@ -41,6 +41,10 @@ type Markdown struct {
 	hasDefaultStylePrefix bool
 	// inlineState is marked's lexer state for the document being rendered; child components for quotes and list items share it.
 	inlineState *markedInlineState
+	// decorate is the user bubble's final presentation pass (inline skill
+	// badges). It runs after extension transforms and before wrapping, so
+	// extensions receive source text and badge cells determine line breaks.
+	decorate func(string) string
 	// Transform is an optional display-only rewrite of Content applied at the
 	// render width before parsing, mirroring upstream MarkdownOptions.transform
 	// (markdown.ts). Used to replace Mermaid code blocks with rendered diagrams.
@@ -382,8 +386,12 @@ func (m *Markdown) Render(width int) []string {
 		content = m.Transform(content, contentWidth)
 	}
 	out := []string{}
-	if widthx.JSTrim(content) != "" {
-		out = m.renderDocument(content, width, contentWidth)
+	display := content
+	if m.decorate != nil {
+		display = m.decorate(content)
+	}
+	if widthx.JSTrim(display) != "" {
+		out = m.renderDocument(display, width, contentWidth)
 	} else {
 		m.resume = nil
 	}
