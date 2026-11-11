@@ -341,6 +341,22 @@ func TestFooterGitStatusShowsWorkingTreeCounts(t *testing.T) {
 	}
 }
 
+// TestFooterPullRequestShowsCISummary keeps the PR indicator compact and omits zero CI buckets.
+func TestFooterPullRequestShowsCISummary(t *testing.T) {
+	line := widthx.StripTerminalSequences(renderFooter(footerData{
+		cwd:         "/work/repo",
+		gitBranch:   "feature/status",
+		pullRequest: pullRequestStatus{number: 42, green: 3, red: 1, pending: 2},
+	}, 120)[0])
+	if !strings.Contains(line, "feature/status ↗#42 ✓3 ✗1 …2") {
+		t.Fatalf("pull request status missing from footer: %q", line)
+	}
+	clean := widthx.StripTerminalSequences(footerPullRequest(pullRequestStatus{number: 7, green: 2}))
+	if clean != "↗#7 ✓2" {
+		t.Fatalf("zero CI buckets were not omitted: %q", clean)
+	}
+}
+
 // TestFooterContextThresholds covers the context window's color levels: the
 // window is statusLineContext below 50%, warning above 50%, thinkingHigh above
 // 70%, and error above 90%.
