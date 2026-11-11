@@ -53,7 +53,7 @@ func (t *ReadTool) Label() string { return "" }
 func (t *ReadTool) Schema() ai.ToolSchema {
 	return toolSchemaWithParameters(ai.ToolSchema{
 		Name:                "read",
-		Description:         "Read the contents of a file or an http(s) URL. A file may be text or an image (jpg, png, gif, webp, bmp); images are sent as attachments. A URL is fetched and rendered to readable text, Markdown or an image by a deterministic, credential-free pipeline: HTML becomes Markdown locally, JSON is pretty-printed, and feeds, notebooks, PDF, DOCX/PPTX/XLSX, EPUB, archives and SQLite listings are rendered. Append :raw to a URL for the unmodified body and :50-80 for a line range. Output is truncated to 2000 lines (300 for a URL) or 50KB, whichever is hit first; use offset/limit for large files, or continue with offset until complete.",
+		Description:         "Read the contents of a file, an http(s) URL, or a GitHub issue://n or pr://n reference. A file may be text or an image (jpg, png, gif, webp, bmp); images are sent as attachments. URLs are rendered to readable text, Markdown or an image by a deterministic pipeline. GitHub references use the current repository (or owner/repo in the reference) and include the issue or pull request description and comments. Append :raw to a URL for the unmodified body and :50-80 for a line range. Output is truncated to 2000 lines (300 for a URL) or 50KB, whichever is hit first; use offset/limit for large files, or continue with offset until complete.",
 		ConstrainedSampling: strictToolSampling(),
 		PromptGuidelines: []string{
 			"Use read to examine files instead of cat or sed.",
@@ -214,6 +214,10 @@ func (t *ReadTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 	}
 	if ctx.Err() != nil {
 		return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "Operation aborted"}}, Details: map[string]any{}, IsError: true, Thrown: true}, nil
+	}
+
+	if result, isGitHub := t.readGitHub(ctx, p.Path); isGitHub {
+		return result, nil
 	}
 
 	// A URL is this tool's other source: OMP has no separate fetch tool, and
