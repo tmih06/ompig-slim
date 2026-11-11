@@ -35,14 +35,15 @@ func footerFixtureTheme(t *testing.T) *tui.Theme {
 	return theme
 }
 
-// footerRawSelectionLine returns line 2 of the footer with its escape sequences
-// intact, which is what a color assertion needs.
+// footerRawSelectionLine returns the footer row that carries the model, with its
+// escape sequences intact, which is what a color assertion needs. That row is line
+// 1, beside the project, so a narrow terminal shows both at once.
 func footerRawSelectionLine(t *testing.T, role string) string {
 	t.Helper()
 	return footerRoleLine(t, role, "")
 }
 
-// footerRoleLine renders line 2 for a role and the color token its metadata
+// footerRoleLine renders the model row for a role and the color token its metadata
 // reports, which is what FooterSession supplies at runtime.
 func footerRoleLine(t *testing.T, role, color string) string {
 	t.Helper()
@@ -53,10 +54,10 @@ func footerRoleLine(t *testing.T, role, color string) string {
 	if len(lines) < 2 {
 		t.Fatalf("footer rendered %d lines, want at least 2", len(lines))
 	}
-	return lines[1]
+	return lines[0]
 }
 
-// footerSelectionLine returns line 2 of the footer as visible text.
+// footerSelectionLine returns the model row as visible text.
 func footerSelectionLine(t *testing.T, role string) string {
 	t.Helper()
 	return widthx.StripTerminalSequences(footerRawSelectionLine(t, role))
@@ -183,11 +184,11 @@ func TestFooterFollowsRoleChangesLive(t *testing.T) {
 	footer := NewFooterComponent(roleFooterModel(), "agent", nil)
 	role := "default"
 	footer.activeRole = func() (string, string) { return role, "" }
-	if line := widthx.StripTerminalSequences(footer.Render(120)[1]); !strings.Contains(line, "@default") {
+	if line := widthx.StripTerminalSequences(footer.Render(120)[0]); !strings.Contains(line, "@default") {
 		t.Fatalf("initial role missing: %q", line)
 	}
 	role = "review"
-	if line := widthx.StripTerminalSequences(footer.Render(120)[1]); !strings.Contains(line, "@review") {
+	if line := widthx.StripTerminalSequences(footer.Render(120)[0]); !strings.Contains(line, "@review") {
 		t.Fatalf("role change not reflected: %q", line)
 	}
 }

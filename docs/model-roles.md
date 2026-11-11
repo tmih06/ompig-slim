@@ -95,7 +95,9 @@ is read-only; toggling **c** in Roles saves the displayed effective order.
 
 The footer below the prompt names the active role beside the model, as
 `@review claude-sonnet-4`, in the same color the role has in the manager and
-catalog. Two roles may resolve to one physical model, so the model name alone
+catalog. That row also carries the project path and branch at its left edge; a
+path too long for the row collapses in the middle rather than pushing the model
+off it. Two roles may resolve to one physical model, so the model name alone
 cannot say which role is selected. A session with no role — a direct model
 selection or a virtual model — shows the bare model name as before.
 
