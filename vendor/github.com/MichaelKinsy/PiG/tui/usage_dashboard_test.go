@@ -359,7 +359,7 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	}
 }
 
-func TestUsageReportAlignsBarsUnderAccountLabelsWithResetPrefixes(t *testing.T) {
+func TestUsageReportAlignsBarsUnderAccountLabelsAndKeepsResetsWithBars(t *testing.T) {
 	now := int64(1000)
 	reset := func(limit ai.UsageLimit, after int64) ai.UsageLimit {
 		limit.Window.ResetsAt = new(after)
@@ -396,8 +396,11 @@ func TestUsageReportAlignsBarsUnderAccountLabelsWithResetPrefixes(t *testing.T) 
 				t.Fatalf("bar for %s is not under its label:\nheader: %q\nbar:    %q", account, line, barLine)
 			}
 		}
-		if !strings.Contains(line, "2h a@test") || !strings.Contains(line, "4h b@test") {
-			t.Fatalf("reset prefixes are not separated from account labels: %q", line)
+		if strings.Contains(line, "2h a@test") || strings.Contains(line, "4h b@test") {
+			t.Fatalf("reset countdown leaked into the account header: %q", line)
+		}
+		if !strings.Contains(barLine, "2h") || !strings.Contains(barLine, "4h") {
+			t.Fatalf("reset countdowns missing from the bar row:\nheader: %q\nbar:    %q", line, barLine)
 		}
 		return
 	}

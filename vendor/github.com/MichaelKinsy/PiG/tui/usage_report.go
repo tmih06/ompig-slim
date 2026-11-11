@@ -170,74 +170,31 @@ func usageAccountHeaderSuffixWidth(accounts []usageAccountColumn, nowMs int64) i
 	return maxWidth
 }
 
-// formatUsageAccountHeaderRow renders per-account header cells as a fixed reset
-// prefix followed by the account label. The reset prefix is deliberately
-// separate from the label: a suffix at the end of one cell otherwise reads as
-// if it belongs to the next account when adjacent columns are populated.
+// formatUsageAccountHeaderRow renders only the account labels above the bars.
+// Reset countdowns are rendered in the bar row, not at the end of a header cell,
+// so one account's countdown cannot visually become the next account's prefix.
 func formatUsageAccountHeaderRow(
 	theme *Theme,
 	accounts []usageAccountColumn,
 	peers []ai.UsageReport,
 	startIndex int,
-	nowMs int64,
 	columnWidth int,
 	active *ai.UsageActiveAccount,
 ) []string {
-	type part struct {
-		label    string
-		suffix   string
-		active   bool
-		daybreak bool
-		present  bool
-	}
-	parts := make([]part, 0, len(accounts))
-	maxSuffixWidth := usageAccountHeaderSuffixWidth(accounts, nowMs)
+	out := make([]string, 0, len(accounts))
 	for index, account := range accounts {
 		if !account.present {
-			parts = append(parts, part{})
-			continue
-		}
-		isActive := ReportMatchesActiveAccount(account.report, active)
-		label := formatUsageReportAccountLabel(account.limit, account.report, peers, startIndex+index)
-		if isActive {
-			label = "● " + label
-		}
-		parts = append(parts, part{
-			label:    label,
-			suffix:   formatUsageResetShort(account.limit, nowMs),
-			active:   isActive,
-			daybreak: metadataBool(account.report, "daybreak"),
-			present:  true,
-		})
-	}
-	gap := 0
-	if maxSuffixWidth > 0 {
-		gap = 1
-	}
-	labelBudget := columnWidth - maxSuffixWidth - gap
-	out := make([]string, 0, len(parts))
-	for _, item := range parts {
-		if !item.present {
 			out = append(out, strings.Repeat(" ", columnWidth))
 			continue
 		}
-		badge := ""
-		if item.daybreak && labelBudget >= 10 {
-			badge = " daybreak"
+		label := formatUsageReportAccountLabel(account.limit, account.report, peers, startIndex+index)
+		if ReportMatchesActiveAccount(account.report, active) {
+			label = theme.Fg(string(ThemeColorAccent), "● "+label)
 		}
-		label := widthx.TruncateToWidth(item.label, max(0, labelBudget-widthx.VisibleWidth(badge)), "…", false)
-		if item.active {
-			label = theme.Fg(string(ThemeColorAccent), label)
+		if metadataBool(account.report, "daybreak") {
+			label += theme.Fg(string(ThemeColorSuccess), " daybreak")
 		}
-		if badge != "" {
-			label += theme.Fg(string(ThemeColorSuccess), badge)
-		}
-		labelCell := label + strings.Repeat(" ", max(0, labelBudget-widthx.VisibleWidth(label)))
-		suffix := strings.Repeat(" ", max(0, maxSuffixWidth-widthx.VisibleWidth(item.suffix)))
-		if item.suffix != "" {
-			suffix += theme.Fg(string(ThemeColorDim), item.suffix)
-		}
-		out = append(out, suffix+strings.Repeat(" ", gap)+labelCell)
+		out = append(out, padUsageColumn(widthx.TruncateToWidth(label, columnWidth, "…", false), columnWidth))
 	}
 	return out
 }
@@ -764,13 +721,14 @@ func RenderUsageReports(options UsageReportOptions) string {
 					continue
 				}
 				headers := formatUsageAccountHeaderRow(
-					theme, blockAccounts, providerReports, block.start, nowMs, block.columnWidth, activeAccount)
+					theme, blockAccounts, providerReports, block.start, block.columnWidth, activeAccount)
 				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, " "), " "))
-				barIndent := usageAccountHeaderSuffixWidth(blockAccounts, nowMs)
-				if barIndent > 0 {
-					barIndent++
+				resetWidth := usageAccountHeaderSuffixWidth(blockAccounts, nowMs)
+				resetGap := 0
+				if resetWidth > 0 {
+					resetGap = 1
 				}
-				barWidth := max(1, min(block.barWidth, block.columnWidth-barIndent))
+				barWidth := max(1, min(block.barWidth, block.columnWidth-resetWidth-resetGap))
 				bars := make([]string, 0, len(blockAccounts))
 				for _, account := range blockAccounts {
 					if !account.present {
@@ -778,8 +736,15 @@ func RenderUsageReports(options UsageReportOptions) string {
 						continue
 					}
 					bar := RenderUsageBar(theme, account.limit, barWidth)
-					bars = append(bars, strings.Repeat(" ", barIndent)+
-						padUsageColumn(bar, block.columnWidth-barIndent))
+					cell := padUsageColumn(bar, block.columnWidth-resetWidth-resetGap)
+					reset := formatUsageResetShort(account.limit, nowMs)
+					if resetWidth > 0 {
+						cell += strings.Repeat(" ", resetGap+max(0, resetWidth-widthx.VisibleWidth(reset)))
+						if reset != "" {
+							cell += theme.Fg(string(ThemeColorDim), reset)
+						}
+					}
+					bars = append(bars, cell)
 				}
 				barLine := "  " + strings.Join(bars, " ")
 				if blockIndex == 0 && !wrapped && amountText != "" {
@@ -800,8 +765,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 							text = formatUsagePercentFree((1 - math.Min(math.Max(fraction, 0), 1)) * 100)
 						}
 						value := theme.Fg(StatusColorToken(account.limit.Status), text)
-						values = append(values, strings.Repeat(" ", barIndent)+padUsageColumn(
-							value, block.columnWidth-barIndent))
+						values = append(values, padUsageColumn(value, block.columnWidth))
 					}
 					lines = append(lines, strings.TrimRight("  "+strings.Join(values, " "), " "))
 				}
