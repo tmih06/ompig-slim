@@ -18,7 +18,7 @@ pipe, for example:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh \
-  | OMPIG_SLIM_VERSION=v0.1.0 bash
+  | OMPIG_SLIM_VERSION=v0.1.2 bash
 ```
 
 | Variable | Meaning |
