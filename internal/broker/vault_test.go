@@ -410,6 +410,16 @@ func TestSnapshotAuthorization(t *testing.T) {
 			t.Fatal(path, response.StatusCode)
 		}
 	}
+	for _, path := range []string{"/v1/accounts", "/v1/account-count", "/v1/provider?name=fixture"} {
+		response, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 401 {
+			t.Fatal(path, response.StatusCode)
+		}
+	}
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("followed secret-bearing redirect") }))
 	defer target.Close()
 	redirect := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))

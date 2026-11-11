@@ -96,11 +96,17 @@ func (c *Client) request(ctx context.Context, method, path, revision string, bod
 		return fmt.Errorf("broker %s: HTTP %d", path, response.StatusCode)
 	}
 	if result != nil {
-		data, err := io.ReadAll(io.LimitReader(response.Body, 12<<20))
-		if err != nil {
+		dec := json.NewDecoder(io.LimitReader(response.Body, 12<<20))
+		if err := dec.Decode(result); err != nil {
 			return err
 		}
-		return json.Unmarshal(data, result)
+		if err := dec.Decode(new(any)); err != io.EOF {
+			if err == nil {
+				return fmt.Errorf("broker response contains multiple JSON values")
+			}
+			return err
+		}
+		return nil
 	}
 	// Drain the remaining body so the connection stays reusable; an unread body
 	// would make net/http close it and cost every later reconcile a handshake.

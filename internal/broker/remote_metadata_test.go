@@ -10,8 +10,8 @@ import (
 )
 
 // TestRemoteMetadataCountsAccountsNotProviders preserves metadata semantics
-// when count/existence reads bypass the intermediate projected metadata slices.
-// Every call still fetches a live snapshot, including after logout.
+// when count/existence reads use the broker's direct aggregate endpoints.
+// Every call still queries live host state, including after logout.
 func TestRemoteMetadataCountsAccountsNotProviders(t *testing.T) {
 	client, _, _ := testClients(t)
 	store := &remoteStore{client: client}
@@ -41,11 +41,11 @@ func TestRemoteMetadataCountsAccountsNotProviders(t *testing.T) {
 	}
 }
 
-// TestRemoteMetadataRejectsInvalidSnapshot keeps decode failures from exposing
-// partially decoded account counts or silently reporting successful absence.
+// TestRemoteMetadataRejectsInvalidSnapshot keeps metadata decode failures from
+// exposing partially decoded account counts or silently reporting absence.
 func TestRemoteMetadataRejectsInvalidSnapshot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"info":{"providerId":"fixture"},"credential":{"type":"api_key","key":"one"}},{"credential":{"type":false}}]`))
+		w.Write([]byte(`[{"providerId":"fixture","type":"api_key"},{"providerId":false}]`))
 	}))
 	defer server.Close()
 	store := &remoteStore{client: &Client{base: server.URL, http: server.Client()}}
