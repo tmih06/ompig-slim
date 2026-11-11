@@ -92,9 +92,8 @@ func OMPProviderEnvKeys(provider string) []string { return slices.Clone(ompCatal
 // embedding entry can never accidentally become a chat completion model.
 type ompCatalog struct {
 	chat     []GeneratedModel
-	chatByID map[string]GeneratedModel
-	other    []*Model
-	models   map[string]*Model
+	chatByID map[string]int
+	other    []GeneratedModel
 }
 
 // ompCatalogRow is the current OMP wire schema at the import boundary. Unknown
@@ -162,7 +161,7 @@ func loadOMPCatalog(provider string) *ompCatalog {
 	loader, _ := ompCatalogLoads.LoadOrStore(provider, sync.OnceValue(func() *ompCatalog {
 		var records []json.RawMessage
 		decodeOMPCatalogFile("omp_catalog_data/"+provider+".json.gz", &records)
-		catalog := &ompCatalog{models: map[string]*Model{}, chatByID: map[string]GeneratedModel{}}
+		catalog := &ompCatalog{chatByID: map[string]int{}}
 		for _, record := range records {
 			var row ompCatalogRow
 			if err := json.Unmarshal(record, &row); err != nil {
@@ -200,15 +199,13 @@ func loadOMPCatalog(provider string) *ompCatalog {
 			if long := row.Cost.LongContext; long != nil && !row.LongContextWindowUncapped && long.InputThreshold > 0 && row.ContextWindow > int(long.InputThreshold) {
 				row.ContextWindow = int(long.InputThreshold)
 			}
-			generated := GeneratedModel{ID: row.ID, Provider: provider, DisplayName: row.Name, API: api, BaseURL: row.BaseURL, Headers: row.Headers, Compat: row.Compat, Reasoning: row.Reasoning, Capabilities: row.Input, ContextWindow: row.ContextWindow, MaxOutputTokens: row.MaxTokens, InputCostPerMTokens: row.Cost.Input, OutputCostPerMTokens: row.Cost.Output, CacheReadCost: row.Cost.CacheRead, CacheWriteCost: row.Cost.CacheWrite, Tiers: tiers, ThinkingLevelMap: levels, InputLimits: row.InputLimits, SamplingParams: row.SamplingParams, Record: string(record)}
-			// Do not call ToModel here: that method also projects OMP display metadata.
-			model := &Model{Type: ModelType(kind), ID: row.ID, DisplayName: row.Name, Input: row.Input, Capabilities: generated.ToCapabilities(), ThinkingLevelMap: levels, Int: row.Int, TPS: row.TPS, Priority: row.Priority, Description: row.Description, ProviderMeta: ProviderMetadata{ProviderID: provider, API: api, BaseURL: row.BaseURL, Headers: row.Headers, Compat: row.Compat, Reasoning: row.Reasoning}, catalogRecord: string(record)}
-			catalog.models[row.ID] = model
+			recordText := string(record)
+			generated := GeneratedModel{ID: row.ID, Provider: provider, DisplayName: row.Name, API: api, BaseURL: row.BaseURL, Headers: row.Headers, Compat: row.Compat, Reasoning: row.Reasoning, Capabilities: row.Input, ContextWindow: row.ContextWindow, MaxOutputTokens: row.MaxTokens, InputCostPerMTokens: row.Cost.Input, OutputCostPerMTokens: row.Cost.Output, CacheReadCost: row.Cost.CacheRead, CacheWriteCost: row.Cost.CacheWrite, Tiers: tiers, ThinkingLevelMap: levels, InputLimits: row.InputLimits, SamplingParams: row.SamplingParams, Record: recordText, Kind: ModelType(kind), Description: row.Description, Int: row.Int, TPS: row.TPS, Priority: row.Priority}
 			if kind == "chat" {
 				catalog.chat = append(catalog.chat, generated)
-				catalog.chatByID[row.ID] = generated
+				catalog.chatByID[row.ID] = len(catalog.chat) - 1
 			} else {
-				catalog.other = append(catalog.other, model)
+				catalog.other = append(catalog.other, generated)
 			}
 		}
 		catalog.chat = slices.Clip(catalog.chat)
@@ -225,8 +222,11 @@ func LookupOMPChatModel(provider, id string) (GeneratedModel, bool) {
 	if catalog == nil {
 		return GeneratedModel{}, false
 	}
-	model, ok := catalog.chatByID[id]
-	return model, ok
+	index, ok := catalog.chatByID[id]
+	if !ok {
+		return GeneratedModel{}, false
+	}
+	return catalog.chat[index], true
 }
 
 // Bare lookup only exposes the first provider match; retaining later matches
@@ -270,25 +270,39 @@ func OMPOtherCatalog(provider string) []AnyModel {
 		return nil
 	}
 	out := make([]AnyModel, 0, len(catalog.other))
-	for _, model := range catalog.other {
-		out = append(out, new(*model))
+	for i := range catalog.other {
+		out = append(out, catalog.other[i].catalogView())
 	}
 	return out
+}
+
+// ompCatalogGenerated returns one immutable generated row without retaining a
+// second runtime Model object for every bundled catalog entry.
+func ompCatalogGenerated(provider, id string) (GeneratedModel, bool) {
+	catalog := loadOMPCatalog(provider)
+	if catalog == nil {
+		return GeneratedModel{}, false
+	}
+	if index, ok := catalog.chatByID[id]; ok {
+		return catalog.chat[index], true
+	}
+	for _, model := range catalog.other {
+		if model.ID == id {
+			return model, true
+		}
+	}
+	return GeneratedModel{}, false
 }
 
 // OMPCatalogModel returns a fresh descriptor for a bundled model. Nested catalog
 // metadata remains shared and read-only. Provider configuration and extension
 // overrides still apply after this base.
 func OMPCatalogModel(provider, id string) *Model {
-	catalog := loadOMPCatalog(provider)
-	if catalog == nil {
+	model, ok := ompCatalogGenerated(provider, id)
+	if !ok {
 		return nil
 	}
-	model := catalog.models[id]
-	if model == nil {
-		return nil
-	}
-	return new(*model)
+	return model.catalogView()
 }
 
 // projectOMPModelMetrics fills fields omitted by the old generated Go type.
@@ -297,8 +311,36 @@ func OMPCatalogModel(provider, id string) *Model {
 // identity and the date-stripped model family are both required; this avoids
 // borrowing scores across a distinct model variant.
 func projectOMPModelMetrics(model *Model) *Model {
-	source := OMPCatalogModel(model.ProviderID(), model.ID)
-	if source == nil {
+	// OMP rows already carry their own metrics and description. Avoid a second
+	// catalog lookup for the common exact-row case; dated rows with missing
+	// metrics still take the alias path below.
+	if model.catalogRecord != "" && model.Int != nil && model.TPS != nil {
+		if model.Int != nil {
+			model.Int = new(*model.Int)
+		}
+		if model.TPS != nil {
+			model.TPS = new(*model.TPS)
+		}
+		if model.Priority != nil {
+			model.Priority = new(*model.Priority)
+		}
+		fields := make([]string, 0, 3)
+		if model.Int != nil {
+			fields = append(fields, "int")
+		}
+		if model.TPS != nil {
+			fields = append(fields, "tps")
+		}
+		if model.Description != "" {
+			fields = append(fields, "description")
+		}
+		if len(fields) > 0 {
+			model.Catalog = &ModelCatalogProvenance{Source: "bundled", Provider: model.ProviderID(), ModelID: model.ID, Fields: fields}
+		}
+		return model
+	}
+	source, ok := ompCatalogGenerated(model.ProviderID(), model.ID)
+	if !ok {
 		return model
 	}
 	if source.Priority != nil {
@@ -308,14 +350,14 @@ func projectOMPModelMetrics(model *Model) *Model {
 	provenance := map[string]string{}
 	if source.Int != nil {
 		model.Int = new(*source.Int)
-		provenance["int"] = source.ProviderID() + "/" + source.ID
+		provenance["int"] = source.Provider + "/" + source.ID
 	}
 	if source.TPS != nil {
 		model.TPS = new(*source.TPS)
-		provenance["tps"] = source.ProviderID() + "/" + source.ID
+		provenance["tps"] = source.Provider + "/" + source.ID
 	}
 	if source.Description != "" {
-		provenance["description"] = source.ProviderID() + "/" + source.ID
+		provenance["description"] = source.Provider + "/" + source.ID
 	}
 	// OMP's final metrics pass shares complete exact-ID observations before
 	// trying a date-stripped alias. Keep the pair together: an observed speed
@@ -333,14 +375,14 @@ func projectOMPModelMetrics(model *Model) *Model {
 		}
 	}
 	if baseID := stripCatalogReleaseDate(model.ID); baseID != "" && source.Int == nil && source.TPS == nil {
-		if base := OMPCatalogModel(model.ProviderID(), baseID); base != nil {
+		if base, ok := ompCatalogGenerated(model.ProviderID(), baseID); ok {
 			if model.Int == nil && base.Int != nil {
 				model.Int = new(*base.Int)
-				provenance["int"] = base.ProviderID() + "/" + base.ID
+				provenance["int"] = base.Provider + "/" + base.ID
 			}
 			if model.TPS == nil && base.TPS != nil {
 				model.TPS = new(*base.TPS)
-				provenance["tps"] = base.ProviderID() + "/" + base.ID
+				provenance["tps"] = base.Provider + "/" + base.ID
 			}
 		}
 		for _, candidate := range ompMetricAliases()[ompMetricAliasKey(baseID)] {

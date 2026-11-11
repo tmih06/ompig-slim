@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -35,16 +36,21 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 		if catalog == nil {
 			t.Fatal("missing provider", provider)
 		}
-		if len(catalog.models) != want || len(catalog.chat)+len(catalog.other) != want {
-			t.Fatalf("%s: decoded=%d want=%d", provider, len(catalog.models), want)
+		rows := append(slices.Clone(catalog.chat), catalog.other...)
+		if len(rows) != want {
+			t.Fatalf("%s: decoded=%d want=%d", provider, len(rows), want)
 		}
-		for id, model := range catalog.models {
-			if model.ID != id || model.ProviderID() != provider {
-				t.Fatal("lost identity", provider, id)
+		for _, row := range rows {
+			if row.Provider != provider || row.ID == "" {
+				t.Fatal("lost identity", provider, row.ID)
 			}
-			kinds[model.ModelType()]++
+			kind := row.Kind
+			if kind == "" {
+				kind = ModelTypeChat
+			}
+			kinds[kind]++
 		}
-		total += len(catalog.models)
+		total += len(rows)
 	}
 	if total != 5949 || kinds[ModelTypeChat] != 5703 {
 		t.Fatal(total, kinds)

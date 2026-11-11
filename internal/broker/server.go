@@ -64,6 +64,9 @@ func NewHandler(dir, token string) (*Store, error) {
 	routes.HandleFunc("GET /v1/items/{name}", s.get)
 	routes.HandleFunc("PUT /v1/items/{name}", s.put)
 	routes.HandleFunc("GET /v1/snapshot", s.snapshot)
+	routes.HandleFunc("GET /v1/accounts", s.accounts)
+	routes.HandleFunc("GET /v1/account-count", s.accountCount)
+	routes.HandleFunc("GET /v1/provider", s.hasProvider)
 	routes.HandleFunc("POST /v1/credential", s.credential)
 	routes.HandleFunc("POST /v1/credential/refresh", s.refresh)
 	mux := http.NewServeMux()
@@ -110,6 +113,48 @@ func (s *Store) Close() error {
 
 // itemName admits only portable preference documents.
 func itemName(name string) bool { return slices.Contains(SharedFiles, name) }
+
+// accounts exposes live non-secret account metadata without decoding or
+// serializing credentials. Callers that only need selection or provider
+// presence must not pay for, or receive, access-token fields.
+func (s *Store) accounts(w http.ResponseWriter, r *http.Request) {
+	accounts, err := s.vault.ListAccounts(r.Context())
+	if err != nil {
+		http.Error(w, "vault read failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(accounts)
+}
+
+// accountCount serves the aggregate directly so a count request does not load
+// every account's metadata into Go or the HTTP response.
+func (s *Store) accountCount(w http.ResponseWriter, r *http.Request) {
+	count, err := s.vault.AccountCount()
+	if err != nil {
+		http.Error(w, "vault read failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(count)
+}
+
+// hasProvider answers a provider-presence query inside SQLite. The provider
+// name is kept in a query parameter so IDs cannot alter the route structure.
+func (s *Store) hasProvider(w http.ResponseWriter, r *http.Request) {
+	provider := r.URL.Query().Get("name")
+	if provider == "" {
+		http.Error(w, "provider is required", http.StatusBadRequest)
+		return
+	}
+	present, err := s.vault.HasProvider(r.Context(), provider)
+	if err != nil {
+		http.Error(w, "vault read failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(present)
+}
 
 // read returns a tombstone for absent preferences. Callers hold s.mu.
 func (s *Store) read(name string) (Item, error) {

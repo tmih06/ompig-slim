@@ -60,9 +60,7 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 		listed := builtinChatCatalog(id)
 		models := make([]*ai.Model, 0, len(listed))
 		for _, generated := range listed {
-			model := generated.ToModel()
-			model.Capabilities = generated.ToCapabilities()
-			models = append(models, model)
+			models = append(models, generated.ToModel())
 		}
 		return models
 	}
