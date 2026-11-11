@@ -120,6 +120,15 @@ func (c *ToolExecutionComponent) SetResultValue(result any) {
 // ResultValue returns the structured result recorded by SetResultValue.
 func (c *ToolExecutionComponent) ResultValue() any { return c.definitionResult }
 
+// ResultFocusRow returns the registered result renderer's working row at width,
+// or -1 when it has none. Call after Render; coordinates exclude card chrome.
+func (c *ToolExecutionComponent) ResultFocusRow(width int) int {
+	if result, ok := c.definitionResultComponent.(interface{ FocusRow(int) int }); ok {
+		return result.FocusRow(width)
+	}
+	return -1
+}
+
 // definitionHasResult reports whether upstream's card has a result: a
 // streamed partial result or the final one.
 func (c *ToolExecutionComponent) definitionHasResult() bool {

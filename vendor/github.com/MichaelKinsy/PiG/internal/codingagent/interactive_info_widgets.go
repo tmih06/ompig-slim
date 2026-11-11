@@ -18,7 +18,7 @@ import (
 func (m *InteractiveMode) ensureInfoWidgets() *tui.InfoWidgets {
 	if m.infoWidgets == nil {
 		m.infoWidgets = &tui.InfoWidgets{Sections: []tui.InfoWidget{
-			{Key: "todo", Title: "Tasks", Render: m.renderTodoWidget},
+			{Key: "todo", Title: "Tasks", Render: m.renderTodoWidget, FocusRow: m.todoWidgetFocusRow},
 			{Key: "quota", Title: "Quota", Render: m.renderQuotaWidget},
 		}}
 	}
@@ -147,6 +147,18 @@ func (m *InteractiveMode) renderTodoWidget(width int, expanded bool) []string {
 		return rows
 	}
 	return append(rows, reason...)
+}
+
+// todoWidgetFocusRow delegates task selection and wrapped-row measurement to
+// the canonical renderer. A rejected call takes priority so its reason is visible.
+func (m *InteractiveMode) todoWidgetFocusRow(width int) int {
+	if m.todoWidgetError != "" {
+		return 0
+	}
+	if m.todoWidget != nil {
+		return m.todoWidget.ResultFocusRow(width)
+	}
+	return -1
 }
 
 // renderQuotaWidget reads the existing minute-refreshed, tier-aware quota cache.
