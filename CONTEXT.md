@@ -198,6 +198,10 @@ A submission is dispatched on the owner loop, where a fetch would freeze the edi
 
 The transcript draws one indented row per mention under the submitted prompt, replacing oh-my-pi's `fileMention` block, which has no message role here. Rows are one line each and never wrap: a tree rail only stays aligned that way, and a path from the prompt is sanitized to a single display line before it is drawn.
 
+### GitHub issue and pull-request reads
+
+The built-in `read` tool accepts `issue://N` and `pr://N`, resolving the repository from `GITHUB_REPOSITORY` or the current checkout's `origin` remote. Explicit `issue://owner/repo/N` and `pr://owner/repo#N` forms work without a checkout. It reads the GitHub REST API directly, never invoking `gh` or a shell, and includes the title, state, body and conversation comments. `GITHUB_TOKEN` and `GH_TOKEN` are sent as bearer credentials when set; public repositories work anonymously. `GITHUB_API_URL` overrides the API origin for GitHub Enterprise and deterministic tests. Invalid references remain ordinary filesystem paths, while a valid reference without a resolvable repository returns a tool error.
+
 ### The base system prompt
 
 The prompt's opening text lives in `prompts/system.md` at the repository root and is embedded into the binary with `go:embed`; nothing reads the file at runtime. Edit the Markdown, not Go source. `prompts.System()` returns it trimmed.
