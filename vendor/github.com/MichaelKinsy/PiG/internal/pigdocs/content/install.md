@@ -12,7 +12,7 @@ The installer verifies the published SHA-256 and needs no Go and no `sudo`:
 curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash
 ```
 
-Pass `--version v0.1.2` to pin a release, or `--dir` to install elsewhere.
+Pass `--version v0.1.3` to pin a release, or `--dir` to install elsewhere.
 Archives are also on [GitHub Releases](https://github.com/tmih06/ompig-slim/releases).
 
 From a source checkout with Go 1.27 or newer, the dependencies are vendored:
@@ -40,7 +40,7 @@ pipe, for example:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh \
-  | OMPIG_SLIM_VERSION=v0.1.2 bash
+  | OMPIG_SLIM_VERSION=v0.1.3 bash
 ```
 
 | Variable | Meaning |
