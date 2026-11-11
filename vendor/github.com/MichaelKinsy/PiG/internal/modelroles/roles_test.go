@@ -2,13 +2,14 @@ package modelroles
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
 // TestResolve covers aliases, effort precedence, inheritance, and cycle rejection.
 func TestResolve(t *testing.T) {
-	c := Config{ModelRoles: map[string]string{"default": "openai/main:high", "review": "@default:low", "a": "@b", "b": "@a"}}
-	for _, tc := range []struct{ input, want string }{{"*", "openai/main:high"}, {"pi/default", "openai/main:high"}, {"@review", "openai/main:low"}, {"@review:off", "openai/main:off"}, {"@memory", "openai/main:high"}, {"openrouter/vendor/model:nitro", "openrouter/vendor/model:nitro"}} {
+	c := Config{ModelRoles: map[string]string{"default": "openai/main:high", "compact": "openai/compact", "review": "@default:low", "a": "@b", "b": "@a"}}
+	for _, tc := range []struct{ input, want string }{{"*", "openai/main:high"}, {"pi/default", "openai/main:high"}, {"@compact", "openai/compact"}, {"@review", "openai/main:low"}, {"@review:off", "openai/main:off"}, {"@memory", "openai/main:high"}, {"openrouter/vendor/model:nitro", "openrouter/vendor/model:nitro"}} {
 		got, err := c.Resolve(tc.input, "")
 		if err != nil || got != tc.want {
 			t.Errorf("%s = %q, %v; want %s", tc.input, got, err, tc.want)
@@ -18,6 +19,12 @@ func TestResolve(t *testing.T) {
 		if _, err := c.Resolve(input, ""); err == nil {
 			t.Errorf("%s should fail", input)
 		}
+	}
+}
+
+func TestCompactIsBuiltinRole(t *testing.T) {
+	if !slices.Contains(Builtins(), "compact") {
+		t.Fatal("compact role is not built in")
 	}
 }
 

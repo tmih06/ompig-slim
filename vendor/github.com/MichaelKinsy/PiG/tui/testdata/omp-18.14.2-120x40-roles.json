@@ -1,6 +1,6 @@
 [
   "╭─ Models ───────────┬─────────────────────────────────────────────────────────────────────────────────────────────────╮",
-  "│ ❯ ✦ Roles     2/17 │  Model roles — f adds a retry fallback, cleared roles fall back to auto-selection               │",
+  "│ ❯ ✦ Roles     2/18 │  Model roles — f adds a retry fallback, cleared roles fall back to auto-selection               │",
   "│   ⬢ All models   2 │  Roles: ◀ all ▶  chat ┆ kinds  Alt+←/Alt+→                                                      │",
   "│ ────────────────── │    ● DEFAULT    fixture/alpha                                                      ◒ high  ↻ 1  │",
   "│   ● fixture      2 │    ○ SMOL       auto → fixture/alpha                                                            │",
@@ -13,6 +13,7 @@
   "│                    │    ○ TASK       —                                                                               │",
   "│                    │    ○ ADVISOR    —                                                                               │",
   "│                    │    ○ WIDGET     auto → fixture/alpha                                                            │",
+  "│                    │    ○ COMPACT    —                                                                               │",
   "│                    │    ● review     fixture/beta                                                               ↻ 2  │",
   "│                    │    ─────────────────────────────────────────────────────────────────────────────────────────    │",
   "│                    │    ○ IMAGE      —                                                                               │",
@@ -23,7 +24,6 @@
   "│                    │    + New role…                                                                                  │",
   "│                    │    ─────────────────────────────────────────────────────────────────────────────────────────    │",
   "│                    │    + New fallback…                                                                              │",
-  "│                    │                                                                                                 │",
   "│                    │                                                                                                 │",
   "│                    │                                                                                                 │",
   "│                    │                                                                                                 │",

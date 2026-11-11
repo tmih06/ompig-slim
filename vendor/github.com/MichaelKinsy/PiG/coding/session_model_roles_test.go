@@ -48,6 +48,21 @@ func appendRoleFailure(t *testing.T, s *Session, text string) *agent.AssistantMe
 	return m
 }
 
+// TestCompactionUsesAssignedCompactRole verifies compaction can use a separate assigned model.
+func TestCompactionUsesAssignedCompactRole(t *testing.T) {
+	s := roleTestSession(t, nil)
+	if err := s.SettingsManager().SetModelRole("compact", "openai/gpt-4o-mini", "global"); err != nil {
+		t.Fatal(err)
+	}
+	model, err := s.compactionModel(s.Model())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model == nil || model.ID != "gpt-4o-mini" {
+		t.Fatalf("compaction model=%v, want gpt-4o-mini", model)
+	}
+}
+
 // TestRoleFallbackRecovery checks actual model mutation, chain exhaustion, and logical identity.
 func TestRoleFallbackRecovery(t *testing.T) {
 	s := roleTestSession(t, map[string][]string{"review": {"missing/no-model", "openai/gpt-4o-mini:off", "openai/gpt-4o"}, "default": {"openai/gpt-4.1"}})

@@ -112,10 +112,11 @@ def run(binary):
             send(b"\x1b[A")
             read_until(lambda data: b"Model roles" in data, "reopen Roles")
             send(b"\x1b[C")
-            # The stable built-in chat-role order has eleven rows; review is
-            # the first custom chat role, before the kind-role separator.
+            # The stable built-in chat-role order has twelve rows; compact is
+            # the last built-in chat role and review is the first custom chat
+            # role, before the kind-role separator.
             send(b"\x1bf")  # Alt+Right selects the chat-only role tab.
-            for _ in range(11):
+            for _ in range(12):
                 send(b"\x1b[B")
             send(b"D")
             read_until(lambda data: b"Delete @review (global)" in data, "delete confirmation")
