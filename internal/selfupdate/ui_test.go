@@ -23,7 +23,7 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
-func TestBannerGeometryIsStableWithoutColor(t *testing.T) {
+func TestBannerMatchesStartupMarkWithoutColor(t *testing.T) {
 	var out bytes.Buffer
 	// A bytes.Buffer is never a terminal, so this exercises the plain path.
 	printBanner(&out)
@@ -31,23 +31,11 @@ func TestBannerGeometryIsStableWithoutColor(t *testing.T) {
 	if strings.Contains(text, "\x1b") {
 		t.Fatalf("plain banner contains an escape sequence: %q", text)
 	}
-	if !strings.Contains(text, "in Go \u00b7 slim harness") {
-		t.Fatalf("banner is missing the tagline: %q", text)
+	if !strings.Contains(text, "███ █▄ ▄█ ▀▀█     ███ ███ -slim") {
+		t.Fatalf("banner is missing the startup top row: %q", text)
 	}
-	var art []string
-	for _, line := range strings.Split(text, "\n") {
-		if strings.ContainsAny(line, "\u2588\u255a") {
-			art = append(art, line)
-		}
-	}
-	if len(art) != 5 {
-		t.Fatalf("banner has %d block rows, want 5: %q", len(art), text)
-	}
-	// Rows must agree on width or the mark shears in a terminal.
-	for _, line := range art {
-		if len([]rune(line)) != len([]rune(art[0])) {
-			t.Fatalf("logo rows differ in width: %q", art)
-		}
+	if !strings.Contains(text, "█▄█ █▀ ▀█ █▀ █ in █▀█ █▄█") {
+		t.Fatalf("banner is missing the startup bottom row: %q", text)
 	}
 }
 

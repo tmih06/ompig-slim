@@ -39,6 +39,11 @@ import (
 )
 
 const (
+	// stageReplacementArg asks the freshly downloaded binary to materialize its
+	// embedded extension SDKs before it replaces the running executable. Running
+	// the new binary is necessary because this process still has the old SDK.
+	StageReplacementArg = "--internal-stage-extension-sdks"
+
 	// updateTimeout bounds the whole operation. A release archive is roughly
 	// 32 MB, so this is generous while still failing a hung connection.
 	updateTimeout = 5 * time.Minute
@@ -140,10 +145,9 @@ func Update(o Options) int {
 	}
 
 	fmt.Fprintf(o.Stdout, "\n✓ Updated ompig-slim %s → %s\n", current, latest)
-	// The replaced binary ships its own embedded SDK, which only it can stage.
-	// This process still holds the previous bytes, so saying nothing would make
-	// the slower first launch look like a hang.
-	fmt.Fprintln(o.Stdout, "Source extensions rebuild on next start; the first launch will be slower.")
+	// The replacement staged its own SDK before the atomic rename, so startup
+	// can reuse source-extension caches instead of rebuilding after every update.
+	fmt.Fprintln(o.Stdout, "Extension SDKs prepared; startup can reuse source-extension caches.")
 	return 0
 }
 
@@ -286,6 +290,16 @@ func (o Options) replace(archive string) error {
 	staged, err := extractExecutable(archive, dir)
 	if err != nil {
 		return err
+	}
+	// The running process still embeds the old SDK. Let the replacement stage
+	// its own SDK before the atomic rename, so startup does not repeatedly pay
+	// the SDK invalidation and source-extension rebuild cost after an update.
+	command := exec.Command(staged, StageReplacementArg)
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	if err := command.Run(); err != nil {
+		_ = os.Remove(staged)
+		return fmt.Errorf("prepare replacement SDKs: %w", err)
 	}
 	// From here the staged file is either renamed or removed; never leave it
 	// behind, because it sits in a directory the user has on PATH.

@@ -11,6 +11,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	_ "github.com/MichaelKinsy/PiG/coding/extension/builtin/todo"  // Register the todo built-in and its reminder.
 	_ "github.com/MichaelKinsy/PiG/coding/extension/host/lispcell" // Register the stock Lisp extension builder.
+	"github.com/MichaelKinsy/PiG/coding/extension/pigsdk"
 
 	_ "modernc.org/sqlite" // Register the native driver used by shared Pi/OMP credentials.
 
@@ -24,6 +25,16 @@ import (
 
 func main() {
 	args := os.Args[1:]
+	// The updater runs the replacement binary with this private command before
+	// swapping it into place. It must happen before normal CLI startup, because
+	// loading extensions would otherwise observe the old staged SDK.
+	if len(args) == 1 && args[0] == selfupdate.StageReplacementArg {
+		if _, _, err := pigsdk.Sync(coding.ConfigRoot(), false); err != nil {
+			fmt.Fprintln(os.Stderr, "stage extension SDKs:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	// Claim the archive-install self-update before PiG parses arguments:
 	// PiG has no `upgrade` spelling, so it would read that word as a prompt and
 	// fail on the missing model instead of updating. Everything this package

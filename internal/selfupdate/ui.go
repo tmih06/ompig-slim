@@ -24,8 +24,8 @@ const (
 )
 
 // The SGR codes used by the mark and the meter. The colors are the fills in
-// assets/ompig-banner.svg: white for "OM", coral for the top of the P, blue for
-// its stem, yellow for the "i", purple for the tagline.
+// assets/ompig-banner.svg: white for "OM", coral and blue for Pi, cyan for
+// "GO", and purple for the "-slim" product tag.
 const (
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
@@ -33,6 +33,7 @@ const (
 	ansiWhite  = "\x1b[97m"
 	ansiCoral  = "\x1b[91m"
 	ansiBlue   = "\x1b[94m"
+	ansiBlueBG = "\x1b[104m"
 	ansiYellow = "\x1b[93m"
 	ansiPurple = "\x1b[95m"
 	ansiCyan   = "\x1b[96m"
@@ -61,11 +62,11 @@ type logoRun struct {
 	color string
 }
 
-// printBanner writes the ompig-slim mark and tagline.
+// printBanner writes the same two-line half-block mark as the startup TUI.
 //
-// On a terminal the initials carry the brand colors from the SVG banner; in a
-// pipe or a log the same text is printed without escapes, so the art still
-// lines up. Callers print it once per run, before progress.
+// In a pipe or a log the same text is printed without escapes, so the art keeps
+// its geometry. The installer duplicates this rendering because it cannot call
+// Go; update both surfaces when the startup mark changes.
 func printBanner(w io.Writer) {
 	color := isTerminal(w)
 	paint := func(run logoRun) string {
@@ -74,14 +75,9 @@ func printBanner(w io.Writer) {
 		}
 		return run.color + run.text + ansiReset
 	}
-	// Five block rows spelling "OMP" with the Pi mark's coral P and blue stem,
-	// followed by the yellow "i" that the banner SVG adds between GO's rows.
 	rows := [][]logoRun{
-		{{" ██████╗ ███╗   ███╗", ansiWhite}, {"██████╗ ", ansiCoral}, {"██╗", ansiYellow}},
-		{{"██╔═══██╗████╗ ████║", ansiWhite}, {"██╔══██╗", ansiCoral}, {"██║", ansiYellow}},
-		{{"██║   ██║██╔████╔██║", ansiWhite}, {"██████╔╝", ansiCoral}, {"██║", ansiYellow}},
-		{{"╚██████╔╝██║ ╚═╝ ██║", ansiWhite}, {"██║     ", ansiBlue}, {"██║", ansiYellow}},
-		{{" ╚═════╝ ╚═╝     ╚═╝", ansiWhite}, {"╚═╝     ", ansiBlue}, {"╚═╝", ansiYellow}},
+		{{"███ █▄ ▄█ ", ansiWhite}, {"▀", ansiBlueBG + ansiCoral}, {"▀█     ", ansiCoral}, {"███ ███ ", ansiCyan}, {"-slim", ansiPurple}},
+		{{"█▄█ █▀ ▀█ ", ansiWhite}, {"█▀ ", ansiBlue}, {"█", ansiYellow}, {" in ", ansiWhite}, {"█▀█ █▄█", ansiCyan}},
 	}
 	var out strings.Builder
 	out.WriteString("\n")
@@ -92,12 +88,6 @@ func printBanner(w io.Writer) {
 		out.WriteString("\n")
 	}
 	out.WriteString("\n")
-	tag := "  in Go · slim harness"
-	if color {
-		tag = ansiPurple + tag + ansiReset
-	}
-	out.WriteString(tag)
-	out.WriteString("\n\n")
 	_, _ = io.WriteString(w, out.String())
 }
 
