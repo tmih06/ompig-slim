@@ -37,6 +37,9 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
         {"call": {"name": "todo", "arguments": json.dumps(
             {"op": "todo", "list": [{"phase": "Verify", "items": ["Widget task gamma"]}]})}},
         {"text": "WIDGET_ERROR_DONE. Should I continue?"},
+        {"call": {"name": "todo", "arguments": json.dumps(
+            {"op": "start", "phase": "Verify", "task": "Scroll item 18"})}},
+        {"text": "WIDGET_WORK_DONE. Should I continue?"},
     ]
 
     def log_message(self, *_):
@@ -109,6 +112,13 @@ def run(binary, server, mode):
                     captured.extend(data)
                     observed.extend(data)
                 if token in observed:
+                    # A diff frame arrives in several writes. Finish consuming
+                    # it before the next key, or stale rows can make a later
+                    # reopen assertion pass without that row being repainted.
+                    while select.select([master], [], [], .1)[0]:
+                        data = os.read(master, 262144)
+                        captured.extend(data)
+                        observed.extend(data)
                     return bytes(observed)
                 if process.poll() is not None:
                     break
@@ -156,8 +166,26 @@ def run(binary, server, mode):
             reopened = wait(b"Widget task beta")
             for token in (b"op: expected one of", b"Widget task alpha", b"Widget task beta"):
                 assert token in reopened, f"{mode}: reopen lost {token!r}\n{reopened!r}"
+            # Reopening must reveal active work, even after a manual scroll to
+            # the first page. This drives the actual registered renderer and
+            # owner-loop focus callback rather than matching status colors.
+            work_start = len(captured)
+            os.write(master, b"Start work near the end of the plan.\r")
+            wait(b"WIDGET_WORK_DONE")
+            assert "☐ Scroll item 18".encode() in captured[work_start:], \
+                f"{mode}: advancing work did not reveal the active task"
+            os.write(master, b"\x1b[5;3~" * 12)
+            wait(b"Widget task alpha")
+            os.write(master, b"\x1bw")
+            wait("▸ Widgets".encode())
+            os.write(master, b"\x1bw")
+            # Include the checkbox: the transcript receipt also names this
+            # task and can be repainted when the overlay disappears.
+            reopened = wait("☐ Scroll item 18".encode())
+            assert "☐ Scroll item 18".encode() in reopened, f"{mode}: reopened above the active work"
             print(f"PASS: {mode} prompt-anchored widget, compact todo receipt, native checkbox renderer, "
-                  "first/last-page scrolling, border-only collapse/reopen, one-row rejected-call reason")
+                  "first/last-page scrolling, border-only collapse/reopen, one-row rejected-call reason, "
+                  "reopen at active work")
         finally:
             if process.poll() is None:
                 process.terminate()
