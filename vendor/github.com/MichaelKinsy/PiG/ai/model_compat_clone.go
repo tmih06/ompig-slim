@@ -72,20 +72,11 @@ func normalizeCompatExtra(extra map[string]json.RawMessage) (map[string]json.Raw
 	return normalized, true
 }
 
-// cacheCompatExtra prepares the immutable extension payload retained by a
-// bundled catalog row. Mutable user-authored compat values never use this.
-func cacheCompatExtra(compat *ModelCompat) {
-	if compat == nil || len(compat.Extra) == 0 {
-		return
-	}
-	compat.normalizedExtra, _ = normalizeCompatExtra(compat.Extra)
-}
-
 // cloneScalarCompat preserves scalar fields and opaque extension JSON without
 // serializing every modeled field. Complex typed fields retain the existing
 // whole-object fallback. Mutable user-authored Extra values pass through
 // marshaling so invalid JSON and whitespace/HTML normalization match the
-// serialized copy; immutable bundled rows reuse their prepared form.
+// serialized copy.
 // Empty raw values and colliding/non-ASCII keys use the fallback because
 // whole-object validation, JSON field matching and Unicode repair can change
 // modeled fields or key spelling.
@@ -107,7 +98,6 @@ func cloneScalarCompat(in *ModelCompat) (*ModelCompat, bool) {
 	}
 	out := *in
 	out.Extra = nil
-	out.normalizedExtra = nil
 	out.OpenRouterRouting = nil
 	out.ChatTemplateKwargs = nil
 	out.ChatTemplateArgs = nil
@@ -146,13 +136,9 @@ func cloneScalarCompat(in *ModelCompat) (*ModelCompat, bool) {
 	out.SupportsMidConvoToolAdditions = cloneCompatBool(in.SupportsMidConvoToolAdditions)
 	out.SupportsMidConvoToolChanges = cloneCompatBool(in.SupportsMidConvoToolChanges)
 	if len(in.Extra) > 0 {
-		normalized := in.normalizedExtra
-		if normalized == nil {
-			var ok bool
-			normalized, ok = normalizeCompatExtra(in.Extra)
-			if !ok {
-				return nil, false
-			}
+		normalized, ok := normalizeCompatExtra(in.Extra)
+		if !ok {
+			return nil, false
 		}
 		out.Extra = make(map[string]json.RawMessage, len(normalized))
 		for key, value := range normalized {

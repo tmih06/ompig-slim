@@ -159,9 +159,6 @@ type OpenAICompat struct {
 	// Extra holds the members PiG does not model, as written. Pi's compat schemas allow additional properties and a compat object keeps
 	// them (model-config.ts getProvider, provider-composer.ts mergeCompat), so a custom API can read its own compat settings.
 	Extra map[string]json.RawMessage `json:"-"`
-	// normalizedExtra is populated only for immutable bundled catalog rows. It
-	// avoids repeating JSON normalization when a row is projected per request.
-	normalizedExtra map[string]json.RawMessage
 }
 
 func ptrBool(v bool) *bool { return new(v) }
