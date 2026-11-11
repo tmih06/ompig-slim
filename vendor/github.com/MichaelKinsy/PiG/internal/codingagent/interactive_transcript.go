@@ -856,6 +856,14 @@ func userMessageImages(msg agent.AgentMessage) []tui.ImageBlock {
 	return images
 }
 
+// queuedMessageSource removes model-only skill expansions from queued user
+// messages. The retained prompt carries the original invocation positions, so
+// editing and resubmitting it loads the skills anew rather than exposing bodies.
+func queuedMessageSource(msg agent.AgentMessage) string {
+	_, source := ParseExpandedSkillMessage(extractAgentMessageText(msg))
+	return source
+}
+
 // collectQueuedTexts merges the agent's steering/follow-up queues with the
 // messages typed during an in-flight compaction (m.compactionQueue), preserving
 // upstream ordering: session queue first, then compaction-queued messages, each
@@ -869,13 +877,13 @@ func collectQueuedTexts(steering, followUps []agent.AgentMessage, compaction []c
 	steeringTexts = make([]string, 0, len(steering)+len(compaction))
 	for _, msg := range steering {
 		if msg.User != nil {
-			steeringTexts = append(steeringTexts, extractAgentMessageText(msg))
+			steeringTexts = append(steeringTexts, queuedMessageSource(msg))
 		}
 	}
 	followUpTexts = make([]string, 0, len(followUps)+len(compaction))
 	for _, msg := range followUps {
 		if msg.User != nil {
-			followUpTexts = append(followUpTexts, extractAgentMessageText(msg))
+			followUpTexts = append(followUpTexts, queuedMessageSource(msg))
 		}
 	}
 	for _, msg := range compaction {
