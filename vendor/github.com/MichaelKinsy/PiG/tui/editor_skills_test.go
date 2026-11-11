@@ -93,6 +93,47 @@ func TestSkillSelectionContinuesPrompt(t *testing.T) {
 	}
 }
 
+// TestCompletedSkillContinuesAsProse checks natural queries after Tab, not
+// merely whether accepting the menu closed it at that instant.
+func TestCompletedSkillContinuesAsProse(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	e.asyncAutocomplete = &AsyncAutocompleteProvider{}
+	for _, text := range []string{"/skill:review ", "/skill:review fix this", "please /skill:review fix"} {
+		e.SetText(text)
+		if e.naturalAutocompleteContext() {
+			t.Errorf("%q triggered native suggestions in prose", text)
+		}
+		if natural, _ := e.naturalAsyncAutocomplete(); natural {
+			t.Errorf("%q triggered async suggestions in prose", text)
+		}
+	}
+	for _, text := range []string{"/skill:review /tes", "/skill:review @file", "/model "} {
+		e.SetText(text)
+		if !e.naturalAutocompleteContext() {
+			t.Errorf("%q lost native completion", text)
+		}
+		if natural, _ := e.naturalAsyncAutocomplete(); !natural {
+			t.Errorf("%q lost async completion", text)
+		}
+	}
+}
+
+// TestForcedSkillSelectionDoesNotReopenCompletion keeps a single Tab completion
+// from falling through to file completion after the skill token is complete.
+func TestForcedSkillSelectionDoesNotReopenCompletion(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	e.SetText("/rev")
+	e.applySingleForcedCompletion(AutocompleteItem{Value: "skill:review"}, "/rev")
+	if e.AutocompleteOpen() {
+		t.Fatal("skill completion reopened autocomplete")
+	}
+	if got := e.Text(); got != "/skill:review " {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 // TestAsyncSkillSelection stays in the composer when an extension wraps the provider.
 func TestAsyncSkillSelection(t *testing.T) {
 	e := NewEditor()
@@ -128,6 +169,41 @@ func TestAsyncSkillSelection(t *testing.T) {
 	e.SetText("please /skill:review /")
 	if natural, _ := e.naturalAsyncAutocomplete(); !natural {
 		t.Fatal("second skill didn't trigger async completion")
+	}
+}
+
+// TestAsyncSkillTabDoesNotQueryFiles drives Tab and subsequent prose through
+// the provider worker boundary. A post-accept query would reopen the popup.
+func TestAsyncSkillTabDoesNotQueryFiles(t *testing.T) {
+	e := NewEditor()
+	base := skillTestProvider()
+	e.SetAutocomplete(base)
+	e.SetAsyncApply(func(apply func()) { apply() })
+	queries := 0
+	e.SetAsyncAutocomplete(&AsyncAutocompleteProvider{
+		GetSuggestions: func(context.Context, []string, int, int, bool) (*AutocompleteSuggestions, error) {
+			queries++
+			return &AutocompleteSuggestions{Items: []AutocompleteItem{{Value: "directory/"}}}, nil
+		},
+		ApplyCompletion: func(_ context.Context, lines []string, row, col int, item AutocompleteItem, prefix string) ([]string, int, int, error) {
+			lines, row, col = base.ApplyCompletion(lines, row, col, item, prefix)
+			return lines, row, col, nil
+		},
+	}, context.Background(), func(work func()) { work() }, func(work AutocompleteWork) {
+		apply, err := work(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		apply()
+	}, func(err error) { t.Fatal(err) })
+	e.SetText("/rev")
+	e.setAutocompleteItems([]AutocompleteItem{{Value: "skill:review"}})
+	e.autocompletePrefix = "/rev"
+	e.autocompleteQueryCursor = e.cursor
+	e.HandleInput("\t")
+	e.HandleInput("fix this")
+	if queries != 0 || e.AutocompleteOpen() || e.Text() != "/skill:review fix this" {
+		t.Fatalf("skill Tab/prose triggered files: queries=%d popup=%v text=%q", queries, e.AutocompleteOpen(), e.Text())
 	}
 }
 
