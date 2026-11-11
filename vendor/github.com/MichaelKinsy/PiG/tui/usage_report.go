@@ -156,9 +156,24 @@ func formatUsageWindowSuffix(theme *Theme, label, windowLabel string) string {
 	return theme.Fg(string(ThemeColorDim), "("+windowLabel+")")
 }
 
-// formatUsageAccountHeaderRow renders per-account header cells: `● email (2h)`
-// on one row above the bars, padded to the bar column so each account stays in
-// the same column on every row.
+// usageAccountHeaderSuffixWidth returns the shared reset column width for one
+// account block. Keeping this width common makes a missing reset value occupy
+// the same cells as a populated one, so labels and bars stay paired.
+func usageAccountHeaderSuffixWidth(accounts []usageAccountColumn, nowMs int64) int {
+	maxWidth := 0
+	for _, account := range accounts {
+		if !account.present {
+			continue
+		}
+		maxWidth = max(maxWidth, widthx.VisibleWidth(formatUsageResetShort(account.limit, nowMs)))
+	}
+	return maxWidth
+}
+
+// formatUsageAccountHeaderRow renders per-account header cells as a fixed reset
+// prefix followed by the account label. The reset prefix is deliberately
+// separate from the label: a suffix at the end of one cell otherwise reads as
+// if it belongs to the next account when adjacent columns are populated.
 func formatUsageAccountHeaderRow(
 	theme *Theme,
 	accounts []usageAccountColumn,
@@ -176,7 +191,7 @@ func formatUsageAccountHeaderRow(
 		present  bool
 	}
 	parts := make([]part, 0, len(accounts))
-	maxSuffixWidth := 0
+	maxSuffixWidth := usageAccountHeaderSuffixWidth(accounts, nowMs)
 	for index, account := range accounts {
 		if !account.present {
 			parts = append(parts, part{})
@@ -187,13 +202,9 @@ func formatUsageAccountHeaderRow(
 		if isActive {
 			label = "● " + label
 		}
-		suffix := formatUsageResetShort(account.limit, nowMs)
-		if width := widthx.VisibleWidth(suffix); width > maxSuffixWidth {
-			maxSuffixWidth = width
-		}
 		parts = append(parts, part{
 			label:    label,
-			suffix:   suffix,
+			suffix:   formatUsageResetShort(account.limit, nowMs),
 			active:   isActive,
 			daybreak: metadataBool(account.report, "daybreak"),
 			present:  true,
@@ -203,58 +214,30 @@ func formatUsageAccountHeaderRow(
 	if maxSuffixWidth > 0 {
 		gap = 1
 	}
-	prefixBudget := columnWidth - maxSuffixWidth - gap
+	labelBudget := columnWidth - maxSuffixWidth - gap
 	out := make([]string, 0, len(parts))
-
-	// If the suffix cannot share the cell with at least `x…`, fall back to
-	// truncating the whole label.
-	if prefixBudget < 2 {
-		for _, item := range parts {
-			if !item.present {
-				out = append(out, strings.Repeat(" ", columnWidth))
-				continue
-			}
-			full := item.label
-			if item.daybreak {
-				full += " daybreak"
-			}
-			if item.suffix != "" {
-				full += " " + item.suffix
-			}
-			cell := padUsageColumn(widthx.TruncateToWidth(full, columnWidth, "…", false), columnWidth)
-			if item.active {
-				cell = theme.Fg(string(ThemeColorAccent), cell)
-			}
-			out = append(out, cell)
-		}
-		return out
-	}
-
 	for _, item := range parts {
 		if !item.present {
 			out = append(out, strings.Repeat(" ", columnWidth))
 			continue
 		}
-		// Keep the full badge visible by taking its columns from the label.
 		badge := ""
-		if item.daybreak && prefixBudget >= 10 {
+		if item.daybreak && labelBudget >= 10 {
 			badge = " daybreak"
 		}
-		label := widthx.TruncateToWidth(item.label, prefixBudget-widthx.VisibleWidth(badge), "…", false)
-		prefix := label
+		label := widthx.TruncateToWidth(item.label, max(0, labelBudget-widthx.VisibleWidth(badge)), "…", false)
 		if item.active {
-			prefix = theme.Fg(string(ThemeColorAccent), label)
+			label = theme.Fg(string(ThemeColorAccent), label)
 		}
 		if badge != "" {
-			prefix += theme.Fg(string(ThemeColorSuccess), badge)
+			label += theme.Fg(string(ThemeColorSuccess), badge)
 		}
-		prefixCell := prefix + strings.Repeat(" ", max(0, prefixBudget-widthx.VisibleWidth(prefix)))
-		if item.suffix == "" {
-			out = append(out, prefixCell+strings.Repeat(" ", maxSuffixWidth+gap))
-			continue
+		labelCell := label + strings.Repeat(" ", max(0, labelBudget-widthx.VisibleWidth(label)))
+		suffix := strings.Repeat(" ", max(0, maxSuffixWidth-widthx.VisibleWidth(item.suffix)))
+		if item.suffix != "" {
+			suffix += theme.Fg(string(ThemeColorDim), item.suffix)
 		}
-		suffixPad := strings.Repeat(" ", max(0, maxSuffixWidth-widthx.VisibleWidth(item.suffix)))
-		out = append(out, prefixCell+" "+suffixPad+theme.Fg(string(ThemeColorDim), item.suffix))
+		out = append(out, suffix+strings.Repeat(" ", gap)+labelCell)
 	}
 	return out
 }
@@ -783,13 +766,20 @@ func RenderUsageReports(options UsageReportOptions) string {
 				headers := formatUsageAccountHeaderRow(
 					theme, blockAccounts, providerReports, block.start, nowMs, block.columnWidth, activeAccount)
 				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, " "), " "))
+				barIndent := usageAccountHeaderSuffixWidth(blockAccounts, nowMs)
+				if barIndent > 0 {
+					barIndent++
+				}
+				barWidth := max(1, min(block.barWidth, block.columnWidth-barIndent))
 				bars := make([]string, 0, len(blockAccounts))
 				for _, account := range blockAccounts {
 					if !account.present {
 						bars = append(bars, strings.Repeat(" ", block.columnWidth))
 						continue
 					}
-					bars = append(bars, padUsageColumn(RenderUsageBar(theme, account.limit, block.barWidth), block.columnWidth))
+					bar := RenderUsageBar(theme, account.limit, barWidth)
+					bars = append(bars, strings.Repeat(" ", barIndent)+
+						padUsageColumn(bar, block.columnWidth-barIndent))
 				}
 				barLine := "  " + strings.Join(bars, " ")
 				if blockIndex == 0 && !wrapped && amountText != "" {
@@ -809,8 +799,9 @@ func RenderUsageReports(options UsageReportOptions) string {
 						if fraction, ok := ai.UsageUsedFraction(account.limit); ok {
 							text = formatUsagePercentFree((1 - math.Min(math.Max(fraction, 0), 1)) * 100)
 						}
-						values = append(values, padUsageColumn(
-							theme.Fg(StatusColorToken(account.limit.Status), text), block.columnWidth))
+						value := theme.Fg(StatusColorToken(account.limit.Status), text)
+						values = append(values, strings.Repeat(" ", barIndent)+padUsageColumn(
+							value, block.columnWidth-barIndent))
 					}
 					lines = append(lines, strings.TrimRight("  "+strings.Join(values, " "), " "))
 				}

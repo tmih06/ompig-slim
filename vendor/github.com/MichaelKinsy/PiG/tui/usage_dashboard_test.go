@@ -359,6 +359,51 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestUsageReportAlignsBarsUnderAccountLabelsWithResetPrefixes(t *testing.T) {
+	now := int64(1000)
+	reset := func(limit ai.UsageLimit, after int64) ai.UsageLimit {
+		limit.Window.ResetsAt = new(after)
+		return limit
+	}
+	first := reset(usageTestLimit("openai", "a", "7d", "Weekly",
+		ai.UsageAmount{UsedFraction: new(0.9), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK), now+2*60*60*1000)
+	first.ID = "7d"
+	second := reset(usageTestLimit("openai", "b", "7d", "Weekly",
+		ai.UsageAmount{UsedFraction: new(0.1), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK), now+4*60*60*1000)
+	second.ID = "7d"
+	text := plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+		Reports: []ai.UsageReport{
+			usageTestReport("openai", "a@test", []ai.UsageLimit{first}, nil),
+			usageTestReport("openai", "b@test", []ai.UsageLimit{second}, nil),
+		},
+		NowMs: now,
+		Width: 100,
+	}), "\n"))
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		if !strings.Contains(line, "a@test") || index+1 >= len(lines) {
+			continue
+		}
+		barLine := lines[index+1]
+		for _, account := range []string{"a@test", "b@test"} {
+			labelAt := strings.Index(line, account)
+			if labelAt < 0 {
+				t.Fatalf("account %s missing from header: %q", account, line)
+			}
+			// The first bar cell for each account must begin under its label.
+			barRunes := []rune(barLine[labelAt:])
+			if len(barRunes) == 0 || !strings.ContainsRune("█▓▒░·", barRunes[0]) {
+				t.Fatalf("bar for %s is not under its label:\nheader: %q\nbar:    %q", account, line, barLine)
+			}
+		}
+		if !strings.Contains(line, "2h a@test") || !strings.Contains(line, "4h b@test") {
+			t.Fatalf("reset prefixes are not separated from account labels: %q", line)
+		}
+		return
+	}
+	t.Fatalf("weekly header missing:\n%s", text)
+}
+
 func TestUsageReportWrapRangeCountsAllQuotaColumns(t *testing.T) {
 	limit := func(accountID, windowID, label string, used float64) ai.UsageLimit {
 		quota := usageTestLimit("openai", accountID, windowID, label,
