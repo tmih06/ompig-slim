@@ -168,6 +168,7 @@ func loadOMPCatalog(provider string) *ompCatalog {
 			if err := json.Unmarshal(record, &row); err != nil {
 				panic(err)
 			}
+			cacheCompatExtra(row.Compat)
 			if row.Provider != provider || row.ID == "" {
 				panic("invalid OMP catalog identity")
 			}
@@ -276,15 +277,22 @@ func OMPOtherCatalog(provider string) []AnyModel {
 	return out
 }
 
-// OMPCatalogModel returns a fresh descriptor for a bundled model. Nested catalog
-// metadata remains shared and read-only. Provider configuration and extension
-// overrides still apply after this base.
-func OMPCatalogModel(provider, id string) *Model {
+// ompCatalogModel returns the immutable descriptor held by the bundled
+// catalog. Internal projection code uses this read-only view to avoid creating
+// a throwaway copy before copying the few fields it needs.
+func ompCatalogModel(provider, id string) *Model {
 	catalog := loadOMPCatalog(provider)
 	if catalog == nil {
 		return nil
 	}
-	model := catalog.models[id]
+	return catalog.models[id]
+}
+
+// OMPCatalogModel returns a fresh descriptor for a bundled model. Nested catalog
+// metadata remains shared and read-only. Provider configuration and extension
+// overrides still apply after this base.
+func OMPCatalogModel(provider, id string) *Model {
+	model := ompCatalogModel(provider, id)
 	if model == nil {
 		return nil
 	}
@@ -297,7 +305,7 @@ func OMPCatalogModel(provider, id string) *Model {
 // identity and the date-stripped model family are both required; this avoids
 // borrowing scores across a distinct model variant.
 func projectOMPModelMetrics(model *Model) *Model {
-	source := OMPCatalogModel(model.ProviderID(), model.ID)
+	source := ompCatalogModel(model.ProviderID(), model.ID)
 	if source == nil {
 		return model
 	}
@@ -333,7 +341,7 @@ func projectOMPModelMetrics(model *Model) *Model {
 		}
 	}
 	if baseID := stripCatalogReleaseDate(model.ID); baseID != "" && source.Int == nil && source.TPS == nil {
-		if base := OMPCatalogModel(model.ProviderID(), baseID); base != nil {
+		if base := ompCatalogModel(model.ProviderID(), baseID); base != nil {
 			if model.Int == nil && base.Int != nil {
 				model.Int = new(*base.Int)
 				provenance["int"] = base.ProviderID() + "/" + base.ID

@@ -11,28 +11,85 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
-var browserVersionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?:^|[-_])([0-9]+\.[0-9]+)`),
-	regexp.MustCompile(`(?:^|[-_])([0-9]{1,2})-([0-9]{1,2})(?:-|$)`),
-	regexp.MustCompile(`(?:^|[-_])([0-9]+)`),
-}
+// Kept for the frozen ordering oracle in model_browser_order_reference_test.go;
+// production ranking uses browserDate below to avoid per-row regex work.
 var browserDatePattern = regexp.MustCompile(`-([0-9]{8})$`)
 
 // browserVersion follows OMP's dot, short-dash, then integer precedence.
-// Preserve the source regex behavior even for revision/date tails: changing
-// which numeric segment matches changes the user-visible catalog order.
+// The boundary scan is equivalent to the three source regexes but avoids
+// compiling/backtracking a matcher for every catalog row on every refresh.
 func browserVersion(id string) float64 {
-	for _, pattern := range browserVersionPatterns {
-		if match := pattern.FindStringSubmatch(id); match != nil {
-			value := match[1]
-			if len(match) > 2 {
-				value += "." + match[2]
+	// FindStringSubmatch searches the whole input for each pattern before the
+	// next pattern is attempted, so keep the three precedence passes separate.
+	for i := 0; i < len(id); i++ {
+		if i != 0 && id[i-1] != '-' && id[i-1] != '_' {
+			continue
+		}
+		end := i
+		for end < len(id) && id[end] >= '0' && id[end] <= '9' {
+			end++
+		}
+		if end > i && end < len(id) && id[end] == '.' {
+			last := end + 1
+			for last < len(id) && id[last] >= '0' && id[last] <= '9' {
+				last++
 			}
-			version, _ := strconv.ParseFloat(value, 64)
+			if last > end+1 {
+				version, _ := strconv.ParseFloat(id[i:last], 64)
+				return version
+			}
+		}
+	}
+	for i := 0; i < len(id); i++ {
+		if i != 0 && id[i-1] != '-' && id[i-1] != '_' {
+			continue
+		}
+		first := i
+		end := first
+		for end < len(id) && id[end] >= '0' && id[end] <= '9' {
+			end++
+		}
+		if end-first > 0 && end-first <= 2 && end < len(id) && id[end] == '-' {
+			last := end + 1
+			for last < len(id) && id[last] >= '0' && id[last] <= '9' {
+				last++
+			}
+			if last-end > 1 && last-end <= 3 && (last == len(id) || id[last] == '-') {
+				value := id[first:end] + "." + id[end+1:last]
+				version, _ := strconv.ParseFloat(value, 64)
+				return version
+			}
+		}
+	}
+	for i := 0; i < len(id); i++ {
+		if i != 0 && id[i-1] != '-' && id[i-1] != '_' {
+			continue
+		}
+		end := i
+		for end < len(id) && id[end] >= '0' && id[end] <= '9' {
+			end++
+		}
+		if end > i {
+			version, _ := strconv.ParseFloat(id[i:end], 64)
 			return version
 		}
 	}
 	return 0
+}
+
+// browserDate recognizes the date suffix used by the browser comparator
+// without allocating a regex match slice for each row.
+func browserDate(id string) string {
+	if len(id) < 9 || id[len(id)-9] != '-' {
+		return ""
+	}
+	start := len(id) - 8
+	for i := start; i < len(id); i++ {
+		if id[i] < '0' || id[i] > '9' {
+			return ""
+		}
+	}
+	return id[start:]
 }
 
 // browserRankedItem owns sort keys for one ranking pass, not a persistent cache.
@@ -136,9 +193,7 @@ func (b *ModelBrowser) rankBrowserItems() {
 		if item.Model != nil && item.Model.Priority != nil {
 			key.priority = *item.Model.Priority
 		}
-		if match := browserDatePattern.FindStringSubmatch(item.ID); match != nil {
-			key.date = match[1]
-		}
+		key.date = browserDate(item.ID)
 		ranked[i] = key
 	}
 	slices.SortStableFunc(ranked, compareBrowserRankedItems)
