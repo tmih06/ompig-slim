@@ -659,9 +659,13 @@ func AccountCredentialSettings(credential Credential) *UsageAccountSettings {
 	return settings
 }
 
+// RemoteRefreshSentinel marks an OAuth refresh token owned by a remote broker.
+// Usage probes must never treat this redaction marker as a provider credential.
+const RemoteRefreshSentinel = "__OMPIG_REMOTE_REFRESH__"
+
 // UsageCredentialFromStored narrows a stored credential to the bundle a usage
 // fetcher authenticates with. Fetchers never receive storage details they do
-// not use.
+// not use, and a remote refresh marker is not forwarded as a token.
 func UsageCredentialFromStored(credential *Credential) UsageCredential {
 	if credential == nil {
 		return UsageCredential{}
@@ -670,9 +674,11 @@ func UsageCredentialFromStored(credential *Credential) UsageCredential {
 		return UsageCredential{Type: CredentialAPIKey, APIKey: credential.Key}
 	}
 	out := UsageCredential{
-		Type:         CredentialOAuth,
-		AccessToken:  credential.Access,
-		RefreshToken: credential.Refresh,
+		Type:        CredentialOAuth,
+		AccessToken: credential.Access,
+	}
+	if credential.Refresh != RemoteRefreshSentinel {
+		out.RefreshToken = credential.Refresh
 	}
 	if credential.HasExpires() {
 		out.ExpiresAt = new(credential.Expires)

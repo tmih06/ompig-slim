@@ -10,6 +10,36 @@ import (
 	"testing"
 )
 
+// TestRemoteBrokerRefreshMarkerIsNotUsedForCopilotUsage ensures a broker's
+// redacted refresh token never becomes the bearer sent to GitHub.
+func TestRemoteBrokerRefreshMarkerIsNotUsedForCopilotUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Errorf("authorization = %q, want access token only", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+
+	stored := &Credential{
+		Type:    CredentialOAuth,
+		Access:  "access-token",
+		Refresh: RemoteRefreshSentinel,
+	}
+	report, err := fetchGitHubCopilotUsage(context.Background(), UsageFetchParams{
+		Provider:   "github-copilot",
+		BaseURL:    server.URL,
+		Credential: UsageCredentialFromStored(stored),
+	}, UsageFetchContext{HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report == nil {
+		t.Fatal("remote OAuth credential produced no Copilot usage report")
+	}
+}
+
 // TestAntigravityUsageResponseCompression mirrors OMP fetch's transparent
 // decompression for both quota endpoints. A real HTTP transport is required:
 // a mock RoundTripper would bypass Go's automatic gzip negotiation and decoding.
