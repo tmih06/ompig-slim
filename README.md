@@ -118,6 +118,7 @@ a Herdr server restart.
 |---|---|
 | Tools | `read` (files, dirs, URLs), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
 | Prompt | `/skill:` badges compose several skills in one prompt; `@path` and `@url` mentions are read up front |
+| Loop guard | Steers the primary agent away from identical tool calls after five consecutive turns |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, quota-aware routing, imported credentials, rate-limit resets |

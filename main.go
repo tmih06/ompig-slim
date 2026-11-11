@@ -17,6 +17,7 @@ import (
 	"ompig-slim/internal/agentstate"
 	agentstateext "ompig-slim/internal/agentstate/ext"
 	"ompig-slim/internal/broker"
+	"ompig-slim/internal/loopguard"
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/prompts"
 )
@@ -54,8 +55,8 @@ func main() {
 	// The todo feature is native: coding/extension/builtin/todo registers the tool
 	// with the built-in registry and the stop-time reminder with the native
 	// before-settle hook registry, both from its init. Nothing about the todo
-	// feature is an extension, so this program passes no extension factories: the
-	// tool and the reminder exist with --no-extensions, the tool is dropped by
+	// feature is an extension: the tool and reminder exist with
+	// --no-extensions, the tool is dropped by
 	// --no-builtin-tools, and neither appears in the startup Extensions list.
 	//
 	// Pass `delegated`, not `os.Args[1:]`: the self-updater may rewrite the
@@ -77,6 +78,11 @@ func main() {
 	cli.Main(args, &cli.MainOptions{
 		SystemPromptPreamble: prompts.System(),
 		ExtensionFactories: []extension.InlineExtension{
+			// Hidden program machinery, like agent-state: always active even with
+			// --no-extensions, without adding a user-managed resource or tool.
+			extension.NamedInlineExtension{
+				Name: "tool-call-loop-guard", Factory: loopguard.Extension, Hidden: true,
+			},
 			extension.NamedInlineExtension{
 				Name:    "agent-state",
 				Factory: agentstateext.Extension(agentstate.NewPublisher()),
