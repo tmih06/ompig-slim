@@ -359,6 +359,35 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestUsageReportWrapRangeCountsAllQuotaColumns(t *testing.T) {
+	limit := func(accountID, windowID, label string, used float64) ai.UsageLimit {
+		quota := usageTestLimit("openai", accountID, windowID, label,
+			ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)
+		quota.ID = windowID
+		return quota
+	}
+	reports := []ai.UsageReport{
+		usageTestReport("openai", "a@test", []ai.UsageLimit{
+			limit("a", "7d", "Weekly", 0.9), limit("a", "5h", "5 Hour", 0.7),
+		}, nil),
+		usageTestReport("openai", "b@test", []ai.UsageLimit{
+			limit("b", "7d", "Weekly", 0.5),
+		}, nil),
+		usageTestReport("openai", "c@test", []ai.UsageLimit{
+			limit("c", "7d", "Weekly", 0.1), limit("c", "5h", "5 Hour", 0.2),
+		}, nil),
+	}
+	text := plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+		Reports: reports, NowMs: 1000, Width: 40,
+	}), "\n"))
+	if strings.Contains(text, "accounts 3–3 of 2") {
+		t.Fatalf("wrapped sparse bucket reports the wrong account range:\n%s", text)
+	}
+	if !strings.Contains(text, "accounts 3–3 of 3") {
+		t.Fatalf("wrapped sparse bucket omitted its reserved column range:\n%s", text)
+	}
+}
+
 // TestUsageReportDoesNotReserveColumnsForAccountsWithoutLimits ensures a
 // no-limit account rendered below the quota rows cannot create a blank quota
 // column that changes wrapping and makes later bars appear to shift.

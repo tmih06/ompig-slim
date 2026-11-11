@@ -759,7 +759,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 					// page of accounts from the next.
 					lines = append(lines, "  "+theme.Fg(string(ThemeColorDim),
 						"⋯ accounts "+strconv.Itoa(block.start+1)+"–"+strconv.Itoa(block.end)+
-							" of "+strconv.Itoa(len(sortedLimits))))
+							" of "+strconv.Itoa(len(accountColumns))))
 				}
 				if block.stacked {
 					// One column cannot fit beside its neighbours: each account
