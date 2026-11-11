@@ -3,6 +3,7 @@ package codingagent
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -292,6 +293,51 @@ func TestFooterRowsNeverExceedTheWidth(t *testing.T) {
 				t.Fatalf("width %d: a footer row is %d columns wide: %q", width, got, widthx.StripTerminalSequences(line))
 			}
 		}
+	}
+}
+
+// TestFooterReadsGitStatusFromWorkingTree covers the end-to-end status reader:
+// staged, unstaged, and untracked files are summarized in the rendered footer.
+func TestFooterReadsGitStatusFromWorkingTree(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", args...)
+		command.Dir = dir
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	git("init", "-b", "status-test")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("staged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "tracked.txt")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("unstaged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("untracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	footer := NewFooterComponent(nil, "", nil)
+	footer.SetCwd(dir)
+	line := widthx.StripTerminalSequences(footer.Render(120)[0])
+	if !strings.Contains(line, "status-test *1 +1 ?1") {
+		t.Fatalf("git status missing from footer: %q", line)
+	}
+}
+
+// TestFooterGitStatusShowsWorkingTreeCounts covers the renderer's compact
+// indicators independently from git process discovery.
+func TestFooterGitStatusShowsWorkingTreeCounts(t *testing.T) {
+	line := widthx.StripTerminalSequences(renderFooter(footerData{
+		cwd:       "/work/repo",
+		gitBranch: "feature/status",
+		gitStatus: gitStatusCounts{staged: 2, unstaged: 3, untracked: 1},
+	}, 120)[0])
+	if !strings.Contains(line, "feature/status *3 +2 ?1") {
+		t.Fatalf("git status missing from footer: %q", line)
 	}
 }
 
