@@ -181,8 +181,7 @@ def run(binary, server, mode):
             os.write(master, b"\x1bw")
             # Include the checkbox: the transcript receipt also names this
             # task and can be repainted when the overlay disappears.
-            reopened = wait("☐ Scroll item 18".encode())
-            assert "☐ Scroll item 18".encode() in reopened, f"{mode}: reopened above the active work"
+            wait("☐ Scroll item 18".encode())
             print(f"PASS: {mode} prompt-anchored widget, compact todo receipt, native checkbox renderer, "
                   "first/last-page scrolling, border-only collapse/reopen, one-row rejected-call reason, "
                   "reopen at active work")
