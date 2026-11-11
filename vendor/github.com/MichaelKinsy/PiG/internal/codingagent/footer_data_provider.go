@@ -2,8 +2,11 @@ package codingagent
 
 import (
 	"maps"
+	"os/exec"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/internal/changeobservers"
 )
@@ -18,6 +21,8 @@ type FooterDataProvider struct {
 	cwd               string
 	gitBranch         string    // cached; resolved from the initial repository binding
 	gitPaths          *gitPaths // repository binding captured before extension startup
+	gitStatus         gitStatusCounts
+	gitStatusAt       time.Time
 	extensionStatuses map[string]string
 	providerCount     int
 	// changeObservers run after the git branch or the provider count changed (ObserveChange).
@@ -44,6 +49,8 @@ func (d *FooterDataProvider) SetCwd(cwd string) {
 	d.cwd = cwd
 	d.gitPaths = nil
 	d.gitBranch = ""
+	d.gitStatus = gitStatusCounts{}
+	d.gitStatusAt = time.Time{}
 	if paths, ok := findGitPaths(cwd); cwd != "" && ok {
 		d.gitPaths = &paths
 		d.gitBranch = resolveGitBranchFromPaths(paths)
@@ -149,11 +156,62 @@ func (d *FooterDataProvider) boundGitPaths() *gitPaths {
 	return d.gitPaths
 }
 
-// snapshot reads what one footer render needs under a single lock.
-func (d *FooterDataProvider) snapshot() (cwd, gitBranch string, providerCount int, extensionStatuses map[string]string) {
+// snapshot reads what one footer render needs and refreshes the short-lived git status cache.
+func (d *FooterDataProvider) snapshot() (cwd, gitBranch string, providerCount int, extensionStatuses map[string]string, status gitStatusCounts) {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.cwd, d.gitBranch, d.providerCount, maps.Clone(d.extensionStatuses)
+	cwd, gitBranch, providerCount, extensionStatuses = d.cwd, d.gitBranch, d.providerCount, maps.Clone(d.extensionStatuses)
+	d.mu.RUnlock()
+	return cwd, gitBranch, providerCount, extensionStatuses, d.currentGitStatus()
+}
+
+// gitStatusCounts is the compact working-tree summary shown beside the branch.
+type gitStatusCounts struct {
+	staged, unstaged, untracked int
+}
+
+// currentGitStatus refreshes at most once per second so a footer repaint never
+// launches git for every spinner frame, while edits become visible promptly.
+func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
+	now := time.Now()
+	d.mu.RLock()
+	if now.Sub(d.gitStatusAt) < time.Second {
+		status := d.gitStatus
+		d.mu.RUnlock()
+		return status
+	}
+	paths := d.gitPaths
+	d.mu.RUnlock()
+	if paths == nil {
+		d.mu.Lock()
+		d.gitStatus, d.gitStatusAt = gitStatusCounts{}, now
+		d.mu.Unlock()
+		return gitStatusCounts{}
+	}
+
+	status := gitStatusCounts{}
+	command := exec.Command("git", "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal")
+	command.Dir = paths.repoDir
+	if output, err := command.Output(); err == nil {
+		for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
+			if len(line) < 2 {
+				continue
+			}
+			if strings.HasPrefix(line, "??") {
+				status.untracked++
+				continue
+			}
+			if line[0] != ' ' {
+				status.staged++
+			}
+			if line[1] != ' ' {
+				status.unstaged++
+			}
+		}
+	}
+	d.mu.Lock()
+	d.gitStatus, d.gitStatusAt = status, now
+	d.mu.Unlock()
+	return status
 }
 
 // Dispose is footer-data-provider.ts dispose (:187), which FooterComponent.dispose (footer.ts:93) leaves the cleanup to: it stops the git

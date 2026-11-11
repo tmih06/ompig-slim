@@ -339,13 +339,14 @@ func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelect
 	if roleSource != nil {
 		role, roleColor = roleSource()
 	}
-	cwd, gitBranch, providerCount, extensionStatuses := s.snapshot()
-	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
+	cwd, gitBranch, providerCount, extensionStatuses, gitStatus := s.snapshot()
+	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, gitStatus: gitStatus, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
 }
 
 // footerSnapshot is the footer data provider's state, read together without holding s.mu.
 type footerSnapshot struct {
 	cwd, gitBranch    string
+	gitStatus         gitStatusCounts
 	providerCount     int
 	extensionStatuses map[string]string
 	// role is the logical role of the current selection, or "" when it has none.
@@ -362,6 +363,7 @@ func (s *FooterComponent) footerDataLocked(totals footerUsageTotals, routed *Rou
 		sessionName:            s.name,
 		cwd:                    snap.cwd,
 		gitBranch:              snap.gitBranch,
+		gitStatus:              snap.gitStatus,
 		usage:                  totals,
 		routed:                 routed,
 		contextTokens:          s.contextTokens,
@@ -387,6 +389,7 @@ type footerData struct {
 	sessionName            string
 	cwd                    string
 	gitBranch              string
+	gitStatus              gitStatusCounts
 	usage                  footerUsageTotals
 	routed                 *RoutedModelSelection
 	contextTokens          int // last turn's total tokens for context% (not cumulative)
@@ -625,9 +628,17 @@ func footerProjectDecorations(d footerData) (branch, name string) {
 	// working-tree state it never read. OMP reads staged, modified and untracked
 	// counts on its status line, and that is where those two colors belong.
 	if d.gitBranch != "" {
-		branch = footerToken(tui.ThemeColorStatusLineSep, " (") +
-			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
-			footerToken(tui.ThemeColorStatusLineSep, ")")
+		branchText := footerToken(tui.ThemeColorStatusLineContext, d.gitBranch)
+		if d.gitStatus.unstaged > 0 {
+			branchText += " " + footerToken(tui.ThemeColorStatusLineGitDirty, "*"+strconv.Itoa(d.gitStatus.unstaged))
+		}
+		if d.gitStatus.staged > 0 {
+			branchText += " " + footerToken(tui.ThemeColorStatusLineStaged, "+"+strconv.Itoa(d.gitStatus.staged))
+		}
+		if d.gitStatus.untracked > 0 {
+			branchText += " " + footerToken(tui.ThemeColorStatusLineUntracked, "?"+strconv.Itoa(d.gitStatus.untracked))
+		}
+		branch = footerToken(tui.ThemeColorStatusLineSep, " (") + branchText + footerToken(tui.ThemeColorStatusLineSep, ")")
 	}
 	if d.sessionName != "" {
 		name = footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
