@@ -23,6 +23,11 @@ type Client struct {
 	base, token, dir string
 	http             *http.Client
 	mu               sync.Mutex
+
+	snapshotMu   sync.Mutex
+	snapshotData []vaultEntry
+	snapshotAt   time.Time
+	snapshotLoad bool
 }
 
 // fileState records the common ancestor for preference document reconciliation.
@@ -57,11 +62,39 @@ func Connect(ctx context.Context, dir string) (*Client, error) {
 	if err = c.SyncFiles(ctx); err != nil {
 		return nil, err
 	}
-	_, err = (&remoteStore{client: c}).snapshot(ctx)
-	if err != nil {
+	return c, nil
+}
+
+const snapshotCacheTTL = time.Second
+
+// snapshot returns a short-lived shared credential view. Holding the mutex
+// across the request makes concurrent provider availability checks single-flight;
+// the TTL also joins sequential checks in the same startup pass. Mutations
+// invalidate the view, while the short bound preserves live broker semantics for
+// changes made by another client.
+func (c *Client) snapshot(ctx context.Context) ([]vaultEntry, error) {
+	c.snapshotMu.Lock()
+	defer c.snapshotMu.Unlock()
+	if c.snapshotLoad && time.Since(c.snapshotAt) < snapshotCacheTTL {
+		return append([]vaultEntry(nil), c.snapshotData...), nil
+	}
+	var entries []vaultEntry
+	if err := c.request(ctx, "GET", "/v1/snapshot", "", nil, &entries); err != nil {
 		return nil, err
 	}
-	return c, nil
+	c.snapshotData = append(c.snapshotData[:0], entries...)
+	c.snapshotAt = time.Now()
+	c.snapshotLoad = true
+	return append([]vaultEntry(nil), c.snapshotData...), nil
+}
+
+// invalidateSnapshot prevents a successful local mutation from returning the
+// pre-mutation credential view to the next caller.
+func (c *Client) invalidateSnapshot() {
+	c.snapshotMu.Lock()
+	c.snapshotLoad = false
+	c.snapshotData = nil
+	c.snapshotMu.Unlock()
 }
 
 // request sends preference or vault operations with bounded response size and
