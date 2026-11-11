@@ -61,26 +61,20 @@ func redact(credential ai.Credential) (ai.Credential, error) {
 
 // entries reads enabled credentials from the canonical vault. API-key config
 // references resolve on the broker host; disabled rows and raw refreshes do not
-// cross this boundary. SQLite remains the only credential writer.
+// cross this boundary. The bulk read keeps one snapshot from issuing one SQLite
+// query per account, which matters when several TUI requests arrive together.
 func (s *Store) entries(ctx context.Context) ([]vaultEntry, error) {
-	accounts, err := s.vault.ListAccounts(ctx)
+	accounts, err := s.vault.ReadAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]vaultEntry, 0, len(accounts))
-	for _, info := range accounts {
-		credential, err := s.vault.ReadAccount(ctx, info.ProviderID, info.AccountKey)
+	for _, account := range accounts {
+		safe, err := redact(account.Credential)
 		if err != nil {
 			return nil, err
 		}
-		if credential == nil {
-			continue
-		}
-		safe, err := redact(*credential)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, vaultEntry{Info: info, Credential: safe})
+		result = append(result, vaultEntry{Info: account.Info, Credential: safe})
 	}
 	return result, nil
 }

@@ -66,6 +66,14 @@ type CredentialAccountInfo struct {
 	CreatedAt int64 `json:"createdAt,omitempty"`
 }
 
+// CredentialAccount is an enabled account and its resolved credential, returned by the local
+// SQLite store's bulk account read. The credential is resolved in one database pass so callers
+// exporting a complete account view do not perform an N+1 query sequence.
+type CredentialAccount struct {
+	Info       CredentialAccountInfo
+	Credential Credential
+}
+
 // AccountCredentialStore is credential storage that holds several accounts per provider. Read
 // keeps returning the active credential, so every single-account caller is unaffected; these
 // methods expose the rest. Stores without multi-account support simply do not implement it.
@@ -639,6 +647,30 @@ func (s *SQLiteAuthStorage) ReadAccount(ctx context.Context, providerID string, 
 	return resolveRowCredential(row), context.Cause(ctx)
 }
 
+// ReadAccounts returns every enabled account and resolved credential in one SQLite read. It
+// preserves ListAccounts ordering and selection semantics while avoiding one query per account.
+func (s *SQLiteAuthStorage) ReadAccounts(ctx context.Context) ([]CredentialAccount, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	all, activeIDs, err := s.accountRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CredentialAccount, 0, len(all))
+	for i := range all {
+		credential := resolveRowCredential(&all[i])
+		if credential == nil {
+			continue
+		}
+		result = append(result, CredentialAccount{
+			Info:       accountInfo(&all[i], activeIDs[all[i].Provider] == all[i].ID),
+			Credential: *credential,
+		})
+	}
+	return result, context.Cause(ctx)
+}
+
 // GetRaw returns the active account's credential without resolving a configured API-key value. It
 // is the raw read the OAuth refresh helpers use; Read resolves for request auth.
 func (s *SQLiteAuthStorage) GetRaw(providerID string) (Credential, bool, error) {
@@ -685,27 +717,40 @@ func (s *SQLiteAuthStorage) ListAccounts(ctx context.Context) ([]CredentialAccou
 }
 
 func (s *SQLiteAuthStorage) listAccounts(ctx context.Context) ([]CredentialAccountInfo, error) {
+	all, activeIDs, err := s.accountRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CredentialAccountInfo, 0, len(all))
+	for i := range all {
+		out = append(out, accountInfo(&all[i], activeIDs[all[i].Provider] == all[i].ID))
+	}
+	return out, nil
+}
+
+// accountRows reads enabled rows once and resolves each provider's active selection. Both the
+// metadata and credential bulk paths use it so their ordering and selection cannot diverge.
+func (s *SQLiteAuthStorage) accountRows(ctx context.Context) ([]credentialRow, map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+rowColumns+`
 		FROM auth_credentials WHERE disabled_cause IS NULL ORDER BY provider ASC, id ASC`)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	all := []credentialRow{}
 	for rows.Next() {
 		row, err := scanCredentialRow(rows)
 		if err != nil {
 			_ = rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		all = append(all, row)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	_ = rows.Close()
-	// Mirrors Read: the recorded selection, else the provider's oldest enabled row, which is the
-	// first row of that provider in this id-ordered list.
+	// Mirrors Read: the recorded selection, else the provider's oldest enabled row.
 	activeIDs := map[string]int64{}
 	for _, row := range all {
 		if _, seen := activeIDs[row.Provider]; seen {
@@ -713,7 +758,7 @@ func (s *SQLiteAuthStorage) listAccounts(ctx context.Context) ([]CredentialAccou
 		}
 		selected, ok, err := s.selectedID(ctx, row.Provider)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if ok {
 			activeIDs[row.Provider] = selected
@@ -721,11 +766,7 @@ func (s *SQLiteAuthStorage) listAccounts(ctx context.Context) ([]CredentialAccou
 			activeIDs[row.Provider] = row.ID
 		}
 	}
-	out := make([]CredentialAccountInfo, 0, len(all))
-	for i := range all {
-		out = append(out, accountInfo(&all[i], activeIDs[all[i].Provider] == all[i].ID))
-	}
-	return out, nil
+	return all, activeIDs, nil
 }
 
 // AccountCount reports the number of enabled credentials across all providers.
