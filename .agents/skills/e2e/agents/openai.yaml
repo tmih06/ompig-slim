@@ -1,0 +1,3 @@
+interface:
+  display_name: "End to End"
+  short_description: "Ship a ticket from triage to PR"
