@@ -357,6 +357,11 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	if strings.Index(shortHeader, "c@test") != strings.Index(weeklyHeader, "c@test") {
 		t.Errorf("c@test header shifted between windows:\nweekly: %q\n5h:     %q", weeklyHeader, shortHeader)
 	}
+	first := strings.Index(weeklyHeader, "a@test")
+	second := strings.Index(weeklyHeader, "b@test")
+	if first < 0 || second < 0 || second-first-len("a@test") < usageReportColumnGap {
+		t.Errorf("account header gutter is too narrow: %q", weeklyHeader)
+	}
 }
 
 func TestUsageReportAlignsBarsUnderAccountLabelsAndKeepsResetsWithBars(t *testing.T) {

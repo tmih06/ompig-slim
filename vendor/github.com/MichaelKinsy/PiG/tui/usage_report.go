@@ -20,6 +20,9 @@ const (
 	// still shows a readable label prefix. Below it the block stacks label over
 	// bar instead of abbreviating every account to the same `a…st`.
 	usageReportColumnInlineMin = 10
+	// usageReportColumnGap keeps adjacent account cells visually distinct; the
+	// same gap must be included in width budgeting and every rendered row.
+	usageReportColumnGap = 2
 )
 
 // usageDisplayStatus is a limit status plus the report's own neutral state.
@@ -413,7 +416,8 @@ func layoutUsageAccountBlocks(count, available, trailing int) []usageAccountBloc
 	if trailing > 0 {
 		budget -= trailing + 1
 	}
-	maxPerBlock := (budget + 1) / (usageReportColumnInlineMin + 1)
+	maxPerBlock := (budget + usageReportColumnGap) /
+		(usageReportColumnInlineMin + usageReportColumnGap)
 	if maxPerBlock < 1 {
 		barWidth := max(1, budget)
 		for index := 0; index < count; index++ {
@@ -429,7 +433,7 @@ func layoutUsageAccountBlocks(count, available, trailing int) []usageAccountBloc
 	}
 	for start := 0; start < count; start += maxPerBlock {
 		perBlock := min(maxPerBlock, count-start)
-		columnWidth := (budget - (perBlock - 1)) / perBlock
+		columnWidth := (budget - (perBlock-1)*usageReportColumnGap) / perBlock
 		blocks = append(blocks, usageAccountBlock{
 			start:       start,
 			end:         start + perBlock,
@@ -722,7 +726,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 				}
 				headers := formatUsageAccountHeaderRow(
 					theme, blockAccounts, providerReports, block.start, block.columnWidth, activeAccount)
-				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, " "), " "))
+				lines = append(lines, strings.TrimRight("  "+strings.Join(headers, strings.Repeat(" ", usageReportColumnGap)), " "))
 				resetWidth := usageAccountHeaderSuffixWidth(blockAccounts, nowMs)
 				resetGap := 0
 				if resetWidth > 0 {
@@ -746,7 +750,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 					}
 					bars = append(bars, cell)
 				}
-				barLine := "  " + strings.Join(bars, " ")
+				barLine := "  " + strings.Join(bars, strings.Repeat(" ", usageReportColumnGap))
 				if blockIndex == 0 && !wrapped && amountText != "" {
 					barLine += " " + amountText
 				}
@@ -767,7 +771,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 						value := theme.Fg(StatusColorToken(account.limit.Status), text)
 						values = append(values, padUsageColumn(value, block.columnWidth))
 					}
-					lines = append(lines, strings.TrimRight("  "+strings.Join(values, " "), " "))
+					lines = append(lines, strings.TrimRight("  "+strings.Join(values, strings.Repeat(" ", usageReportColumnGap)), " "))
 				}
 			}
 			if wrapped && amountText != "" {
