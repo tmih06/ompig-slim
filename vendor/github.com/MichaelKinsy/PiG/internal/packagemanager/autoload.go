@@ -55,7 +55,7 @@ func CollectResolvedPackageResourceItems(cwd, agentDir string, sm *codingagent.S
 		}
 		root := pkg.InstalledPath
 		if root == "" {
-			errs = append(errs, fmt.Errorf("%s Package %q is not materialized; run pig update %s", pkg.Scope, pkg.Source.Source, pkg.Source.Source))
+			errs = append(errs, fmt.Errorf("%s Package %q is not materialized; run ompig-slim update %s", pkg.Scope, pkg.Source.Source, pkg.Source.Source))
 			continue
 		}
 		if ConfiguredPackageNeedsInstall(pkg) {

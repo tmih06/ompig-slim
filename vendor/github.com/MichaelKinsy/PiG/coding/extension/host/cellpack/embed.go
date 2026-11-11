@@ -233,7 +233,7 @@ func atomicWriteFile(path string, content io.Reader, mode os.FileMode) error {
 	return renameFile(staged, path)
 }
 
-// extractDir is the absolute piglet-binary-cells directory under the PiG configuration root ($PIG_HOME, else $XDG_CONFIG_HOME/pig, else ~/.pig). It is absolute because the host starts a cell binary in the session's working directory, which a relative path would be resolved against.
+// extractDir is the absolute piglet-binary-cells directory under the configuration root ($PIG_HOME, else ~/.pi). It is absolute because the host starts a cell binary in the session's working directory, which a relative path would be resolved against.
 func extractDir() (string, error) {
 	dir, err := filepath.Abs(filepath.Join(codingagent.ConfigRoot(), "piglet-binary-cells"))
 	if err != nil {

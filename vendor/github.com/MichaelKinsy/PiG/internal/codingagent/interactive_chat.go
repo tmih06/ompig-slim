@@ -483,7 +483,7 @@ func (m *InteractiveMode) suggestBugReport() {
 		return
 	}
 	m.bugReportHintShown = true
-	m.chatContainer.Add(themedNotice("muted", "If this looks like a pig bug, /bug sends a report to the developers.", m.outputPad))
+	m.chatContainer.Add(themedNotice("muted", "If this looks like an "+AppName+" bug, /bug sends a report to the developers.", m.outputPad))
 	m.tuiInst.RequestRender()
 }
 

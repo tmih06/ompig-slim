@@ -267,7 +267,7 @@ func (m *PackageManager) VerifyContributesResources(source string, local bool) e
 		return nil
 	}
 	return fmt.Errorf("%s is an extension, not a package, so installing it as one loads nothing.\n"+
-		"Load it directly with `pig -e %s`, put it in ~/.pig/agent/extensions/, or publish it inside a "+
+		"Load it directly with `ompig-slim -e %s`, put it in ~/.pi/agent/extensions/, or publish it inside a "+
 		"package's extensions/ directory", source, source)
 }
 

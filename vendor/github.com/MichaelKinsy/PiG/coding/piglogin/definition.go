@@ -17,8 +17,10 @@ const (
 )
 
 // LoginDefinitionFor expresses a sprite through the native login contract (ctx.ui.setLogin): the hero "PiG." wordmark,
-// the mascot pig and the palette that colors them. /sprite preview draws its art from this definition, and an extension
-// that sets the same definition draws the same pixels.
+// the mascot and the palette that colors them. An extension that sets the same definition draws the same pixels.
+// pig divergence (D2): /sprite preview no longer draws from this definition, because the hero wordmark names a different
+// product; ArtLines draws the mascot alone. The definition keeps its wordmark because it is the contract an extension's
+// setLogin receives, and the host's login template still renders its hero.
 func LoginDefinitionFor(variant Variant) extension.LoginDefinition {
 	// The brand band stays transparent: the large hero wordmark is the only
 	// logo, and the host omits an empty brand band.

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	bugReportDisclaimer     = "PiG writes this report as a zip archive in the current directory and never uploads it. It includes your pig version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session. You decide whether to attach it to a PiG issue on GitHub."
+	bugReportDisclaimer     = "ompig-slim writes this report as a zip archive in the current directory and never uploads it. It includes your ompig-slim version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session. You decide what to do with the archive."
 	bugReportTranscriptNote = "The transcript contains your messages, model output, tool calls and their results, including file contents and command output read during this session."
 	bugReportCancelled      = "Bug report cancelled"
 	bugReportExport         = "Export as Zip"
@@ -130,7 +130,7 @@ func promptBugReportChoices(sc *SlashContext) (bugReportChoices, bool) {
 	}
 	// pig divergence (D62): export is the only delivery; PiG never uploads.
 	delivery, ok := sc.ShowBugReportSelector("Bug report", []string{bugReportExport, "Cancel"}, fmt.Sprintf(
-		"Description: %s\nTranscript: %s\nSummary: %s\n\nExport writes a zip archive to the current directory. Nothing is uploaded; you can attach the archive to a PiG issue.",
+		"Description: %s\nTranscript: %s\nSummary: %s\n\nExport writes a zip archive to the current directory. Nothing is uploaded.",
 		description, transcriptState, summaryState,
 	))
 	if !ok || delivery != bugReportExport {

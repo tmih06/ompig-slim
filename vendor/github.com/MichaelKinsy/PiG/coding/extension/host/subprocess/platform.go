@@ -14,15 +14,15 @@ func extensionArtifactName(goos, buildType string) string {
 
 func resolveSocketDirForGOOS(goos, xdgRuntimeDir, tmpDir, systemTempDir string, uid int) string {
 	if goos == "windows" {
-		return filepath.Join(systemTempDir, "pig")
+		return filepath.Join(systemTempDir, "ompig-slim")
 	}
 	if xdgRuntimeDir != "" {
-		return filepath.Join(xdgRuntimeDir, "pig")
+		return filepath.Join(xdgRuntimeDir, "ompig-slim")
 	}
 	if tmpDir == "" {
 		tmpDir = systemTempDir
 	}
-	return filepath.Join(tmpDir, fmt.Sprintf("pig-%d", uid))
+	return filepath.Join(tmpDir, fmt.Sprintf("ompig-slim-%d", uid))
 }
 
 // socketRuntimeDirPrefix is the os.MkdirTemp prefix of a Host's private runtime directory.
@@ -45,9 +45,9 @@ func socketRuntimeBase(goos, socketDir string, uid int, localAppData string) str
 		if localAppData == "" {
 			return socketDir
 		}
-		return filepath.Join(localAppData, "pig", "s")
+		return filepath.Join(localAppData, "ompig-slim", "s")
 	}
-	return fmt.Sprintf("/tmp/pig-%d", uid)
+	return fmt.Sprintf("/tmp/ompig-slim-%d", uid)
 }
 
 func unixSocketPathLimit(goos string) int {

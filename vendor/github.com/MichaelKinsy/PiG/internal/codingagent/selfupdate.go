@@ -823,10 +823,10 @@ func extractPigFromTarGz(archivePath, dir string, limit int64) (string, error) {
 		}
 		if out != "" {
 			_ = os.Remove(out)
-			return "", fmt.Errorf("update archive contains more than one pig executable")
+			return "", fmt.Errorf("update archive contains more than one ompig-slim executable")
 		}
 		if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > limit {
-			return "", fmt.Errorf("update archive pig entry is not a regular file within the %d-byte limit", limit)
+			return "", fmt.Errorf("update archive ompig-slim entry is not a regular file within the %d-byte limit", limit)
 		}
 		tmp, err := os.CreateTemp(dir, ".pig-update-*")
 		if err != nil {
@@ -840,13 +840,13 @@ func extractPigFromTarGz(archivePath, dir string, limit int64) (string, error) {
 		if err := errors.Join(copyErr, chmodErr, syncErr, closeErr); err != nil || written != header.Size {
 			_ = os.Remove(out)
 			if err == nil {
-				err = fmt.Errorf("truncated pig entry")
+				err = fmt.Errorf("truncated ompig-slim entry")
 			}
 			return "", fmt.Errorf("extract update archive: %w", err)
 		}
 	}
 	if out == "" {
-		return "", fmt.Errorf("update archive contains no pig executable")
+		return "", fmt.Errorf("update archive contains no ompig-slim executable")
 	}
 	return out, nil
 }

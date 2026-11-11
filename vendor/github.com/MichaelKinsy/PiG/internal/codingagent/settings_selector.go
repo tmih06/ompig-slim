@@ -556,7 +556,7 @@ func NewSettingsSelectorComponent(config SettingsConfig, callbacks SettingsCallb
 		cycle("double-escape-action", "Double-escape action", "Action when pressing Escape twice with empty editor", config.DoubleEscapeAction, doubleEscapeActions()...),
 		cycle("tree-filter-mode", "Tree filter mode", "Default filter when opening /tree", config.TreeFilterMode, "default", "no-tools", "user-only", "labeled-only", "all"),
 		// pig divergence (D80): configurable input privacy leaves the upstream setting order intact.
-		toggle("mask-secret-input", "Mask secret input", "PiG default: hide secret input with a count and last four characters. Differs from Pi; false restores Pi's plain-text behavior.", config.MaskSecretInput),
+		toggle("mask-secret-input", "Mask secret input", "ompig-slim default: hide secret input with a count and last four characters; false shows the whole value.", config.MaskSecretInput),
 		tui.SettingItem{
 			ID: "warnings", Label: "Warnings", Description: "Enable or disable individual warnings", CurrentValue: "configure",
 			Submenu: func(_ string, doneWithOptions func(*string, *tui.SubmenuDoneOptions)) tui.Component {

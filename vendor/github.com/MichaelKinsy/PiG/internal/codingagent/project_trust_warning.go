@@ -27,8 +27,8 @@ func (m *InteractiveMode) renderProjectTrustWarningIfNeeded() {
 	}
 	var message string
 	if needsTrust {
-		// pig divergence (D2): the warning names PiG's configuration directory and restart command.
-		message = "This project is not trusted. Project " + ConfigDirName() + " resources and packages are ignored. Use /trust to save a trust decision, then restart pig."
+		// pig divergence (D2): the warning names this product's configuration directory and restart command.
+		message = "This project is not trusted. Project " + ConfigDirName() + " resources and packages are ignored. Use /trust to save a trust decision, then restart " + AppName + "."
 	}
 	if len(withheld) > 0 {
 		message = strings.TrimSpace(message + " " + ContextFilesWithheldMessage(withheld))
@@ -39,7 +39,7 @@ func (m *InteractiveMode) renderProjectTrustWarningIfNeeded() {
 // ContextFilesWithheldMessage says which project context files an untrusted project did not load, and how to load them.
 // pig additive (D211).
 func ContextFilesWithheldMessage(paths []string) string {
-	return "This project is not trusted, so its context files were not loaded: " + strings.Join(paths, ", ") + ". Use /trust to save a trust decision, then restart pig."
+	return "This project is not trusted, so its context files were not loaded: " + strings.Join(paths, ", ") + ". Use /trust to save a trust decision, then restart " + AppName + "."
 }
 
 // maybeSaveImplicitProjectTrustAfterReload remembers the trust of a project that gained trust-requiring resources after a start without them.

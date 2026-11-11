@@ -483,10 +483,19 @@ func printHelp(w io.Writer, color bool, extensionFlags ...extension.ExtensionFla
 		}
 	}
 	text := stripHelp(out.String())
+	// Pi's help text names the binary `pig`; every user-facing line is rewritten to this product. The sections below cover
+	// the prose the plain `pig` substitution cannot reach: the bare interactive example, the update target list, the docs
+	// and version summaries, and the env row that describes what `ompig-slim update` runs.
 	text = strings.NewReplacer(
 		"pig - ", "ompig-slim - ",
 		"  pig ", "  ompig-slim ",
+		"  pig\n", "  ompig-slim\n",
 		"update pig", "update ompig-slim",
+		"update [source|self|pig]", "update [source|self|ompig-slim]",
+		"Update pig, extensions", "Update ompig-slim, extensions",
+		"local PiG documentation", "local ompig-slim documentation",
+		"Show PiG, pinned Pi, Go", "Show ompig-slim, pinned Pi, Go",
+		"Command pig update runs to update pig itself", "Command `ompig-slim update` runs to update ompig-slim itself",
 		"PiG Commands:", "Harness Commands:",
 		"PiG Options:", "Harness Options:",
 		"PIG_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR",

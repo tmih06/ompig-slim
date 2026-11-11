@@ -139,7 +139,7 @@ func AcquireArtifactUsageLease(artifactPath string) (*UsageLease, error) {
 }
 
 func errCacheEntryRemoved(artifactPath string) error {
-	return fmt.Errorf("cache artifact %s no longer exists: another pig's cache collection removed its entry after this process resolved it; start the extension again to rebuild it", artifactPath)
+	return fmt.Errorf("cache artifact %s no longer exists: another ompig-slim's cache collection removed its entry after this process resolved it; start the extension again to rebuild it", artifactPath)
 }
 
 // cacheEntryRemoved reports whether artifactPath was a file of a governed cache entry that is gone: it does not exist and its entry

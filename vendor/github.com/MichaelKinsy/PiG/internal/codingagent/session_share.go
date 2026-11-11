@@ -122,7 +122,7 @@ func ExportSessionForShare(filePath string, session *Session, state ShareState) 
 
 // pig divergence (D64): PiG uploads explicitly shared sessions to its own
 // pi-in-go.dev gateway instead of Earendil's Radius gateway.
-const defaultShareGatewayURL = "https://pi-in-go.dev/v1/artifacts?visibility=unlisted&title=PiG+session"
+const defaultShareGatewayURL = "https://pi-in-go.dev/v1/artifacts?visibility=unlisted&title=ompig-slim+session"
 
 const (
 	// pig divergence (D64): bound PiG gateway upload time.

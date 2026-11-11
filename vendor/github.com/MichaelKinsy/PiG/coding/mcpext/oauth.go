@@ -574,7 +574,7 @@ type McpAuthProviderOptions struct {
 	// OnChallenge receives the server's WWW-Authenticate challenge so sign-in
 	// can use its resource metadata URL and scope.
 	OnChallenge func(oauth.OAuthChallenge)
-	// AppName is the OAuth client name. Default: "pig".
+	// AppName is the OAuth client name. Default: "ompig-slim".
 	AppName string
 }
 
@@ -602,7 +602,7 @@ type authProvider struct {
 // refreshed them, or the user signed in) are used without refreshing.
 func NewMcpAuthProvider(options McpAuthProviderOptions) McpAuthProvider {
 	if options.AppName == "" {
-		options.AppName = "pig"
+		options.AppName = "ompig-slim"
 	}
 	return &authProvider{options: options}
 }
@@ -946,7 +946,7 @@ type SignInOptions struct {
 	Settings  McpOAuthSettings
 	Challenge *oauth.OAuthChallenge
 	Prompt    McpSignInPrompt
-	// AppName is the OAuth client name. Default: "pig".
+	// AppName is the OAuth client name. Default: "ompig-slim".
 	AppName string
 }
 
@@ -959,7 +959,7 @@ func SignInMcpServer(ctx context.Context, options SignInOptions) (err error) {
 		return &McpSignInCancelledError{}
 	}
 	if options.AppName == "" {
-		options.AppName = "pig"
+		options.AppName = "ompig-slim"
 	}
 	stored, err := options.Store.Load(ctx)
 	if err != nil {

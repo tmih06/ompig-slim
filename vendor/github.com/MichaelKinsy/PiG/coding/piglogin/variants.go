@@ -140,7 +140,7 @@ var Variants = []Variant{
 	// sampled colors and each source file's SHA-256.
 	{
 		ID:        "pig-default",
-		Name:      "PiG",
+		Name:      "ompig-slim",
 		Tagline:   "The minimal coding agent, in Go.",
 		Body:      rgb(0x48, 0xA3, 0x81),
 		Highlight: rgb(0x64, 0xBE, 0x9E),
@@ -160,7 +160,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "pink",
-		Name:      "Classic PiG",
+		Name:      "Classic Pig",
 		Tagline:   "Pink, polite, and patient.",
 		Body:      rgb(0xFF, 0xA8, 0xB7),
 		Highlight: rgb(0xFF, 0xC4, 0xCE),
@@ -170,7 +170,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "green",
-		Name:      "Green PiG",
+		Name:      "Green Pig",
 		Tagline:   "Ready to build.",
 		Body:      rgb(0x16, 0xA3, 0x6A),
 		Highlight: rgb(0x45, 0xC8, 0x91),
@@ -180,7 +180,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "mint",
-		Name:      "Mint PiG",
+		Name:      "Mint Pig",
 		Tagline:   "Refactors before breakfast.",
 		Body:      rgb(0xC8, 0xF0, 0xDD),
 		Highlight: rgb(0xDF, 0xF6, 0xEB),
@@ -190,7 +190,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "sandy",
-		Name:      "Sandy PiG",
+		Name:      "Sandy Pig",
 		Tagline:   "All tabs, no spaces.",
 		Body:      rgb(0xE8, 0xC8, 0x9A),
 		Highlight: rgb(0xF4, 0xDB, 0xAF),
@@ -200,7 +200,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "grey",
-		Name:      "Slate PiG",
+		Name:      "Slate Pig",
 		Tagline:   "Reads RFCs for fun.",
 		Body:      rgb(0xB6, 0xB2, 0xC0),
 		Highlight: rgb(0xD2, 0xCF, 0xDB),
@@ -210,7 +210,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "blush",
-		Name:      "Rosy PiG",
+		Name:      "Rosy Pig",
 		Tagline:   "Compiles with feelings.",
 		Body:      rgb(0xFF, 0xB8, 0xC9),
 		Highlight: rgb(0xFF, 0xD4, 0xDD),
@@ -220,7 +220,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "lavender",
-		Name:      "Lavender PiG",
+		Name:      "Lavender Pig",
 		Tagline:   "Dreams in async.",
 		Body:      rgb(0xC9, 0xB4, 0xEA),
 		Highlight: rgb(0xDD, 0xCC, 0xF2),
@@ -230,7 +230,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "cloud",
-		Name:      "Cloud PiG",
+		Name:      "Cloud Pig",
 		Tagline:   "Lives at 99.99% uptime.",
 		Body:      rgb(0xB0, 0xD8, 0xEC),
 		Highlight: rgb(0xCC, 0xE8, 0xF4),
@@ -240,7 +240,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "pigrogu",
-		Name:      "PiGrogu",
+		Name:      "Pigrogu",
 		Tagline:   "Passing tests, this is the way.",
 		Sprite:    pigMascotPiGrogu,
 		Body:      rgb(0x8B, 0xB5, 0x70),
@@ -320,7 +320,7 @@ var Variants = []Variant{
 	},
 	{
 		ID:        "sheriff",
-		Name:      "Sheriff PiG",
+		Name:      "Sheriff Pig",
 		Tagline:   "Laying down the law, one commit at a time.",
 		Sprite:    pigMascotSheriff,
 		Body:      rgb(0xF2, 0xB8, 0xA8),

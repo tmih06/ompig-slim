@@ -44,7 +44,7 @@ func (e *BuildFailure) Unwrap() error { return e.cause }
 
 // RetryCachedBuildCommand is the command that clears recorded build failures so
 // the next start compiles again.
-const RetryCachedBuildCommand = "pig extensions cache prune --failures"
+const RetryCachedBuildCommand = "ompig-slim extensions cache prune --failures"
 
 func (e *BuildFailure) Error() string {
 	prefix := ""

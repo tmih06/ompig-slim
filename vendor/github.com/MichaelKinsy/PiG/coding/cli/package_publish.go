@@ -28,12 +28,12 @@ const packagePublishUsageLine = "Usage: ompig-slim package publish [<dir>] --to 
 const packagePublishUsage = packagePublishUsageLine + `
 
 Optional sugar over plain ` + "`npm publish`" + ` for the Package in <dir> (default: the current
-directory). PiG validates the Package, checks that package.json has the fields the
+directory). ompig-slim validates the Package, checks that package.json has the fields the
 pi-in-go.dev catalog reads (name, version, description, and the pig-package keyword),
 checks that name@version is free on npm, and shows what npm would publish. Without
 --yes it is a dry run. With --yes it runs npm publish in the Package directory, exactly
 as you would, so scripts such as prepublishOnly and .npmrc apply. npm does the
-authentication, and PiG never reads or stores an npm token. PiG does not edit
+authentication, and ompig-slim never reads or stores an npm token. ompig-slim does not edit
 package.json.
 
 Plain ` + "`npm publish`" + ` stays the supported way to publish a Package; this command only
@@ -188,7 +188,7 @@ func readPublishableManifest(root string) (publishableManifest, error) {
 	case strings.TrimSpace(manifest.Description) == "":
 		return publishableManifest{}, errors.New("package.json needs a description; the catalog shows it on the Package's card")
 	case !slices.Contains(manifest.Keywords, packageKeyword):
-		return publishableManifest{}, fmt.Errorf("package.json keywords lack %q; add it so catalogs list the Package, then run this again (PiG does not edit package.json)", packageKeyword)
+		return publishableManifest{}, fmt.Errorf("package.json keywords lack %q; add it so catalogs list the Package, then run this again (ompig-slim does not edit package.json)", packageKeyword)
 	}
 	return manifest, nil
 }

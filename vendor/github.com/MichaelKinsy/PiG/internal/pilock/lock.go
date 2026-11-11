@@ -56,7 +56,7 @@ var (
 var ErrLocked = errors.New("Lock file is already being held")
 
 // ErrLegacyLocked reports an older PiG writer; acquisition uses the same retry budget as directory contention.
-var ErrLegacyLocked = fmt.Errorf("%w by an older PiG process; stop the older PiG before upgrading", ErrLocked)
+var ErrLegacyLocked = fmt.Errorf("%w by an older ompig-slim process; stop the older ompig-slim before upgrading", ErrLocked)
 var errCompromised = errors.New("lock compromised")
 
 // Lock owns a directory and its mtime heartbeat. Compromise cancels its operation context; Release joins the heartbeat and removes only the owned directory.

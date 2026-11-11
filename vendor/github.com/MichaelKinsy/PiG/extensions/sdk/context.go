@@ -2133,7 +2133,7 @@ func (c Context) SetToolsExpanded(expanded bool) {
 
 // ── Local state (cached from ready message) ──────────────────────────────────
 
-// ConfigHome returns the pig config root directory: PIG_HOME, else XDG_CONFIG_HOME/pig, else ~/.pig. An empty variable falls through to the next choice, a leading ~ or ~/ expands to the home directory, and any other value stays literal. It returns an error, never a relative path, when the home directory is needed and cannot be found. It is the same policy as the host's internal/configroot and the Python, Rust and Node SDKs; test/extension-conformance runs one env matrix through all of them.
+// ConfigHome returns the config root directory: PIG_HOME, else XDG_CONFIG_HOME/pi, else ~/.pi. An empty variable falls through to the next choice, a leading ~ or ~/ expands to the home directory, and any other value stays literal. It returns an error, never a relative path, when the home directory is needed and cannot be found. It is the same policy as the host's internal/configroot and the Python, Rust and Node SDKs; test/extension-conformance runs one env matrix through all of them.
 func (c Context) ConfigHome() (string, error) {
 	home := func() (string, error) {
 		dir, err := os.UserHomeDir()
@@ -2164,13 +2164,13 @@ func (c Context) ConfigHome() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(base, "pig"), nil
+		return filepath.Join(base, "pi"), nil
 	}
 	dir, err := home()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, ".pig"), nil
+	return filepath.Join(dir, ".pi"), nil
 }
 
 // assertActive panics with the Host's stale message once the session was replaced or reloaded, as Pi's ExtensionContext getters throw it (runner.ts:571-600, assertActive). A replacement context belongs to the new session and is not stale. The handler dispatcher reports the panic as the handler's error.

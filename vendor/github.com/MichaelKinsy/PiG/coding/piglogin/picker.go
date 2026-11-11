@@ -9,7 +9,7 @@ import (
 )
 
 // spritePickerTitle is the picker's title, shown by /sprite with and without a preview column.
-const spritePickerTitle = "Choose a PiG sprite"
+const spritePickerTitle = "Choose a sprite"
 
 // spriteOptions are the picker's rows: every sprite as "Name: Tagline", then the row that explains how to create one.
 func spriteOptions(variants []Variant) []string {

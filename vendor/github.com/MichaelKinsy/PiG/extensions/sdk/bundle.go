@@ -58,7 +58,7 @@ func BundledFiles() []string {
 		return nil
 	})
 	if err != nil {
-		panic("pig sdk: read embedded source: " + err.Error())
+		panic("ompig-slim sdk: read embedded source: " + err.Error())
 	}
 	slices.Sort(files)
 	return files
