@@ -841,7 +841,9 @@ func (s *SQLiteAuthStorage) SelectAccount(ctx context.Context, providerID, accou
 	return true, nil
 }
 
-// DeleteAccount tombstones one account, keeping the provider's others.
+// DeleteAccount scrubs and tombstones one account, keeping the provider's others.
+// The identity tombstone prevents a later login from silently reviving logout, while
+// clearing data removes the no-longer-usable access and refresh credentials.
 func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
@@ -855,8 +857,8 @@ func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accou
 	}
 	removed := false
 	err = s.withTx(ctx, func(tx *sql.Tx) error {
-		// Tombstone rather than DELETE, so OMP and this store agree the account is gone while the row
-		// stays available to OMP's disabled-credential listing.
+		// Scrub and tombstone rather than DELETE, so OMP and this store agree the account is gone
+		// while the identity stays available to OMP's disabled-credential listing.
 		row, err := scanCredentialRow(tx.QueryRowContext(ctx, `SELECT `+rowColumns+`
 			FROM auth_credentials
 			WHERE provider = ? AND identity_key IS ? AND disabled_cause IS NULL
@@ -868,7 +870,7 @@ func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accou
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE auth_credentials
-			SET disabled_cause = ?, updated_at = `+sqliteNow+`
+			SET data = '{}', disabled_cause = ?, updated_at = `+sqliteNow+`
 			WHERE id = ? AND disabled_cause IS NULL`, logoutCause, row.ID)
 		if err != nil {
 			return err
@@ -1456,7 +1458,7 @@ func providerKey(row *credentialRow) string {
 	return row.Provider + ":" + row.CredentialType
 }
 
-// Delete tombstones every enabled credential of a provider and drops its selection.
+// Delete scrubs and tombstones every enabled credential of a provider and drops its selection.
 func (s *SQLiteAuthStorage) Delete(ctx context.Context, providerID string) error {
 	if err := context.Cause(ctx); err != nil {
 		return err
@@ -1466,7 +1468,7 @@ func (s *SQLiteAuthStorage) Delete(ctx context.Context, providerID string) error
 	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE auth_credentials
-			SET disabled_cause = ?, updated_at = `+sqliteNow+`
+			SET data = '{}', disabled_cause = ?, updated_at = `+sqliteNow+`
 			WHERE provider = ? AND disabled_cause IS NULL`, logoutCause, providerID); err != nil {
 			return err
 		}
