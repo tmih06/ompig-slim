@@ -83,7 +83,7 @@ func runDiagnose(w io.Writer, binaryPath string) {
 	// pig additive (D102): where a vanished session leaves its trace.
 	_, _ = fmt.Fprintf(w, "crash log:         %s\n", codingagent.CrashLogPath(agentDirForModel()))
 	_, _ = fmt.Fprintf(w, "exit log:          %s\n", codingagent.ExitLogPath(agentDirForModel()))
-	_, _ = fmt.Fprintf(w, "debug log:         %s (written when PIG_DEBUG is set)\n", filepath.Join(os.TempDir(), "pig-debug.log"))
+	_, _ = fmt.Fprintf(w, "debug log:         %s (written when PIG_DEBUG is set)\n", filepath.Join(os.TempDir(), "ompig-slim-debug.log"))
 	if tail := codingagent.ReadExitLogTail(agentDirForModel(), 5); len(tail) > 0 {
 		_, _ = fmt.Fprintf(w, "\nrecent unexpected exits (newest last)\n%s\n", hr)
 		for _, line := range tail {

@@ -1109,7 +1109,7 @@ func (e *Extension) OnEvent(eventName string, handler EventFunc) func() {
 func (e *Extension) Run() error {
 	sockPath := os.Getenv("PIG_EXT_SOCKET")
 	if sockPath == "" {
-		return fmt.Errorf("PIG_EXT_SOCKET not set: extension must be launched by pig")
+		return fmt.Errorf("PIG_EXT_SOCKET not set: extension must be launched by ompig-slim")
 	}
 	return e.RunWithSocket(sockPath)
 }
@@ -1766,7 +1766,7 @@ func reportHostCallFailure(method string, err error, result *callResultMsg) {
 	if err == nil && result != nil && result.Error != nil {
 		err = errors.New(result.Error.Message)
 	}
-	fmt.Fprintf(os.Stderr, "pig: host call %s failed: %v\n", method, err)
+	fmt.Fprintf(os.Stderr, "ompig-slim: host call %s failed: %v\n", method, err)
 }
 
 // markNotifyHandled records that the main loop applied one queued notify frame.

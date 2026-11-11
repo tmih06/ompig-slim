@@ -17,7 +17,7 @@ import (
 // pig additive (D109): `pig extension upgrade` rewrites Go extensions written for an older SDK. Pi loads extension source in process and has no counterpart.
 
 const extensionUpgradeUsage = `Usage:
-  pig extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]
+  ompig-slim extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]
 
 Rewrite Go extensions written for an older SDK so they build against this one.
 Every file it changes is copied to the configuration root first, the diff is

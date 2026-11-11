@@ -13,8 +13,8 @@ import (
 )
 
 // bugSummarySystemPrompt and bugSummaryInstructions mirror upstream
-// core/bug-report.ts with PiG's product name (D2).
-const bugSummarySystemPrompt = `You are helping a user file a bug report about pig, the coding agent they are talking to. You will be shown the conversation transcript. Write a report for the pig developers describing what the user was doing and what went wrong.
+// core/bug-report.ts with this product's name (D2).
+const bugSummarySystemPrompt = `You are helping a user file a bug report about ompig-slim, the coding agent they are talking to. You will be shown the conversation transcript. Write a report for the ompig-slim developers describing what the user was doing and what went wrong.
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the report.`
 

@@ -198,7 +198,7 @@ func (b EventBus) Emit(channel string, data any) error {
 	return nil
 }
 
-var errNoFactoryHost = errors.New("PIG_EXT_SOCKET is not set, so this extension was not launched by pig")
+var errNoFactoryHost = errors.New("PIG_EXT_SOCKET is not set, so this extension was not launched by ompig-slim")
 
 // errExtensionAlreadyServing is what a second concurrent serve of one Extension returns.
 var errExtensionAlreadyServing = errors.New("this extension is already serving a connection; an Extension serves one connection at a time, so build a new one per connection")

@@ -58,7 +58,7 @@ func writeDiagnoseDefaultModel(w io.Writer, cwd, agentDir string, trust projectT
 	case err != nil:
 		_, _ = fmt.Fprintf(w, "  effective:      (could not resolve: %v)\n", err)
 	case selected == nil:
-		_, _ = fmt.Fprintf(w, "  effective:      none: no model has configured auth (run `pig login` or set a provider key)\n")
+		_, _ = fmt.Fprintf(w, "  effective:      none: no model has configured auth (run `ompig-slim login` or set a provider key)\n")
 	case selected.Provider == settings.DefaultProvider && selected.ID == settings.DefaultModel:
 		_, _ = fmt.Fprintf(w, "  effective:      %s/%s\n", selected.Provider, selected.ID)
 	default:

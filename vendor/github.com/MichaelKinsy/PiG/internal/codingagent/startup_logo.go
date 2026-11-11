@@ -105,6 +105,15 @@ func piWordmark(mode tui.TerminalColorMode) string {
 		tui.ForegroundAnsi(logoYellow, mode) + "i" + logoReset
 }
 
+// logoMark is the mark's two lines: the OM + Pi prefix and the cyan "in GO", with the product tag closing the first
+// line. The built-in header and the first-time setup dialog both draw it, so the brand is spelled once.
+func logoMark(mode tui.TerminalColorMode) (string, string) {
+	top, bottom := piLogoLines(mode)
+	inText := tui.ForegroundAnsi(logoWhite, mode) + "in " + logoReset
+	return top + "    " + renderGoLine(0, mode) + " " + productTag(mode),
+		bottom + " " + inText + renderGoLine(2, mode)
+}
+
 // productTag is the product qualifier shown after the mark. Light purple at full intensity: it is brand
 // text like the logo, so it deliberately avoids the theme's dim tokens.
 func productTag(mode tui.TerminalColorMode) string {

@@ -57,8 +57,8 @@ var firstTimeSetupAnalyticsOptions = []struct {
 }
 
 // FirstTimeSetupComponent is the first-time setup dialog: theme, sprite and analytics opt-in.
-// pig divergence (D88): the dialog's logo is the pig head of the sprite in view, not Pi's SETUP_LOGO_LINES, and a sprite step
-// follows the theme step; its options are the built-in sprites, then the extension-registered ones (piglogin.All).
+// pig divergence (D88): the dialog's logo is the product mark (startup_logo.go), not Pi's SETUP_LOGO_LINES, and a sprite
+// step follows the theme step; its options are the built-in sprites, then the extension-registered ones (piglogin.All).
 type FirstTimeSetupComponent struct {
 	*tui.Container
 	step           firstTimeSetupStep
@@ -110,25 +110,24 @@ func (c *FirstTimeSetupComponent) Invalidate() {
 // Done reports whether the dialog was submitted or skipped.
 func (c *FirstTimeSetupComponent) Done() bool { return c.done }
 
-// logoSprite is the highlighted sprite, which stays the dialog's pig after the sprite step. "Create your own..." shows the
-// active sprite, which it keeps.
-func (c *FirstTimeSetupComponent) logoSprite() piglogin.Variant {
-	if c.spriteIndex < len(c.sprites) {
-		return c.sprites[c.spriteIndex]
-	}
-	return piglogin.Active()
-}
-
 // update rebuilds the whole dialog on every change so theme previews recolor all text.
 func (c *FirstTimeSetupComponent) update() {
 	t := tui.ActiveTheme()
 	c.Clear()
 	c.Add(tui.NewDynamicBorder())
 	c.Add(tui.NewSpacer(1))
-	c.Add(tui.NewPaddedText(strings.Join(piglogin.HeadLines(c.logoSprite(), t.GetColorMode()), "\n"), 1, 0, nil))
+	// pig divergence (D2, D88): a terminal that draws the half blocks gets the product mark, the same one the built-in
+	// header draws; Apple Terminal gets its text fallback. The pig head is the sprite's mark, not the product's, so it
+	// stays out of the first-run screen.
+	if supportsPiLogo() {
+		top, bottom := logoMark(t.GetColorMode())
+		c.Add(tui.NewPaddedText(top+"\n"+bottom, 1, 0, nil))
+	} else {
+		c.Add(tui.NewPaddedText(piWordmark(t.GetColorMode())+" "+productTag(t.GetColorMode()), 1, 0, nil))
+	}
 	c.Add(tui.NewSpacer(1))
-	// pig divergence (D88): the welcome names PiG where Pi's names APP_NAME.
-	c.Add(tui.NewPaddedText(t.Fg("accent", tui.ChalkBold("Welcome to PiG, the minimal coding agent.")), 1, 0, nil))
+	// pig divergence (D88): the welcome names this product where Pi's names APP_NAME.
+	c.Add(tui.NewPaddedText(t.Fg("accent", tui.ChalkBold("Welcome to ompig-slim, the minimal coding agent.")), 1, 0, nil))
 	c.Add(tui.NewSpacer(1))
 
 	switch c.step {
@@ -142,7 +141,7 @@ func (c *FirstTimeSetupComponent) update() {
 		c.addOptionList(labels, c.themeIndex)
 	case firstTimeSetupStepSprite:
 		c.Add(tui.NewPaddedText(t.Fg("text", "Pick a sprite."), 1, 0, nil))
-		c.Add(tui.NewPaddedText(t.Fg("muted", "The pig /sprite previews show. Change it anytime with /sprite."), 1, 0, nil))
+		c.Add(tui.NewPaddedText(t.Fg("muted", "The sprite /sprite previews show. Change it anytime with /sprite."), 1, 0, nil))
 		c.Add(tui.NewSpacer(1))
 		labels := make([]string, len(c.sprites)+1)
 		for i, sprite := range c.sprites {
@@ -157,7 +156,7 @@ func (c *FirstTimeSetupComponent) update() {
 		}
 	default:
 		c.Add(tui.NewPaddedText(t.Fg("text", "Opt-in to anonymous usage data sharing?"), 1, 0, nil))
-		c.Add(tui.NewPaddedText(t.Fg("muted", "Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps us to better debug, reproduce, and resolve issues\nand bugs within PiG. You can observe what is shared using /privacy and make\nchanges anytime in settings.json."), 1, 0, nil))
+		c.Add(tui.NewPaddedText(t.Fg("muted", "Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps us to better debug, reproduce, and resolve issues\nand bugs within ompig-slim. You can observe what is shared using /privacy and make\nchanges anytime in settings.json."), 1, 0, nil))
 		c.Add(tui.NewSpacer(1))
 		labels := make([]string, len(firstTimeSetupAnalyticsOptions))
 		for i, option := range firstTimeSetupAnalyticsOptions {

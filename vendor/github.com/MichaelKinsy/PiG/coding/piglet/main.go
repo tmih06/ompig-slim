@@ -99,43 +99,43 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 }
 
 const pigletUsageText = `Usage:
-  pig piglet list [--json]         List source and Piglet Binary facets
-  pig piglet show <name>           Show source/effective Piglet details and records
-  pig piglet show --record <path>   Validate and show a Piglet record
-  pig piglet validate <name|path> [--allow-install-scripts]
+  ompig-slim piglet list [--json]         List source and Piglet Binary facets
+  ompig-slim piglet show <name>           Show source/effective Piglet details and records
+  ompig-slim piglet show --record <path>   Validate and show a Piglet record
+  ompig-slim piglet validate <name|path> [--allow-install-scripts]
                                    Validate schema and resolve every origin
-  pig piglet schema                Print the published Piglet JSON Schema v1
-  pig piglet add <path|npm:ref|git:ref> [--allow-install-scripts]
+  ompig-slim piglet schema                Print the published Piglet JSON Schema v1
+  ompig-slim piglet add <path|npm:ref|git:ref> [--allow-install-scripts]
                                       Install one validated Piglet source
-  pig piglet update <name>          Update an installed signed GitHub Binary release
-  pig piglet pull <release-ref>      Install one signed Piglet Binary release
-  pig piglet publish <name|path> --to github --repo <owner/repo> --sign-key <key> [--yes]
+  ompig-slim piglet update <name>          Update an installed signed GitHub Binary release
+  ompig-slim piglet pull <release-ref>      Install one signed Piglet Binary release
+  ompig-slim piglet publish <name|path> --to github --repo <owner/repo> --sign-key <key> [--yes]
                                       Dry-run or publish signed Binaries to GitHub Releases
-  pig piglet publish <name|path> --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
-                                      Dry-run or publish Piglet source to npm (pig piglet add npm:<name>)
-  pig piglet remove <name> [facet] Remove --source, --binary, or --all
-  pig piglet prune [--keep <n>] [--max-size <size>] [--dry-run]
+  ompig-slim piglet publish <name|path> --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
+                                      Dry-run or publish Piglet source to npm (ompig-slim piglet add npm:<name>)
+  ompig-slim piglet remove <name> [facet] Remove --source, --binary, or --all
+  ompig-slim piglet prune [--keep <n>] [--max-size <size>] [--dry-run]
                                       Remove old built Piglet Binaries, keeping the newest n
                                       of each Piglet and target (default 2); pulled installs stay
-  pig piglet build <name> --format <script|binary|image> --out <destination> [--sign-key <key>]
+  ompig-slim piglet build <name> --format <script|binary|image> --out <destination> [--sign-key <key>]
                                       Write a source script or build an artifact
-  pig piglet keygen <key-path>     Create an ed25519 Piglet Binary signing key pair
-  pig piglet verify <binary> [--source <name|path>] [--workspace <dir>]
+  ompig-slim piglet keygen <key-path>     Create an ed25519 Piglet Binary signing key pair
+  ompig-slim piglet verify <binary> [--source <name|path>] [--workspace <dir>]
                                       Check a Piglet Binary's signature, and with --source its recorded
                                       Piglet digests against that source, without running it
-  pig piglet tree [name] [--depth <n>] [--json]
+  ompig-slim piglet tree [name] [--depth <n>] [--json]
                                       Show installed Piglets arranged by extends
-  pig piglet lineage <name|path|binary> [--source <name|path>] [--json]
+  ompig-slim piglet lineage <name|path|binary> [--source <name|path>] [--json]
                                       Show an extends chain with each link's changes
-  pig piglet trust [list|add|revoke|require]
+  ompig-slim piglet trust [list|add|revoke|require]
                                       Manage trusted Piglet Binary signer keys
                                       (image, --locked, and --record are reserved)
 
 Catalog refs require a Piglet source resolver supplied by an installed product.
 
 Piglets are discovered from (in order):
-  .pig/piglets/         workspace
-  ~/.pig/piglets/       user
+  .pi/piglets/          workspace
+  ~/.pi/piglets/        user
   /etc/pig/piglets/     system
 `
 
@@ -158,7 +158,7 @@ func printHelp(w io.Writer) {
 	var out strings.Builder
 	builder := false
 	for line := range strings.SplitAfterSeq(pigletUsage, "\n") {
-		if entry, ok := strings.CutPrefix(line, "  pig piglet "); ok {
+		if entry, ok := strings.CutPrefix(line, "  ompig-slim piglet "); ok {
 			builder = strings.HasPrefix(entry, "build ") || strings.HasPrefix(entry, "publish ")
 		} else if !strings.HasPrefix(line, "    ") {
 			builder = false

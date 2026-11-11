@@ -23,7 +23,7 @@ func guardBinaryIdentity() string {
 	if base == "pi" || base == "pi.exe" {
 		fmt.Fprintf(os.Stderr, `ompig-slim: refusing to run as %q.
 
-This binary is PiG (the Go port of pi-coding-agent), not upstream pi.
+This binary is ompig-slim, a Go coding agent built on PiG, not upstream pi.
 Running it as "pi" would silently shadow the real pi binary and corrupt
 shared expectations (PATH, sessions, ~/.pi/ tooling, shell aliases).
 

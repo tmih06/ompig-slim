@@ -284,7 +284,7 @@ func helperConnection() (*conn, error) {
 		}
 	}
 	if path == "" {
-		return nil, errors.New("not connected to the host: PIG_EXT_SOCKET is not set, so this extension was not launched by pig")
+		return nil, errors.New("not connected to the host: PIG_EXT_SOCKET is not set, so this extension was not launched by ompig-slim")
 	}
 	return dialLocked(path)
 }

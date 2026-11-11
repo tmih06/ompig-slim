@@ -1,7 +1,6 @@
 package piglogin
 
 import (
-	"fmt"
 	"image/color"
 	"maps"
 	"slices"
@@ -11,8 +10,8 @@ import (
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-// The sprite's pig head is its 16-by-14 pig (MascotSpriteFor), the same pixels
-// /sprite preview draws beside the wordmark: two pixel rows per line in half blocks, so HeadCells cells by HeadRows lines.
+// The sprite's mascot head is its 16-by-14 artwork (MascotSpriteFor), the same pixels /sprite preview draws: two pixel
+// rows per line in half blocks, so HeadCells cells by HeadRows lines.
 const (
 	HeadWidth  = extension.LoginMascotWidth
 	HeadHeight = extension.LoginMascotHeight
@@ -91,32 +90,27 @@ func halfBlockLines(grid [][]*color.RGBA, mode tui.TerminalColorMode) []string {
 	return lines
 }
 
-// ArtWidth and ArtRows are the cells of a sprite's full art: the 32-pixel "PiG." wordmark, a 3-pixel gap and the
-// 16-pixel pig, 14 pixels tall, at two pixel rows per line.
+// ArtWidth and ArtRows are the cells of a sprite's full art: its 16-pixel mascot, 14 pixels tall, at two pixel rows per
+// line.
 const (
-	ArtWidth = extension.LoginHeroWidth + artGap + extension.LoginMascotWidth
-	ArtRows  = extension.LoginHeroHeight / 2
-	artGap   = 3
+	ArtWidth = extension.LoginMascotWidth
+	ArtRows  = extension.LoginMascotHeight / 2
 )
 
-// ArtLines draws the variant's full art, the wordmark and the pig of its login definition (LoginDefinitionFor), the
-// scene the native login template draws, in half blocks.
+// ArtLines draws the variant's full art in half blocks: its 16-by-14 mascot, colored by the sprite's palette.
+// pig divergence (D2): the art is the mascot alone. The upstream artwork pairs it with a 32-pixel "PiG." hero wordmark,
+// which is a different product's name; this build's product mark is the OM + Pi startup logo (startup_logo.go), so
+// /sprite preview shows the sprite itself and lets its name and tagline name it.
 func ArtLines(variant Variant, mode tui.TerminalColorMode) []string {
-	definition := LoginDefinitionFor(variant)
-	palette := map[byte]color.RGBA{}
-	for symbol, hex := range definition.Palette {
-		var r, g, b uint8
-		if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b); err == nil {
-			palette[symbol[0]] = color.RGBA{r, g, b, 0xFF}
-		}
-	}
-	grid := make([][]*color.RGBA, extension.LoginHeroHeight)
+	grid := make([][]*color.RGBA, extension.LoginMascotHeight)
+	palette := paletteFor(variant)
+	art := MascotSpriteFor(variant)
 	for y := range grid {
-		row := definition.Hero[y] + strings.Repeat(".", artGap) + definition.Mascot[y]
-		grid[y] = make([]*color.RGBA, len(row))
-		for x := range len(row) {
-			if value, ok := palette[row[x]]; ok && row[x] != '.' {
-				grid[y][x] = &value
+		grid[y] = make([]*color.RGBA, extension.LoginMascotWidth)
+		for x := range len(art[y]) {
+			if value, ok := palette[art[y][x]]; ok && art[y][x] != '.' && value.A != 0 {
+				cell := value
+				grid[y][x] = &cell
 			}
 		}
 	}

@@ -303,7 +303,7 @@ func pigletBinaryOverlayRefusal(flags map[string]any, binary pigletBinary) strin
 	if !binary.Is || !pigletWasRequested(flags) || binary.OverlayBase() != nil {
 		return ""
 	}
-	return fmt.Sprintf("pig: this Piglet Binary (%s) was built with build.closed: true, so it runs only its built-in Piglet and does not accept --piglet overlays (nor PIG_PIGLET_PATH or PIG_PIGLET_NAME); rebuild its Piglet without build.closed to accept them, or run the Piglet with stock pig (pig --piglet <name|path>)", binary.Name())
+	return fmt.Sprintf("ompig-slim: this Piglet Binary (%s) was built with build.closed: true, so it runs only its built-in Piglet and does not accept --piglet overlays (nor PIG_PIGLET_PATH or PIG_PIGLET_NAME); rebuild its Piglet without build.closed to accept them, or run the Piglet with a build that accepts overlays (ompig-slim --piglet <name|path>)", binary.Name())
 }
 
 // pigletBinarySystemPromptRefusal returns the refusal for --system-prompt on a Piglet Binary, or "" when the run may go on. A Piglet
@@ -312,7 +312,7 @@ func pigletBinarySystemPromptRefusal(baked, acceptsOverlays bool, systemPrompt s
 	if !baked || acceptsOverlays || systemPrompt == "" {
 		return ""
 	}
-	return "pig: this Piglet Binary was built with build.closed: true, so its baseline system prompt cannot be replaced; use --append-system-prompt for an additive prompt"
+	return "ompig-slim: this Piglet Binary was built with build.closed: true, so its baseline system prompt cannot be replaced; use --append-system-prompt for an additive prompt"
 }
 
 // enforcePigletBinaryScope fails closed when a Piglet Binary is asked to run a
@@ -632,7 +632,7 @@ func runRetiredCommand(args []string) int {
 	if len(args) == 0 || args[0] != "resource" {
 		return -1
 	}
-	fmt.Fprintln(os.Stderr, "pig: unknown command resource; use `pig config` to change Resource filters or `pig status --json` to inspect Resources")
+	fmt.Fprintln(os.Stderr, "ompig-slim: unknown command resource; use `ompig-slim config` to change Resource filters or `ompig-slim status --json` to inspect Resources")
 	return 2
 }
 
@@ -650,8 +650,8 @@ func reportVerifyCacheError(stderr io.Writer, cacheErr error) {
 	if cacheErr == nil || isReadOnlyConfigRootError(cacheErr) {
 		return
 	}
-	_, _ = fmt.Fprintf(stderr, "pig: warning: %v\n", cacheErr)
-	_, _ = fmt.Fprintln(stderr, "pig: startup will continue; the next start verifies this Piglet Binary in full again")
+	_, _ = fmt.Fprintf(stderr, "ompig-slim: warning: %v\n", cacheErr)
+	_, _ = fmt.Fprintln(stderr, "ompig-slim: startup will continue; the next start verifies this Piglet Binary in full again")
 }
 
 // stageExtensionSDKsAtStartup stages the embedded extension SDKs into this build's own directories. A failure warns, because extensions that
@@ -681,8 +681,8 @@ func reportExtensionSDKStageFailure(stderr io.Writer, err error) {
 	if err == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(stderr, "pig: warning: extension SDK staging failed: %v\n", err)
-	_, _ = fmt.Fprintln(stderr, "pig: startup will continue; extensions that need the SDK may fail to build; run 'pig diagnose' for detail")
+	_, _ = fmt.Fprintf(stderr, "ompig-slim: warning: extension SDK staging failed: %v\n", err)
+	_, _ = fmt.Fprintln(stderr, "ompig-slim: startup will continue; extensions that need the SDK may fail to build; run 'ompig-slim diagnose' for detail")
 }
 
 // MainOptions are the options of [Main] (main.ts MainOptions).
@@ -776,7 +776,7 @@ func Main(args []string, options *MainOptions) {
 	// signature before any command or session behavior. Stock Pig has no baked
 	// closure, so this is a no-op there.
 	if cacheErr, err := binarypiglet.Verify(); err != nil {
-		fmt.Fprintf(os.Stderr, "pig: Piglet Binary verification failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim: Piglet Binary verification failed: %v\n", err)
 		exitProcess(1)
 	} else {
 		reportVerifyCacheError(os.Stderr, cacheErr)
@@ -887,7 +887,7 @@ func Main(args []string, options *MainOptions) {
 	// A Piglet Binary embeds prebuilt cells and may link fused extensions. Register
 	// both only when starting a session (after --version); stock Pig carries empty registries.
 	if err := cellpack.Register(); err != nil {
-		fmt.Fprintf(os.Stderr, "pig: Piglet Binary cells: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim: Piglet Binary cells: %v\n", err)
 	}
 	fusepack.Register()
 
@@ -903,7 +903,7 @@ func Main(args []string, options *MainOptions) {
 		}
 	}
 	if err := binarypiglet.VerifyRegisteredClosure(fusedNames, packedNames); err != nil {
-		fmt.Fprintf(os.Stderr, "pig: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim: %v\n", err)
 		exitProcess(1)
 	}
 
@@ -1016,12 +1016,12 @@ func Main(args []string, options *MainOptions) {
 		exitProcess(1)
 	}
 	if activePiglet == nil && pigletWasRequested(flags.UnknownFlags) {
-		fmt.Fprintln(os.Stderr, "pig: the requested Piglet could not be loaded")
+		fmt.Fprintln(os.Stderr, "ompig-slim: the requested Piglet could not be loaded")
 		exitProcess(1)
 	}
 	handled, exitCode, environmentErr := runPigletAgentEnvironment(ctx, activePiglet, flags, initialCWD)
 	if environmentErr != nil {
-		fmt.Fprintf(os.Stderr, "pig: %v\n", environmentErr)
+		fmt.Fprintf(os.Stderr, "ompig-slim: %v\n", environmentErr)
 		exitProcess(1)
 	}
 	if handled {
@@ -1037,7 +1037,7 @@ func Main(args []string, options *MainOptions) {
 	if activePiglet != nil && (activePiglet.AgentEnv == nil || piglet.ActiveAgentEnvironmentIdentity() != "") {
 		resolvedSecrets, err := piglet.ResolveRequiredSecrets(ctx, activePiglet)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "pig: Piglet secrets: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ompig-slim: Piglet secrets: %v\n", err)
 			exitProcess(1)
 		}
 		resolvedSecrets.Clear()
@@ -1374,13 +1374,13 @@ func Main(args []string, options *MainOptions) {
 	// Suppressed in --print mode and when quietStartup is true; "header" keeps
 	// it (interactive-mode.ts:996, shouldShowStartupHeader at 1409-1412).
 	// --verbose overrides quietStartup (mirrors upstream args.ts:239).
-	// pig divergence (D2): banner says "PiG", not "pi": separate binary
+	// pig divergence (D2): banner says "ompig-slim", not "pi": separate binary
 	// and config root avoid collisions with upstream pi.
 	showBanner := !flags.Print && flags.Mode != "rpc" && (settings.QuietStartup != codingagent.QuietStartupTrue || flags.Verbose)
 	var loginOperationalLines []string
 	if showBanner {
-		identityLine := fmt.Sprintf("PiG %s • config=%s • bin=%s",
-			Version, codingagent.ConfigRoot(), binaryPath)
+		identityLine := fmt.Sprintf("%s %s • config=%s • bin=%s",
+			codingagent.AppName, Version, codingagent.ConfigRoot(), binaryPath)
 		startupHints := codingagent.StartupKeybindHints(codingagent.NewKeybindingsManager(agentDir))
 		loginOperationalLines = append(loginOperationalLines, identityLine, "", startupHints)
 	}

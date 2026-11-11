@@ -174,7 +174,7 @@ func WazeroCacheDir() string {
 		}
 	}
 	if dir, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(dir, "pig", "wazero")
+		return filepath.Join(dir, "ompig-slim", "wazero")
 	}
 	return ""
 }

@@ -607,7 +607,7 @@ func (p *filePlanner) hoistBlocker(s *getterSite, hoisted map[ast.Expr]bool, acc
 		}
 		scanned = node.X
 	default:
-		return "the statement is not one pig moves a call out of"
+		return "the statement is not one ompig-slim moves a call out of"
 	}
 	if conditional(path, s.call) {
 		return "the call runs only when an earlier operand allows it"

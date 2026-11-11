@@ -23,7 +23,7 @@ const Name = "pig-login"
 // setHeader exactly as in Pi. `/sprite preview` shows a sprite's full art, the wordmark and the pig, in an overlay until a
 // key is pressed.
 func Extension(pi extension.API) error {
-	pi.RegisterCommand("sprite", extension.CommandOptions{Description: "Select the PiG login sprite.", Handler: selectSprite})
+	pi.RegisterCommand("sprite", extension.CommandOptions{Description: "Select the startup sprite.", Handler: selectSprite})
 	return nil
 }
 
@@ -99,7 +99,7 @@ func selectSpriteInteractively(ctx context.Context) error {
 const CreateOption = "Create your own..."
 
 // CreateHint explains how to create a sprite.
-const CreateHint = "To create your own sprite: log in with /login and pick a model with /model, then run /sprite create and describe your pig. PiG writes a sprite extension and loads it with /reload."
+const CreateHint = "To create your own sprite: log in with /login and pick a model with /model, then run /sprite create and describe your sprite. ompig-slim writes a sprite extension and loads it with /reload."
 
 // CreateNeedsModel is what `/sprite create` shows when no model is selected.
 const CreateNeedsModel = "Designing a sprite needs a working model. Run /login to log into a provider, select a model with /model, then run /sprite create."
@@ -190,11 +190,11 @@ func CreatePrompt() (string, error) {
 		mascotLines[i] = fmt.Sprintf("        %q,", row)
 	}
 	return strings.Join([]string{
-		"Help me create my own PiG sprite: the pig my /sprite preview shows.",
-		"Start by asking me one plain-language question: what character, colors or style should my pig have? Handle every technical detail yourself and ask me only for decisions that need my preference. After I answer, describe the design in plain language and ask for my approval before writing any file.",
-		"After I approve, write one TypeScript extension file in the global extensions directory: `" + filepath.Join(agentDir, "extensions", "<id>.ts") + "`. Do not modify PiG itself or its built-in sprites.",
-		"The extension registers the sprite in `session_start` with `await ctx.ui.registerSprite({ id, name, tagline, mascot, palette })`. `id` is a lowercase slug of at most 32 characters (letters, digits and single hyphens) that is not a built-in sprite's id (" + strings.Join(builtInIDs(), ", ") + "). `name` and `tagline` are one line each. `mascot` is exactly 14 strings of exactly 16 characters; each character is a palette symbol, and `.` is transparent. `palette` maps each symbol to a `#RRGGBB` color. Keep the pig's silhouette and change its colors and details.",
-		"Start from PiG's standard pig:\n\n```ts\nexport default function (pi) {\n  pi.on(\"session_start\", async (_event, ctx) => {\n    await ctx.ui.registerSprite({\n      id: \"my-pig\",\n      name: \"My PiG\",\n      tagline: \"One line about my pig.\",\n      mascot: [\n" + strings.Join(mascotLines, "\n") + "\n      ],\n      palette: {\n" + strings.Join(paletteLines, "\n") + "\n      },\n    });\n  });\n}\n```",
+		"Help me create my own sprite: the artwork my /sprite preview shows.",
+		"Start by asking me one plain-language question: what character, colors or style should my sprite have? Handle every technical detail yourself and ask me only for decisions that need my preference. After I answer, describe the design in plain language and ask for my approval before writing any file.",
+		"After I approve, write one TypeScript extension file in the global extensions directory: `" + filepath.Join(agentDir, "extensions", "<id>.ts") + "`. Do not modify ompig-slim itself or its built-in sprites.",
+		"The extension registers the sprite in `session_start` with `await ctx.ui.registerSprite({ id, name, tagline, mascot, palette })`. `id` is a lowercase slug of at most 32 characters (letters, digits and single hyphens) that is not a built-in sprite's id (" + strings.Join(builtInIDs(), ", ") + "). `name` and `tagline` are one line each. `mascot` is exactly 14 strings of exactly 16 characters; each character is a palette symbol, and `.` is transparent. `palette` maps each symbol to a `#RRGGBB` color. Keep the sprite's silhouette and change its colors and details.",
+		"Start from the standard sprite:\n\n```ts\nexport default function (pi) {\n  pi.on(\"session_start\", async (_event, ctx) => {\n    await ctx.ui.registerSprite({\n      id: \"my-pig\",\n      name: \"My sprite\",\n      tagline: \"One line about my sprite.\",\n      mascot: [\n" + strings.Join(mascotLines, "\n") + "\n      ],\n      palette: {\n" + strings.Join(paletteLines, "\n") + "\n      },\n    });\n  });\n}\n```",
 		"After writing the file, tell me to run /reload and then /sprite set <id> to use it, and /sprite preview <id> to see its full art.",
 	}, "\n\n"), nil
 }

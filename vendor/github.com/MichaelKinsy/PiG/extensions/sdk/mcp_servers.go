@@ -164,7 +164,7 @@ func (e *Extension) unregisterMcpServer(c *Context, name string) {
 	if err := e.mcpServersCall(c, conn, "unregisterMcpServer", struct {
 		Name string `json:"name"`
 	}{name}); err != nil {
-		fmt.Fprintf(os.Stderr, "pig: host call unregisterMcpServer failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim: host call unregisterMcpServer failed: %v\n", err)
 	}
 }
 

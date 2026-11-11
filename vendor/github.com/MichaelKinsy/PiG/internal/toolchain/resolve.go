@@ -115,7 +115,7 @@ func (t GoToolchain) BelowFloor() bool {
 // FloorRemedy is the one line that tells the user the go found is too old to
 // build extensions and how to fix it.
 func (t GoToolchain) FloorRemedy() string {
-	return fmt.Sprintf("%s at %s is older than Go %s, the minimum the extension SDK needs; run `pig setup go` (PiG then uses that toolchain in place of the older go on PATH) or install Go %s or newer from https://go.dev/dl/", t.Version(), t.Command, MinGoVersion, MinGoVersion)
+	return fmt.Sprintf("%s at %s is older than Go %s, the minimum the extension SDK needs; run `ompig-slim setup go` (ompig-slim then uses that toolchain in place of the older go on PATH) or install Go %s or newer from https://go.dev/dl/", t.Version(), t.Command, MinGoVersion, MinGoVersion)
 }
 
 // ResolveGo selects the Go installation for builds: the go command on PATH, else
@@ -164,7 +164,7 @@ func goCommand() (string, GoToolchain, error) {
 	if managed, ok := managedGo(); ok {
 		return managed.Command, managed, nil
 	}
-	return "", GoToolchain{}, fmt.Errorf("go is not on PATH and no PiG-managed Go toolchain is installed; run `pig setup go`: %w", exec.ErrNotFound)
+	return "", GoToolchain{}, fmt.Errorf("go is not on PATH and no ompig-slim-managed Go toolchain is installed; run `ompig-slim setup go`: %w", exec.ErrNotFound)
 }
 
 // managedGo is the toolchain `pig setup go` installed, when there is one.

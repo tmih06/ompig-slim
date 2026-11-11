@@ -27,7 +27,7 @@ func runACPCommand(args []string, stdout, stderr io.Writer) int {
 		return -1
 	}
 	if len(args) != 2 || args[1] != "install" {
-		_, _ = fmt.Fprintln(stderr, "Usage: ompig-slim acp install\n\nBuild pig-acp from the installed "+acpPackageSource+" Package and put it in the PiG bin directory ($PIG_BIN's directory, else ~/.local/bin).")
+		_, _ = fmt.Fprintln(stderr, "Usage: ompig-slim acp install\n\nBuild pig-acp from the installed "+acpPackageSource+" Package and put it in ompig-slim's bin directory (OMPIG_SLIM_BIN's directory, else ~/.local/bin).")
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
 			return 0
 		}

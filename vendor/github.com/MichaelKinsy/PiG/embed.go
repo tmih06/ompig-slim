@@ -29,11 +29,11 @@ var changelogGzip []byte
 func inflateChangelog() string {
 	reader, err := gzip.NewReader(bytes.NewReader(changelogGzip))
 	if err != nil {
-		panic("pig: embedded CHANGELOG.md.gz: " + err.Error())
+		panic("ompig-slim: embedded CHANGELOG.md.gz: " + err.Error())
 	}
 	text, err := io.ReadAll(reader)
 	if err != nil {
-		panic("pig: embedded CHANGELOG.md.gz: " + err.Error())
+		panic("ompig-slim: embedded CHANGELOG.md.gz: " + err.Error())
 	}
 	return string(text)
 }

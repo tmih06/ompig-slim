@@ -63,7 +63,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 			continue
 		}
 		if !slices.Contains(Kinds, kind) {
-			warnf(diag, "pig: ignoring unknown PIG_PROFILE kind %q (valid: %s)\n", kind, strings.Join(Kinds, ", "))
+			warnf(diag, "ompig-slim: ignoring unknown PIG_PROFILE kind %q (valid: %s)\n", kind, strings.Join(Kinds, ", "))
 			continue
 		}
 		kinds[kind] = true
@@ -72,7 +72,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 		return func() {}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		warnf(diag, "pig: PIG_PROFILE_DIR: %v\n", err)
+		warnf(diag, "ompig-slim: PIG_PROFILE_DIR: %v\n", err)
 		return func() {}
 	}
 	prefix := filepath.Join(dir, fmt.Sprintf("pig-%d", os.Getpid()))
@@ -81,7 +81,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 		cpuFile = create(prefix+"-cpu.pprof", diag)
 		if cpuFile != nil {
 			if err := pprof.StartCPUProfile(cpuFile); err != nil {
-				warnf(diag, "pig: cpu profile: %v\n", err)
+				warnf(diag, "ompig-slim: cpu profile: %v\n", err)
 				_ = cpuFile.Close() // The profile never started; the empty file carries nothing.
 				cpuFile = nil
 			}
@@ -91,7 +91,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 		traceFile = create(prefix+".trace", diag)
 		if traceFile != nil {
 			if err := trace.Start(traceFile); err != nil {
-				warnf(diag, "pig: trace: %v\n", err)
+				warnf(diag, "ompig-slim: trace: %v\n", err)
 				_ = traceFile.Close() // The trace never started; the empty file carries nothing.
 				traceFile = nil
 			}
@@ -118,7 +118,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 			if cpuFile != nil {
 				pprof.StopCPUProfile()
 				if err := cpuFile.Close(); err != nil {
-					warnf(diag, "pig: cpu profile: %v\n", err)
+					warnf(diag, "ompig-slim: cpu profile: %v\n", err)
 				} else {
 					written = append(written, cpuFile.Name())
 				}
@@ -126,7 +126,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 			if traceFile != nil {
 				trace.Stop()
 				if err := traceFile.Close(); err != nil {
-					warnf(diag, "pig: trace: %v\n", err)
+					warnf(diag, "ompig-slim: trace: %v\n", err)
 				} else {
 					written = append(written, traceFile.Name())
 				}
@@ -145,7 +145,7 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 						err = closeErr
 					}
 					if err != nil {
-						warnf(diag, "pig: %s profile: %v\n", kind, err)
+						warnf(diag, "ompig-slim: %s profile: %v\n", kind, err)
 					} else {
 						written = append(written, path)
 					}
@@ -162,14 +162,14 @@ func StartWith(spec, dir string, diag io.Writer) (stop func()) {
 						err = closeErr
 					}
 					if err != nil {
-						warnf(diag, "pig: metrics: %v\n", err)
+						warnf(diag, "ompig-slim: metrics: %v\n", err)
 					} else {
 						written = append(written, path)
 					}
 				}
 			}
 			for _, path := range written {
-				warnf(diag, "pig: wrote %s\n", path)
+				warnf(diag, "ompig-slim: wrote %s\n", path)
 			}
 		})
 	}
@@ -194,7 +194,7 @@ func startFlight(diag io.Writer) {
 	}
 	recorder := trace.NewFlightRecorder(trace.FlightRecorderConfig{MinAge: flightWindow, MaxBytes: flightBytes})
 	if err := recorder.Start(); err != nil {
-		warnf(diag, "pig: flight recorder: %v\n", err)
+		warnf(diag, "ompig-slim: flight recorder: %v\n", err)
 		return
 	}
 	flightRecorder = recorder
@@ -239,7 +239,7 @@ func DumpFlight(path string) error {
 func create(path string, diag io.Writer) *os.File {
 	f, err := os.Create(path)
 	if err != nil {
-		warnf(diag, "pig: %v\n", err)
+		warnf(diag, "ompig-slim: %v\n", err)
 		return nil
 	}
 	return f

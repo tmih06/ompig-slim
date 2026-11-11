@@ -137,7 +137,7 @@ func (c *RpcClient) Start() error {
 func (c *RpcClient) spawn() (*agentProcess, io.ReadCloser, io.ReadCloser, error) {
 	cliPath := c.options.CliPath
 	if cliPath == "" {
-		cliPath = "pig"
+		cliPath = "ompig-slim"
 	}
 	args := []string{"--mode", "rpc"}
 	if c.options.Provider != "" {

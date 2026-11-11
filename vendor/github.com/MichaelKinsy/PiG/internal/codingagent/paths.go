@@ -85,7 +85,7 @@ func CatalogRoot(agentDir string) string {
 // Namespaces are code-owned identifiers, not user-provided paths.
 func StateDir(namespace string) string {
 	if namespace == "" || namespace == "." || namespace == ".." || filepath.Clean(namespace) != namespace || strings.ContainsAny(namespace, `/\\`) {
-		panic("invalid Pig state namespace: " + namespace)
+		panic("invalid ompig-slim state namespace: " + namespace)
 	}
 	return filepath.Join(ConfigRoot(), "state", namespace)
 }
@@ -93,7 +93,7 @@ func StateDir(namespace string) string {
 // ProjectStateDir returns one additive capability's workspace-scoped state directory.
 func ProjectStateDir(cwd, namespace string) string {
 	if namespace == "" || namespace == "." || namespace == ".." || filepath.Clean(namespace) != namespace || strings.ContainsAny(namespace, `/\\`) {
-		panic("invalid Pig state namespace: " + namespace)
+		panic("invalid ompig-slim state namespace: " + namespace)
 	}
 	return filepath.Join(ProjectConfigDir(cwd), "state", namespace)
 }

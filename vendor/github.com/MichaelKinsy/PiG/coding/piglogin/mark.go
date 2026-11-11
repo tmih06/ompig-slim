@@ -60,9 +60,10 @@ func markLetterColor(logo Logo, n int) color.RGBA {
 	return logo.Period
 }
 
-// TextMark is the one-line "PiG." mark for a terminal that cannot draw the pixel art. "PiG" is bold and each letter takes a
-// mid or dark stop of the variant's wordmark ramp, the way Pi's text wordmark colors "Pi"; a stop that would not read on both
-// light and dark backgrounds gives way to the period color. The period takes the wordmark's period color.
+// TextMark is the one-line "PiG." mark for a terminal that cannot draw the pixel art. "PiG" here is the sprite's legacy
+// wordmark: each letter takes a mid or dark stop of the variant's wordmark ramp, the way Pi's text wordmark colors "Pi"; a
+// stop that would not read on both light and dark backgrounds gives way to the period color. The period takes the wordmark's
+// period color. The startup header and the first-time setup dialog draw the product mark instead (startup_logo.go).
 func TextMark(variant Variant, mode tui.TerminalColorMode) string {
 	logo := LogoFor(variant)
 	var b strings.Builder

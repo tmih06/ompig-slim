@@ -151,7 +151,7 @@ func FormatPackageUpdates(updates []PackageUpdate) string {
 	}
 	var b strings.Builder
 	b.WriteString("Package Updates Available\n")
-	b.WriteString("Package updates are available. Run `pig update`\n")
+	b.WriteString("Package updates are available. Run `ompig-slim update`\n")
 	b.WriteString("Packages:\n")
 	for _, u := range updates {
 		fmt.Fprintf(&b, "- %s\n", u.DisplayName)

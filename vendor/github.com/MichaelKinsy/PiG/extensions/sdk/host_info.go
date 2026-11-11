@@ -13,7 +13,7 @@ import (
 const hostInfoEnv = "PIG_EXT_HOST_INFO"
 
 // ErrHostInfoUnavailable reports that this process was not started by a PiG host that provides its configuration facts.
-var ErrHostInfoUnavailable = errors.New("sdk: the PiG host did not provide its configuration facts (PIG_EXT_HOST_INFO)")
+var ErrHostInfoUnavailable = errors.New("sdk: the ompig-slim host did not provide its configuration facts (PIG_EXT_HOST_INFO)")
 
 type hostInfo struct {
 	AgentDir      string `json:"agentDir"`
