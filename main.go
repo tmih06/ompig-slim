@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	_ "github.com/MichaelKinsy/PiG/ai/all" // Register bundled providers, including Amazon Bedrock.
 	"github.com/MichaelKinsy/PiG/coding"
@@ -22,6 +23,15 @@ import (
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/prompts"
 )
+
+// brokerStartupNeeded reports whether normal CLI execution can use broker-backed
+// credentials. These fast paths are handled without opening the configured broker.
+func brokerStartupNeeded(args []string) bool {
+	if slices.Contains(args, "--offline") || slices.Contains(args, "--version") || slices.Contains(args, "-v") || slices.Contains(args, "--help") || slices.Contains(args, "-h") {
+		return false
+	}
+	return len(args) == 0 || args[0] != "diagnose"
+}
 
 func main() {
 	args := os.Args[1:]
@@ -55,10 +65,16 @@ func main() {
 	// Load the saved /login connection (or environment override) and synchronize
 	// preferences before PiG loads configuration, and install remote credential
 	// discovery. Inference stays local; OAuth refresh belongs to the broker.
-	finishSync, err := broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	// Commands that cannot use credentials must not pay for broker startup or its
+	// exit flush; --offline also has to remain offline before PiG parses flags.
+	var finishSync func() error
+	if brokerStartupNeeded(args) {
+		var err error
+		finishSync, err = broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
 	// The vendored personal runtime supplies the defaults; keep the complete CLI.

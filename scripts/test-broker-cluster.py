@@ -228,13 +228,13 @@ def login(container, provider, key, timeout=120):
 
 
 def sync(name):
-    """Publish and pull once by running a client command that flushes on exit.
+    """Publish and pull once through the normal startup synchronization path.
 
-    A client synchronizes at startup, every five seconds, and on normal exit, so a
-    short `--version` run is a complete round trip. `--version` opens no runtime,
-    which keeps the check to the storage path.
+    A client synchronizes at startup, every five seconds, and on normal exit.
+    `--list-models` opens no interactive session while still exercising that
+    normal path; `--version` deliberately skips broker startup.
     """
-    run_client(name, "--version")
+    run_client(name, "--list-models")
 
 
 def check_seeding():
@@ -333,7 +333,7 @@ def check_conflict():
     # Both uploads must be attempted before either can observe the other.
     client(CLIENT_A, "sh", "-c", "true")
     sync(CLIENT_A)
-    result = client(CLIENT_B, "--version", check=False)
+    result = client(CLIENT_B, "--list-models", check=False)
     expect("the losing client still exits successfully", result.returncode == 0,
            token_from_stderr(result))
     expect("the conflict is reported to the user",
@@ -472,7 +472,7 @@ def check_configured_client():
                    "--url", BROKER_URL, "--token-stdin", input=SECRET + "\n", check=False)
     expect("a repeated scripted setup changes nothing", "already set" in again.stdout, again.stdout.strip())
 
-    run_client(LATE_CLIENT, "--version")
+    run_client(LATE_CLIENT, "--list-models")
     settings = read_json(LATE_CLIENT, "/profile/agent/settings.json") or {}
     expect("a configured client downloads the profile", settings.get("theme") == "conflict-a",
            settings.get("theme"))
@@ -501,7 +501,7 @@ def check_degraded_client():
     docker("rm", "-f", LATE_CLIENT, check=False)
     docker("volume", "rm", "-f", f"{LATE_CLIENT}-profile", check=False)
     start_client(LATE_CLIENT, url="http://127.0.0.1:9")
-    result = client(LATE_CLIENT, "--version", check=False)
+    result = client(LATE_CLIENT, "--list-models", check=False)
     expect("an unreachable broker does not fail the CLI", result.returncode == 0,
            token_from_stderr(result))
     expect("the inactive sync is reported", "profile sync inactive" in (result.stderr + result.stdout),
@@ -514,7 +514,7 @@ def check_degraded_client():
     docker("rm", "-f", LATE_CLIENT, check=False)
     docker("volume", "rm", "-f", f"{LATE_CLIENT}-profile", check=False)
     start_client(LATE_CLIENT, token="not-the-secret")
-    rejected = client(LATE_CLIENT, "--version", check=False)
+    rejected = client(LATE_CLIENT, "--list-models", check=False)
     expect("a wrong secret does not fail the CLI", rejected.returncode == 0, token_from_stderr(rejected))
     expect("the rejected connection is reported",
            "profile sync inactive" in (rejected.stderr + rejected.stdout), token_from_stderr(rejected))
@@ -525,7 +525,7 @@ def check_degraded_client():
 def check_late_joiner():
     """A machine that joins after the profile exists downloads all of it."""
     start_client(LATE_CLIENT)
-    run_client(LATE_CLIENT, "--version")
+    run_client(LATE_CLIENT, "--list-models")
     settings = read_json(LATE_CLIENT, "/profile/agent/settings.json") or {}
     expect("a late client downloads the current settings", settings.get("theme") == "conflict-a",
            settings.get("theme"))

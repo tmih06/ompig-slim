@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -38,6 +39,30 @@ func TestRemoteMetadataCountsAccountsNotProviders(t *testing.T) {
 	}
 	if present, err := store.HasProvider(ctx, "fixture"); err != nil || present {
 		t.Fatal("logged-out provider still present", err)
+	}
+}
+
+// TestRemoteCredentialReadsShareAStartupSnapshot guards the startup availability
+// path against fetching the complete credential payload once per provider read.
+func TestRemoteCredentialReadsShareAStartupSnapshot(t *testing.T) {
+	var snapshots atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/snapshot" {
+			snapshots.Add(1)
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+	store := &remoteStore{client: &Client{base: server.URL, http: server.Client()}}
+	ctx := context.Background()
+	if _, err := store.Read(ctx, "provider-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Read(ctx, "provider-b"); err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshots.Load(); got != 1 {
+		t.Fatalf("startup credential reads fetched %d snapshots, want 1", got)
 	}
 }
 
