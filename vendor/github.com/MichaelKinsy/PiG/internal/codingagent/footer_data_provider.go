@@ -1,6 +1,8 @@
 package codingagent
 
 import (
+	"context"
+	"encoding/json"
 	"maps"
 	"os/exec"
 	"slices"
@@ -11,9 +13,9 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/changeobservers"
 )
 
-// FooterDataProvider is the data a footer reads about its surroundings (footer-data-provider.ts FooterDataProvider): the working directory and
-// the git branch of the repository bound to it, the statuses extensions set, the number of available providers, and the branch-change
-// subscribers. A footer built with NewFooterComponentForSession shares one provider with the host that feeds it.
+// FooterDataProvider is data a footer reads about its surroundings (footer-data-provider.ts FooterDataProvider): the working directory and
+// git branch of the repository bound to it, working-tree and GitHub pull-request summaries, extension statuses, available providers, and
+// branch-change subscribers. A footer built with NewFooterComponentForSession shares one provider with the host that feeds it.
 //
 // Ports packages/coding-agent/src/core/footer-data-provider.ts (FooterDataProvider).
 type FooterDataProvider struct {
@@ -23,6 +25,8 @@ type FooterDataProvider struct {
 	gitPaths          *gitPaths // repository binding captured before extension startup
 	gitStatus         gitStatusCounts
 	gitStatusAt       time.Time
+	pullRequest       pullRequestStatus
+	pullRequestAt     time.Time
 	extensionStatuses map[string]string
 	providerCount     int
 	// changeObservers run after the git branch or the provider count changed (ObserveChange).
@@ -51,6 +55,8 @@ func (d *FooterDataProvider) SetCwd(cwd string) {
 	d.gitBranch = ""
 	d.gitStatus = gitStatusCounts{}
 	d.gitStatusAt = time.Time{}
+	d.pullRequest = pullRequestStatus{}
+	d.pullRequestAt = time.Time{}
 	if paths, ok := findGitPaths(cwd); cwd != "" && ok {
 		d.gitPaths = &paths
 		d.gitBranch = resolveGitBranchFromPaths(paths)
@@ -138,6 +144,10 @@ func (d *FooterDataProvider) setGitBranch(branch string) {
 	d.mu.Lock()
 	changed := d.gitBranch != branch
 	d.gitBranch = branch
+	if changed {
+		d.pullRequest = pullRequestStatus{}
+		d.pullRequestAt = time.Time{}
+	}
 	d.mu.Unlock()
 	if changed {
 		d.changeObservers.Notify()
@@ -157,16 +167,34 @@ func (d *FooterDataProvider) boundGitPaths() *gitPaths {
 }
 
 // snapshot reads what one footer render needs and refreshes the short-lived git status cache.
-func (d *FooterDataProvider) snapshot() (cwd, gitBranch string, providerCount int, extensionStatuses map[string]string, status gitStatusCounts) {
+func (d *FooterDataProvider) snapshot() (cwd, gitBranch string, providerCount int, extensionStatuses map[string]string, status gitStatusCounts, pullRequest pullRequestStatus) {
 	d.mu.RLock()
 	cwd, gitBranch, providerCount, extensionStatuses = d.cwd, d.gitBranch, d.providerCount, maps.Clone(d.extensionStatuses)
 	d.mu.RUnlock()
-	return cwd, gitBranch, providerCount, extensionStatuses, d.currentGitStatus()
+	return cwd, gitBranch, providerCount, extensionStatuses, d.currentGitStatus(), d.currentPullRequest()
 }
 
 // gitStatusCounts is the compact working-tree summary shown beside the branch.
 type gitStatusCounts struct {
 	staged, unstaged, untracked int
+}
+
+// pullRequestStatus is the compact GitHub pull-request and check summary shown beside the branch.
+type pullRequestStatus struct {
+	number, green, red, pending int
+}
+
+// ghPullRequest is the subset of `gh pr view --json` needed for the footer.
+type ghPullRequest struct {
+	Number            int       `json:"number"`
+	StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
+}
+
+// ghCheck covers both CheckRun and StatusContext entries returned by GitHub CLI.
+type ghCheck struct {
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
 }
 
 // currentGitStatus refreshes at most once per second so a footer repaint never
@@ -210,6 +238,56 @@ func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
 	}
 	d.mu.Lock()
 	d.gitStatus, d.gitStatusAt = status, now
+	d.mu.Unlock()
+	return status
+}
+
+// currentPullRequest refreshes the current branch's GitHub pull request at most every 30 seconds.
+// It treats a missing gh CLI, missing authentication, and branches without a PR as no result so the footer remains local-only.
+func (d *FooterDataProvider) currentPullRequest() pullRequestStatus {
+	now := time.Now()
+	d.mu.RLock()
+	if now.Sub(d.pullRequestAt) < 30*time.Second {
+		status := d.pullRequest
+		d.mu.RUnlock()
+		return status
+	}
+	paths := d.gitPaths
+	d.mu.RUnlock()
+	if paths == nil {
+		d.mu.Lock()
+		d.pullRequest, d.pullRequestAt = pullRequestStatus{}, now
+		d.mu.Unlock()
+		return pullRequestStatus{}
+	}
+
+	status := pullRequestStatus{}
+	if gh, err := exec.LookPath("gh"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, gh, "pr", "view", "--json", "number,statusCheckRollup")
+		command.Dir = paths.repoDir
+		if output, err := command.Output(); err == nil {
+			var response ghPullRequest
+			if json.Unmarshal(output, &response) == nil && response.Number > 0 {
+				status.number = response.Number
+				for _, check := range response.StatusCheckRollup {
+					conclusion := strings.ToUpper(check.Conclusion)
+					state := strings.ToUpper(check.State)
+					switch {
+					case conclusion == "SUCCESS" || conclusion == "SKIPPED" || conclusion == "NEUTRAL" || state == "SUCCESS":
+						status.green++
+					case conclusion == "FAILURE" || conclusion == "ERROR" || conclusion == "CANCELLED" || conclusion == "TIMED_OUT" || conclusion == "ACTION_REQUIRED" || state == "FAILURE" || state == "ERROR":
+						status.red++
+					default:
+						status.pending++
+					}
+				}
+			}
+		}
+	}
+	d.mu.Lock()
+	d.pullRequest, d.pullRequestAt = status, now
 	d.mu.Unlock()
 	return status
 }

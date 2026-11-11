@@ -339,14 +339,15 @@ func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelect
 	if roleSource != nil {
 		role, roleColor = roleSource()
 	}
-	cwd, gitBranch, providerCount, extensionStatuses, gitStatus := s.snapshot()
-	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, gitStatus: gitStatus, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
+	cwd, gitBranch, providerCount, extensionStatuses, gitStatus, pullRequest := s.snapshot()
+	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, gitStatus: gitStatus, pullRequest: pullRequest, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
 }
 
 // footerSnapshot is the footer data provider's state, read together without holding s.mu.
 type footerSnapshot struct {
 	cwd, gitBranch    string
 	gitStatus         gitStatusCounts
+	pullRequest       pullRequestStatus
 	providerCount     int
 	extensionStatuses map[string]string
 	// role is the logical role of the current selection, or "" when it has none.
@@ -364,6 +365,7 @@ func (s *FooterComponent) footerDataLocked(totals footerUsageTotals, routed *Rou
 		cwd:                    snap.cwd,
 		gitBranch:              snap.gitBranch,
 		gitStatus:              snap.gitStatus,
+		pullRequest:            snap.pullRequest,
 		usage:                  totals,
 		routed:                 routed,
 		contextTokens:          s.contextTokens,
@@ -390,6 +392,7 @@ type footerData struct {
 	cwd                    string
 	gitBranch              string
 	gitStatus              gitStatusCounts
+	pullRequest            pullRequestStatus
 	usage                  footerUsageTotals
 	routed                 *RoutedModelSelection
 	contextTokens          int // last turn's total tokens for context% (not cumulative)
@@ -638,12 +641,31 @@ func footerProjectDecorations(d footerData) (branch, name string) {
 		if d.gitStatus.untracked > 0 {
 			branchText += " " + footerToken(tui.ThemeColorStatusLineUntracked, "?"+strconv.Itoa(d.gitStatus.untracked))
 		}
+		if d.pullRequest.number > 0 {
+			branchText += " " + footerPullRequest(d.pullRequest)
+		}
 		branch = footerToken(tui.ThemeColorStatusLineSep, " (") + branchText + footerToken(tui.ThemeColorStatusLineSep, ")")
 	}
 	if d.sessionName != "" {
 		name = footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
 	}
 	return branch, name
+}
+
+// footerPullRequest renders a connected PR as an icon, number, and only the non-zero CI buckets.
+// Green, red, and pending counts use the same compact symbols used by tool cards.
+func footerPullRequest(pr pullRequestStatus) string {
+	parts := []string{footerToken(tui.ThemeColorStatusLineContext, "↗#"+strconv.Itoa(pr.number))}
+	if pr.green > 0 {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineGitClean, "✓"+strconv.Itoa(pr.green)))
+	}
+	if pr.red > 0 {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineGitDirty, "✗"+strconv.Itoa(pr.red)))
+	}
+	if pr.pending > 0 {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineContext, "…"+strconv.Itoa(pr.pending)))
+	}
+	return strings.Join(parts, " ")
 }
 
 // compactFooterPath fits path into budget columns by eliding its middle. The first
