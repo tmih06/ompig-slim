@@ -82,8 +82,9 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 | `Alt+A` | Agent Hub (live subagents) |
 | `Esc` | interrupt |
 
-Slash commands: `/login` `/model` `/settings` `/usage` `/subagents` `/compact` `/tree` `/fork` `/resume`
-`/export` `/hotkeys`. `ompig-slim --help` lists every flag.
+Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
+`/export` `/hotkeys`. Use `/goal set <objective>` to keep the agent working autonomously; `/goal pause`,
+`/goal resume`, `/goal complete`, and `/goal drop` control it. `ompig-slim --help` lists every flag.
 
 ### For other tools
 

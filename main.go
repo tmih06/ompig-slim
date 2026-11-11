@@ -19,6 +19,7 @@ import (
 	"ompig-slim/internal/agentstate"
 	agentstateext "ompig-slim/internal/agentstate/ext"
 	"ompig-slim/internal/broker"
+	goalext "ompig-slim/internal/goalext"
 	"ompig-slim/internal/loopguard"
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/prompts"
@@ -109,6 +110,9 @@ func main() {
 			// --no-extensions, without adding a user-managed resource or tool.
 			extension.NamedInlineExtension{
 				Name: "tool-call-loop-guard", Factory: loopguard.Extension, Hidden: true,
+			},
+			extension.NamedInlineExtension{
+				Name: "goal", Factory: goalext.Extension, Hidden: true,
 			},
 			extension.NamedInlineExtension{
 				Name:    "agent-state",

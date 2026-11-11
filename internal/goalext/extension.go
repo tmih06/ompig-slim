@@ -1,0 +1,121 @@
+// Package goalext exposes the goal tracker through PiG's tool and slash-command seams.
+package goalext
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/coding/extension"
+	"ompig-slim/internal/goal"
+)
+
+// Extension returns a hidden inline extension. The goal tool remains available
+// to the model while the slash command provides the human lifecycle controls.
+func Extension(api extension.API) error {
+	tracker := goal.New()
+	var mu sync.Mutex
+	api.RegisterTool(extension.ToolDefinition{
+		Name: "goal", Label: "Goal", Description: "Track one persistent autonomous objective. Use create, get, complete, pause, resume, or drop.",
+		PromptSnippet: "Track one persistent autonomous objective",
+		Parameters:    json.RawMessage(`{"type":"object","required":["op"],"properties":{"op":{"type":"string","enum":["create","get","complete","pause","resume","drop"]},"objective":{"type":"string"},"token_budget":{"type":"integer","minimum":1}}}`),
+		Execute: func(_ context.Context, _ string, raw json.RawMessage, _ extension.AgentToolUpdateCallback) (extension.AgentToolResult, error) {
+			var input struct {
+				Op          string `json:"op"`
+				Objective   string `json:"objective"`
+				TokenBudget int    `json:"token_budget"`
+			}
+			if err := json.Unmarshal(raw, &input); err != nil {
+				return extension.AgentToolResult{}, err
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			var err error
+			switch input.Op {
+			case "create":
+				err = tracker.Create(input.Objective, input.TokenBudget)
+			case "get":
+			case "complete":
+				err = tracker.Complete()
+			case "pause":
+				err = tracker.Pause()
+			case "resume":
+				err = tracker.Resume()
+			case "drop":
+				err = tracker.Drop()
+			default:
+				err = fmt.Errorf("unknown goal operation %q", input.Op)
+			}
+			if err != nil {
+				return extension.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: err.Error()}}, IsError: true}, nil
+			}
+			state := tracker.Get()
+			return extension.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: render(state)}}, Details: state}, nil
+		},
+	})
+	api.RegisterCommand("goal", extension.CommandOptions{Description: "Set, inspect, pause, resume, complete, or drop the autonomous goal.", Handler: func(_ context.Context, args string) error {
+		parts := strings.Fields(args)
+		op := "show"
+		if len(parts) > 0 {
+			op, parts = strings.ToLower(parts[0]), parts[1:]
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch op {
+		case "set", "create":
+			if err := tracker.Create(strings.Join(parts, " "), 0); err != nil {
+				return err
+			}
+		case "show":
+			fmt.Println(render(tracker.Get()))
+		case "pause":
+			if err := tracker.Pause(); err != nil {
+				return err
+			}
+		case "resume":
+			if err := tracker.Resume(); err != nil {
+				return err
+			}
+		case "complete":
+			if err := tracker.Complete(); err != nil {
+				return err
+			}
+		case "drop":
+			if err := tracker.Drop(); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("usage: /goal [set <objective>|show|pause|resume|complete|drop]")
+		}
+		return nil
+	}})
+	api.OnAgentSettled(func(_ context.Context, _ extension.AgentSettledEvent) error {
+		mu.Lock()
+		state := tracker.Get()
+		mu.Unlock()
+		if state == nil || state.Status != goal.StatusActive {
+			return nil
+		}
+		api.SendMessage(extension.SendMessagePayload{CustomType: "goal-continuation", Content: fmt.Sprintf("Continue working toward this goal: %s", state.Objective), Display: false}, &extension.SendMessageOptions{TriggerTurn: boolPtr(true), DeliverAs: extension.DeliverAsNextTurn})
+		return nil
+	})
+	return nil
+}
+
+// boolPtr supplies the optional trigger flag required by SendMessage.
+func boolPtr(value bool) *bool { return &value }
+
+// render formats the compact model and command response shared by both surfaces.
+func render(state *goal.State) string {
+	if state == nil {
+		return "No active goal."
+	}
+	budget := "unbounded"
+	if state.TokenBudget > 0 {
+		budget = fmt.Sprintf("%d", state.TokenBudget)
+	}
+	return fmt.Sprintf("Goal: %s\nStatus: %s\nTokens: %d / %s", state.Objective, state.Status, state.TokensUsed, budget)
+}
