@@ -155,10 +155,8 @@ func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 	if children := mode.chatContainer.Children(); len(children) != 1 {
 		t.Fatalf("one submission split into %d transcript components", len(children))
 	}
-	for _, want := range []string{"please  ◆ review  fix  ◆ test  now"} {
-		if !strings.Contains(transcript, want) {
-			t.Fatalf("transcript missing %q: %q", want, transcript)
-		}
+	if want := "please  ◆ review  fix  ◆ test  now"; !strings.Contains(transcript, want) {
+		t.Fatalf("transcript missing %q: %q", want, transcript)
 	}
 	// Resume from the persisted message, not from the current skill registry.
 	// The original source and loaded bodies must be sufficient on their own.

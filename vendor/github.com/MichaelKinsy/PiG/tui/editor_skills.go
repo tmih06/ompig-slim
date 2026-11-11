@@ -101,13 +101,13 @@ func skillLabel(name string) string { return " ◆ " + name + " " }
 // skillBadge paints the shared composer/transcript pill. Callers restore their
 // surrounding text style after its explicit resets, rather than extending its background.
 func skillBadge(name string) string {
-	theme := ActiveTheme()
-	return skillBadgeOpen(theme) + skillLabel(name) + "\x1b[22m\x1b[39m\x1b[49m"
+	return skillBadgeOpen() + skillLabel(name) + "\x1b[22m\x1b[39m\x1b[49m"
 }
 
 // skillBadgeOpen starts the badge style without its label, so the editor can
 // insert a cursor into the same styled span used by submitted messages.
-func skillBadgeOpen(theme *Theme) string {
+func skillBadgeOpen() string {
+	theme := ActiveTheme()
 	return theme.GetBgAnsi("customMessageBg") + theme.GetFgAnsi("customMessageLabel") + "\x1b[1m"
 }
 
@@ -176,10 +176,9 @@ func (e *Editor) skillDisplay(text string, col int, emit bool) string {
 			out.WriteString(part)
 		}
 	}
-	theme := ActiveTheme()
 	for _, span := range spans {
 		appendPart(text[offset:span.Start], jsstring.Length(text[:offset]))
-		out.WriteString(skillBadgeOpen(theme))
+		out.WriteString(skillBadgeOpen())
 		label := skillLabel(span.Name)
 		start, end := jsstring.Length(text[:span.Start]), jsstring.Length(text[:span.End])
 		if col >= start && col < end {
