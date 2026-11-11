@@ -558,6 +558,8 @@ func (p *CombinedProvider) walkDirectoryWithFd(ctx context.Context, baseDir, que
 	args := []string{
 		"--base-directory", baseDir,
 		"--max-results", "100",
+		// Match scoreEntry's case-insensitive ranking instead of fd's smart case.
+		"--ignore-case",
 		"--type", "f",
 		"--type", "d",
 		"--follow",
@@ -573,10 +575,10 @@ func (p *CombinedProvider) walkDirectoryWithFd(ctx context.Context, baseDir, que
 		args = append(args, "--full-path")
 	}
 	if query != "" {
-		args = append(args, buildFdPathQuery(query))
+		args = append(args, "--", buildFdPathQuery(query))
 	}
 
-	//nolint:gosec // G204 (class b): program is the fd that PiG resolved; args are fixed flags plus the path query the user typed after @, which fd reads as a pattern, with no -- as in Pi's autocomplete.ts.
+	//nolint:gosec // G204 (class b): program is the resolved fd; -- keeps the escaped user query a pattern, never an option.
 	cmd := exec.CommandContext(ctx, p.fdPath, args...)
 	// Upstream's spawn finds fd with libuv's search on Windows.
 	nodespawn.SetProgram(cmd)
