@@ -471,6 +471,9 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 		touched = touchedPhases(params, phases, details.CompletedTasks)
 	}
 
+	// Prefer active work, then the first pending task, then the last task when
+	// nothing is actionable. Track source rows here, where phase layout is owned.
+	focus, pending, last := -1, -1, 0
 	for i, phase := range phases {
 		if touched != nil && !touched[phase.Name] {
 			rows = append(rows, formatPhaseSummary(phase, i+1))
@@ -483,6 +486,13 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 		var treeRows []treeRow
 		if options.Expanded {
 			for _, task := range phase.Tasks {
+				last = len(rows) + len(treeRows)
+				if focus < 0 && isActiveTask(task) {
+					focus = last
+				}
+				if pending < 0 && task.Status == StatusPending {
+					pending = last
+				}
 				treeRows = append(treeRows, treeRow{text: formatTodoLine(task)})
 			}
 		} else {
@@ -499,7 +509,13 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 		}
 	}
 
-	return linesComponent{body: strings.Join(rows, "\n")}
+	if focus < 0 {
+		focus = pending
+	}
+	if focus < 0 {
+		focus = last
+	}
+	return linesComponent{body: strings.Join(rows, "\n"), focus: focus}
 }
 
 // linesComponent renders pre-joined rows as one text block.
@@ -508,10 +524,23 @@ func renderResult(result extension.AgentToolResult, options extension.ToolRender
 // rows, and each Text pays the width engine's grapheme and SGR scan over its
 // line. Joining first lets that scan run once per render and cuts the
 // allocations of a full card roughly in half.
-type linesComponent struct{ body string }
+type linesComponent struct {
+	body  string
+	focus int
+}
 
 func (c linesComponent) Render(width int) []string {
 	return tui.NewPaddedText(c.body, 0, 0, nil).Render(width)
+}
+
+// FocusRow maps the selected source row to terminal rows using the same text
+// layout as Render, so wrapping and wide characters do not shift the target.
+func (c linesComponent) FocusRow(width int) int {
+	if c.focus <= 0 {
+		return 0
+	}
+	prefix := strings.Join(strings.Split(c.body, "\n")[:c.focus], "\n")
+	return len(tui.NewPaddedText(prefix, 0, 0, nil).Render(width))
 }
 
 func (linesComponent) Invalidate() {}
