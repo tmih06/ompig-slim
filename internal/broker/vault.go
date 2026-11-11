@@ -13,8 +13,8 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 )
 
-// remoteRefreshSentinel marks broker ownership, never a usable refresh token.
-const remoteRefreshSentinel = "__OMPIG_REMOTE_REFRESH__"
+// remoteRefreshSentinel is kept as a local alias for the shared usage contract.
+const remoteRefreshSentinel = ai.RemoteRefreshSentinel
 
 // vaultEntry carries an enabled account and its redacted request credential.
 type vaultEntry struct {
