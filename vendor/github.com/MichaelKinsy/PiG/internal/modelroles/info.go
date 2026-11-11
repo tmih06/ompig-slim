@@ -34,6 +34,8 @@ func (c Config) RoleInfo(role string) Info {
 		info = Info{Tag: "ADVISOR", Name: "Advisor", Color: "accent"}
 	case "widget":
 		info = Info{Tag: "WIDGET", Name: "Job widgets", Color: "dim"}
+	case "compact":
+		info = Info{Tag: "COMPACT", Name: "Compaction", Color: "dim"}
 	case "image":
 		info = Info{Tag: "IMAGE", Name: "Image generation", Color: "accent", Kind: true}
 	case "web":

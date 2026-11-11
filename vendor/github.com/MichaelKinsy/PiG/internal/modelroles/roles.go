@@ -37,7 +37,7 @@ func ValidName(name string) bool { return roleNamePattern.MatchString(name) }
 
 // Builtins returns OMP's stable role order, without sharing mutable storage.
 func Builtins() []string {
-	return []string{"default", "smol", "slow", "vision", "plan", "commit", "tiny", "memory", "task", "advisor", "widget", "image", "web", "speech", "dictation", "judge"}
+	return []string{"default", "smol", "slow", "vision", "plan", "commit", "tiny", "memory", "task", "advisor", "widget", "compact", "image", "web", "speech", "dictation", "judge"}
 }
 
 // Clone detaches settings snapshots from their writer.
