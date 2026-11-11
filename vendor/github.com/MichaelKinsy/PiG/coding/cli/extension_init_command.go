@@ -44,7 +44,7 @@ type scaffoldFile struct {
 var initLanguages = []string{"go", "python", "rust", "lisp"}
 
 // runExtensionInit scaffolds a minimal, self-contained extension whose
-// versioned SDK dependency is resolved by Pig to the staged copy under the
+// versioned SDK dependency is resolved to the staged copy under the
 // active config root, so a clean, binary-only host needs no source checkout. Go is fully offline;
 // Python needs only python3; Lisp needs SBCL; Rust needs cargo and (on a cold cache) crates.io
 // for transitive dependencies.
@@ -284,7 +284,7 @@ func goModTemplate(name string) string {
 
 go 1.26
 
-// Pig resolves this requirement to the version-matched staged SDK at build time.
+// ompig-slim resolves this requirement to the version-matched staged SDK at build time.
 require github.com/MichaelKinsy/PiG/extensions/sdk v0.0.0
 `, name)
 }
@@ -432,7 +432,7 @@ func pythonModuleTemplate(name, module string) string {
 	return fmt.Sprintf(`#!/usr/bin/env python3
 """%[1]s: an ompig-slim subprocess extension scaffolded by `+"`ompig-slim extension init`"+`.
 
-Pig imports `+"`new_extension`"+` into a generated runner. Pig supplies the staged
+ompig-slim imports `+"`new_extension`"+` into a generated runner and supplies the staged
 SDK on PYTHONPATH.
 """
 import pig_sdk
@@ -474,7 +474,7 @@ ext.run()
 
 func lispSystemTemplate(name string) string {
 	return fmt.Sprintf(`;;;; %[1]s: an ompig-slim subprocess extension scaffolded by `+"`ompig-slim extension init`"+`.
-;;;; Pig builds this system into a cached SBCL image. The pig-sdk system is the staged SDK.
+;;;; ompig-slim builds this system into a cached SBCL image. The pig-sdk system is the staged SDK.
 
 (asdf:defsystem %[1]q
   :depends-on ("pig-sdk")
@@ -485,7 +485,7 @@ func lispSystemTemplate(name string) string {
 
 func lispFactoryTemplate(name string) string {
 	tool := strings.ReplaceAll(name, "-", "_") + "_ping"
-	return fmt.Sprintf(`;;;; Pig calls NEW-EXTENSION, which DEFINE-EXTENSION defines, to build this extension.
+	return fmt.Sprintf(`;;;; ompig-slim calls NEW-EXTENSION, which DEFINE-EXTENSION defines, to build this extension.
 
 (defpackage %[1]q (:use "COMMON-LISP"))
 (in-package %[1]q)
@@ -509,7 +509,7 @@ func lispFactoryTemplate(name string) string {
 
 func lispStandaloneTemplate(name string) string {
 	return fmt.Sprintf(`#!/usr/bin/env -S sbcl --script
-;;;; Pig runs this script in its cached SBCL image, with the ompig-slim package loaded.
+;;;; ompig-slim runs this script in its cached SBCL image, with the ompig-slim package loaded.
 
 (let ((ext (pig:make-extension %[1]q)))
   (pig:tool ext "%[2]s_ping" "Return a short pong." (pig:obj "type" "object")
@@ -527,7 +527,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Pig resolves this dependency to the version-matched staged SDK at build time.
+# ompig-slim resolves this dependency to the version-matched staged SDK at build time.
 pig-sdk = "0.1.0"
 serde_json = "1"
 `, crate)
@@ -573,14 +573,14 @@ func printExtensionInitReport(report extensionInitReport, jsonOut bool) int {
 
 func printExtensionInitHelp() {
 	fmt.Print("Usage:\n  ompig-slim extension init <path> [--name <name>] [--lang go|python|rust|lisp] [--login] [--isolated] [--force] [--json]\n\n" +
-		"Scaffold a new extension whose versioned SDK dependency Pig resolves to its\n" +
-		"staged copy, so it builds with no Pig source checkout or committed SDK path.\n" +
+		"Scaffold a new extension whose versioned SDK dependency ompig-slim resolves to\n" +
+		"its staged copy, so it builds with no source checkout or committed SDK path.\n" +
 		"Go builds fully offline; Python needs python3; Lisp needs SBCL 2.6.9; Rust needs cargo (and crates.io\n" +
 		"on a cold cache for transitive dependencies).\n\n" +
 		"Options:\n" +
 		"  --name <name>   Extension name; it must match the sanitized directory base name.\n" +
 		"  --lang <lang>   Language to scaffold: go (default), python, rust, or lisp.\n" +
-		"  --login         Scaffold a conventional Go login factory with standard PiG art.\n" +
+		"  --login         Scaffold a conventional Go login factory with standard sprite art.\n" +
 		"  --isolated      Generate an exact standalone instead of a factory.\n" +
 		"  --force, -f     Overwrite existing files.\n" +
 		"  --json          Machine-readable output.\n")

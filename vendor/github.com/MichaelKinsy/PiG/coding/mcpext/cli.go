@@ -36,7 +36,7 @@ import (
 type McpCommandOptions struct {
 	Cwd      string
 	AgentDir string
-	// AppName and ConfigDirName are the CLI name and the per-project configuration directory, `pi` and `.pi` upstream. Defaults: "pig" and ".pig".
+	// AppName and ConfigDirName are the CLI name and the per-project configuration directory, `pi` and `.pi` upstream. Defaults: "ompig-slim" and ".pi".
 	AppName       string
 	ConfigDirName string
 	// Credentials defaults to `mcp-auth.json` in AgentDir.
@@ -248,10 +248,10 @@ func (c *mcpCLI) parseOptions(args []string, known map[string]optionKind, maxPos
 func RunMcpCommand(ctx context.Context, args []string, options McpCommandOptions) int {
 	c := &mcpCLI{options: options, app: options.AppName, dir: options.ConfigDirName, log: options.Log, error: options.Error}
 	if c.app == "" {
-		c.app = "pig"
+		c.app = "ompig-slim"
 	}
 	if c.dir == "" {
-		c.dir = ".pig"
+		c.dir = ".pi"
 	}
 	if c.log == nil {
 		c.log = func(line string) { _, _ = fmt.Fprintln(os.Stdout, line) }
@@ -836,7 +836,7 @@ func (c *mcpCLI) login(ctx context.Context, entry McpServerEntry, connection *Co
 		Settings:  settings,
 		Challenge: connection.Challenge(),
 		Prompt:    &redirectPrompt{cli: c, name: name},
-		AppName:   "pig",
+		AppName:   "ompig-slim",
 	})
 	cancelSignIn()
 	if err != nil {

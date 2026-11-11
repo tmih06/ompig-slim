@@ -1,65 +1,59 @@
-# Stock PiG and PiG Standard
+# Built-in extensions
 
-Stock PiG contains the Pi-compatible coding agent and generic support for
+ompig-slim contains the Pi-compatible coding agent and generic support for
 extensions, Packages, Piglets, Piglet Binaries, and local reference documents.
-It does not activate product extensions. Its startup header shows the PiG pig head
-(D2), and its built-in `pig-login` extension registers `/sprite`.
+It activates no optional product extension. Its startup header shows the OM + Pi
+mark (D2), and its built-in `pig-login` extension registers `/sprite`.
 
-## Stock capabilities
+## Built-in capabilities
 
 | Capability | Purpose |
 |---|---|
-| `pig docs` | Materialize and read the documentation that matches the binary. |
-| `pig extension ...` | Author, inspect, validate, and run ordinary extensions. |
-| `pig install` | Install Packages that distribute Resources. |
-| `pig piglet ...` | Validate, register, inspect, and build Piglets. |
+| `ompig-slim docs` | Materialize and read the documentation that matches the binary. |
+| `ompig-slim extension ...` | Author, inspect, validate, and run ordinary extensions. |
+| `ompig-slim install` | Install Packages that distribute Resources. |
+| `ompig-slim piglet ...` | Validate, register, inspect, and build Piglets. |
 | Piglet Binary verification | Verify the embedded Piglet and component closure before startup. |
 
 These capabilities do not select a product composition.
 
-## PiG Standard
+## Optional compositions
 
-PiG Standard is an explicit Piglet under `piglets/standard/`. It selects
-ordinary extension Resources through public Piglet contracts. Bare `pig` does
-not load those Resources.
+A Piglet selects ordinary extension Resources through public Piglet contracts.
+This repository ships no composition of its own: a bare `ompig-slim` loads none
+of them, and every composition is one you write or install.
 
-Run the source composition from a PiG source checkout:
-
-```bash
-pig --piglet piglets/standard/pig-standard.yaml
-```
-
-Build a directly executable composition:
+A composition is a Piglet YAML file. Point the binary at it directly:
 
 ```bash
-pig piglet build piglets/standard/pig-standard.yaml \
-  --format binary \
-  --out ./pig-standard
+ompig-slim --piglet ./my-piglet.yaml
 ```
 
-Installing a Package can make Standard Resources available. It does not create,
-select, or activate the PiG Standard Piglet.
+Or build it into a directly executable binary:
+
+```bash
+ompig-slim piglet build ./my-piglet.yaml --format binary --out ./my-agent
+```
+
+Installing a Package can make a composition's Resources available. It does not
+create, select, or activate the composition.
 
 ## Login identity
 
-Stock PiG's startup header shows the sprite's 7-line pixel pig, with the version and hints beside it, where Pi shows its logo (D2). The built-in `pig-login` extension registers `/sprite`, which chooses one of fifteen built-in sprites or a sprite an extension registered with `ui.registerSprite`, and saves the choice in `$PIG_HOME/state/pig-standard/login.json`. Use `/sprite` to open a picker, `/sprite list` and `/sprite set <id>` for text-based control, and `/sprite preview [id]` to see a sprite's full art.
+This build's startup header shows the OM + Pi mark with the version and hints
+beside it, where Pi shows its logo (D2). The built-in `pig-login` extension
+registers `/sprite`, which chooses one of fifteen built-in sprites or a sprite
+an extension registered with `ui.registerSprite`, and saves the choice in
+`$PIG_HOME/state/pig-standard/login.json`. Use `/sprite` to open a picker,
+`/sprite list` and `/sprite set <id>` for text-based control, and
+`/sprite preview [id]` to see a sprite's mascot.
 
-PiG Standard selects its own `piglogin` extension. That extension installs its
-login through `ui.setLogin` and replaces the built-in `/sprite` command.
+A composition can replace the header with its own login through `ui.setLogin`.
+Such an extension installs its own artwork and can replace the built-in `/sprite`
+command.
 
-## PiG Runner
+## Additional extensions
 
-PiG Standard selects the `pigrunner` extension. Use `/runner` or `/pig-runner`
-to open it. The extension owns timer-driven custom UI and stores the high score
-at `<config-root>/state/pig-standard/pigrunner.json`.
-
-The host gives one focused extension exclusive terminal input. Timer redraws
-use the generic invalidation callback and do not block the TUI render loop.
-
-## Additional batteries
-
-Each additional battery must be an ordinary fuse-compatible Go extension
-Resource selected by the Standard Piglet. It must work as a source subprocess
-extension and as a fused component in the PiG Standard Binary. The Standard
-build fails instead of using a subprocess fallback. Stock PiG must not import or
-activate it.
+An additional extension must work as a source subprocess extension and, when the
+composition is built into a binary, as a fused component. Each is an ordinary
+extension Resource the Piglet selects; ompig-slim does not import or activate it.

@@ -593,7 +593,7 @@ func standaloneRebuildHint(cfg ExtConfig) string {
 	if cfg.Source != "" {
 		return ""
 	}
-	return fmt.Sprintf("%q ships a prebuilt binary; if you updated pig, rebuild it against the current pig SDK", cfg.Name)
+	return fmt.Sprintf("%q ships a prebuilt binary; if you updated ompig-slim, rebuild it against the current ompig-slim SDK", cfg.Name)
 }
 
 // registerDecodeHint explains a registration this host could not decode. For
@@ -602,7 +602,7 @@ func standaloneRebuildHint(cfg ExtConfig) string {
 // drops the stale builds so the next load rebuilds it.
 func registerDecodeHint(err error) string {
 	if transport, ok := errors.AsType[*TransportError](err); ok && transport.Operation == "decode frame" {
-		return "if pig or its SDK changed since this extension was built, run `pig reload` to rebuild it"
+		return "if ompig-slim or its SDK changed since this extension was built, run `ompig-slim reload` to rebuild it"
 	}
 	return ""
 }
@@ -615,12 +615,12 @@ func frameSkewHint(cfg ExtConfig, size uint64, recent bool) string {
 	if !recent {
 		return ""
 	}
-	msg := fmt.Sprintf("%q disconnected just after pig sent a %.1f MiB frame; a binary built against a pig SDK older than the current %d MiB frame cap silently rejects frames above %d MiB",
+	msg := fmt.Sprintf("%q disconnected just after ompig-slim sent a %.1f MiB frame; a binary built against an ompig-slim SDK older than the current %d MiB frame cap silently rejects frames above %d MiB",
 		cfg.Name, float64(size)/(1<<20), MaxFrameSize/(1<<20), legacyFrameSize/(1<<20))
 	if cfg.Source == "" {
-		return msg + ". Rebuild this prebuilt extension against the current pig SDK"
+		return msg + ". Rebuild this prebuilt extension against the current ompig-slim SDK"
 	}
-	return msg + ". pig will rebuild it on next load"
+	return msg + ". ompig-slim will rebuild it on next load"
 }
 
 type managedExt struct {

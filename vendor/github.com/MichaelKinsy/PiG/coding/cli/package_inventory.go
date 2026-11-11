@@ -64,7 +64,7 @@ func printPackageManagementHelp() {
   ompig-slim package publish [<dir>] --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
 
 Package source is authored as ordinary package.json. Install, remove, update,
-and configure Packages through Pig's upstream-compatible top-level commands.
+and configure Packages through ompig-slim's upstream-compatible top-level commands.
 `)
 }
 

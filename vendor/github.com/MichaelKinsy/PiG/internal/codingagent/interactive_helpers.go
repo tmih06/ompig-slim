@@ -42,14 +42,14 @@ func shortenPath(p string) string {
 	return resolvepath.ShortenHomePath(p, home)
 }
 
-// debugLog writes to pig-debug.log in the temporary directory when PIG_DEBUG is set. Used for
+// debugLog writes to ompig-slim-debug.log in the temporary directory when PIG_DEBUG is set. Used for
 // diagnosing TUI event flow without polluting the alt-screen. The file is private to the user and is never reached
 // through a symlink (openDebugLog); the shared temporary directory is writable by every local user.
 func debugLog(format string, args ...any) {
 	if os.Getenv("PIG_DEBUG") == "" {
 		return
 	}
-	f, err := openDebugLog(filepath.Join(os.TempDir(), "pig-debug.log"))
+	f, err := openDebugLog(filepath.Join(os.TempDir(), "ompig-slim-debug.log"))
 	if err != nil {
 		return
 	}

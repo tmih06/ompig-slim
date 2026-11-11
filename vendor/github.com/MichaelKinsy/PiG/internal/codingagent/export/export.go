@@ -27,7 +27,7 @@ import (
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-const appName = "pig"
+const appName = "ompig-slim"
 
 // The binary carries each asset gzip-compressed (about 277 KB of text becomes 80 KB); the uncompressed files next to them are the vendored
 // source, and TestEmbeddedAssetsMatchSources fails when a .gz does not inflate to its source. Refresh them with go generate after a pin bump.

@@ -201,7 +201,7 @@ type ConnectionOptions struct {
 	// Log receives the server's log messages (`notifications/message`).
 	Log *McpServerLog
 	// ClientName and ClientVersion identify this client to servers. Defaults:
-	// "pig" and the PiG version (upstream sends its VERSION).
+	// "ompig-slim" and the ompig-slim version (upstream sends its VERSION).
 	ClientName    string
 	ClientVersion string
 }
@@ -264,7 +264,7 @@ func NewConnection(options ConnectionOptions) (*Connection, error) {
 	}
 	c.lifetime, c.endLifetime = context.WithCancel(context.Background())
 	if c.clientName == "" {
-		c.clientName = "pig"
+		c.clientName = "ompig-slim"
 	}
 	if c.clientVersion == "" {
 		c.clientVersion = pigversion.Version

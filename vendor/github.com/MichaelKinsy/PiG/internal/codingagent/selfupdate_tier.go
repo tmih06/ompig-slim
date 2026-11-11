@@ -193,7 +193,7 @@ func (e *configuredNpmProbeError) Unwrap() error { return e.cause }
 func ResolveSelfUpdateTier() (*SelfUpdateProvenance, error) {
 	exe, err := linkerexec.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("locate pig executable: %w", err)
+		return nil, fmt.Errorf("locate ompig-slim executable: %w", err)
 	}
 	cwd, _ := os.Getwd()
 	settings := NewSettingsManager(cwd, AgentDir())
@@ -268,7 +268,7 @@ func resolveSelfUpdateTierOn(goos, exe string, runner cmdRunner, entrypoints ...
 		return nil, &TierError{
 			Tier:        tierPackageManager,
 			ExePath:     exe,
-			Remediation: fmt.Sprintf("pig executable %s is managed by more than one package manager; update it with the single manager that owns it", exe),
+			Remediation: fmt.Sprintf("ompig-slim executable %s is managed by more than one package manager; update it with the single manager that owns it", exe),
 		}
 	} else if owned != nil {
 		if goos == "windows" && owned.PackageOwner != ownerNPM && owned.PackageOwner != ownerPNPM {
@@ -559,7 +559,7 @@ func RunPackageManagerUpdate(cmd *SelfUpdateCommand) error {
 func ImmutableBinaryRemediation(exePath string) string {
 	return fmt.Sprintf(
 		"%s is an immutable Piglet/Piglet Binary (built release %s). It cannot be updated in place. "+
-			"Rebuild it from its Piglet source (`pig piglet build <name> --format binary`) or pull the new release artifact from your provider, then replace %s.",
+			"Rebuild it from its Piglet source (`ompig-slim piglet build <name> --format binary`) or pull the new release artifact from your provider, then replace %s.",
 		AppName, releaseLabel(), exePath)
 }
 

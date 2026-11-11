@@ -833,7 +833,7 @@ func (m *copilotTokenManager) loadCred() (Credential, error) {
 		return Credential{}, err
 	}
 	if credential == nil {
-		return Credential{}, errors.New("github-copilot: not logged in (run `pig login github-copilot`)")
+		return Credential{}, errors.New("github-copilot: not logged in (run `ompig-slim login github-copilot`)")
 	}
 	cred := *credential
 	if cred.Refresh == "" {
@@ -901,7 +901,7 @@ func (m *copilotTokenManager) getAccessToken(ctx context.Context) (string, error
 	}
 	if post == nil || post.Type != CredentialOAuth {
 		// Logged out meanwhile.
-		return "", errors.New("github-copilot: not logged in (run `pig login github-copilot`)")
+		return "", errors.New("github-copilot: not logged in (run `ompig-slim login github-copilot`)")
 	}
 	return post.Access, nil
 }

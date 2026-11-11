@@ -270,11 +270,11 @@ func (h configSelectorHeader) Render(width int) []string {
 	var lines []string
 	// Header mirrors upstream global/project write-scope ownership.
 	titleText := "Global Resources"
-	scopeHint := "~/.pig/agent/settings.json"
+	scopeHint := "~/.pi/agent/settings.json"
 	action := "toggle"
 	if cs.writeScope == "project" {
 		titleText = "Project Local Resources"
-		scopeHint = ".pig/settings.json · inherited global resources are dimmed"
+		scopeHint = ".pi/settings.json · inherited global resources are dimmed"
 		action = "cycle inherit/+/-"
 	}
 	title := ChalkBold(titleText)
@@ -594,9 +594,9 @@ func groupLabel(res *ResourceItem) string {
 			return "Project (" + formatBaseDir(res.BaseDir) + ")"
 		}
 		if res.Scope == "user" {
-			return "User (~/.pig/agent/)"
+			return "User (~/.pi/agent/)"
 		}
-		return "Project (.pig/)"
+		return "Project (.pi/)"
 	}
 	if res.Scope == "user" {
 		return "User settings"

@@ -220,7 +220,7 @@ func (r *Reporter) Failure(err error) error {
 		message = "[diagnostic truncated; last 16 KiB]\n" + strings.ToValidUTF8(message[len(message)-diagnosticTailBytes:], "�")
 	}
 	message = diagnosticText(message)
-	return &phaseFailure{message: fmt.Sprintf("%s failed (%s): %s\n%s\nhint: fix the diagnostic above and retry; use --verbose for live toolchain output (check toolchains with `pig setup`)", r.phase, r.elapsed(), r.step, message), cause: err}
+	return &phaseFailure{message: fmt.Sprintf("%s failed (%s): %s\n%s\nhint: fix the diagnostic above and retry; use --verbose for live toolchain output (check toolchains with `ompig-slim setup`)", r.phase, r.elapsed(), r.step, message), cause: err}
 }
 
 type phaseFailure struct {

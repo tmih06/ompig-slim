@@ -176,7 +176,7 @@ func (e *Extension) unregisterVirtualModel(c *Context, provider, id string) {
 	}{provider, id}
 	result, err := hostCallFor(c, conn, "unregisterVirtualModel", args)
 	if err := callResultError(result, err); err != nil {
-		fmt.Fprintf(os.Stderr, "pig: host call unregisterVirtualModel failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ompig-slim: host call unregisterVirtualModel failed: %v\n", err)
 		return
 	}
 	e.toolMu.Lock()

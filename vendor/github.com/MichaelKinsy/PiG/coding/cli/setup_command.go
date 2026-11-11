@@ -20,7 +20,7 @@ import (
 
 const setupUsage = `Usage: ompig-slim setup [status|go|container]
 
-  status      Show the toolchains PiG uses for extensions and Piglet builds (default)
+  status      Show the toolchains ompig-slim uses for extensions and Piglet builds (default)
   go          Install a verified Go toolchain under $PIG_HOME/toolchains/go
               --version goX.Y.Z   Go release to install (default: this binary's Go)
   container   Show how to install a container runtime on this system
@@ -113,7 +113,7 @@ func python3Name() string {
 }
 
 func setupStatus(stdout io.Writer) int {
-	_, _ = fmt.Fprintf(stdout, "PiG toolchains (%s/%s)\n\n", runtime.GOOS, runtime.GOARCH)
+	_, _ = fmt.Fprintf(stdout, "ompig-slim toolchains (%s/%s)\n\n", runtime.GOOS, runtime.GOARCH)
 	var missing []setupTool
 	for _, tool := range setupTools() {
 		location, ok := tool.find()
@@ -138,7 +138,7 @@ func setupStatus(stdout io.Writer) int {
 	for _, tool := range missing {
 		_, _ = fmt.Fprintf(stdout, "  %-10s %s\n", tool.name, tool.remedy)
 	}
-	_, _ = io.WriteString(stdout, "\nPiG runs without these tools. They are needed only for the extension languages and Piglet builds listed above.\n")
+	_, _ = io.WriteString(stdout, "\nompig-slim runs without these tools. They are needed only for the extension languages and Piglet builds listed above.\n")
 	return 0
 }
 
@@ -178,7 +178,7 @@ func setupGo(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "ompig-slim setup go: %v\n", err)
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "Installed %s at %s.\nPiG uses it automatically when go is not on PATH or the go on PATH is older than Go %s. To use it in your shell, add %s to PATH.\n", version, goCommand, toolchain.MinGoVersion, filepath.Dir(goCommand))
+	_, _ = fmt.Fprintf(stdout, "Installed %s at %s.\nompig-slim uses it automatically when go is not on PATH or the go on PATH is older than Go %s. To use it in your shell, add %s to PATH.\n", version, goCommand, toolchain.MinGoVersion, filepath.Dir(goCommand))
 	return 0
 }
 
@@ -189,11 +189,11 @@ func goSetupUnsupported(goos, goarch string) string {
 	if goos != "android" {
 		return ""
 	}
-	return fmt.Sprintf("Go publishes no archive for %s/%s, so PiG cannot download one on Termux.\nInstall Go with Termux's package manager instead:\n  pkg install golang\nPiG finds the go on your PATH; check it with `ompig-slim setup status`.", goos, goarch)
+	return fmt.Sprintf("Go publishes no archive for %s/%s, so ompig-slim cannot download one on Termux.\nInstall Go with Termux's package manager instead:\n  pkg install golang\nompig-slim finds the go on your PATH; check it with `ompig-slim setup status`.", goos, goarch)
 }
 
 func containerGuide(goos string) string {
-	const image = "The built-in container builder (--builder container) pulls a pinned public Go image and installs this PiG release in it. PIG_CONTAINER_ENGINE selects docker or podman. To use your own image, configure a digest-pinned builder image in PIG_BUILDERS_FILE; see `ompig-slim docs show piglet-binaries`.\n"
+	const image = "The built-in container builder (--builder container) pulls a pinned public Go image and installs this ompig-slim release in it. PIG_CONTAINER_ENGINE selects docker or podman. To use your own image, configure a digest-pinned builder image in PIG_BUILDERS_FILE; see `ompig-slim docs show piglet-binaries`.\n"
 	switch goos {
 	case "darwin":
 		return "Install one container runtime:\n" +

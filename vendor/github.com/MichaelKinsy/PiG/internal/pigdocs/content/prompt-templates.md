@@ -1,4 +1,4 @@
-> PiG can create prompt templates. Ask it to build one for your workflow.
+> ompig-slim can create prompt templates. Ask it to build one for your workflow.
 
 # Prompt Templates
 
@@ -6,10 +6,10 @@ Prompt templates are Markdown snippets that expand into full prompts. Type `/nam
 
 ## Locations
 
-PiG loads prompt templates from:
+ompig-slim loads prompt templates from:
 
-- Global: `~/.pig/agent/prompts/*.md`
-- Project: `.pig/prompts/*.md` (only after the project is trusted)
+- Global: `~/.pi/agent/prompts/*.md`
+- Project: `.pi/prompts/*.md` (only after the project is trusted)
 - Packages: `prompts/` directories or `pi.prompts` entries in `package.json`
 - Settings: `prompts` array with files or directories
 - CLI: `--prompt-template <path>` (repeatable)

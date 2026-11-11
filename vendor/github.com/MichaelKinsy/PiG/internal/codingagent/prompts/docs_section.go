@@ -90,12 +90,12 @@ func docsSectionAt(root, readme, examples string) string {
 			header = append(header, strings.Fields(topic.text)[0])
 		}
 	}
-	// pig additive (D22): the docs section points at the materialized PiG documentation bundle.
-	return "PiG documentation (read only when the user asks about the harness itself, its SDK, " + strings.Join(header, ", ") + ", or TUI):\n" +
+	// pig additive (D22): the docs section points at the materialized documentation bundle.
+	return "ompig-slim documentation (read only when the user asks about the harness itself, its SDK, " + strings.Join(header, ", ") + ", or TUI):\n" +
 		"- Main documentation: " + readme + "\n" +
 		"- Additional docs: " + root + "\n" +
 		"- Examples: " + examples + " (extensions, custom tools, SDK)\n" +
-		"- When reading pig docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n" +
+		"- When reading ompig-slim docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory\n" +
 		"- When asked about: " + strings.Join(topics, ", ") + "\n" +
 		"- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references."
 }

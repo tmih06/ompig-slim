@@ -694,8 +694,8 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
 		// pig divergence (D64): PiG shares through its own expiring gateway, not a GitHub gist.
 		{Name: "share", Description: "Share session with an unlisted 30-day link", Handler: shareHandler},
-		// pig divergence (D62): /bug exports a local archive for a PiG issue; it never uploads.
-		{Name: "bug", Description: "Export a bug report to attach to a PiG issue", ArgumentHint: "<description>", TakesArguments: true, Handler: bugHandler},
+		// pig divergence (D62): /bug exports a local archive; it never uploads.
+		{Name: "bug", Description: "Export a bug report as a zip archive", ArgumentHint: "<description>", TakesArguments: true, Handler: bugHandler},
 		{Name: "copy", Description: "Copy last agent message to clipboard", Handler: copyHandler},
 		{Name: "name", Description: "Set session display name", TakesArguments: true, Handler: nameHandler},
 		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},

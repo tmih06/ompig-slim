@@ -82,7 +82,7 @@ func (r *helperRegistry) define(p *filePlanner, g getter, fn *types.Func) *helpe
 // source renders the helper file.
 func (r *helperRegistry) source() ([]byte, error) {
 	var out bytes.Buffer
-	out.WriteString("// Added by pig extension upgrade. These Context getters returned one value before the SDK gave them an error result; a failed host call gives the zero value, as it did then.\n")
+	out.WriteString("// Added by ompig-slim extension upgrade. These Context getters returned one value before the SDK gave them an error result; a failed host call gives the zero value, as it did then.\n")
 	out.WriteString("// Call the getter itself where the error matters, then delete the helper.\n\n")
 	out.WriteString("package " + r.pkg + "\n\nimport (\n")
 	paths := make([]string, 0, len(r.imports))

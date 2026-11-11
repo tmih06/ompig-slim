@@ -147,7 +147,7 @@ func unknownLanguage(prefix, lang string) error {
 func SDKDirFor(configRoot, lang string) (string, error) {
 	b, ok := bundleFor(lang)
 	if !ok {
-		return "", unknownLanguage("pig reload: ", lang)
+		return "", unknownLanguage("ompig-slim reload: ", lang)
 	}
 	return b.stagedDir(configRoot)
 }
@@ -178,7 +178,7 @@ func (b sdkBundle) computeHash() (string, error) {
 	defer hashBuffers.Put(buffer)
 	for _, name := range b.files {
 		if err := hashEmbeddedFile(h, b, name, *buffer); err != nil {
-			return "", fmt.Errorf("pig reload: read embedded %s/%s: %w", b.lang, name, err)
+			return "", fmt.Errorf("ompig-slim reload: read embedded %s/%s: %w", b.lang, name, err)
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
@@ -219,12 +219,12 @@ func (b sdkBundle) sync(configRoot string) ([]string, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return nil, fmt.Errorf("pig reload: mkdir %s: %w", filepath.Dir(dir), err)
+		return nil, fmt.Errorf("ompig-slim reload: mkdir %s: %w", filepath.Dir(dir), err)
 	}
 	settleStaging(dir)
 	staging, err := os.MkdirTemp(filepath.Dir(dir), stagePrefix(dir))
 	if err != nil {
-		return nil, fmt.Errorf("pig reload: stage %s SDK: %w", b.lang, err)
+		return nil, fmt.Errorf("ompig-slim reload: stage %s SDK: %w", b.lang, err)
 	}
 	renamed := false
 	defer func() {
@@ -233,25 +233,25 @@ func (b sdkBundle) sync(configRoot string) ([]string, error) {
 		}
 	}()
 	if err := os.Chmod(staging, 0o755); err != nil {
-		return nil, fmt.Errorf("pig reload: chmod %s: %w", staging, err)
+		return nil, fmt.Errorf("ompig-slim reload: chmod %s: %w", staging, err)
 	}
 	written := make([]string, 0, len(b.files))
 	made := map[string]bool{staging: true}
 	for _, embedded := range b.files {
 		data, err := fs.ReadFile(b.fsys, embedded)
 		if err != nil {
-			return nil, fmt.Errorf("pig reload: read embedded %s/%s: %w", b.lang, embedded, err)
+			return nil, fmt.Errorf("ompig-slim reload: read embedded %s/%s: %w", b.lang, embedded, err)
 		}
 		name := stagedName(embedded)
 		if name != embedded {
 			if data, err = gunzip(data); err != nil {
-				return nil, fmt.Errorf("pig reload: decompress embedded %s/%s: %w", b.lang, embedded, err)
+				return nil, fmt.Errorf("ompig-slim reload: decompress embedded %s/%s: %w", b.lang, embedded, err)
 			}
 		}
 		target := filepath.Join(staging, filepath.FromSlash(name))
 		if parent := filepath.Dir(target); !made[parent] {
 			if err := os.MkdirAll(parent, 0o755); err != nil {
-				return nil, fmt.Errorf("pig reload: mkdir %s: %w", parent, err)
+				return nil, fmt.Errorf("ompig-slim reload: mkdir %s: %w", parent, err)
 			}
 			made[parent] = true
 		}
@@ -264,7 +264,7 @@ func (b sdkBundle) sync(configRoot string) ([]string, error) {
 		return nil, err
 	}
 	if err := replaceDir(dir, staging); err != nil {
-		return nil, fmt.Errorf("pig reload: replace staged %s SDK: %w", b.lang, err)
+		return nil, fmt.Errorf("ompig-slim reload: replace staged %s SDK: %w", b.lang, err)
 	}
 	renamed = true
 	sort.Strings(written)
@@ -455,11 +455,11 @@ func VerifyStaged(configRoot string) func(stagedDir, buildType string) error {
 		}
 		data, err := os.ReadFile(filepath.Join(stagedDir, markerFile))
 		if err != nil {
-			return fmt.Errorf("staged %s SDK at %s has no version marker; run `pig reload`", lang, stagedDir)
+			return fmt.Errorf("staged %s SDK at %s has no version marker; run `ompig-slim reload`", lang, stagedDir)
 		}
 		if onDisk := strings.TrimSpace(string(data)); onDisk != embedded {
 			return fmt.Errorf(
-				"staged %s SDK at %s is %s but this pig embeds %s; extensions would build against the wrong SDK. Run `pig reload`",
+				"staged %s SDK at %s is %s but this ompig-slim embeds %s; extensions would build against the wrong SDK. Run `ompig-slim reload`",
 				lang, stagedDir, onDisk, embedded)
 		}
 		return nil
@@ -526,7 +526,7 @@ func prune(configRoot string, dryRun, sized bool) (runtimecell.CacheReport, erro
 			return runtimecell.CacheReport{}, err
 		}
 		if len(sdks) == 0 {
-			return runtimecell.CacheReport{}, fmt.Errorf("no staged SDK found under %s; run `pig reload` first", configRoot)
+			return runtimecell.CacheReport{}, fmt.Errorf("no staged SDK found under %s; run `ompig-slim reload` first", configRoot)
 		}
 		confirmed, err := runtimecell.PruneCaches(runtimecell.CacheLifecycleOptions{CacheRoot: cacheRoot, DryRun: true, Unsized: !sized})
 		if err != nil || len(confirmed.Entries) == 0 {
@@ -538,7 +538,7 @@ func prune(configRoot string, dryRun, sized bool) (runtimecell.CacheReport, erro
 		return runtimecell.CacheReport{}, err
 	}
 	if len(live) == 0 {
-		return runtimecell.CacheReport{}, fmt.Errorf("no staged SDK found under %s; run `pig reload` first", configRoot)
+		return runtimecell.CacheReport{}, fmt.Errorf("no staged SDK found under %s; run `ompig-slim reload` first", configRoot)
 	}
 	return runtimecell.PruneCaches(runtimecell.CacheLifecycleOptions{
 		CacheRoot: cacheRoot, LiveFingerprints: live, DryRun: dryRun, Unsized: !sized,
@@ -623,7 +623,7 @@ func EnsureSyncedContext(ctx context.Context, configRoot string) error {
 func EnsureSyncedLang(configRoot, lang string) error {
 	b, ok := bundleFor(lang)
 	if !ok {
-		return unknownLanguage("pig reload: ", lang)
+		return unknownLanguage("ompig-slim reload: ", lang)
 	}
 	dir, err := b.stagedDir(configRoot)
 	if err != nil {
@@ -677,18 +677,18 @@ func withSDKStageLock(ctx context.Context, configRoot string, work func() error)
 func writeFile(path string, data []byte, mode os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
-		return fmt.Errorf("pig reload: create %s: %w", path, err)
+		return fmt.Errorf("ompig-slim reload: create %s: %w", path, err)
 	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
-		return fmt.Errorf("pig reload: write %s: %w", path, err)
+		return fmt.Errorf("ompig-slim reload: write %s: %w", path, err)
 	}
 	if err := f.Chmod(mode); err != nil {
 		_ = f.Close()
-		return fmt.Errorf("pig reload: chmod %s: %w", path, err)
+		return fmt.Errorf("ompig-slim reload: chmod %s: %w", path, err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("pig reload: close %s: %w", path, err)
+		return fmt.Errorf("ompig-slim reload: close %s: %w", path, err)
 	}
 	return nil
 }
@@ -716,7 +716,7 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 	rest := args[1:]
 	root, err := configroot.Resolve()
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig reload: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim reload: %v\n", err)
 		return 1
 	}
 
@@ -741,12 +741,12 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if err := EnsureSyncedLang(root, lang); err != nil {
-			_, _ = fmt.Fprintf(stderr, "pig reload: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "ompig-slim reload: %v\n", err)
 			return 1
 		}
 		value, err := flag.emit(lang)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "pig reload: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "ompig-slim reload: %v\n", err)
 			return 1
 		}
 		_, _ = fmt.Fprintln(stdout, value)
@@ -762,12 +762,12 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 	if slices.Contains(rest, "--dry-run") {
 		statuses, err := Status(root)
 		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "pig reload: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "ompig-slim reload: %v\n", err)
 			return 1
 		}
 		for _, st := range statuses {
 			if !st.Staged || !st.Current {
-				_, _ = fmt.Fprintf(stdout, "pig reload: would stage %s to %s (embedded %s)\n", st.Lang, st.Dir, st.Embedded)
+				_, _ = fmt.Fprintf(stdout, "ompig-slim reload: would stage %s to %s (embedded %s)\n", st.Lang, st.Dir, st.Embedded)
 			}
 		}
 		// Prune needs a staged SDK to decide what is reachable. On a root that
@@ -776,10 +776,10 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 		// command they are previewing.
 		result, err := Prune(root, slices.Contains(rest, "--all"), true)
 		if err != nil {
-			_, _ = fmt.Fprintf(stdout, "pig reload: would drop no builds (none staged yet)\n")
+			_, _ = fmt.Fprintf(stdout, "ompig-slim reload: would drop no builds (none staged yet)\n")
 			return 0
 		}
-		_, _ = fmt.Fprintf(stdout, "pig reload: would drop %d unreachable build(s), %.1f MB, keeping %d\n",
+		_, _ = fmt.Fprintf(stdout, "ompig-slim reload: would drop %d unreachable build(s), %.1f MB, keeping %d\n",
 			result.Removed, float64(result.RemovedBytes)/(1024*1024), len(result.Entries)-result.Removed)
 		return 0
 	}
@@ -799,13 +799,13 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 			err = errors.Join(err, dirErr)
 			continue
 		}
-		_, _ = fmt.Fprintf(stdout, "pig reload: staged %s (%d files) to %s\n", b.lang, written, dir)
+		_, _ = fmt.Fprintf(stdout, "ompig-slim reload: staged %s (%d files) to %s\n", b.lang, written, dir)
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pig reload: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "ompig-slim reload: %v\n", err)
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "pig reload: dropped %d unreachable build(s), %.1f MB, kept %d\n",
+	_, _ = fmt.Fprintf(stdout, "ompig-slim reload: dropped %d unreachable build(s), %.1f MB, kept %d\n",
 		result.Removed, float64(result.RemovedBytes)/(1024*1024), len(result.Entries)-result.Removed)
 	return 0
 }
@@ -828,7 +828,7 @@ func flagValue(args []string, name string) (string, bool) {
 }
 
 func printUsage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: pig reload [--all] [--dry-run] [--sdk-path [lang]] [--sdk-version [lang]]")
+	_, _ = fmt.Fprintln(w, "Usage: ompig-slim reload [--all] [--dry-run] [--sdk-path [lang]] [--sdk-version [lang]]")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "Stages the extension SDKs this binary embeds into its own directories and")
 	_, _ = fmt.Fprintln(w, "drops extension builds whose SDK is no longer staged, so the next build")
@@ -840,5 +840,5 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  --sdk-path [lang]     print this binary's staged SDK directory (go|python|lisp|rust, default go)")
 	_, _ = fmt.Fprintln(w, "  --sdk-version [lang]  print an embedded SDK content hash")
 	_, _ = fmt.Fprintln(w, "")
-	_, _ = fmt.Fprintln(w, "Staged-versus-embedded status is reported by `pig diagnose`.")
+	_, _ = fmt.Fprintln(w, "Staged-versus-embedded status is reported by `ompig-slim diagnose`.")
 }

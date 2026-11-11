@@ -13,7 +13,7 @@ import (
 // pig divergence (D39): Pi's proper-lockfile directory lock never locks a removed file, so it has no reopen bound; the OS-lock sidecar does.
 const maxStandaloneUpdateLockAttempts = 16
 
-var errStandaloneUpdateBusy = errors.New("another standalone pig update is already running")
+var errStandaloneUpdateBusy = errors.New("another standalone ompig-slim update is already running")
 
 // tryLockStandaloneUpdateSidecar opens the sidecar at path, creating it when
 // absent, and tries to take its OS lock without waiting. Tests replace it to

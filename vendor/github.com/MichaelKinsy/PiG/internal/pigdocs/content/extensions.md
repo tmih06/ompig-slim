@@ -1,22 +1,22 @@
-# PiG extensions
+# ompig-slim extensions
 
 > **Differs from Pi, or easy to get wrong**
-> - Extensions load from `~/.pig/agent/extensions` and a trusted `.pig/extensions`, never from `~/.pi` (D2).
-> - Only top-level `.ts` or `.js` files, or a folder with an `index.ts` or `index.js`, load. PiG ignores a `.mjs` file without an error.
+> - Extensions load from `~/.pi/agent/extensions` and a trusted `.pi/extensions`, not from the config root itself (D2).
+> - Only top-level `.ts` or `.js` files, or a folder with an `index.ts` or `index.js`, load. ompig-slim ignores a `.mjs` file without an error.
 > - An untrusted project loads nothing. With `-p` there is no prompt: pass `--approve` ([project trust](trust.md)).
-> - Pi extensions are TypeScript. In PiG, prefer Go, then Rust, then Python. Lisp is also supported.
+> - Pi extensions are TypeScript. In ompig-slim, prefer Go, then Rust, then Python. Lisp is also supported.
 
-PiG extensions are external programs that add tools, commands, events,
-providers, renderers, and UI behavior. PiG hosts them through the current
+ompig-slim extensions are external programs that add tools, commands, events,
+providers, renderers, and UI behavior. ompig-slim hosts them through the current
 subprocess wire. A Piglet Binary can fuse a compatible Go factory, but fused
 behavior must match subprocess behavior.
 
-PiG does not use PigScript, embedded JavaScript, WASM, dynamic Go plugins, or an
+ompig-slim does not use PigScript, embedded JavaScript, WASM, dynamic Go plugins, or an
 authored extension manifest.
 
 ## Source forms
 
-PiG accepts exactly two forms.
+ompig-slim accepts exactly two forms.
 
 ### Conventional factory
 
@@ -28,7 +28,7 @@ Use one standard factory for the language:
 - Node: one Pi-compatible default export
 - Lisp: `pig:define-extension`, which defines `NEW-EXTENSION` (needs SBCL 2.6.9)
 
-PiG generates the runner. Go, Rust, and Python factories can share a
+ompig-slim generates the runner. Go, Rust, and Python factories can share a
 language-specific runtime cell. Node factories run in isolated Node processes.
 
 ### Exact standalone
@@ -43,15 +43,15 @@ Use an exact executable or conventional executable source:
 
 Every standalone runs in an isolated process.
 
-PiG rejects mixed languages, an ambiguous root with several factories,
+ompig-slim rejects mixed languages, an ambiguous root with several factories,
 factory-plus-standalone roots, nonstandard factory symbols, missing entrypoints,
 and identity mismatches. Select one exact factory package inside a containing Go
-module or workspace. PiG uses the containing module or workspace as the build
+module or workspace. ompig-slim uses the containing module or workspace as the build
 closure.
 
 ## Native login identity
 
-An extension can call `SetLogin` during `session_start`. PiG validates the typed
+An extension can call `SetLogin` during `session_start`. ompig-slim validates the typed
 definition and renders it through the shared header slot. Widths below 66
 columns use compact text. Quiet startup keeps the login hidden. Rendering uses
 local cached data and performs no per-render IPC.
@@ -59,14 +59,14 @@ local cached data and performs no per-render IPC.
 Preview the result before loading a session:
 
 ```bash
-pig extension preview-login <path>
+ompig-slim extension preview-login <path>
 ```
 
 The preview requires exactly one extension. Use `/reload` after an edit. A
 login remains an extension Resource. Activate it through a Piglet `extensions`
-entry, user extension policy, or `pig -e <path>`. Verify activation by starting
+entry, user extension policy, or `ompig-slim -e <path>`. Verify activation by starting
 or reloading through that path and checking the identity name. Keep product
-identities outside Stock Pig and select them through an ordinary Piglet
+identities outside the built-in set and select them through an ordinary Piglet
 extension entry. See `extension-api.md` for the exact grids, palette,
 validation errors, and SDK calls.
 
@@ -92,10 +92,10 @@ markers at an arbitrary Package root do not make that Package an extension.
 
 ## Discovery
 
-PiG collects extensions from these sources:
+ompig-slim collects extensions from these sources:
 
-1. `~/.pig/agent/extensions`
-2. trusted `<cwd>/.pig/extensions`
+1. `~/.pi/agent/extensions`
+2. trusted `<cwd>/.pi/extensions`
 3. configured Package extension members
 4. selected Piglet composition
 5. exact paths in settings
@@ -106,27 +106,27 @@ PiG collects extensions from these sources:
 explicit `-e` paths. Project discovery requires trust. Startup and `/reload`
 use the same normalized resolver.
 
-PiG does not discover `~/.pig/extensions`. PiG never reads Pi's `~/.pi/agent/extensions` unless you select Pi's directories (D2, [config](config.md)).
+ompig-slim does not discover `~/.pi/extensions`, which sits outside the agent directory. The agent directory itself is Pi's `~/.pi/agent`, so an extension installed there does load (D2, [config](config.md)).
 
-In `~/.pig/agent/extensions` and `.pig/extensions`, PiG loads:
+In `~/.pi/agent/extensions` and `.pi/extensions`, ompig-slim loads:
 
 - each top-level `.ts` or `.js` file;
 - each folder that has an `index.ts` or `index.js`, or a `pi.extensions` manifest in its `package.json`.
 
-PiG ignores a `.mjs` file and a `.js` file in a subfolder that has no `index`. The ignored file gives no error, and `pig install <path> --validate-only` can still call it valid. An untrusted project loads nothing from `.pig/extensions`: in a print run (`-p`) there is no prompt, so pass `--approve` or trust the project first ([project trust](trust.md)).
+ompig-slim ignores a `.mjs` file and a `.js` file in a subfolder that has no `index`. The ignored file gives no error, and `ompig-slim install <path> --validate-only` can still call it valid. An untrusted project loads nothing from `.pi/extensions`: in a print run (`-p`) there is no prompt, so pass `--approve` or trust the project first ([project trust](trust.md)).
 
 ## Scaffold
 
 Create a factory:
 
 ```bash
-pig extension init ./my-extension --lang go
+ompig-slim extension init ./my-extension --lang go
 ```
 
 Create a Go login factory with a neutral example definition:
 
 ```bash
-pig extension init ./my-pig --lang go --login
+ompig-slim extension init ./my-pig --lang go --login
 ```
 
 The login scaffold contains a valid neutral grid, palette, and `SetLogin`
@@ -135,26 +135,26 @@ session-start handler. Replace its art and identity text for your extension.
 Create a standalone:
 
 ```bash
-pig extension init ./my-extension --lang go --isolated
+ompig-slim extension init ./my-extension --lang go --isolated
 ```
 
 Supported scaffold languages are Go, Python, Rust, and Lisp. The scaffold writes no
-YAML file. PiG stages the matching SDK under the active config root.
+YAML file. ompig-slim stages the matching SDK under the active config root.
 
-For Lisp, `pig extension init ./my-extension --lang lisp` writes `my-extension.asd` and `my-extension.lisp`. The `.lisp` file calls `pig:define-extension` with `:tool`, `:command`, and `:on` forms, and it needs SBCL 2.6.9. Validate it as in the next section.
+For Lisp, `ompig-slim extension init ./my-extension --lang lisp` writes `my-extension.asd` and `my-extension.lisp`. The `.lisp` file calls `pig:define-extension` with `:tool`, `:command`, and `:on` forms, and it needs SBCL 2.6.9. Validate it as in the next section.
 
 ## Validation
 
 Validate one source:
 
 ```bash
-pig install ./my-extension --validate-only --json
+ompig-slim install ./my-extension --validate-only --json
 ```
 
 Validate a set:
 
 ```bash
-pig install --validate-only --json ./ext-a ./ext-b
+ompig-slim install --validate-only --json ./ext-a ./ext-b
 ```
 
 Validation resolves the source form, builds or launches it, accepts runtime
@@ -164,10 +164,10 @@ placement plan. It does not install the source.
 ## Authentication inspection
 
 An extension declares OAuth through runtime provider registration. Before a
-session, `pig login --list` inspects each enabled extension independently. For a
+session, `ompig-slim login --list` inspects each enabled extension independently. For a
 source extension, a valid projection for the exact source configuration and
 immutable artifact digest avoids startup. A projection miss starts registration
-inspection. Factory construction executes extension code, but PiG dispatches no
+inspection. Factory construction executes extension code, but ompig-slim dispatches no
 session, tool, command, event, shortcut, or renderer handler. One broken
 extension produces a diagnostic and does not remove healthy OAuth targets.
 Embedded packed members are inspected independently through the complete
@@ -188,14 +188,14 @@ See `docs/extension-authoring.md` and `docs/extension-api-parity.md`.
 
 ## Session context
 
-PiG loads session history for an extension only when the extension reads it. A
+ompig-slim loads session history for an extension only when the extension reads it. A
 persisted session is read from its local JSONL file and reconciled with the host
 cursor. If the file is unavailable, the host sends ordered pages of at most 4
 MB. Later appends use the same bounded path.
 
 ## Reload
 
-`/reload` resolves the same extension inputs as startup and preserves their first-seen order. PiG reuses valid build artifacts, but it constructs a fresh factory and runtime for every configured, embedded, fused, and built-in extension so module and closure state reset as they do in Pi. It starts and validates replacements, checks registration, and publishes the successful set. A failed extension is removed and reported while other extensions load.
+`/reload` resolves the same extension inputs as startup and preserves their first-seen order. ompig-slim reuses valid build artifacts, but it constructs a fresh factory and runtime for every configured, embedded, fused, and built-in extension so module and closure state reset as they do in Pi. It starts and validates replacements, checks registration, and publishes the successful set. A failed extension is removed and reported while other extensions load.
 
 ## MCP servers, virtual models and tool exposure
 
@@ -205,25 +205,25 @@ An extension in any supported language can register MCP servers (`registerMcpSer
 
 ## Product boundary
 
-`plugin.json` is cross-tool marketplace metadata. It does not contain PiG
+`plugin.json` is cross-tool marketplace metadata. It does not contain ompig-slim
 runtime fields. A deployment resource can point at extension source or
-artifacts and calls the same PiG validation path. It does not define the local
-PiG runtime source contract.
+artifacts and calls the same ompig-slim validation path. It does not define the local
+ompig-slim runtime source contract.
 
 ## Upgrade a Go extension written for an older SDK
 
-PiG compiles a Go extension against the SDK of the pig that runs it, so an SDK release can break an extension written for an earlier one (D109). Pi has no equivalent: it loads extension source in process. When a build fails on a changed SDK symbol, pig reports `go build: written for an older SDK` and names each changed API with its old and new shape, instead of printing only the compiler log:
+ompig-slim compiles a Go extension against the SDK of the pig that runs it, so an SDK release can break an extension written for an earlier one (D109). Pi has no equivalent: it loads extension source in process. When a build fails on a changed SDK symbol, pig reports `go build: written for an older SDK` and names each changed API with its old and new shape, instead of printing only the compiler log:
 
 ```text
 Extension "ask" was written for an older SDK:
   Context.GetSessionID: func() string -> func() (string, error) (SDK 0.3.0)
   SendMessageOptions.TriggerTurn: bool -> *bool (SDK 0.2.0)
-Run: pig extension upgrade /home/me/.pig/agent/extensions/ask
+Run: ompig-slim extension upgrade /home/me/.pi/agent/extensions/ask
 ```
 
 A build that also fails on an error that is not an SDK change, in the extension or in another extension of the same packed cell, keeps the plain build message.
 
-`pig extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]` rewrites the extension with the rules in `extensions/sdk/upgrade`. The rules parse and type-check the Go source, edit only the SDK uses they recognize, and format the result with `go/format`. The command copies the original files to `<config root>/state/extension-upgrade/<time>-<name>/` first (`<time>-<name>-2/` and so on when that directory exists), prints a unified diff, rebuilds the extension, and reports one status per extension: `upgraded`, `up to date`, `needs manual changes`, `failed` or `skipped`. `--dry-run` prints the diff and changes nothing. `--summary` prints one line per extension. With no argument, the command upgrades every Go extension that settings, packages, the agent directory and a trusted project directory load.
+`ompig-slim extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]` rewrites the extension with the rules in `extensions/sdk/upgrade`. The rules parse and type-check the Go source, edit only the SDK uses they recognize, and format the result with `go/format`. The command copies the original files to `<config root>/state/extension-upgrade/<time>-<name>/` first (`<time>-<name>-2/` and so on when that directory exists), prints a unified diff, rebuilds the extension, and reports one status per extension: `upgraded`, `up to date`, `needs manual changes`, `failed` or `skipped`. `--dry-run` prints the diff and changes nothing. `--summary` prints one line per extension. With no argument, the command upgrades every Go extension that settings, packages, the agent directory and a trusted project directory load.
 
 Before, written for SDK 0.2.0:
 
@@ -234,7 +234,7 @@ ext.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 })
 ```
 
-After `pig extension upgrade`:
+After `ompig-slim extension upgrade`:
 
 ```go
 ext.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
@@ -246,10 +246,10 @@ ext.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 })
 ```
 
-The rules rewrite the host-backed getters, the optional boolean fields, and `ContextUsage.Tokens` and `Percent`. A getter call moves out of its statement, including an `if` or `switch` init statement, together with any `Cwd`, `Mode`, `HasUI`, `Width`, `Height` or `ToolCallID` call before it so the calls keep their order. A `ConfigHome` call that is the only argument of a variadic call, such as `fmt.Println(ctx.ConfigHome())`, still compiles because its value and its error both become arguments, so the error is printed or passed on instead of handled. When the extension's `go.mod` requires an SDK older than 0.5.0, the rules find that call and rewrite it the same way, and list it rather than discard its error. A call whose parameter for the error has the type `error`, such as `check(home string, errs ...error)`, already receives the error and stays. A function that returns an error returns the getter's error. In a function that does not, a host-backed getter's error is discarded with a comment, which keeps the old SDK's empty value on failure, while a `ConfigHome` call is listed for you instead: the old `ConfigHome` could not fail, and an empty configuration root would make its paths relative to the working directory. A use that cannot move without changing the order of evaluation, such as one in a `select` case, and a getter's method value passed where the old signature is wanted, are listed with the reason. A change with no safe rewrite, such as the typed `SetEditorComponent` factory, the `ToolConstrainedSampling` union, the `AutocompleteProviderFactory` type or a provider object's `*sdk.Credential`, is reported with its remedy and the file stays as it was. An upgrade is all or nothing: if writing a file or the rebuild of the upgraded extension fails, pig restores every file it changed and the report says so.
+The rules rewrite the host-backed getters, the optional boolean fields, and `ContextUsage.Tokens` and `Percent`. A getter call moves out of its statement, including an `if` or `switch` init statement, together with any `Cwd`, `Mode`, `HasUI`, `Width`, `Height` or `ToolCallID` call before it so the calls keep their order. A `ConfigHome` call that is the only argument of a variadic call, such as `fmt.Println(ctx.ConfigHome())`, still compiles because its value and its error both become arguments, so the error is printed or passed on instead of handled. When the extension's `go.mod` requires an SDK older than 0.5.0, the rules find that call and rewrite it the same way, and list it rather than discard its error. A call whose parameter for the error has the type `error`, such as `check(home string, errs ...error)`, already receives the error and stays. A function that returns an error returns the getter's error. In a function that does not, a host-backed getter's error is discarded with a comment, which keeps the old SDK's empty value on failure, while a `ConfigHome` call is listed for you instead: the old `ConfigHome` could not fail, and an empty configuration root would make its paths relative to the working directory. A use that cannot move without changing the order of evaluation, such as one in a `select` case, and a getter's method value passed where the old signature is wanted, are listed with the reason. A change with no safe rewrite, such as the typed `SetEditorComponent` factory, the `ToolConstrainedSampling` union, the `AutocompleteProviderFactory` type or a provider object's `*sdk.Credential`, is reported with its remedy and the file stays as it was. An upgrade is all or nothing: if writing a file or the rebuild of the upgraded extension fails, ompig-slim restores every file it changed and the report says so.
 
-Interactive startup lists a drifted extension and asks `Run pig extension upgrade <path>... now? [y/N]` before it exits. Yes upgrades and rebuilds them, then loads the extensions again in the same process and continues startup, so a `--fork`, `--session-id` or `--name` takes effect once. No exits as Pi does on an extension load error. Print, JSON and RPC modes print the command to standard error and exit 1, and write nothing to standard output.
+Interactive startup lists a drifted extension and asks `Run ompig-slim extension upgrade <path>... now? [y/N]` before it exits. Yes upgrades and rebuilds them, then loads the extensions again in the same process and continues startup, so a `--fork`, `--session-id` or `--name` takes effect once. No exits as Pi does on an extension load error. Print, JSON and RPC modes print the command to standard error and exit 1, and write nothing to standard output.
 
-Set `extensionsAutoUpgrade` to `true` in the global settings file to run the rules at startup and after `pig update` without the question. Each upgraded extension gets a backup and one line on standard error. The setting is off by default, a project settings file cannot turn it on, and only the rules run; no agent edits an extension.
+Set `extensionsAutoUpgrade` to `true` in the global settings file to run the rules at startup and after `ompig-slim update` without the question. Each upgraded extension gets a backup and one line on standard error. The setting is off by default, a project settings file cannot turn it on, and only the rules run; no agent edits an extension.
 
-When two loaded extensions register the same tool and one directory is a copy of the other, pig names both directories and suggests removing the older copy. Pi's tool-conflict error stays as it is.
+When two loaded extensions register the same tool and one directory is a copy of the other, ompig-slim names both directories and suggests removing the older copy. Pi's tool-conflict error stays as it is.
