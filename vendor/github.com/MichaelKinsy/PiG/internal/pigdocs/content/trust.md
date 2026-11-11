@@ -10,27 +10,27 @@ This page is the guide to the decision. [Security](security.md) has the wider sa
 
 ## What needs trust
 
-PiG asks when the project contains one of these inputs. Most inputs are under `.pig/`:
+PiG asks when the project contains one of these inputs. Most inputs are under `.pi/`:
 
 | Path | What it changes |
 |---|---|
-| `.pig/settings.json` | any setting, including the shell prefix and the model |
-| `.pig/mcp.json` | MCP servers, including the commands of stdio servers |
-| `.pig/extensions` | code PiG loads and runs |
-| `.pig/skills` | instructions given to the model |
-| `.pig/prompts` | instructions given to the model |
-| `.pig/themes` | colors only |
-| `.pig/SYSTEM.md` | the system prompt |
-| `.pig/APPEND_SYSTEM.md` | text appended to the system prompt |
+| `.pi/settings.json` | any setting, including the shell prefix and the model |
+| `.pi/mcp.json` | MCP servers, including the commands of stdio servers |
+| `.pi/extensions` | code PiG loads and runs |
+| `.pi/skills` | instructions given to the model |
+| `.pi/prompts` | instructions given to the model |
+| `.pi/themes` | colors only |
+| `.pi/SYSTEM.md` | the system prompt |
+| `.pi/APPEND_SYSTEM.md` | text appended to the system prompt |
 | `.agents/skills` in the working directory or an ancestor directory | instructions given to the model |
 
-A bare `.pig` directory needs no decision. A project with none of these inputs needs no decision, and PiG does not ask. Your own `~/.agents/skills` is global input and never needs trust.
+A bare `.pi` directory needs no decision. A project with none of these inputs needs no decision, and PiG does not ask. Your own `~/.agents/skills` is global input and never needs trust.
 
 Until you trust a project, PiG uses your global configuration alone.
 
 Context files such as `AGENTS.md` and `CLAUDE.md` load whatever the decision is, unless you disable context loading. Treat instructions in a folder as untrusted input even when you decline trust.
 
-A Piglet in `.pig/piglets/` is project input too, but PiG selects a Piglet before it can ask. `--piglet <name>` uses the project's Piglet only when the project has a saved trust decision, `defaultProjectTrust` is `"always"`, or the run passes `--approve`. Otherwise it uses your own Piglet of that name, and the trust prompt names the project's Piglet. A bare name is never read as a file in the working directory.
+A Piglet in `.pi/piglets/` is project input too, but PiG selects a Piglet before it can ask. `--piglet <name>` uses the project's Piglet only when the project has a saved trust decision, `defaultProjectTrust` is `"always"`, or the run passes `--approve`. Otherwise it uses your own Piglet of that name, and the trust prompt names the project's Piglet. A bare name is never read as a file in the working directory.
 
 ## How PiG chooses a decision
 
@@ -45,7 +45,7 @@ PiG asks you once, when a session starts in an untrusted project that has one of
 
 The selector shows the saved decision separately from the current session's trust state. The checkmark stays on the saved choice while you browse. Select **Trust parent folder** to save trust for the parent and clear the project's override. Saving does not change the current session's trust state. Restart PiG to use the new decision.
 
-Decisions are stored in `~/.pig/agent/trust.json`, keyed by the project's canonical path. A path inherits the decision of its nearest stored ancestor, so trusting a directory trusts the repositories inside it.
+Decisions are stored in `~/.pi/agent/trust.json`, keyed by the project's canonical path. A path inherits the decision of its nearest stored ancestor, so trusting a directory trusts the repositories inside it.
 
 ## Decide in advance
 
@@ -72,25 +72,25 @@ Pass `--approve` or `--no-approve` when an automated run needs an explicit one-t
 
 Project trust is not a complete startup boundary. As in Pi, PiG reads the project `sessionDir` setting while it selects or creates a session, before it resolves trust. Declining trust cannot undo that lookup.
 
-`pig status` shows the project trust decision and marks the resources that a run ignores because the project is untrusted. Use `/trust` to see the saved decision and the state of the current session.
+`ompig-slim status` shows the project trust decision and marks the resources that a run ignores because the project is untrusted. Use `/trust` to see the saved decision and the state of the current session.
 
 Trust does not limit what tool calls can reach. After PiG starts, enabled tools use the operating-system permissions of the PiG process.
 
 ## Compare with Pi
 
-PiG follows Pi's project-trust rules. The paths and the stored file use `.pig` and `~/.pig`.
+PiG follows Pi's project-trust rules. The paths and the stored file use `.pi` and `~/.pi`.
 
 | Behavior | Pi | PiG |
 |---|---|---|
-| Protected project inputs | `.pi/settings.json`, `.pi/mcp.json`, `.pi/extensions`, `.pi/skills`, `.pi/prompts`, `.pi/themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md`, and project `.agents/skills` | The same list under `.pig/`, and project `.agents/skills`. |
-| Bare config directory | A bare `.pi` directory needs no decision. | A bare `.pig` directory needs no decision. |
+| Protected project inputs | `.pi/settings.json`, `.pi/mcp.json`, `.pi/extensions`, `.pi/skills`, `.pi/prompts`, `.pi/themes`, `.pi/SYSTEM.md`, `.pi/APPEND_SYSTEM.md`, and project `.agents/skills` | The same list under `.pi/`, and project `.agents/skills`. |
+| Bare config directory | A bare `.pi` directory needs no decision. | A bare `.pi` directory needs no decision. |
 | Context files | `AGENTS.md`, `AGENTS.override.md` and `CLAUDE.md` load whatever the decision is. | The same. |
 | Order of the decision | The command-line override, then the `project_trust` extension event, then a saved decision, then `defaultProjectTrust`. | The same order. |
-| Saved decisions | `~/.pi/agent/trust.json`, keyed by canonical directory. The closest ancestor applies. | `~/.pig/agent/trust.json`, with the same rules. |
+| Saved decisions | `~/.pi/agent/trust.json`, keyed by canonical directory. The closest ancestor applies. | `~/.pi/agent/trust.json`, with the same rules. |
 | Default | `defaultProjectTrust` is `"ask"`. | The same. |
 | No prompt (print, JSON, RPC) | `"always"` loads protected inputs. `"ask"` and `"never"` skip them. | The same. |
 | Initial `sessionDir` lookup | Read before trust resolves. | The same. |
-| Project Piglets | Not applicable. | A Piglet in `.pig/piglets/` loads only with a saved decision, `"always"` or `--approve`. |
+| Project Piglets | Not applicable. | A Piglet in `.pi/piglets/` loads only with a saved decision, `"always"` or `--approve`. |
 
 ## Related
 

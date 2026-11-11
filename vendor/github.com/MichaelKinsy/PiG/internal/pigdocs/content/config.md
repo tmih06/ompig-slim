@@ -1,8 +1,8 @@
 # Configuration
 
-PiG reads configuration from two places: the agent directory, which applies to every project you open, and the `.pig` directory inside a project. PiG also loads instruction files such as `AGENTS.md` from the directories around your working directory.
+PiG reads configuration from two places: the agent directory, which applies to every project you open, and the `.pi` directory inside a project. PiG also loads instruction files such as `AGENTS.md` from the directories around your working directory.
 
-PiG keeps its state under `~/.pig` by default. It does not read or write Pi's `~/.pi` directory unless you explicitly select shared directories, so PiG and Pi can run side by side without sharing settings, credentials or sessions. This separation and its opt-in are divergence D2.
+ompig-slim keeps its state under the configuration root, `~/.pi` by default, the same tree Pi uses. This build shares Pi and OMP's configuration through `PIG_HOME`, `PIG_CODING_AGENT_DIR` and the `~/.pi`/`.pi` defaults (`AppName` and `UsePiDirs` in `internal/codingagent/paths.go`); upstream PiG's separate `~/.pig` tree and its `PIG_USE_PI_DIRS` opt-in are divergence D2 and do not apply here.
 
 Use `/settings` in an interactive session to change common preferences. When you edit a configuration file by hand, run `/reload` so the running session picks up the change. `/reload` rereads settings, keybindings, extensions, skills, prompt templates, themes and context files.
 
@@ -13,10 +13,9 @@ PiG chooses one configuration root at startup:
 | Order | Source | Root |
 |---|---|---|
 | 1 | `PIG_HOME` is set and not empty | `$PIG_HOME` |
-| 2 | `XDG_CONFIG_HOME` is set | `$XDG_CONFIG_HOME/pig` |
-| 3 | default | `~/.pig` |
+| 2 | default | `~/.pi` |
 
-Pi reads neither `PIG_HOME` nor `XDG_CONFIG_HOME`. Its default agent directory is `~/.pi/agent`.
+`XDG_CONFIG_HOME` is not consulted by this build. Pi reads neither `PIG_HOME` nor `XDG_CONFIG_HOME`. Its default agent directory is `~/.pi/agent`.
 
 The root holds these directories:
 
@@ -27,11 +26,11 @@ The root holds these directories:
 | `<root>/artifacts/piglets/` | Piglet Binaries that PiG manages. |
 | `<root>/receipts/piglets/` | Piglet resolution and build records. |
 | `<root>/state/<namespace>/` | State that one PiG capability owns. |
-| `<root>/docs/` | The offline documentation that `pig docs` writes. |
+| `<root>/docs/` | The offline documentation that `ompig-slim docs` writes. |
 
 ## Agent directory
 
-The agent directory is `<root>/agent`, which is `~/.pig/agent` by default. Set `PIG_CODING_AGENT_DIR` to move only this directory. Pi reads `PI_CODING_AGENT_DIR` for the same purpose. PiG reads that variable only in shared mode.
+The agent directory is `<root>/agent`, which is `~/.pi/agent` by default. Set `PIG_CODING_AGENT_DIR` to move only this directory. Pi reads `PI_CODING_AGENT_DIR` for the same purpose. PiG reads that variable only in shared mode.
 
 This page writes the agent directory as `<agent-dir>`.
 
@@ -59,49 +58,43 @@ PiG also finds skills in `~/.agents/skills/`. See [skills](skills.md).
 
 ## Using Pi's directories
 
-Set one environment variable before starting PiG:
+This build always uses Pi and OMP's configuration: `internal/codingagent.UsePiDirs` returns true, so nothing has to be set. The agent directory is `~/.pi/agent` unless `PIG_CODING_AGENT_DIR` names another one, and the project directory is `<cwd>/.pi`.
+
+`PIG_USE_PI_DIRS=1` is upstream PiG's opt-in; it is accepted for compatibility and changes nothing here, because the shared tree is already selected.
+
+`PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` are read as fallbacks beside `PIG_CODING_AGENT_DIR` and `PIG_CODING_AGENT_SESSION_DIR`. `--session-dir` still wins over either, followed by the `sessionDir` setting. `PIG_HOME` controls the product's own SDK caches, documentation, Piglets and other state, not the agent directory.
+
+Sharing includes settings, credentials, custom models, keybindings, trust decisions, sessions and discovered resources. Pi and Pi 1.5.0 read the same current JSON and JSONL shapes. Settings writes retain unknown keys. This build does not write `models.json`. Use Pi-compatible Package declarations and resources; PiG-only extensions and Piglets do not become Pi-compatible by changing their directory.
+
+The product coordinates auth, settings, trust and dynamic model-catalog cache writes with Pi's directory-lock protocol. Independent sessions can use the same agent directory. Do not edit one session concurrently from two processes. Stop older processes before sharing their files. Empty regular lock files from v0.2.0 on are reclaimed after checking that no older writer holds them. If an older process holds a lock, acquisition uses the normal timeout and asks you to stop that process. Nonempty files, symlinks and active lock directories are not reclaimed.
+
+Packages that hard-code Pi paths, such as Powerline and `pi-acp`, need the default `~/.pi/agent` location:
 
 ```bash
-PIG_USE_PI_DIRS=1 pig
+PI_ACP_PI_COMMAND="$(command -v ompig-slim)" pi-acp
 ```
 
-Only the exact value `1` enables sharing. This selects `~/.pi/agent` and `<cwd>/.pi` instead of PiG's agent and project directories (D2). It does not merge, copy or migrate the two trees. Project trust still applies. The setting lives in the environment because a setting inside the relocated directory cannot select that directory.
-
-In shared mode, `PI_CODING_AGENT_DIR` overrides the agent directory and `PI_CODING_AGENT_SESSION_DIR` overrides session storage. `--session-dir` still wins over the environment, followed by the `sessionDir` setting. PiG ignores `PIG_CODING_AGENT_DIR` and `PIG_CODING_AGENT_SESSION_DIR` in this mode. `PIG_HOME` and `XDG_CONFIG_HOME` still control PiG-owned SDK caches, documentation, Piglets and other product state, not the shared agent directory.
-
-Sharing includes settings, credentials, custom models, keybindings, trust decisions, sessions and discovered resources. PiG and Pi 1.5.0 read the same current JSON and JSONL shapes. Settings writes retain unknown keys. PiG does not write `models.json`. Use Pi-compatible Package declarations and resources in shared settings; PiG-only extensions and Piglets do not become Pi-compatible by changing their directory.
-
-PiG coordinates auth, settings, trust and dynamic model-catalog cache writes with Pi's directory-lock protocol. Independent sessions can use the same agent directory. Do not edit one session concurrently from two processes. Stop older PiG processes before sharing their files. PiG automatically reclaims empty regular lock files from v0.2.0 after checking that no older writer holds them. If an older PiG holds a lock, acquisition uses the normal timeout and asks you to stop that process. PiG does not reclaim nonempty files, symlinks or active lock directories. Keep a backup before selecting an existing configuration tree.
-
-Packages that hard-code Pi paths, such as Powerline and `pi-acp`, need the default `~/.pi/agent` location. For `pi-acp`, pass the opt-in to the adapter so its PiG child inherits it:
-
-```bash
-PIG_USE_PI_DIRS=1 PI_ACP_PI_COMMAND="$(command -v pig)" pi-acp
-```
-
-The adapter keeps its own `~/.pi/pi-acp/session-map.json`; PiG does not copy or rewrite it. Use one adapter process per home to avoid competing map writes. A custom `PI_CODING_AGENT_DIR` does not relocate paths a package hard-codes, including pi-acp's prompt-template directories.
-
-Unset `PIG_USE_PI_DIRS` to return to separate PiG directories. The shared files remain where they are.
+The adapter keeps its own `~/.pi/pi-acp/session-map.json`; this build does not copy or rewrite it. Use one adapter process per home to avoid competing map writes. A custom `PI_CODING_AGENT_DIR` does not relocate paths a package hard-codes, including pi-acp's prompt-template directories.
 
 ## Project directory
 
-A project keeps its configuration in `.pig` inside the working directory. PiG reads `.pig` only from the working directory itself. It does not look for `.pig` in parent directories.
+A project keeps its configuration in `.pi` inside the working directory. PiG reads `.pi` only from the working directory itself. It does not look for `.pi` in parent directories.
 
 | Path | Purpose |
 |---|---|
-| `.pig/settings.json` | Project settings. Keys here override the same keys in `<agent-dir>/settings.json`. |
-| `.pig/SYSTEM.md` | Replaces the system prompt for this project. |
-| `.pig/APPEND_SYSTEM.md` | Adds project text to the end of the system prompt. |
-| `.pig/extensions/` | Project extensions. |
-| `.pig/skills/` | Project skills. |
-| `.pig/prompts/` | Project prompt templates. |
-| `.pig/themes/` | Project themes. |
-| `.pig/npm/`, `.pig/git/` | Packages installed with `pig install --local`. |
-| `.pig/piglets/` | Project Piglets. |
+| `.pi/settings.json` | Project settings. Keys here override the same keys in `<agent-dir>/settings.json`. |
+| `.pi/SYSTEM.md` | Replaces the system prompt for this project. |
+| `.pi/APPEND_SYSTEM.md` | Adds project text to the end of the system prompt. |
+| `.pi/extensions/` | Project extensions. |
+| `.pi/skills/` | Project skills. |
+| `.pi/prompts/` | Project prompt templates. |
+| `.pi/themes/` | Project themes. |
+| `.pi/npm/`, `.pi/git/` | Packages installed with `ompig-slim install --local`. |
+| `.pi/piglets/` | Project Piglets. |
 
 ### Project trust
 
-A project directory can contain code that runs on your machine. PiG therefore asks whether you trust a project before it reads `.pig/settings.json`, `.pig/mcp.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`, extensions, skills, prompt templates or themes from it. If you do not trust the project, PiG ignores all of them. A Piglet that `--piglet <name>` finds in `.pig/piglets/` is used only when the project has a saved trust decision, `defaultProjectTrust` is `"always"`, or the run passes `--approve`. PiG selects a Piglet before it can ask, so it uses your own Piglet of that name for the run, and the trust prompt, when one appears, names the project's Piglet.
+A project directory can contain code that runs on your machine. PiG therefore asks whether you trust a project before it reads `.pi/settings.json`, `.pi/mcp.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`, extensions, skills, prompt templates or themes from it. If you do not trust the project, PiG ignores all of them. A Piglet that `--piglet <name>` finds in `.pi/piglets/` is used only when the project has a saved trust decision, `defaultProjectTrust` is `"always"`, or the run passes `--approve`. PiG selects a Piglet before it can ask, so it uses your own Piglet of that name for the run, and the trust prompt, when one appears, names the project's Piglet.
 
 One setting is an exception. PiG reads `sessionDir` from the project settings before it asks, because it must locate the project's sessions first.
 
@@ -155,7 +148,7 @@ PiG applies these migrations only to the selected directories. It does not impor
 
 ## Diagnostics
 
-`pig diagnose` prints the PiG and pinned Pi versions, the build, the Go runtime, the platform, the binary path, the staged extension SDKs, the resolved configuration paths, the project trust decision, the active Piglet, the providers with stored credentials, the built-in tools, and the default model that a session starts with. It names the settings file of each default model setting, and it does not count the `defaultModel` of an untrusted project. Pi reads `defaultModel` as a model id, so `"bench/bench-2"` is not split into a provider and a model, and diagnose shows the model that startup falls back to.
+`ompig-slim diagnose` prints the PiG and pinned Pi versions, the build, the Go runtime, the platform, the binary path, the staged extension SDKs, the resolved configuration paths, the project trust decision, the active Piglet, the providers with stored credentials, the built-in tools, and the default model that a session starts with. It names the settings file of each default model setting, and it does not count the `defaultModel` of an untrusted project. Pi reads `defaultModel` as a model id, so `"bench/bench-2"` is not split into a provider and a model, and diagnose shows the model that startup falls back to.
 
 Set `PIG_STARTUP_TRACE=1` to print the time of each startup step. See [environment variables](environment-variables.md) for the other diagnostic variables.
 

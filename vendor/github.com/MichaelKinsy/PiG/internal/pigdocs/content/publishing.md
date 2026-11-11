@@ -4,14 +4,14 @@
 
 PiG lists Packages and Piglets that authors publish to npm, the way Pi's gallery lists Pi packages. Publishing is ordinary npm publishing plus one npm keyword. This page covers both commands, signed Piglet Binaries, how the pi-in-go.dev catalog finds what you publish, and npm authentication, including CI.
 
-You need an account on https://www.npmjs.com and the `npm` command, which Node.js installs. Signed Piglet Binaries also need the GitHub CLI (`gh`), signed in to GitHub. `pig package publish` and `pig piglet publish` are dry runs until you add `--yes`, so you can try them first. Plain `npm publish` has no such step.
+You need an account on https://www.npmjs.com and the `npm` command, which Node.js installs. Signed Piglet Binaries also need the GitHub CLI (`gh`), signed in to GitHub. `ompig-slim package publish` and `ompig-slim piglet publish` are dry runs until you add `--yes`, so you can try them first. Plain `npm publish` has no such step.
 
 ## What gets listed
 
 | You publish | npm keyword | Install command shown | Publish with |
 |---|---|---|---|
-| a Package | `pig-package` | `pig install npm:<name>` | `npm publish`, or `pig package publish --to npm` |
-| a Piglet's source | `pig-piglet` | `pig piglet add npm:<name>` | `pig piglet publish --to npm` |
+| a Package | `pig-package` | `ompig-slim install npm:<name>` | `npm publish`, or `ompig-slim package publish --to npm` |
+| a Piglet's source | `pig-piglet` | `ompig-slim piglet add npm:<name>` | `ompig-slim piglet publish --to npm` |
 
 Pi packages carry the keyword `pi-package`. A Package that works in both Pi and PiG may carry both keywords; a package that has several keywords is listed under the most specific one (`pig-piglet`, then `pig-package`, then `pi-package`).
 
@@ -35,10 +35,10 @@ A Package is an ordinary npm package. Add the keyword and a description to `pack
 npm publish --access public
 ```
 
-`pig package publish` is optional sugar over that command. It validates the Package, checks that `package.json` has the fields the catalog reads (`name`, `version`, `description`, and the `pig-package` keyword), checks that `name@version` is free on npm, and shows what npm would pack:
+`ompig-slim package publish` is optional sugar over that command. It validates the Package, checks that `package.json` has the fields the catalog reads (`name`, `version`, `description`, and the `pig-package` keyword), checks that `name@version` is free on npm, and shows what npm would pack:
 
 ```bash
-pig package publish ./base-coding --to npm
+ompig-slim package publish ./base-coding --to npm
 ```
 
 Without `--yes` it is a dry run: it runs `npm publish --dry-run`, prints npm's tarball listing and the exact command, and publishes nothing. With `--yes` it runs `npm publish` in the Package directory, so your `.npmrc` and scripts such as `prepublishOnly` apply as they do for plain `npm publish`. PiG never edits `package.json`; a missing keyword is an error that tells you what to add.
@@ -48,13 +48,13 @@ Without `--yes` it is a dry run: it runs `npm publish --dry-run`, prints npm's t
 A Piglet publishes as source. Set `release.version` in the Piglet, then run:
 
 ```bash
-pig piglet publish ./agents/reviewer.yaml --to npm
+ompig-slim piglet publish ./agents/reviewer.yaml --to npm
 ```
 
-PiG validates the Piglet as `pig piglet validate` does, writes a temporary npm package, checks the registry, and shows what npm would publish. Add `--yes` to publish:
+PiG validates the Piglet as `ompig-slim piglet validate` does, writes a temporary npm package, checks the registry, and shows what npm would publish. Add `--yes` to publish:
 
 ```bash
-pig piglet publish ./agents/reviewer.yaml --to npm --yes --access public
+ompig-slim piglet publish ./agents/reviewer.yaml --to npm --yes --access public
 ```
 
 The generated package contains `piglet.yaml`, `package.json`, your `README.md` and `LICENSE` beside the Piglet (a short README is written when there is none), and the system prompt file the Piglet names. In `package.json`:
@@ -62,7 +62,7 @@ The generated package contains `piglet.yaml`, `package.json`, your `README.md` a
 - `name` is the `name` in a `package.json` beside the Piglet, else the Piglet's own name. `--npm-name @acme/reviewer` sets it. Choose a scoped name: a short Piglet name such as `reviewer` is probably taken.
 - `version` is `release.version`.
 - `keywords` includes `pig-piglet`, with any keywords from your own `package.json`.
-- `pig.piglet` is `piglet.yaml`, the path `pig piglet add` reads. `license`, `author`, `repository`, `homepage`, `bugs`, `funding`, and `publishConfig` come from your `package.json` when you have one beside the Piglet. Scripts and dependencies never do.
+- `pig.piglet` is `piglet.yaml`, the path `ompig-slim piglet add` reads. `license`, `author`, `repository`, `homepage`, `bugs`, `funding`, and `publishConfig` come from your `package.json` when you have one beside the Piglet. Scripts and dependencies never do.
 
 A remote Piglet cannot name local paths. PiG replaces each Package with `local:` source by `npm:<name>@^<version>`, using the `name` and `version` in that Package's own `package.json`. The authored Piglet:
 
@@ -78,15 +78,15 @@ packages:
   review: npm:@acme/review@^1.2.0
 ```
 
-When that `package.json` sets `publishConfig.registry`, the reference names that registry, for example `npm:@acme/review@^1.2.0?registry=https%3A%2F%2Fnpm.pkg.github.com`, so `pig piglet add` installs the Package from it. The registry must be an HTTPS URL without credentials; otherwise publication stops and asks for `--package-map`.
+When that `package.json` sets `publishConfig.registry`, the reference names that registry, for example `npm:@acme/review@^1.2.0?registry=https%3A%2F%2Fnpm.pkg.github.com`, so `ompig-slim piglet add` installs the Package from it. The registry must be an HTTPS URL without credentials; otherwise publication stops and asks for `--package-map`.
 
 Publish the Package first. PiG asks npm whether a published version satisfies each `npm:` Package of the published Piglet that names no registry of its own. The dry run lists every missing Package as a warning, and `--yes` refuses to publish a Piglet that nobody could add. When a local Package has no npm name and version, the error says so; publish it first, or give its npm reference yourself:
 
 ```bash
-pig piglet publish ./agents/reviewer.yaml --to npm --package-map review=npm:@acme/review@^1.2.0
+ompig-slim piglet publish ./agents/reviewer.yaml --to npm --package-map review=npm:@acme/review@^1.2.0
 ```
 
-`--package-map <alias>=npm:<name>@<range>` can be repeated. PiG refuses what `pig piglet add` would refuse: `extends`, `agentEnv.devContainer`, a local `agentEnv.source`, file-based secrets, and extensions or skills with a `local:` origin. Move a local extension into a Package and publish that Package.
+`--package-map <alias>=npm:<name>@<range>` can be repeated. PiG refuses what `ompig-slim piglet add` would refuse: `extends`, `agentEnv.devContainer`, a local `agentEnv.source`, file-based secrets, and extensions or skills with a `local:` origin. Move a local extension into a Package and publish that Package.
 
 Publishing is safe to repeat. PiG asks npm whether `name@version` exists (`npm view`, on the registry in `publishConfig.registry` when `package.json` names one) and refuses to publish over it. Raise `release.version` and publish again.
 
@@ -103,14 +103,14 @@ Publishing is safe to repeat. PiG asks npm whether `name@version` exists (`npm v
 | `--binaries github:<owner/repo>` | Record the signed Binary release (Piglets only). |
 | `--no-binaries` | Record no signed Binary release (Piglets only). |
 
-PiG runs the `npm` on your `PATH`, or the command in the global `npmCommand` setting. PiG never runs an `npm` from the directory it publishes: it looks for npm only in the absolute directories on your `PATH`, never in the current directory or a relative entry such as `.`, and resolves an `npmCommand` with a relative path against the directory you run `pig` in. On Windows, the first element of `npmCommand` must be an `.exe`, `.com`, `.cmd` or `.bat` file; to run an npm script such as `npm-cli.js`, name its interpreter first, as in `["node", "C:\\path\\to\\npm-cli.js"]`.
+PiG runs the `npm` on your `PATH`, or the command in the global `npmCommand` setting. PiG never runs an `npm` from the directory it publishes: it looks for npm only in the absolute directories on your `PATH`, never in the current directory or a relative entry such as `.`, and resolves an `npmCommand` with a relative path against the directory you run `ompig-slim` in. On Windows, the first element of `npmCommand` must be an `.exe`, `.com`, `.cmd` or `.bat` file; to run an npm script such as `npm-cli.js`, name its interpreter first, as in `["node", "C:\\path\\to\\npm-cli.js"]`.
 
 ## Signed Binaries next to the source
 
 The npm package is the Piglet's source. A signed per-platform Binary is a separate artifact that you publish to GitHub Releases:
 
 ```bash
-pig piglet publish ./agents/reviewer.yaml --to github --repo acme/reviewer --sign-key ./reviewer-signing.key --yes
+ompig-slim piglet publish ./agents/reviewer.yaml --to github --repo acme/reviewer --sign-key ./reviewer-signing.key --yes
 ```
 
 See [Piglet Binaries](piglets.md#monorepo-publication-and-named-binary-updates) for the release layout. When you then publish the source to npm, PiG records the signed release in `package.json`, so a catalog can show how to pull the Binary beside how to add the source:
@@ -122,15 +122,15 @@ See [Piglet Binaries](piglets.md#monorepo-publication-and-named-binary-updates) 
 }
 ```
 
-PiG takes the release from the publication this machine made with `--to github`. To name a release you published elsewhere, pass `--binaries github:acme/reviewer`: PiG downloads and verifies the signed release index, checks that it is for this Piglet and version, and records the release reference and the signer key id from it. `--no-binaries` records nothing. Anyone can pull the Binary with `pig piglet pull <ref>`, which verifies the signatures and pins the signer.
+PiG takes the release from the publication this machine made with `--to github`. To name a release you published elsewhere, pass `--binaries github:acme/reviewer`: PiG downloads and verifies the signed release index, checks that it is for this Piglet and version, and records the release reference and the signer key id from it. `--no-binaries` records nothing. Anyone can pull the Binary with `ompig-slim piglet pull <ref>`, which verifies the signatures and pins the signer.
 
 ## Add it back
 
-`pig piglet add npm:<name>` accepts exactly what publication produces. It installs the package, reads `pig.piglet`, validates the Piglet, resolves its Packages from npm, and registers the source with an origin record that holds the exact npm version and integrity:
+`ompig-slim piglet add npm:<name>` accepts exactly what publication produces. It installs the package, reads `pig.piglet`, validates the Piglet, resolves its Packages from npm, and registers the source with an origin record that holds the exact npm version and integrity:
 
 ```bash
-pig piglet add npm:@acme/reviewer
-pig --piglet reviewer
+ompig-slim piglet add npm:@acme/reviewer
+ompig-slim --piglet reviewer
 ```
 
 ## npm authentication
@@ -153,8 +153,8 @@ steps:
   - run: pig piglet publish ./piglets/reviewer.yaml --to npm --yes
 ```
 
-Publish the Packages before the Piglet that names them, as above. In the Piglet example, `pig` comes from your install step.
+Publish the Packages before the Piglet that names them, as above. In the Piglet example, `ompig-slim` comes from your install step.
 
 ## Additive
 
-Publishing to npm has no Pi counterpart. Pi's package workflow is plain `npm publish` with the `pi-package` keyword ([Pi's packages reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)), and PiG keeps that working unchanged. `pig package publish --to npm` and `pig piglet publish --to npm` are PiG additions (D18). The PiG repository records them in `docs/additive-features.md`.
+Publishing to npm has no Pi counterpart. Pi's package workflow is plain `npm publish` with the `pi-package` keyword ([Pi's packages reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)), and PiG keeps that working unchanged. `ompig-slim package publish --to npm` and `ompig-slim piglet publish --to npm` are PiG additions (D18). The PiG repository records them in `docs/additive-features.md`.

@@ -14,9 +14,9 @@ Read more: [Overview](https://pi-in-go.dev/docs/latest/)
 
 ## PiG
 
-PiG is the Go implementation in this repository. The executable is `pig`. PiG follows the exact Pi build pinned in `.upstream/pin` (a release tag, or a pinned commit).
+PiG is the Go implementation in this repository. The executable is `ompig-slim`. PiG follows the exact Pi build pinned in `.upstream/pin` (a release tag, or a pinned commit).
 
-Where you meet it: The `pig` executable and every page of this documentation.
+Where you meet it: The `ompig-slim` executable and every page of this documentation.
 
 Read more: [How PiG works](how-pig-works.md)
 
@@ -24,7 +24,7 @@ Read more: [How PiG works](how-pig-works.md)
 
 Stock PiG is the product-neutral binary built from this repository. It contains Pi-compatible behavior, generic extension and Piglet infrastructure, and the reference documentation required to use those APIs. It activates no optional product Resource and no implicit Piglet composition.
 
-Where you meet it: The plain `pig` binary you install. It activates no Piglet by itself.
+Where you meet it: The plain `ompig-slim` binary you install. It activates no Piglet by itself.
 
 Read more: [PiG concepts](concepts.md)
 
@@ -32,7 +32,7 @@ Read more: [PiG concepts](concepts.md)
 
 A Resource contributes one extension, skill, prompt, hook, MCP definition, theme, compatible agent declaration, context input, or agent environment.
 
-Where you meet it: `pig piglet show` lists the Resources a Piglet selects. Packages carry them.
+Where you meet it: `ompig-slim piglet show` lists the Resources a Piglet selects. Packages carry them.
 
 Read more: [PiG concepts](concepts.md)
 
@@ -40,7 +40,7 @@ Read more: [PiG concepts](concepts.md)
 
 A Package distributes a versioned collection of Resources. Installing a Package makes its Resources available through normal discovery. A Package does not own or activate a Piglet.
 
-Where you meet it: `pig install` and `pig list`.
+Where you meet it: `ompig-slim install` and `ompig-slim list`.
 
 Read more: [Packages](packages.md)
 
@@ -56,7 +56,7 @@ Read more: [Packages](packages.md)
 
 A Piglet defines one named agent. It selects and scopes Resources and declares defaults and environment requirements.
 
-Where you meet it: `pig piglet` commands and the `--piglet` flag.
+Where you meet it: `ompig-slim piglet` commands and the `--piglet` flag.
 
 Read more: [Piglets](piglets.md)
 
@@ -64,7 +64,7 @@ Read more: [Piglets](piglets.md)
 
 A Piglet release pins the exact Resource closure and executable component plan for a Piglet.
 
-Where you meet it: The record a Piglet build writes. `pig piglet verify` checks it.
+Where you meet it: The record a Piglet build writes. `ompig-slim piglet verify` checks it.
 
 Read more: [Piglet lifecycle](piglet-lifecycle.md)
 
@@ -72,15 +72,15 @@ Read more: [Piglet lifecycle](piglet-lifecycle.md)
 
 A Piglet Binary is a target-native PiG executable built for one immutable Piglet composition. It can contain fused Go extensions and prebuilt Go or Rust extension cells. External services, configuration, secrets, and interpreted runtimes remain external requirements unless the release states otherwise.
 
-Where you meet it: `pig piglet build --format binary` writes one.
+Where you meet it: `ompig-slim piglet build --format binary` writes one.
 
 Read more: [Piglet Binaries](piglets.md#piglet-binary)
 
 ## Piglet Image
 
-A Piglet Image is the planned OCI materialization of a Piglet and its runtime environment. It is not in this release. No PiG command produces one, and `pig piglet build --format image` fails.
+A Piglet Image is the planned OCI materialization of a Piglet and its runtime environment. It is not in this release. No PiG command produces one, and `ompig-slim piglet build --format image` fails.
 
-Where you meet it: Planned. `pig piglet build --format image` fails today.
+Where you meet it: Planned. `ompig-slim piglet build --format image` fails today.
 
 Read more: [Piglet lifecycle](piglet-lifecycle.md)
 

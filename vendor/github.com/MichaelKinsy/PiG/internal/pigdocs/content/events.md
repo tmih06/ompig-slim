@@ -29,7 +29,7 @@ func Extension() *sdk.Extension {
 Validate the extension after changing event code:
 
 ```bash
-pig install ./my-ext --validate-only --json
+ompig-slim install ./my-ext --validate-only --json
 ```
 
 ## Event names are the extension API surface

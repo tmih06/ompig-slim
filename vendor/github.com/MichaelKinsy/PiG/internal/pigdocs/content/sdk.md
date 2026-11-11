@@ -97,7 +97,7 @@ Set the working directory and agent directory explicitly when your application d
 The normal agent directory is:
 
 ```text
-~/.pig/agent
+~/.pi/agent
 ```
 
 Use `PIG_HOME` or explicit options for isolated tests and applications.
@@ -124,12 +124,12 @@ Subscribe to Session events before sending when your application needs streaming
 
 ## Models and authentication
 
-`coding.BuildModel` resolves a provider and model through the Services container. Authenticate with the standalone `pig` command or provide the application-specific credential mechanism before creating the model.
+`coding.BuildModel` resolves a provider and model through the Services container. Authenticate with the standalone `ompig-slim` command or provide the application-specific credential mechanism before creating the model.
 
 Verify a model from the command line:
 
 ```bash
-pig --print --model github-copilot/gpt-4o-mini "hello"
+ompig-slim --print --model github-copilot/gpt-4o-mini "hello"
 ```
 
 Do not copy credentials into source code.
@@ -150,7 +150,7 @@ A programmatic Session does not automatically need every interactive CLI tool. S
 
 Pass extension definitions through `coding.RuntimeOptions` when your application owns their configuration. The same public extension behavior applies to command-line and embedded use.
 
-Use a Piglet when the composition should also be usable from the `pig` executable or built as a Piglet Binary.
+Use a Piglet when the composition should also be usable from the `ompig-slim` executable or built as a Piglet Binary.
 
 ## Cancellation and shutdown
 
@@ -174,7 +174,7 @@ Do not replay a failed extension operation automatically unless the application 
 Start PiG in RPC mode when the caller needs a language-neutral process boundary:
 
 ```bash
-pig --mode rpc
+ompig-slim --mode rpc
 ```
 
 See [RPC mode](rpc.md).

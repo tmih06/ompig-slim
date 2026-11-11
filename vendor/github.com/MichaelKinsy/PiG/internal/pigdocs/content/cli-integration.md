@@ -2,7 +2,7 @@
 
 # CLI integration
 
-Run `pig` with no options in a terminal to open the interactive terminal UI. Scripts and other programs use one of the three non-interactive modes instead: print, JSON or RPC.
+Run `ompig-slim` with no options in a terminal to open the interactive terminal UI. Scripts and other programs use one of the three non-interactive modes instead: print, JSON or RPC.
 
 Every mode uses the same agent loop, sessions, tools and resources. The mode decides how input reaches PiG, what PiG writes to standard output, and whether the process stays up for more commands. The options that select the model, tools, resources and session storage work the same way in every mode. See [command line](commands.md).
 
@@ -12,10 +12,10 @@ The [Go SDK](sdk.md) is not a CLI mode. It runs sessions inside a Go program wit
 
 | Mode | Start it with | Output | Lifetime | Use it when |
 |---|---|---|---|---|
-| Interactive | `pig` | Terminal UI | Until you exit | A person works with PiG directly. |
-| Print | `pig -p "prompt"` | Final answer as text | One invocation | A script needs only the final answer. |
-| JSON | `pig --mode json "prompt"` | Events as JSON Lines | One invocation | A program needs the progress of one run. |
-| RPC | `pig --mode rpc` | Responses and events as JSON Lines | Until standard input closes | A program needs to send several commands. |
+| Interactive | `ompig-slim` | Terminal UI | Until you exit | A person works with PiG directly. |
+| Print | `ompig-slim -p "prompt"` | Final answer as text | One invocation | A script needs only the final answer. |
+| JSON | `ompig-slim --mode json "prompt"` | Events as JSON Lines | One invocation | A program needs the progress of one run. |
+| RPC | `ompig-slim --mode rpc` | Responses and events as JSON Lines | Until standard input closes | A program needs to send several commands. |
 
 PiG selects print mode on its own when standard input or standard output is not a terminal. A pipe or a redirect is therefore enough:
 
@@ -28,12 +28,12 @@ git diff | pig "Write a commit message for this diff" > message.txt
 Print mode runs the prompt, writes the text of the final assistant message to standard output, and exits:
 
 ```bash
-pig -p "Summarize the changes in this repository"
+ompig-slim -p "Summarize the changes in this repository"
 ```
 
 `--print` (`-p`) takes no value. PiG builds the prompt from piped standard input, `@file` arguments and the first message argument, in that order. It sends each further message argument as a separate prompt after the first one finishes.
 
-PiG reads piped standard input until it ends, as Pi does. A caller that leaves the pipe open makes startup wait. Pass `--no-stdin` to skip that read, for example `pig --no-stdin -p "prompt"`. Pi has no such option (D150, Pi #10415).
+PiG reads piped standard input until it ends, as Pi does. A caller that leaves the pipe open makes startup wait. Pass `--no-stdin` to skip that read, for example `ompig-slim --no-stdin -p "prompt"`. Pi has no such option (D150, Pi #10415).
 
 When standard output is not a terminal, PiG keeps it for the answer and redirects anything that tools or extensions write there to standard error. Extension errors appear on standard error as `Extension error (<path>): <message>`.
 
@@ -51,7 +51,7 @@ On `SIGTERM` or `SIGHUP`, PiG kills the tools' child processes, stops writing to
 JSON mode writes one JSON object per line. The first line is the session header. Agent and session events follow:
 
 ```bash
-pig --mode json "Review this repository" > events.jsonl
+ompig-slim --mode json "Review this repository" > events.jsonl
 ```
 
 The output is a stream of events. It does not ask the model to answer in JSON.
@@ -71,7 +71,7 @@ Standard output carries only JSON Lines. PiG writes diagnostics and logs to stan
 RPC mode keeps PiG running while another program sends commands:
 
 ```bash
-pig --mode rpc --no-session
+ompig-slim --mode rpc --no-session
 ```
 
 The client writes one JSON command per line to standard input. PiG writes one JSON response or event per line to standard output.
@@ -86,7 +86,7 @@ Close standard input to stop PiG. A command that replaces the session (`new_sess
 
 ### Go client
 
-Go programs can use `github.com/MichaelKinsy/PiG/coding/rpcclient`, the Go port of Pi's TypeScript `RpcClient`. It starts `pig --mode rpc`, matches responses to commands, offers one method per command, and delivers events to listeners:
+Go programs can use `github.com/MichaelKinsy/PiG/coding/rpcclient`, the Go port of Pi's TypeScript `RpcClient`. It starts `ompig-slim --mode rpc`, matches responses to commands, offers one method per command, and delivers events to listeners:
 
 ```go
 package main
@@ -129,9 +129,9 @@ Programs in other languages use the JSON Lines protocol directly. [RPC mode](rpc
 
 ## Build your own agent on PiG
 
-Pi lets a source fork rename its command and configuration directory through a `piConfig` block in `package.json`. PiG has no such block. The command name `pig` and the `~/.pig` directory are part of the binary (D2).
+Pi lets a source fork rename its command and configuration directory through a `piConfig` block in `package.json`. PiG has no such block. The command name `ompig-slim` and the `~/.pi` directory are part of the binary (D2).
 
-To ship an agent with its own name, extensions and defaults, write a [Piglet](piglets.md). Run it with `pig --piglet <name|path>`, or build it into a native executable with `pig piglet build --format binary`. See [Choose how to customize PiG](extend-pig.md#the-ladder). [Derivative harnesses](built-in-extensions.md#stock-pig-and-pig-standard) covers what belongs in a product built on PiG.
+To ship an agent with its own name, extensions and defaults, write a [Piglet](piglets.md). Run it with `ompig-slim --piglet <name|path>`, or build it into a native executable with `ompig-slim piglet build --format binary`. See [Choose how to customize PiG](extend-pig.md#the-ladder). [Derivative harnesses](built-in-extensions.md#stock-pig-and-pig-standard) covers what belongs in a product built on PiG.
 
 ## Related
 

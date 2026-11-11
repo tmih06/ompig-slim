@@ -2,7 +2,7 @@
 
 > **Differs from Pi, or easy to get wrong**
 > - Pi has no Piglets. A Piglet's `tools:` is a ceiling: it removes tools but never turns one on.
-> - `pig piglet show` prints the ceiling (`Built-in tools: ...`) and the tools a run activates (`Active by default: ...`).
+> - `ompig-slim piglet show` prints the ceiling (`Built-in tools: ...`) and the tools a run activates (`Active by default: ...`).
 > - A Piglet has no field for the default active tools. Pass `--tools`, set `defaultTools`, or build a script that passes the option.
 > - Pi's `--tools read,grep,find,ls` works with a Piglet only inside the ceiling.
 
@@ -49,7 +49,7 @@ strip:
 | `apis` | The models of that API are offered nowhere. `--model` naming one fails with a strip message. |
 | `features` | One feature is off, for example `themes`, `skills`, `prompt-templates`, `docs`, `self-update`. |
 
-Run `pig piglet schema` for the complete list of IDs. An unknown ID fails when
+Run `ompig-slim piglet schema` for the complete list of IDs. An unknown ID fails when
 the Piglet resolves, and the error names the ID. A Piglet cannot strip every
 tool and `/quit` together.
 
@@ -76,7 +76,7 @@ set `extends.allowWiden: true`. Without `allowWiden`, resolution fails.
 
 - `/piglet` prints the active Piglet. A Piglet that strips `/piglet` has no such
   command.
-- `pig piglet show <name>` prints the scope and every changed slot:
+- `ompig-slim piglet show <name>` prints the scope and every changed slot:
   - `Built-in tools: read, grep, find (a limit; it does not activate a tool)` is the ceiling.
   - `Active by default: read` is what a run activates.
   - `MCP tools: hidden, because ...` appears when the Piglet hides MCP tools. It names the reason. Example: ``MCP tools: hidden, because the Piglet lists `extensions:` but not `pig-mcp-adapter` ``.
@@ -85,7 +85,7 @@ set `extends.allowWiden: true`. Without `allowWiden`, resolution fails.
   means a Piglet Binary links the built-in and disables it at start. `binary`
   means the Binary does not contain it. Tools, commands, `themes`, `skills`,
   and `prompt-templates` are runtime. Every other ID is binary.
-- `pig piglet schema` prints the schema and the IDs.
+- `ompig-slim piglet schema` prints the schema and the IDs.
 
 An overlay on a Piglet Binary can undo some strips. See
 [Accept overlay Piglets](piglets.md#accept-overlay-piglets) for what an overlay may change.

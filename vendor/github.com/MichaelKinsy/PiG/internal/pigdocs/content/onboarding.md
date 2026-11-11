@@ -20,15 +20,15 @@ extension. Write the Piglet source, validate it with pig piglet validate, and
 show the exact pig --piglet command.
 ```
 
-The expected result is a Piglet source under `~/.pig/piglets/`, a project-local
-`.pig/piglets/` directory, or another explicit path.
+The expected result is a Piglet source under `~/.pi/piglets/`, a project-local
+`.pi/piglets/` directory, or another explicit path.
 
 ## Scaffold an extension
 
 ```bash
-pig extension init ./my-extension --lang go
-pig install ./my-extension --validate-only --json
-pig -e ./my-extension
+ompig-slim extension init ./my-extension --lang go
+ompig-slim install ./my-extension --validate-only --json
+ompig-slim -e ./my-extension
 ```
 
 Edit the extension and use `/reload` in the session. Read `extensions.md` for
@@ -40,14 +40,14 @@ PiG Standard is an explicit Piglet composition. It is not part of bare Stock
 PiG. From a PiG source checkout, run:
 
 ```bash
-pig --piglet piglets/standard/pig-standard.yaml
+ompig-slim --piglet piglets/standard/pig-standard.yaml
 ```
 
 Build a directly executable composition when you do not want the target host to
 compile compatible Go or Rust extension sources:
 
 ```bash
-pig piglet build piglets/standard/pig-standard.yaml \
+ompig-slim piglet build piglets/standard/pig-standard.yaml \
   --format binary \
   --out ./pig-standard
 ```

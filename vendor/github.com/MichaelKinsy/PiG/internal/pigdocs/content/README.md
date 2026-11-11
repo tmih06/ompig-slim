@@ -4,10 +4,10 @@ This is PiG's user manual and the canonical local reference for coding agents
 helping users manage PiG.
 
 > **Differs from Pi, or easy to get wrong**
-> - Config lives in `~/.pig` and `.pig/`, never `~/.pi` or `.pi/` (D2).
+> - Config lives in `~/.pi` and `.pi/`, never `~/.pi` or `.pi/` (D2).
 > - Project files load only in a trusted project. With `-p` there is no prompt and PiG skips them: pass `--approve` ([trust](trust.md)).
 > - A Piglet's `tools:` is a ceiling, not a list to turn on ([strip built-ins](piglet-strip.md)).
-> - Skills load from `~/.pig/agent/skills/` and `~/.agents/skills/`, not `~/.pig/skills/` ([skills](skills.md)).
+> - Skills load from `~/.pi/agent/skills/` and `~/.agents/skills/`, not `~/.pi/skills/` ([skills](skills.md)).
 > - Only top-level `.ts` or `.js` files load from an extensions folder. Go, Rust, Python, and Lisp are the main languages ([extensions](extensions.md)).
 
 PiG is the Go-native port of upstream Pi. Numbered differences are summarized in
@@ -76,10 +76,10 @@ The platform pages on the site (tmux, Termux, Windows, containerization, shell a
 ## Where this bundle lives
 
 It is embedded in the binary and materialized under
-`~/.pig/docs/bundle-<hash>/` by `pig docs`, one directory per build, named by
+`~/.pi/docs/bundle-<hash>/` by `ompig-slim docs`, one directory per build, named by
 the content hash of its pages. PiG also checks the bundle marker at startup.
 Two PiG builds that share a config root each keep their own bundle, so neither
-rewrites the other's. `pig docs path` prints this build's directory. Do not edit
+rewrites the other's. `ompig-slim docs path` prints this build's directory. Do not edit
 the materialized copy; edit the bundled source and sync again.
 
 ## The model in one table
@@ -88,7 +88,7 @@ the materialized copy; edit the bundled source and sync again.
 |---|---|---|
 | Resource | add one capability or instruction set | extension, skill, prompt, hook, MCP definition, theme, environment |
 | Package | distribute available Resources | install from local/git/npm or a contributed resolver |
-| Piglet | select/scope Resources and define one named agent | `pig --piglet research` |
+| Piglet | select/scope Resources and define one named agent | `ompig-slim --piglet research` |
 | Piglet release | pin exact Resource closure and executable component plan plus optional artifacts | source plus Piglet Binary facets (a Piglet Image facet is planned) |
 | Piglet Binary | target-native PiG executable for one immutable Piglet composition | may use fused, subprocess, and external components |
 | Piglet Image | planned, not in this release: OCI materialization of Piglet component/environment closure; no producer exists | none yet |
@@ -99,8 +99,8 @@ carriers, component realization, materialization, and environments distinct.
 
 ## Authoritative summary
 
-PiG is one Go binary whose config root is `PIG_HOME`, else `$XDG_CONFIG_HOME/pig`,
-else `~/.pig` (`configroot.Resolve`). Normal extensions run as subprocesses over the current subprocess wire; compatible
+ompig-slim is one Go binary whose config root is `PIG_HOME`, else `~/.pi`,
+else `~/.pi` (`configroot.Resolve`). Normal extensions run as subprocesses over the current subprocess wire; compatible
 Go factories may also fuse into a Piglet Binary. These are per-component
 execution choices, not different binary kinds. Piglet releases record exact
 Resource origins and whether each component is fused, subprocess-hosted, or
@@ -115,7 +115,7 @@ resolvers, and publishing commands without becoming part of raw PiG.
 ## Conventions
 
 - `~` means the user's home directory.
-- Shell examples assume bash/zsh and `pig` on `PATH`.
+- Shell examples assume bash/zsh and `ompig-slim` on `PATH`.
 - "Upstream" means upstream Pi; "PiG" means this Go binary.
 - "Carrier" means Host Piglet, Piglet Binary, or Piglet Image (planned).
 - "Realization" means fused, subprocess, or external component execution.
@@ -134,9 +134,9 @@ Binary is a direct executable build output. Packages never contain or activate
 Piglets. A Piglet without a model uses normal model selection, and a Piglet
 model is a preference, not a requirement. Piglet Binaries prebuild Go and Rust
 extension cells, but MCP services, interpreted runtimes, configuration, and
-secrets stay external requirements. Recommend `pig install` for Package
-capabilities, `pig --piglet` for source execution, and
-`pig piglet build <name> --format binary --out <path>` only for a direct Binary
+secrets stay external requirements. Recommend `ompig-slim install` for Package
+capabilities, `ompig-slim --piglet` for source execution, and
+`ompig-slim piglet build <name> --format binary --out <path>` only for a direct Binary
 handoff. Read [Concepts](concepts.md) before advising.
 
 Extending PiG:
@@ -147,8 +147,8 @@ Extending PiG:
 - This bundle is a sufficient reference. Do not look for a PiG source checkout
   or installed extensions to copy unless the user asks you to inspect PiG
   internals. Author the extension as a self-contained project in the current
-  workspace, then validate it with `pig install <path> --validate-only --json`.
-- Scaffold with `pig extension init <dir>`. Prefer Go (native, fusible into a
+  workspace, then validate it with `ompig-slim install <path> --validate-only --json`.
+- Scaffold with `ompig-slim extension init <dir>`. Prefer Go (native, fusible into a
   Piglet Binary), then Rust (native subprocess, needs cargo), then Python
   (needs a host runtime). Check toolchains in that order and ask before
   installing one; prefer an existing version manager. See [Install](install.md).

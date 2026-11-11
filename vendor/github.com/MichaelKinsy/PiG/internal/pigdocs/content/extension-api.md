@@ -210,11 +210,11 @@ ctx.set_login(LoginDefinition(brand=brand, hero=hero, mascot=mascot, palette=pal
 await ctx.ui.setLogin({ brand, hero, mascot, palette, name: "Example Bot", description: "Custom coding agent", tagline: "Build with care." });
 ```
 
-Preview one extension with `pig extension preview-login <path>`. The command
+Preview one extension with `ompig-slim extension preview-login <path>`. The command
 fails for zero or multiple resolved extensions, a failed `session_start`, a
 missing login, or an invalid definition. Use `/reload` after an edit. A login
 remains an extension Resource. Activate it through a Piglet `extensions` entry,
-user extension policy, or `pig -e <path>`. Verify activation by starting or
+user extension policy, or `ompig-slim -e <path>`. Verify activation by starting or
 reloading through that path and checking the identity name. Keep product
 identities outside Stock Pig and select them through an ordinary Piglet
 extension entry.
@@ -247,7 +247,7 @@ Go callback strings use WTF-8 for unmatched units. Use `github.com/MichaelKinsy/
 ### Process & filesystem
 
 - `exec(command, args, options)` - run a command with stdin/stdout/stderr piped back. Subject to permissions.
-- `configHome()` - pig's config root (`~/.pig` or `PIG_HOME`).
+- `configHome()` - pig's config root (`~/.pi` or `PIG_HOME`).
 - `cwd()` - working directory of the host session.
 - `width()` - terminal columns visible to the host.
 - `model()` - current model identifier.
@@ -297,7 +297,7 @@ func Extension() *sdk.Extension {
 
 ```
 
-The Go SDK is a nested module. `pig extension init ./my-extension` creates a
+The Go SDK is a nested module. `ompig-slim extension init ./my-extension` creates a
 factory and a portable `go.mod`. Each PiG build stages its own copy of the SDK
 under `<config-root>/state/pigsdk/sdk-<hash>`, named for the SDK's content hash,
 so PiG versions sharing a config root never replace each other's SDK. PiG adds
@@ -316,7 +316,7 @@ require github.com/MichaelKinsy/PiG/extensions/sdk v0.0.0
 
 ```
 
-Run `pig reload --sdk-path` to print the running build's staged directory. See `extensions.md` for the full quickstart.
+Run `ompig-slim reload --sdk-path` to print the running build's staged directory. See `extensions.md` for the full quickstart.
 
 ## Go SDK migration to 0.3.0
 

@@ -23,12 +23,12 @@ new Piglets.
 
 ## Package: distribute Resources
 
-`pig install` adds a Package to settings, so normal upstream-compatible discovery
+`ompig-slim install` adds a Package to settings, so normal upstream-compatible discovery
 loads its enabled members:
 
 ```bash
-pig install ./my-package
-pig install git:https://github.com/example/my-package.git
+ompig-slim install ./my-package
+ompig-slim install git:https://github.com/example/my-package.git
 ```
 
 A Piglet can also reference a Package without changing settings and activate
@@ -41,7 +41,7 @@ prompt defaults, connects MCP servers, controls discovery, and may require an
 agent environment:
 
 ```bash
-pig --piglet research
+ompig-slim --piglet research
 ```
 
 The Piglet remains editable source and points at exact Resource origins instead

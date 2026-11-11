@@ -56,9 +56,9 @@ upstream-compatible `package.json` `pi` block may select explicit members:
 }
 ```
 
-PiG-specific membership uses the additive `pig` block without changing Pi's
+PiG-specific membership uses the additive `ompig-slim` block without changing Pi's
 fields. As in Pi, a package with a `pi` block loads only what it declares: its
-hooks, MCP servers, and agent environments come from the `pig` block, not from
+hooks, MCP servers, and agent environments come from the `ompig-slim` block, not from
 conventional directories.
 
 ```json
@@ -77,8 +77,8 @@ Author Package membership directly in ordinary `package.json`, using the standar
 `pi` block and optional PiG Resource fields above. Validate without installing:
 
 ```bash
-pig package validate ./base-coding
-pig package validate ./base-coding --json
+ompig-slim package validate ./base-coding
+ompig-slim package validate ./base-coding --json
 ```
 
 Validation rejects malformed manifests and JSON Resources, missing members, duplicate non-skill public names, lexical or symlink escape, missing Compose services, and absolute or escaping bind mounts.
@@ -115,11 +115,11 @@ A `pi` object that holds only metadata such as `changelogPath` does not make the
 ## Install
 
 ```bash
-pig install ./local-package
-pig install git:https://github.com/example/package.git
-pig install 'git:https://github.com/example/monorepo.git@v2#subdirectory=packages%2Freview'
-pig install npm:@example/package
-pig install 'npm:@example/private@1.2.3?registry=https%3A%2F%2Fnpm.example.com%2Fteam'
+ompig-slim install ./local-package
+ompig-slim install git:https://github.com/example/package.git
+ompig-slim install 'git:https://github.com/example/monorepo.git@v2#subdirectory=packages%2Freview'
+ompig-slim install npm:@example/package
+ompig-slim install 'npm:@example/private@1.2.3?registry=https%3A%2F%2Fnpm.example.com%2Fteam'
 ```
 
 Use `npm:` for registry sources and `git:` for Git shorthand such as `github.com/user/repo` or `git@github.com:user/repo`. Without a prefix, those spellings are local paths, even when the path does not exist. Explicit HTTPS and SSH URLs do not require `git:`.
@@ -148,8 +148,8 @@ not need to know that product's HTTP or authentication protocol.
 ## Validate without installing
 
 ```bash
-pig install ./extension --validate-only --json
-pig install --validate-only --set ./ext-a,./ext-b --json
+ompig-slim install ./extension --validate-only --json
+ompig-slim install --validate-only --set ./ext-a,./ext-b --json
 ```
 
 Validation resolves, builds, starts, and registers the selected extension set
@@ -159,15 +159,15 @@ that a piglet's extensions work together.
 ### Check the configured local Packages
 
 ```bash
-pig install --validate-only
-pig install --validate-only --json
+ompig-slim install --validate-only
+ompig-slim install --validate-only --json
 ```
 
 With no source, `--validate-only` checks each local-path entry of `packages[]`
 in your user settings and your trusted project settings. It resolves the entry
 against its settings directory under the current agent directory, names every
 entry whose directory does not exist with the path it resolved to and the
-`pig remove` command that drops it, and exits 1 when any is missing. A session
+`ompig-slim remove` command that drops it, and exits 1 when any is missing. A session
 start warns about the same entry; Pi skips a missing local Package without a
 word (D216). npm and git entries are not checked, because that needs the
 network.
@@ -185,21 +185,21 @@ source or `--set`, the command validates those sources and does not read
 ## Scope
 
 Installs are user-scoped by default. `--local` records a workspace dependency in
-`.pig/settings.json`:
+`.pi/settings.json`:
 
 ```bash
-pig install ./workspace-extension --local
+ompig-slim install ./workspace-extension --local
 ```
 
 PiG materializes managed sources once:
 
 | Scope/source | Root |
 |---|---|
-| user npm | `$PIG_CODING_AGENT_DIR/npm` (default `~/.pig/agent/npm`) |
+| user npm | `$PIG_CODING_AGENT_DIR/npm` (default `~/.pi/agent/npm`) |
 | user Git | `$PIG_CODING_AGENT_DIR/git` |
 | downloaded catalog bundle | `$PIG_CODING_AGENT_DIR/catalog` |
-| project npm | `<workspace>/.pig/npm` |
-| project Git | `<workspace>/.pig/git` |
+| project npm | `<workspace>/.pi/npm` |
+| project Git | `<workspace>/.pi/git` |
 | local path | remains at its authored path |
 
 Plugin and Package records may refer to the same materialized source root; PiG
@@ -211,19 +211,19 @@ does not duplicate it into separate caches.
 
 Add the keyword `pig-package` and a description to `package.json`, then run `npm publish`. The pi-in-go.dev catalog finds packages by npm keyword when its site builds each day, labels community listings as unreviewed, and accepts no uploads.
 
-`pig package publish [<dir>] --to npm` is optional sugar over `npm publish`. It validates the Package, checks the fields the catalog reads and that `name@version` is free on npm, shows npm's dry run, and publishes only with `--yes`. PiG never edits `package.json` and never handles an npm token. See [Publishing](publishing.md).
+`ompig-slim package publish [<dir>] --to npm` is optional sugar over `npm publish`. It validates the Package, checks the fields the catalog reads and that `name@version` is free on npm, shows npm's dry run, and publishes only with `--yes`. PiG never edits `package.json` and never handles an npm token. See [Publishing](publishing.md).
 
 ## Editors and ACP: pig-acp
 
-`pig install npm:@pi-in-go/pigpen-acp` installs the Package, whose `/acp` command prints the editor settings. It does not install the `pig-acp` executable. An editor that speaks the Agent Client Protocol (Zed, JetBrains) starts `pig-acp`, and `pig-acp` starts `pig --mode rpc` for each session. No prebuilt `pig-acp` download exists yet, so one command builds it from the source the Package ships. It has no dependencies and needs Go 1.26 or later (`pig setup go` installs one).
+`ompig-slim install npm:@pi-in-go/pigpen-acp` installs the Package, whose `/acp` command prints the editor settings. It does not install the `pig-acp` executable. An editor that speaks the Agent Client Protocol (Zed, JetBrains) starts `pig-acp`, and `pig-acp` starts `ompig-slim --mode rpc` for each session. No prebuilt `pig-acp` download exists yet, so one command builds it from the source the Package ships. It has no dependencies and needs Go 1.26 or later (`ompig-slim setup go` installs one).
 
 ```sh
-pig install npm:@pi-in-go/pigpen-acp
-pig acp install
+ompig-slim install npm:@pi-in-go/pigpen-acp
+ompig-slim acp install
 pig-acp --version        # pig-acp 0.1.0 (ACP protocol version 1)
 ```
 
-`pig acp install` works offline from the installed Package's files, builds with the local Go toolchain, and writes `pig-acp` (`pig-acp.exe` on Windows) next to `pig`: in the directory of `$PIG_BIN`, else `~/.local/bin`. It prints the path, and says so when that directory is not on your `PATH`; use the full path as the editor command then.
+`ompig-slim acp install` works offline from the installed Package's files, builds with the local Go toolchain, and writes `pig-acp` (`pig-acp.exe` on Windows) next to `ompig-slim`: in the directory of `$PIG_BIN`, else `~/.local/bin`. It prints the path, and says so when that directory is not on your `PATH`; use the full path as the editor command then.
 
 Then point the editor at it. In Zed `settings.json`:
 
@@ -240,25 +240,25 @@ Then point the editor at it. In Zed `settings.json`:
 }
 ```
 
-`--pig` names the `pig` executable (or a built Piglet Binary) to drive; without it `pig-acp` uses its own override variable (see `pig-acp --help`), then `pig` on `PATH`. If pig has no model or key yet, the editor shows an authentication error with `pig-acp --terminal-login`, which starts pig in the editor's terminal so you can sign in. Installing the Package or building the `acp` Piglet does not turn a Piglet Binary into an ACP server; the editor always runs `pig-acp`.
+`--pig` names the `ompig-slim` executable (or a built Piglet Binary) to drive; without it `pig-acp` uses its own override variable (see `pig-acp --help`), then `ompig-slim` on `PATH`. If pig has no model or key yet, the editor shows an authentication error with `pig-acp --terminal-login`, which starts pig in the editor's terminal so you can sign in. Installing the Package or building the `acp` Piglet does not turn a Piglet Binary into an ACP server; the editor always runs `pig-acp`.
 
 ## Manage installed Packages
 
 PiG retains upstream Pi's top-level Package verbs:
 
 ```bash
-pig package list
-pig update
-pig update --self
-pig update <source>
-pig update --extension <source>
-pig update --extensions
-pig update --models
-pig update --all
-pig update --force
-pig remove <source>
-pig uninstall <source>
-pig uninstall <source> --local --approve
+ompig-slim package list
+ompig-slim update
+ompig-slim update --self
+ompig-slim update <source>
+ompig-slim update --extension <source>
+ompig-slim update --extensions
+ompig-slim update --models
+ompig-slim update --all
+ompig-slim update --force
+ompig-slim remove <source>
+ompig-slim uninstall <source>
+ompig-slim uninstall <source> --local --approve
 ```
 
 `uninstall` is an alias for `remove`, including `--local` and help. Both commands remove the Package from the selected settings scope. Removing the last Package retains `"packages": []` in that settings file.
@@ -267,7 +267,7 @@ Package commands show `Installing`, `Removing`, or `Updating` before work starts
 
 npm updates batch eligible Packages by scope. Git updates reconcile the configured ref and reinstall dependencies when the checkout changes or dependencies are missing. Installing another ref of an already configured Package replaces its source without discarding resource filters. A failed new Git installation removes its incomplete checkout.
 
-Bare update, `--self`, and the `self`/`pig` positional targets update PiG.
+Bare update, `--self`, and the `self`/`ompig-slim` positional targets update PiG.
 `--extensions` updates installed Packages only; `--all` updates Packages before
 PiG. `--extension` names one Package and `--force` reinstalls the current PiG
 release. `--models` forces a model-catalog refresh through the shared model
@@ -278,29 +278,29 @@ At startup, an npm Package needs an installed manifest version that satisfies it
 configured pin or range. If installation fails or offline mode prevents it, the
 old installation does not supply Resources.
 
-With the global `extensionsAutoUpgrade` setting on, `pig update` also runs the
-`pig extension upgrade` rules on Go extensions written for an older SDK
+With the global `extensionsAutoUpgrade` setting on, `ompig-slim update` also runs the
+`ompig-slim extension upgrade` rules on Go extensions written for an older SDK
 ([Extensions](extensions.md)).
 
 PiG's owned management surface uses full-word noun/verb commands such as
-`pig package list`, while retaining upstream-compatible install, remove, and
-update behavior. Bare `pig list` retains upstream-compatible Package listing.
-Use `pig --help` as the authority for the binary you are running.
+`ompig-slim package list`, while retaining upstream-compatible install, remove, and
+update behavior. Bare `ompig-slim list` retains upstream-compatible Package listing.
+Use `ompig-slim --help` as the authority for the binary you are running.
 
 ### Enable or disable one installed Resource
 
 Use Package filters when you no longer want one Resource without removing the whole Package:
 
 ```bash
-pig config
-pig config --local
+ompig-slim config
+ompig-slim config --local
 ```
 
-Use `pig config --local` to edit project-scoped overrides. The TUI updates
+Use `ompig-slim config --local` to edit project-scoped overrides. The TUI updates
 settings. It does not update the Package's `package.json`. At startup a
 declared extension, skill, prompt, or theme that matches nothing is skipped, as
-Pi skips it, and the rest of the Package loads; `pig config` lists it as
-missing so you can disable it. `pig package validate` remains strict for
+Pi skips it, and the rest of the Package loads; `ompig-slim config` lists it as
+missing so you can disable it. `ompig-slim package validate` remains strict for
 publication.
 
 Startup ignores malformed `package.json` JSON and discovers conventional directories instead. A `pi` object loads only its valid resource arrays. A wrong-typed field declares no resources and does not discard valid sibling fields. These manifest cases produce no diagnostic, as in Pi. Explicit installation and publication validation remain strict.
@@ -325,7 +325,7 @@ version or reproducibility identity.
 
 ## Published Piglet releases
 
-A Piglet's source publishes to npm with `pig piglet publish <name> --to npm`, and its signed per-target Binaries publish to GitHub Releases with `--to github`. Neither uses a pi-in-go.dev upload API. See [Publishing](publishing.md). Pull by installed Piglet name is not available in this release; see [Piglets](piglets.md#planned-not-in-this-release-named-pulls-and-image-artifacts).
+A Piglet's source publishes to npm with `ompig-slim piglet publish <name> --to npm`, and its signed per-target Binaries publish to GitHub Releases with `--to github`. Neither uses a pi-in-go.dev upload API. See [Publishing](publishing.md). Pull by installed Piglet name is not available in this release; see [Piglets](piglets.md#planned-not-in-this-release-named-pulls-and-image-artifacts).
 
 ## Packages and piglets
 
@@ -336,7 +336,7 @@ A Piglet's source publishes to npm with `pig piglet publish <name> --to npm`, an
 | never owns a Piglet | may reference zero or more Packages plus direct origins |
 | preserves source provenance | records agent defaults and exact component realization/materialization |
 
-Piglets remain independent from Packages. A Piglet release publishes signed Binary facets to GitHub Releases with `pig piglet publish --to github` and its source to npm with `--to npm`; Piglet Image publication remains reserved until an Image producer exists.
+Piglets remain independent from Packages. A Piglet release publishes signed Binary facets to GitHub Releases with `ompig-slim piglet publish --to github` and its source to npm with `--to npm`; Piglet Image publication remains reserved until an Image producer exists.
 
 ## Authoring safety
 

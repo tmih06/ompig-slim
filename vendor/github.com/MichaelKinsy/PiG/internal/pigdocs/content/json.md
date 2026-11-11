@@ -5,7 +5,7 @@
 JSON mode runs one prompt and writes its Session header and model-loop events as JSON Lines.
 
 ```bash
-pig --mode json --model <provider/model> "Your prompt"
+ompig-slim --mode json --model <provider/model> "Your prompt"
 ```
 
 Use this mode when one process invocation handles one prompt. Use [RPC mode](rpc.md) when a client must send several commands to a long-running PiG process. The record types and fields are those of Pi 1.5.0 ([Pi's JSON event stream reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)).
@@ -99,7 +99,7 @@ The process returns the prompt error as its exit status. A consumer must read st
 This example runs one prompt that makes the model call the `bash` tool, then reads the stream three ways. The provider is a scripted test server that answers with one `bash` call and then a short sentence, so the model's wording is illustrative. The record types, their order and the tool fields are what PiG printed. Pi 1.1.0 printed the same record types and field names for the same prompt, and no later Pi release changed the event types.
 
 ```bash
-pig --mode json --no-session --model mock/mock-1 "Run: echo out; exit 3" \
+ompig-slim --mode json --no-session --model mock/mock-1 "Run: echo out; exit 3" \
   2>pig-json.stderr > run.jsonl
 echo "exit status: $?"
 ```
@@ -108,7 +108,7 @@ echo "exit status: $?"
 exit status: 0
 ```
 
-The exit status is 0 although the command inside failed. The tool's `exit 3` is data in the stream, not the exit status of `pig` (the exit status is the prompt error, see [Completion and errors](#completion-and-errors)). `pig-json.stderr` is empty.
+The exit status is 0 although the command inside failed. The tool's `exit 3` is data in the stream, not the exit status of `ompig-slim` (the exit status is the prompt error, see [Completion and errors](#completion-and-errors)). `pig-json.stderr` is empty.
 
 **1. The shape of the run.** This `jq` filter prints one line per record: the type, the role of the message, and the kind of streaming update.
 
@@ -179,7 +179,7 @@ The command printed out and exited with code 3.
 
 The first assistant message has no text block, only the `toolCall`, so only one line prints. Its `stopReason` is `toolUse`. The last one's is `stop`.
 
-**An unknown model name.** `pig --mode json --model mock/nope "hi"` prints `Warning: Model "nope" not found for provider "mock". Using custom model id.` on standard error. PiG then sends the request with the model ID `nope`, and the stream and exit status 0 follow as above. A typo in the model name therefore does not stop the run when the provider accepts any ID.
+**An unknown model name.** `ompig-slim --mode json --model mock/nope "hi"` prints `Warning: Model "nope" not found for provider "mock". Using custom model id.` on standard error. PiG then sends the request with the model ID `nope`, and the stream and exit status 0 follow as above. A typo in the model name therefore does not stop the run when the provider accepts any ID.
 
 ## Message shapes
 

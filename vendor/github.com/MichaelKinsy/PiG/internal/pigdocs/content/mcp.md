@@ -9,29 +9,29 @@ PiG connects to [Model Context Protocol](https://modelcontextprotocol.io) server
 Add a local stdio server, check the connection, then start PiG:
 
 ```bash
-pig mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
-pig mcp list
-pig
+ompig-slim mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
+ompig-slim mcp list
+ompig-slim
 ```
 
 For a remote server:
 
 ```bash
-pig mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
-pig mcp list
+ompig-slim mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
+ompig-slim mcp list
 ```
 
 These commands add user-level servers by default. Add `--local` or `-l` to write the project configuration instead:
 
 ```bash
-pig mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
+ompig-slim mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
 ```
 
 Use `/mcp` inside an interactive session to inspect connections, sign in, reconnect, change exposure, or enable and disable servers. Run `/reload` after adding, removing, or changing a server outside the session.
 
 ## Configure servers
 
-PiG reads user-level servers from `~/.pig/agent/mcp.json` and project servers from `.pig/mcp.json`. Project configuration is read only after [project trust](trust.md) is granted. A project entry replaces a user-level entry with the same name.
+PiG reads user-level servers from `~/.pi/agent/mcp.json` and project servers from `.pi/mcp.json`. Project configuration is read only after [project trust](trust.md) is granted. A project entry replaces a user-level entry with the same name.
 
 A project entry without `command`, `url`, or `type` overrides only `enabled`, `exposure`, and `toolExposure` of the user-level server with the same name and keeps the rest, including `env`, `headers`, and `auth`. For example, this turns off a user-level server in one project:
 
@@ -84,22 +84,22 @@ Keep personal servers and servers with credentials in the user-level file. Use t
 - A `url` can use environment variables, such as `"url": "${TOOLS_URL}"` or `"url": "https://${TOOLS_HOST}/mcp"`. PiG uses the expanded URL to check the entry and to connect. A `url` that cannot be expanded (it runs a `!command`, or a variable is unset) is used as written. Write `$$` for a literal `$` in a URL. Pi uses the `url` as written (D156, Pi #10654).
 - Invalid entries are reported and skipped without preventing other servers from connecting.
 
-`pig mcp add` and `pig mcp remove` cover common changes from a shell. See [MCP commands](#mcp-commands) for their options.
+`ompig-slim mcp add` and `ompig-slim mcp remove` cover common changes from a shell. See [MCP commands](#mcp-commands) for their options.
 
 ### MCP commands
 
-`pig mcp` configures and checks servers without starting a session. It does not load extensions.
+`ompig-slim mcp` configures and checks servers without starting a session. It does not load extensions.
 
 | Command | Meaning |
 |---|---|
-| `pig mcp add <server> [options] -- <command> [args...]` | Add or replace a stdio server |
-| `pig mcp add <server> [options] --url <url>` | Add or replace a streamable HTTP server |
-| `pig mcp remove <server> [-l]` | Remove a server; stored OAuth credentials are kept |
-| `pig mcp list [--json]` | Connect to every enabled server and print its state, tools and errors; exits 1 on failure |
-| `pig mcp login <server> [-l] [--timeout <seconds>]` | Sign in through the browser; `--timeout` limits the whole sign-in, including requests to the authorization server (default: 300 seconds); `-l` requires the server to be defined in the project's `.pig/mcp.json` |
-| `pig mcp logout <server> [-l]` | Delete the stored OAuth credentials |
+| `ompig-slim mcp add <server> [options] -- <command> [args...]` | Add or replace a stdio server |
+| `ompig-slim mcp add <server> [options] --url <url>` | Add or replace a streamable HTTP server |
+| `ompig-slim mcp remove <server> [-l]` | Remove a server; stored OAuth credentials are kept |
+| `ompig-slim mcp list [--json]` | Connect to every enabled server and print its state, tools and errors; exits 1 on failure |
+| `ompig-slim mcp login <server> [-l] [--timeout <seconds>]` | Sign in through the browser; `--timeout` limits the whole sign-in, including requests to the authorization server (default: 300 seconds); `-l` requires the server to be defined in the project's `.pi/mcp.json` |
+| `ompig-slim mcp logout <server> [-l]` | Delete the stored OAuth credentials |
 
-Options for `add`, `remove`, `login`, and `logout`: `-l`, `--local` writes `.pig/mcp.json` in the current project instead of the user-level file.
+Options for `add`, `remove`, `login`, and `logout`: `-l`, `--local` writes `.pi/mcp.json` in the current project instead of the user-level file.
 
 Options for `add`:
 
@@ -123,13 +123,13 @@ Options for `add`:
 
 Exposure and enabled-state changes are saved to the file that defines the server without replacing unrelated content. In a trusted project, "Enable in this project" and "Disable in this project" add a project override for a user-level server; later changes to that server are saved to the override. Disabled servers remain listed. `/mcp` opens at once, also while servers are still connecting, and shows them as they connect; reconnecting, enabling, and disabling a server run in the background. Outside the interactive TUI, `/mcp` prints server status; `/mcp login <server>`, `/mcp logout <server>`, and `/mcp reconnect <server>` perform those actions directly.
 
-Shell commands work without a session: `pig mcp add`, `pig mcp remove`, `pig mcp list`, `pig mcp login`, and `pig mcp logout`. Shell commands do not load extensions.
+Shell commands work without a session: `ompig-slim mcp add`, `ompig-slim mcp remove`, `ompig-slim mcp list`, `ompig-slim mcp login`, and `ompig-slim mcp logout`. Shell commands do not load extensions.
 
 ### Diagnose connection problems
 
-Run `pig mcp list` to connect to every enabled server and print its state, tools, and errors. It exits with status 1 when an entry is invalid or an enabled server is not connected. `/mcp` shows the full connection error and the tail of stderr from a failed stdio server.
+Run `ompig-slim mcp list` to connect to every enabled server and print its state, tools, and errors. It exits with status 1 when an entry is invalid or an enabled server is not connected. `/mcp` shows the full connection error and the tail of stderr from a failed stdio server.
 
-PiG reports configuration errors, failed connections, and required sign-ins once after startup. Server logging notifications are appended to `~/.pig/agent/mcp.log` as `<time> [<server>] <level> <logger>: <message>`. The file moves to `mcp.log.1` after it grows past 5 MB.
+PiG reports configuration errors, failed connections, and required sign-ins once after startup. Server logging notifications are appended to `~/.pi/agent/mcp.log` as `<time> [<server>] <level> <logger>: <message>`. The file moves to `mcp.log.1` after it grows past 5 MB.
 
 PiG connects every enabled server in the background when a session starts. A server's tools appear once it connects; the `codemode` description does not list them, so it does not change when servers connect. The first prompt waits up to 10 seconds only for servers with `direct` tools, which must be declared in its request. Other servers are waited for when they are needed: a codemode script waits for the servers it names (`mcp__<server>`) and, when it calls `searchTools()` or reads `ALL_TOOLS`, for all of them; `tool_search` and the resource tools also wait for all of them. HTTP network errors and transient statuses (408, 429, and 5xx) are retried twice. A dropped connection is shown as disconnected and reconnects on the next call. When a server announces a changed tool list, new tools are added and withdrawn tools become unreachable.
 
@@ -174,12 +174,12 @@ for line in sys.stdin:
 Add it and check the connection. PiG starts the program, asks for its tools and reports. Checked on PiG:
 
 ```bash
-pig mcp add wordcount -- python3 /home/you/mcp/wordcount.py
-pig mcp list
+ompig-slim mcp add wordcount -- python3 /home/you/mcp/wordcount.py
+ompig-slim mcp list
 ```
 
 ```text
-Added global MCP server "wordcount" in /home/you/.pig/agent/mcp.json.
+Added global MCP server "wordcount" in /home/you/.pi/agent/mcp.json.
 Check it with: pig mcp list
 ```
 
@@ -222,14 +222,14 @@ The word `codemode` in both outputs is how the server's tools reach the model. B
  The text has 4 words.
 ```
 
-To change how the tools are shown to the model, see [Control tool exposure](#control-tool-exposure). `pig mcp remove wordcount` removes the entry.
+To change how the tools are shown to the model, see [Control tool exposure](#control-tool-exposure). `ompig-slim mcp remove wordcount` removes the entry.
 
 An MCP server runs with your permissions, like any program you start. Add only servers you trust ([Security](security.md)).
 
 
 ## Migrate configuration from another client
 
-Move the converted entry under `mcpServers` in `mcp.json`, then run `pig mcp list` to validate it.
+Move the converted entry under `mcpServers` in `mcp.json`, then run `ompig-slim mcp list` to validate it.
 
 | Client | Conversion |
 |---|---|
@@ -250,9 +250,9 @@ Remote servers that use OAuth, such as Sentry, need no credentials in `mcp.json`
 }
 ```
 
-When the server rejects an unauthenticated connection, `/mcp` shows that it needs sign-in. Select "Sign in", run `/mcp login sentry`, or run `pig mcp login sentry`. PiG opens the authorization page and waits for approval. If the browser runs on another machine, such as over SSH, paste its redirected URL into the sign-in screen. The sign-in screens cancel with Esc at every step, a session that ends stops a running sign-in, and each request to the authorization server times out after 15 seconds. A running session uses the new credentials on its next turn.
+When the server rejects an unauthenticated connection, `/mcp` shows that it needs sign-in. Select "Sign in", run `/mcp login sentry`, or run `ompig-slim mcp login sentry`. PiG opens the authorization page and waits for approval. If the browser runs on another machine, such as over SSH, paste its redirected URL into the sign-in screen. The sign-in screens cancel with Esc at every step, a session that ends stops a running sign-in, and each request to the authorization server times out after 15 seconds. A running session uses the new credentials on its next turn.
 
-PiG identifies itself to the authorization server by registering a client (or, with `clientRegistration` set to `cimd`, with Pi's Client ID Metadata Document), stores tokens in `~/.pig/agent/mcp-auth.json`, and refreshes access tokens when they expire or the server rejects them. If a server later requests additional scope, PiG asks for sign-in again and keeps the scope granted so far. Signing out deletes the stored credentials.
+PiG identifies itself to the authorization server by registering a client (or, with `clientRegistration` set to `cimd`, with Pi's Client ID Metadata Document), stores tokens in `~/.pi/agent/mcp-auth.json`, and refreshes access tokens when they expire or the server rejects them. If a server later requests additional scope, PiG asks for sign-in again and keeps the scope granted so far. Signing out deletes the stored credentials.
 
 Credentials belong to a server name and URL. Servers with the same URL under different names, such as one per account, sign in separately; servers with the same name and URL in different `mcp.json` files share one sign-in. Credentials that an earlier version stored by URL alone move to the first server that uses them.
 
@@ -273,7 +273,7 @@ The redirect URI must match the registered URI. `callbackPort` uses `http://127.
 
 Set `scope` to a space-separated list for servers that do not advertise their required scopes. Otherwise, PiG requests the advertised scopes. Later scope requests are added to the configured value.
 
-PiG registers under its application name, `pig`. Some servers only accept registrations from known clients. Set `clientName` to send another name:
+PiG registers under its application name, `ompig-slim`. Some servers only accept registrations from known clients. Set `clientName` to send another name:
 
 ```json
 {
@@ -295,7 +295,7 @@ Some authorization servers allow clients by their Client ID Metadata Document UR
 }
 ```
 
-`pig mcp add --oauth-client-registration <mode>` sets it when adding a server. The client ID is `https://pi.dev/oauth/client.json` with the redirect URI `http://127.0.0.1:<port>/callback`. If the authorization server does not send the `iss` parameter in authorization responses (RFC 9207), PiG uses a document and redirect path specific to the MCP server instead: `https://pi.dev/oauth/<id>/client.json` with `http://127.0.0.1:<port>/callback/<id>`. The authorization server must advertise Client ID Metadata Document support and public clients, or sign-in fails. `cimd` cannot be combined with `clientId` or `clientName`, and a `callbackUrl` must use `localhost` or `127.0.0.1` with the path `/callback`.
+`ompig-slim mcp add --oauth-client-registration <mode>` sets it when adding a server. The client ID is `https://pi.dev/oauth/client.json` with the redirect URI `http://127.0.0.1:<port>/callback`. If the authorization server does not send the `iss` parameter in authorization responses (RFC 9207), PiG uses a document and redirect path specific to the MCP server instead: `https://pi.dev/oauth/<id>/client.json` with `http://127.0.0.1:<port>/callback/<id>`. The authorization server must advertise Client ID Metadata Document support and public clients, or sign-in fails. `cimd` cannot be combined with `clientId` or `clientName`, and a `callbackUrl` must use `localhost` or `127.0.0.1` with the path `/callback`.
 
 When an authorization response carries an `iss` parameter but PiG discovered no authorization server metadata, sign-in fails with an issuer mismatch error before the token request, as in Pi 1.5.0. Pi 1.1.0 skipped this check when metadata was absent.
 
@@ -345,7 +345,7 @@ Servers with `codemode` or `deferred` tools are listed in the `mcp_servers` sect
 
 PiG activates `codemode` when a server with `codemode` exposure connects. It activates `tool_search` for a server with `deferred` exposure. To make the model see a tool without searching, give it `direct` exposure with `toolExposure`.
 
-`--tools` does not remove MCP tools unless one of its entries starts with `mcp__`; `pig --tools read,codemode,'mcp__radius__*'` keeps only the tools of `radius`. `--exclude-tools` accepts the same patterns, and `--no-mcp` disables MCP for one run (see [Tools](commands.md#mcp-tools)).
+`--tools` does not remove MCP tools unless one of its entries starts with `mcp__`; `ompig-slim --tools read,codemode,'mcp__radius__*'` keeps only the tools of `radius`. `--exclude-tools` accepts the same patterns, and `--no-mcp` disables MCP for one run (see [Tools](commands.md#mcp-tools)).
 
 A [Piglet](piglets.md#tool-scope) scope removes tools from the same registry. A tool that the Piglet removes is not reachable through `codemode` or `tool_search`. The code computes this table. A test keeps it equal to the code.
 
@@ -385,7 +385,7 @@ Columns 2 and 3 are the tools in the registry, where `codemode` and `tool_search
 }
 ```
 
-`pig mcp list` marks tools whose exposure differs from their server. The Tools view in `/mcp` also shows the effective exposure.
+`ompig-slim mcp list` marks tools whose exposure differs from their server. The Tools view in `/mcp` also shows the effective exposure.
 
 Tools with `codemode` or `deferred` exposure can be reached through either indirect mechanism: codemode scripts can call them, and `tool_search` can load them. Codemode calls do not depend on the active tool set, so they remain available after `/tree`, resume, and fork. Tools loaded by `tool_search` are recorded in the transcript and remain declared on that branch.
 
@@ -403,7 +403,7 @@ When a connected server offers [resources](https://modelcontextprotocol.io/speci
 - `list_mcp_resource_templates` lists URI templates for resources the servers do not list directly.
 - `read_mcp_resource` reads a resource by `server` and `uri`. Text reaches the model as text and images as images. Other binary resources are saved to temporary files, and the model receives the path. Scripts receive `{ server, uri, contents }`.
 
-These tools reach every enabled, non-hidden server with resources. Their exposure is the widest exposure among those servers: `direct`, then `codemode` or `deferred`. Resource links in tool results identify `read_mcp_resource` and the server. PiG does not list resources when it connects, so a server's tools do not wait for a slow listing. `/mcp` and `pig mcp list` show only that a server offers resources; the resource tools list and read them when asked.
+These tools reach every enabled, non-hidden server with resources. Their exposure is the widest exposure among those servers: `direct`, then `codemode` or `deferred`. Resource links in tool results identify `read_mcp_resource` and the server. PiG does not list resources when it connects, so a server's tools do not wait for a slow listing. `/mcp` and `ompig-slim mcp list` show only that a server offers resources; the resource tools list and read them when asked.
 
 Resources for MCP Apps, identified by `ui://` URIs or `text/html;profile=mcp-app`, are omitted because PiG does not render them. Resource icons are also omitted.
 
@@ -421,12 +421,12 @@ Every MCP call passes through PiG's tool pipeline. Extension `tool_call` and `to
 
 Extensions can add servers for the current session with `registerMcpServer(name, config)` (Node: `pi.registerMcpServer`; Go, Python and Rust SDKs: `RegisterMcpServer`, `register_mcp_server`, `register_mcp_server`), using the same shape as an `mcpServers` entry (see [MCP servers in extensions](extensions.md)). Registered servers connect like configured servers and appear in `/mcp` with the extension as their source.
 
-Changes to enabled state or exposure apply only to the current session. A file-configured server with the same name takes precedence, and `/mcp` lists the overridden registration. `pig mcp` shell commands do not load extensions and only see file-configured servers.
+Changes to enabled state or exposure apply only to the current session. A file-configured server with the same name takes precedence, and `/mcp` lists the overridden registration. `ompig-slim mcp` shell commands do not load extensions and only see file-configured servers.
 
 ### Replace the built-in MCP support
 
-An installed extension that registers `/mcp`, such as `pi-mcp-adapter`, replaces the built-in MCP support for sessions. PiG then does not read `mcp.json` or connect its servers in a session, and `/mcp` belongs to the extension. Remove the extension to restore the built-in behavior. To disable built-in MCP support without a replacement, disable `mcp` under Built-in in `pig config`, or set `"extensions": ["-builtin:mcp"]` in [settings](settings.md). `--no-mcp` disables it for one run.
+An installed extension that registers `/mcp`, such as `pi-mcp-adapter`, replaces the built-in MCP support for sessions. PiG then does not read `mcp.json` or connect its servers in a session, and `/mcp` belongs to the extension. Remove the extension to restore the built-in behavior. To disable built-in MCP support without a replacement, disable `mcp` under Built-in in `ompig-slim config`, or set `"extensions": ["-builtin:mcp"]` in [settings](settings.md). `--no-mcp` disables it for one run.
 
-An extension that registers `codemode` or `tool_search` similarly replaces the built-in tool with that name. Shell-level `pig mcp` commands always use the built-in implementation.
+An extension that registers `codemode` or `tool_search` similarly replaces the built-in tool with that name. Shell-level `ompig-slim mcp` commands always use the built-in implementation.
 
 See [upstream Pi's MCP documentation](https://pi.dev/docs/latest/mcp) for the reference implementation.

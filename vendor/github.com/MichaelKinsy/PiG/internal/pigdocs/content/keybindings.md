@@ -1,6 +1,6 @@
 # Keybindings
 
-PiG reads keybindings from `~/.pig/agent/keybindings.json`. The file is optional.
+PiG reads keybindings from `~/.pi/agent/keybindings.json`. The file is optional.
 If it is absent, PiG uses the defaults in this page.
 
 Each entry maps one action to one or more keys. To change a binding, write the

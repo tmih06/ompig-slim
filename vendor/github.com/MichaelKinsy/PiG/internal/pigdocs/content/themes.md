@@ -12,7 +12,7 @@ Start PiG and open settings:
 
 Select the active theme. PiG writes the choice to the applicable settings file.
 
-You can also set the name directly in `~/.pig/agent/settings.json`:
+You can also set the name directly in `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -36,10 +36,10 @@ The first name is the light theme. The second name is the dark theme. Live switc
 
 A theme is one JSON file. Write the file, name it, and select it.
 
-1. Save the file as `~/.pig/agent/themes/my-theme.json`.
+1. Save the file as `~/.pi/agent/themes/my-theme.json`.
 2. Set `name` to `my-theme`.
 3. Give every required role in `colors` a value. Reuse values through `vars`.
-4. Select `my-theme` in `/settings`, or run `pig --use-theme my-theme`.
+4. Select `my-theme` in `/settings`, or run `ompig-slim --use-theme my-theme`.
 
 A minimal file:
 
@@ -52,7 +52,7 @@ A minimal file:
 }
 ```
 
-This file is not complete. The `colors` object needs all 51 required roles that the next sections list. Name the file after the theme. PiG reloads the active user theme at once only from `~/.pig/agent/themes/<name>.json`. Run `/reload` after you change a theme from any other source. To test a file without installing it, run `pig --theme ./my-theme.json`.
+This file is not complete. The `colors` object needs all 51 required roles that the next sections list. Name the file after the theme. PiG reloads the active user theme at once only from `~/.pi/agent/themes/<name>.json`. Run `/reload` after you change a theme from any other source. To test a file without installing it, run `ompig-slim --theme ./my-theme.json`.
 
 ## Understand the theme file
 
@@ -76,7 +76,7 @@ A color can have one of six forms:
 | Variable reference | `"primary"` | The value of an entry in `vars`. |
 | Terminal default | `""` | The foreground or background color of the terminal. |
 
-A missing variable or a circular reference makes the theme invalid. A key that is not in this file format also makes the theme invalid, at the top level or under `colors` or `export`. Put your own reusable colors under `vars`. A color name that is not in the lists below is one such key: a typo such as `accentt` fails with `must not have additional properties`. A missing required role fails too. The interactive screen reports an invalid theme at startup and at `/reload`. Print mode and `pig status --json` do not check theme files, so open `pig` and select the theme to test it. If colors look wrong, check the terminal color support in [Terminal setup](terminal-setup.md).
+A missing variable or a circular reference makes the theme invalid. A key that is not in this file format also makes the theme invalid, at the top level or under `colors` or `export`. Put your own reusable colors under `vars`. A color name that is not in the lists below is one such key: a typo such as `accentt` fails with `must not have additional properties`. A missing required role fails too. The interactive screen reports an invalid theme at startup and at `/reload`. Print mode and `ompig-slim status --json` do not check theme files, so open `ompig-slim` and select the theme to test it. If colors look wrong, check the terminal color support in [Terminal setup](terminal-setup.md).
 
 ## Find the color to change
 
@@ -107,7 +107,7 @@ These are the 51 required roles. Five more roles are optional and use a fallback
 
 PiG can load theme Resources from:
 
-- `~/.pig/agent/themes/`;
+- `~/.pi/agent/themes/`;
 - trusted project Resources;
 - configured Package members;
 - explicit settings paths;

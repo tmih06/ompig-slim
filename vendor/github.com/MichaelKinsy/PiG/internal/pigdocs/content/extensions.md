@@ -1,7 +1,7 @@
 # PiG extensions
 
 > **Differs from Pi, or easy to get wrong**
-> - Extensions load from `~/.pig/agent/extensions` and a trusted `.pig/extensions`, never from `~/.pi` (D2).
+> - Extensions load from `~/.pi/agent/extensions` and a trusted `.pi/extensions`, never from `~/.pi` (D2).
 > - Only top-level `.ts` or `.js` files, or a folder with an `index.ts` or `index.js`, load. PiG ignores a `.mjs` file without an error.
 > - An untrusted project loads nothing. With `-p` there is no prompt: pass `--approve` ([project trust](trust.md)).
 > - Pi extensions are TypeScript. In PiG, prefer Go, then Rust, then Python. Lisp is also supported.
@@ -59,12 +59,12 @@ local cached data and performs no per-render IPC.
 Preview the result before loading a session:
 
 ```bash
-pig extension preview-login <path>
+ompig-slim extension preview-login <path>
 ```
 
 The preview requires exactly one extension. Use `/reload` after an edit. A
 login remains an extension Resource. Activate it through a Piglet `extensions`
-entry, user extension policy, or `pig -e <path>`. Verify activation by starting
+entry, user extension policy, or `ompig-slim -e <path>`. Verify activation by starting
 or reloading through that path and checking the identity name. Keep product
 identities outside Stock Pig and select them through an ordinary Piglet
 extension entry. See `extension-api.md` for the exact grids, palette,
@@ -94,8 +94,8 @@ markers at an arbitrary Package root do not make that Package an extension.
 
 PiG collects extensions from these sources:
 
-1. `~/.pig/agent/extensions`
-2. trusted `<cwd>/.pig/extensions`
+1. `~/.pi/agent/extensions`
+2. trusted `<cwd>/.pi/extensions`
 3. configured Package extension members
 4. selected Piglet composition
 5. exact paths in settings
@@ -106,27 +106,27 @@ PiG collects extensions from these sources:
 explicit `-e` paths. Project discovery requires trust. Startup and `/reload`
 use the same normalized resolver.
 
-PiG does not discover `~/.pig/extensions`. PiG never reads Pi's `~/.pi/agent/extensions` unless you select Pi's directories (D2, [config](config.md)).
+PiG does not discover `~/.pi/extensions`. PiG never reads Pi's `~/.pi/agent/extensions` unless you select Pi's directories (D2, [config](config.md)).
 
-In `~/.pig/agent/extensions` and `.pig/extensions`, PiG loads:
+In `~/.pi/agent/extensions` and `.pi/extensions`, PiG loads:
 
 - each top-level `.ts` or `.js` file;
 - each folder that has an `index.ts` or `index.js`, or a `pi.extensions` manifest in its `package.json`.
 
-PiG ignores a `.mjs` file and a `.js` file in a subfolder that has no `index`. The ignored file gives no error, and `pig install <path> --validate-only` can still call it valid. An untrusted project loads nothing from `.pig/extensions`: in a print run (`-p`) there is no prompt, so pass `--approve` or trust the project first ([project trust](trust.md)).
+PiG ignores a `.mjs` file and a `.js` file in a subfolder that has no `index`. The ignored file gives no error, and `ompig-slim install <path> --validate-only` can still call it valid. An untrusted project loads nothing from `.pi/extensions`: in a print run (`-p`) there is no prompt, so pass `--approve` or trust the project first ([project trust](trust.md)).
 
 ## Scaffold
 
 Create a factory:
 
 ```bash
-pig extension init ./my-extension --lang go
+ompig-slim extension init ./my-extension --lang go
 ```
 
 Create a Go login factory with a neutral example definition:
 
 ```bash
-pig extension init ./my-pig --lang go --login
+ompig-slim extension init ./my-pig --lang go --login
 ```
 
 The login scaffold contains a valid neutral grid, palette, and `SetLogin`
@@ -135,26 +135,26 @@ session-start handler. Replace its art and identity text for your extension.
 Create a standalone:
 
 ```bash
-pig extension init ./my-extension --lang go --isolated
+ompig-slim extension init ./my-extension --lang go --isolated
 ```
 
 Supported scaffold languages are Go, Python, Rust, and Lisp. The scaffold writes no
 YAML file. PiG stages the matching SDK under the active config root.
 
-For Lisp, `pig extension init ./my-extension --lang lisp` writes `my-extension.asd` and `my-extension.lisp`. The `.lisp` file calls `pig:define-extension` with `:tool`, `:command`, and `:on` forms, and it needs SBCL 2.6.9. Validate it as in the next section.
+For Lisp, `ompig-slim extension init ./my-extension --lang lisp` writes `my-extension.asd` and `my-extension.lisp`. The `.lisp` file calls `pig:define-extension` with `:tool`, `:command`, and `:on` forms, and it needs SBCL 2.6.9. Validate it as in the next section.
 
 ## Validation
 
 Validate one source:
 
 ```bash
-pig install ./my-extension --validate-only --json
+ompig-slim install ./my-extension --validate-only --json
 ```
 
 Validate a set:
 
 ```bash
-pig install --validate-only --json ./ext-a ./ext-b
+ompig-slim install --validate-only --json ./ext-a ./ext-b
 ```
 
 Validation resolves the source form, builds or launches it, accepts runtime
@@ -164,7 +164,7 @@ placement plan. It does not install the source.
 ## Authentication inspection
 
 An extension declares OAuth through runtime provider registration. Before a
-session, `pig login --list` inspects each enabled extension independently. For a
+session, `ompig-slim login --list` inspects each enabled extension independently. For a
 source extension, a valid projection for the exact source configuration and
 immutable artifact digest avoids startup. A projection miss starts registration
 inspection. Factory construction executes extension code, but PiG dispatches no
@@ -218,12 +218,12 @@ PiG compiles a Go extension against the SDK of the pig that runs it, so an SDK r
 Extension "ask" was written for an older SDK:
   Context.GetSessionID: func() string -> func() (string, error) (SDK 0.3.0)
   SendMessageOptions.TriggerTurn: bool -> *bool (SDK 0.2.0)
-Run: pig extension upgrade /home/me/.pig/agent/extensions/ask
+Run: pig extension upgrade /home/me/.pi/agent/extensions/ask
 ```
 
 A build that also fails on an error that is not an SDK change, in the extension or in another extension of the same packed cell, keeps the plain build message.
 
-`pig extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]` rewrites the extension with the rules in `extensions/sdk/upgrade`. The rules parse and type-check the Go source, edit only the SDK uses they recognize, and format the result with `go/format`. The command copies the original files to `<config root>/state/extension-upgrade/<time>-<name>/` first (`<time>-<name>-2/` and so on when that directory exists), prints a unified diff, rebuilds the extension, and reports one status per extension: `upgraded`, `up to date`, `needs manual changes`, `failed` or `skipped`. `--dry-run` prints the diff and changes nothing. `--summary` prints one line per extension. With no argument, the command upgrades every Go extension that settings, packages, the agent directory and a trusted project directory load.
+`ompig-slim extension upgrade [<name|path>...] [--all] [--dry-run] [--summary]` rewrites the extension with the rules in `extensions/sdk/upgrade`. The rules parse and type-check the Go source, edit only the SDK uses they recognize, and format the result with `go/format`. The command copies the original files to `<config root>/state/extension-upgrade/<time>-<name>/` first (`<time>-<name>-2/` and so on when that directory exists), prints a unified diff, rebuilds the extension, and reports one status per extension: `upgraded`, `up to date`, `needs manual changes`, `failed` or `skipped`. `--dry-run` prints the diff and changes nothing. `--summary` prints one line per extension. With no argument, the command upgrades every Go extension that settings, packages, the agent directory and a trusted project directory load.
 
 Before, written for SDK 0.2.0:
 
@@ -234,7 +234,7 @@ ext.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 })
 ```
 
-After `pig extension upgrade`:
+After `ompig-slim extension upgrade`:
 
 ```go
 ext.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
@@ -250,6 +250,6 @@ The rules rewrite the host-backed getters, the optional boolean fields, and `Con
 
 Interactive startup lists a drifted extension and asks `Run pig extension upgrade <path>... now? [y/N]` before it exits. Yes upgrades and rebuilds them, then loads the extensions again in the same process and continues startup, so a `--fork`, `--session-id` or `--name` takes effect once. No exits as Pi does on an extension load error. Print, JSON and RPC modes print the command to standard error and exit 1, and write nothing to standard output.
 
-Set `extensionsAutoUpgrade` to `true` in the global settings file to run the rules at startup and after `pig update` without the question. Each upgraded extension gets a backup and one line on standard error. The setting is off by default, a project settings file cannot turn it on, and only the rules run; no agent edits an extension.
+Set `extensionsAutoUpgrade` to `true` in the global settings file to run the rules at startup and after `ompig-slim update` without the question. Each upgraded extension gets a backup and one line on standard error. The setting is off by default, a project settings file cannot turn it on, and only the rules run; no agent edits an extension.
 
 When two loaded extensions register the same tool and one directory is a copy of the other, pig names both directories and suggests removing the older copy. Pi's tool-conflict error stays as it is.

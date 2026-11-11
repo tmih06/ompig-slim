@@ -1,8 +1,8 @@
 # Skills
 
 > **Differs from Pi, or easy to get wrong**
-> - User skills live in `~/.pig/agent/skills/` or `~/.agents/skills/`. PiG does not scan `~/.pig/skills/` or `~/.pi`.
-> - Project skills (`.pig/skills/`, `.agents/skills/`) load only in a trusted project. With `-p` pass `--approve`.
+> - User skills live in `~/.pi/agent/skills/` or `~/.agents/skills/`. PiG does not scan `~/.pi/skills/` or `~/.pi`.
+> - Project skills (`.pi/skills/`, `.agents/skills/`) load only in a trusted project. With `-p` pass `--approve`.
 
 A skill is a block of task-specific instructions for a session. An extension adds a *capability* (a tool, a command); a skill adds *knowledge*: how to do a particular job well, in your own words, without writing code. PiG tells the model each skill's name, description, and path. The model reads the full instructions only when the task needs them.
 
@@ -13,7 +13,7 @@ Use a skill when the thing you want to reuse is a procedure or a convention, not
 A skill is a directory named for the skill, containing a `SKILL.md` file:
 
 ```text
-~/.pig/agent/skills/commit/SKILL.md
+~/.pi/agent/skills/commit/SKILL.md
 ```
 
 `SKILL.md` is markdown with a YAML frontmatter header:
@@ -37,8 +37,8 @@ Explain *why* in the body, not what. Never mention tooling.
 Explicitly, for one run:
 
 ```bash
-pig --skill commit
-pig --skill ./path/to/skill-dir      # a direct path also works
+ompig-slim --skill commit
+ompig-slim --skill ./path/to/skill-dir      # a direct path also works
 ```
 
 From a piglet, so it loads every time that agent runs (see [piglets](piglets.md)):
@@ -53,7 +53,7 @@ skills:
 For a portable Piglet, use ordered typed `origins`, usually a declared
 `package:<alias>` member or `local:<relative-path>`. A bare name is convenient
 on your machine but depends on a local skill already being installed under the
-config tree (`~/.pig/agent/skills/<name>/SKILL.md`).
+config tree (`~/.pi/agent/skills/<name>/SKILL.md`).
 
 ## Discovery
 
@@ -61,12 +61,12 @@ Beyond explicit `--skill` and piglet entries, pig can discover skills already si
 
 PiG scans:
 
-- `~/.pig/agent/skills/` for user-level skills,
+- `~/.pi/agent/skills/` for user-level skills,
 - `~/.agents/skills/` for user-level skills in the Agent Skills location,
 - `.agents/skills/` at each directory from the workspace up to its root,
-- `.pig/skills/` in the workspace.
+- `.pi/skills/` in the workspace.
 
-PiG does not scan `~/.pig/skills/`. Project locations load only in a trusted project ([project trust](trust.md)).
+PiG does not scan `~/.pi/skills/`. Project locations load only in a trusted project ([project trust](trust.md)).
 
 A piglet controls whether this scan runs, so a locked-down agent picks up nothing it did not declare:
 
@@ -77,7 +77,7 @@ discovery:
 
 ## Share a skill
 
-Skills travel the same way as every other resource: bundle them in a [package](packages.md) and `pig install` it, or publish them to a marketplace. A package can carry skills alongside extensions, prompts, and themes.
+Skills travel the same way as every other resource: bundle them in a [package](packages.md) and `ompig-slim install` it, or publish them to a marketplace. A package can carry skills alongside extensions, prompts, and themes.
 
 ## See also
 

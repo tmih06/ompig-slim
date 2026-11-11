@@ -8,7 +8,7 @@ Provider registration is an extension capability. Keep provider-specific code ou
 
 | Need | Use |
 |---|---|
-| Add an OpenAI-compatible endpoint and static models | `~/.pig/agent/models.json` |
+| Add an OpenAI-compatible endpoint and static models | `~/.pi/agent/models.json` |
 | Add provider metadata or OAuth | Provider extension |
 | Add custom request or stream behavior | Provider extension |
 | Select the provider for one agent application | Piglet `model` preference plus the provider extension |
@@ -21,7 +21,7 @@ See [Models](models.md) before you create a provider extension.
 Create a Go extension:
 
 ```bash
-pig extension init ./corporate-ai --lang go
+ompig-slim extension init ./corporate-ai --lang go
 ```
 
 Register provider configuration from its factory:
@@ -50,13 +50,13 @@ The exact provider model fields depend on the provider API implemented by the cu
 ## Validate registration
 
 ```bash
-pig install ./corporate-ai --validate-only --json
+ompig-slim install ./corporate-ai --validate-only --json
 ```
 
 List models after selecting the extension:
 
 ```bash
-pig -e ./corporate-ai --list-models
+ompig-slim -e ./corporate-ai --list-models
 ```
 
 Use a Piglet when the provider belongs to a named application:
@@ -88,8 +88,8 @@ An extension can register an OAuth provider through the same provider declaratio
 PiG inspects registration before a Session so the provider can appear in:
 
 ```bash
-pig login --list
-pig login corporate-ai
+ompig-slim login --list
+ompig-slim login corporate-ai
 ```
 
 Registration inspection constructs the extension but does not dispatch Session, tool, command, event, shortcut, or renderer handlers.

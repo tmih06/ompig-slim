@@ -42,7 +42,7 @@ Editor input passes through prompt templates and skill commands before it become
 
 ## Sessions
 
-PiG saves each session as a JSON Lines file under `~/.pig/agent/sessions/`. Every entry has an ID and names its parent entry.
+PiG saves each session as a JSON Lines file under `~/.pi/agent/sessions/`. Every entry has an ID and names its parent entry.
 
 When you continue from an earlier entry, PiG starts a new branch in the same file. `/fork` and `/clone` copy history into a new session file.
 
@@ -54,10 +54,10 @@ Every interface uses the same agent loop and the same sessions:
 
 | Interface | How to start it | What it does |
 |---|---|---|
-| Interactive | `pig` | Shows the session in a terminal UI. |
-| Print | `pig -p "prompt"` | Runs the prompt and writes the final answer. |
-| JSON | `pig --mode json "prompt"` | Runs the prompt and writes every event as JSON Lines. |
-| RPC | `pig --mode rpc` | Reads JSON Lines commands on standard input and writes responses and events. |
+| Interactive | `ompig-slim` | Shows the session in a terminal UI. |
+| Print | `ompig-slim -p "prompt"` | Runs the prompt and writes the final answer. |
+| JSON | `ompig-slim --mode json "prompt"` | Runs the prompt and writes every event as JSON Lines. |
+| RPC | `ompig-slim --mode rpc` | Reads JSON Lines commands on standard input and writes responses and events. |
 | Go SDK | `github.com/MichaelKinsy/PiG/coding` | Runs sessions inside a Go program. |
 
 Pi's SDK is a TypeScript library. PiG's SDK is a Go module. See [CLI integration](cli-integration.md) and [Go SDK](sdk.md).
@@ -72,7 +72,7 @@ Extensions can add tools and can replace built-in tools. PiG sends every active 
 
 Here PiG differs most from Pi. Pi loads TypeScript extensions into its own Node.js process. PiG does not embed a JavaScript runtime and does not load Go plugins. PiG instead starts each source extension as a separate process and talks to it over a local socket. Extensions can be written in Go, Rust, Python or Node.
 
-PiG can run one extension per process, or pack compatible extensions of one language into a shared process. A [Piglet Binary](piglets.md#piglet-binary) can also compile Go extensions into the `pig` executable. Each extension registers the same way in every form. See [extensions](extensions.md).
+PiG can run one extension per process, or pack compatible extensions of one language into a shared process. A [Piglet Binary](piglets.md#piglet-binary) can also compile Go extensions into the `ompig-slim` executable. Each extension registers the same way in every form. See [extensions](extensions.md).
 
 Because extensions run in other processes, PiG checks that each process still responds while it has work in flight. When an extension process stops responding, PiG fails that extension's pending work and keeps the others running. Pi has no equivalent check. This difference is D56.
 
@@ -84,7 +84,7 @@ Other resources work as in Pi. Skills provide instructions and supporting files.
 
 PiG asks whether you trust a project before it loads the project's settings and resources. After that decision, PiG loads the context files, which do not need trust. See [configuration](config.md).
 
-Tools run with the operating-system permissions of the `pig` process. Extension processes run as the same user. A separate process isolates crashes. It is not a security sandbox. See [security](security.md).
+Tools run with the operating-system permissions of the `ompig-slim` process. Extension processes run as the same user. A separate process isolates crashes. It is not a security sandbox. See [security](security.md).
 
 ## Related
 

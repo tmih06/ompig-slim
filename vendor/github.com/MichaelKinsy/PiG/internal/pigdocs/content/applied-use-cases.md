@@ -6,7 +6,7 @@ Use this page when someone who does not program asks PiG for everyday work: summ
 
 - PiG acts without asking. The `write` tool overwrites a file at once, and a command runs at once. PiG shows what it did afterwards. It is not a sandbox (<https://pi-in-go.dev/docs/latest/security>; `trust.md` covers project trust).
 - Everything PiG reads is sent to the model provider the user chose.
-- PiG saves the conversation under `~/.pig/agent/sessions/`. `--no-session` keeps it in memory only.
+- PiG saves the conversation under `~/.pi/agent/sessions/`. `--no-session` keeps it in memory only.
 - Work on a copy of the folder, ask for a plan before changes, ask for new files instead of edits, ask for a log of every change, and say "never delete".
 - `Esc` stops the model and any running command. Changes already made stay made.
 - `/tree` and `/fork` go back in the conversation. They never change files.
@@ -20,7 +20,7 @@ Use this page when someone who does not program asks PiG for everyday work: summ
 
 **Draft and edit a document.** Prompt: `Read notes.txt and write a one-page status update for my manager into update.md. Plain language, three short paragraphs.` Then: `Before you change update.md again, copy it to update.v1.md. Then make the first paragraph friendlier. Change nothing else.` Check: `diff update.v1.md update.md`. Undo: `cp update.v1.md update.md`. Typing `@name` in the editor completes a file name only. The model opens the file itself.
 
-**Automate a weekly report.** `pig -p` runs one prompt and exits. Script: `pig -p --no-session --tools read,write @this-week.csv "<instruction>" >> weekly-report.log 2>&1`, run from cron with the full path to `pig`, after `pig login` (cron has no shell profile, so an exported key is not there). A missing `@` file exits 1 with `Error: File not found`. An empty one is skipped silently, so guard with `[ -s this-week.csv ] || exit 1`. Undo: remove the cron line and the script.
+**Automate a weekly report.** `ompig-slim -p` runs one prompt and exits. Script: `ompig-slim -p --no-session --tools read,write @this-week.csv "<instruction>" >> weekly-report.log 2>&1`, run from cron with the full path to `ompig-slim`, after `ompig-slim login` (cron has no shell profile, so an exported key is not there). A missing `@` file exits 1 with `Error: File not found`. An empty one is skipped silently, so guard with `[ -s this-week.csv ] || exit 1`. Undo: remove the cron line and the script.
 
 **Organise files.** Prompt 1: `Look at the files in this folder. Do not move or rename anything yet. Propose folders by kind of file, and write the plan as a table to plan.md.` Prompt 2: `The plan is good. Do it. Use mv, never delete. Record every move in moves.log as a command that reverses it.` Undo: `!sh moves.log` in PiG, or `sh moves.log` in a shell. `rmdir` removes the empty folders that remain.
 

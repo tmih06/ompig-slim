@@ -73,7 +73,7 @@ Environment variables can configure the same values without `/login`:
 ```bash
 export LLAMA_BASE_URL=http://127.0.0.1:8080
 export LLAMA_API_KEY=optional-secret
-pig
+ompig-slim
 ```
 
 If the server uses an API key, start `llama serve` with the matching `--api-key` value. Keep `--host 127.0.0.1` for local-only access.
@@ -103,7 +103,7 @@ If the router disconnects, `/llama` shows **Retry** and **Close**. Retry reconne
 
 [llama-swap](https://github.com/mostlygeek/llama-swap) puts several llama.cpp (or other) servers behind one OpenAI-compatible endpoint and starts the one a request names. It is not a llama.cpp router, so `/llama` does not manage it. llama-swap lists its models at `/models` the way a router does, but it has no endpoint to load or unload one: it loads a model when a request names it in `model`, and by default stops the model it replaces. Pi's `/llama` behaves the same way. Against llama-swap, PiG's `/llama` says so instead of "llama.cpp returned HTTP 404" (D212).
 
-Use llama-swap as a custom provider instead, the way you would use Ollama or vLLM. Add it to `~/.pig/agent/models.json`, with one `models` entry for each model ID in your llama-swap configuration:
+Use llama-swap as a custom provider instead, the way you would use Ollama or vLLM. Add it to `~/.pi/agent/models.json`, with one `models` entry for each model ID in your llama-swap configuration:
 
 ```json
 {
@@ -162,6 +162,6 @@ curl http://127.0.0.1:8080/models
 - **Server is not in router mode:** Start it without `--model`, `-m`, or `-hf`.
 - **`/llama` says it cannot load or unload models on llama-swap:** The server is [llama-swap](#llama-swap), not a llama.cpp router. Configure it as a `models.json` provider and pick models with `/model`.
 
-To remove the `llama.cpp` provider and `/llama`, disable `llama.cpp` under Built-in in `pig config`, or set `"extensions": ["-builtin:llama.cpp"]` in [settings](settings.md).
+To remove the `llama.cpp` provider and `/llama`, disable `llama.cpp` under Built-in in `ompig-slim config`, or set `"extensions": ["-builtin:llama.cpp"]` in [settings](settings.md).
 
 See [upstream Pi's llama.cpp documentation](https://pi.dev/docs/latest/llama-cpp) for the reference implementation.

@@ -1,11 +1,11 @@
 # Settings
 
 > **Differs from Pi, or easy to get wrong**
-> - Settings live in `~/.pig/agent/settings.json` and `<project>/.pig/settings.json`, never `~/.pi` or `.pi/` (D2).
+> - Settings live in `~/.pi/agent/settings.json` and `<project>/.pi/settings.json`, never `~/.pi` or `.pi/` (D2).
 > - The project file loads only in a trusted project. With `-p` there is no prompt and PiG ignores it: pass `--approve` ([project trust](trust.md)).
-> - `pig status` shows the project trust decision and marks resources that an untrusted project's run ignores.
+> - `ompig-slim status` shows the project trust decision and marks resources that an untrusted project's run ignores.
 
-PiG reads settings from `~/.pig/agent/settings.json`. The file is optional. Every
+PiG reads settings from `~/.pi/agent/settings.json`. The file is optional. Every
 key is optional, and a key you leave out keeps its default.
 
 Set `PIG_HOME` to move the whole configuration root. Set `PIG_CODING_AGENT_DIR`
@@ -31,8 +31,8 @@ file only.
 
 | Scope | Path |
 |---|---|
-| global | `~/.pig/agent/settings.json` |
-| project | `<project>/.pig/settings.json` |
+| global | `~/.pi/agent/settings.json` |
+| project | `<project>/.pi/settings.json` |
 
 PiG reads the project file only after you trust the project. An untrusted project
 contributes nothing, so cloning a repository cannot change your shell, your model
@@ -79,7 +79,7 @@ totals, but it never enters the model's context. `/session` shows the mode, the
 next decision, and its estimated cost.
 
 To turn cache warming off, choose `off` for **Cache warming** in `/settings`, or
-set it in `~/.pig/agent/settings.json`:
+set it in `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -109,8 +109,8 @@ set it in `~/.pig/agent/settings.json`:
 | `fullscreenExitOutput` | string | `transcript` | `transcript` prints the final transcript when fullscreen exits. `resume-hint` restores the previous screen and prints only the resume hint. |
 | `fullscreenCopyOnSelect` | boolean | `true` | Copy selected fullscreen text automatically. When disabled, `ctrl+x` copies the active selection. No effect in regular mode. |
 | `fullscreenWheelScrollLines` | `"auto"` \| number | `"auto"` | Lines per mouse-wheel event in fullscreen mode, from 1 to 100. `"auto"` moves one line per event in local macOS terminals, which already accelerate wheel and trackpad input; elsewhere, and over SSH, it speeds up fast wheel spins to at most 6 lines per event. A fractional value is rounded down, and any other value falls back to `"auto"`. No effect in regular mode. |
-| `extensionsAutoUpgrade` | boolean | `false` | PiG-only (D109). Run `pig extension upgrade` rules at startup and after `pig update` for Go extensions written for an older SDK, with a backup and one line per extension. Global settings only; a project file cannot turn it on. Pi's `extensions` setting is an array and unrelated. |
-| `extensionsTypescriptRuntime` | string | `node` | PiG-only (D19). Runtime that runs TypeScript and JavaScript extensions: `node` or the name of a runtime an extension or Piglet installed. When it cannot run, extensions run on Node; `pig extensions runtime status` shows why. `PIG_TS_RUNTIME` overrides it. Global settings only. |
+| `extensionsAutoUpgrade` | boolean | `false` | PiG-only (D109). Run `ompig-slim extension upgrade` rules at startup and after `ompig-slim update` for Go extensions written for an older SDK, with a backup and one line per extension. Global settings only; a project file cannot turn it on. Pi's `extensions` setting is an array and unrelated. |
+| `extensionsTypescriptRuntime` | string | `node` | PiG-only (D19). Runtime that runs TypeScript and JavaScript extensions: `node` or the name of a runtime an extension or Piglet installed. When it cannot run, extensions run on Node; `ompig-slim extensions runtime status` shows why. `PIG_TS_RUNTIME` overrides it. Global settings only. |
 | `maskSecretInput` | boolean | `true` | PiG-only login-input privacy (divergence D80). Show dots, a character count and the last four characters; fewer than five characters show no suffix. False restores Pi's plain-text typing and submitted history. Change **Mask secret input** in `/settings`. Pi harmlessly ignores this key in shared settings. |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in the transcript. |
 | `doubleEscapeAction` | string | `tree` | Action bound to pressing escape twice. |
@@ -170,7 +170,7 @@ in the 256-color palette, as Pi does. See [terminal setup](terminal-setup.md).
 | `shellCommandPrefix` | string |  | Prefix applied to every shell command. |
 | `externalEditor` | string |  | Editor opened by `app.editor.external`. |
 | `npmCommand` | string[] | `["npm"]` | Command and arguments used to run npm for package lookup and installation. |
-| `selfUpdateCommand` | string[] | none | Command and arguments `pig update` runs to update PiG itself, with `{packageName}`, `{version}` and `{installSpec}` placeholders. `PI_SELF_UPDATE_COMMAND` takes precedence. **Can only be set in agent-directory settings.** |
+| `selfUpdateCommand` | string[] | none | Command and arguments `ompig-slim update` runs to update PiG itself, with `{packageName}`, `{version}` and `{installSpec}` placeholders. `PI_SELF_UPDATE_COMMAND` takes precedence. **Can only be set in agent-directory settings.** |
 
 ## Tools
 

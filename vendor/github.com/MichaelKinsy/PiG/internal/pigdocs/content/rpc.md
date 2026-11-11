@@ -9,7 +9,7 @@ Use the [PiG Go SDK](sdk.md) when your Go application does not need a process bo
 ## Start RPC mode
 
 ```bash
-pig --mode rpc [--model <provider/model>] [options]
+ompig-slim --mode rpc [--model <provider/model>] [options]
 ```
 
 Common options:
@@ -60,7 +60,7 @@ Close standard input to shut down RPC mode. PiG cancels active prompts, Bash com
 
 An extension can also request shutdown with `ctx.shutdown()`. If the session is idle and no command is being handled, PiG shuts down right away, also while the client sends nothing. Otherwise it shuts down once the current command has finished and its response is written (for `prompt`, once the prompt settles) or the active run emits `agent_settled`. A request made while an extension-started compaction runs waits for the next command or run to finish. Pi 1.5.0 acts on a request only after the next command or at `agent_settled`, and an extension command that requests shutdown exits before its `prompt` response is written; PiG follows Pi main 1708b4788 (D231).
 
-Go programs can use `github.com/MichaelKinsy/PiG/coding/rpcclient`, the port of Pi's TypeScript `RpcClient`. It starts `pig --mode rpc`, correlates responses, exposes typed command methods, and delivers events to listeners. Other languages use the JSONL protocol directly.
+Go programs can use `github.com/MichaelKinsy/PiG/coding/rpcclient`, the port of Pi's TypeScript `RpcClient`. It starts `ompig-slim --mode rpc`, correlates responses, exposes typed command methods, and delivers events to listeners. Other languages use the JSONL protocol directly.
 
 `new_session`, `switch_session`, `fork` and `clone` replace the Session through the same runtime factory that creates the first Session, as Pi's rpc-mode does with its runtime host. The replacement gets a new extension runner, new extension processes and services for the destination Session's working directory. The old runner is invalidated. As in Pi 1.5.0, the replacement's extensions receive `session_start` twice after these four commands, because rpc-mode rebinds once more after the command returns. An extension process does not inherit process-wide state such as environment variables from the replaced one. This is D70, which also covers `/reload`.
 
@@ -112,7 +112,7 @@ Read message and Session entry shapes in [Session file format](session-format.md
 
 ## Worked example
 
-This example drives `pig --mode rpc` from a shell with no client library. It sends two commands, waits for the run to finish, then sends three more, one of them invalid, and ends with a line that is not JSON. The provider is a scripted test server that always answers `Hello from the test model.`, so the reply wording is illustrative. The records, their order and the error text are what PiG printed. Pi printed the same record types, the same order and the same parse error for the same input.
+This example drives `ompig-slim --mode rpc` from a shell with no client library. It sends two commands, waits for the run to finish, then sends three more, one of them invalid, and ends with a line that is not JSON. The provider is a scripted test server that always answers `Hello from the test model.`, so the reply wording is illustrative. The records, their order and the error text are what PiG printed. Pi printed the same record types, the same order and the same parse error for the same input.
 
 ```bash
 (

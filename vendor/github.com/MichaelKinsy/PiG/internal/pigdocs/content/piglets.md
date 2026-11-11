@@ -15,15 +15,15 @@ namespaces.
 ## Run a Piglet
 
 ```bash
-pig --piglet research
+ompig-slim --piglet research
 PIG_PIGLET_NAME=research pig
 PIG_PIGLET_PATH=./research.yaml pig
 ```
 
-A bare `pig` uses ordinary builtins/settings/discovery. Piglets are the
+A bare `ompig-slim` uses ordinary builtins/settings/discovery. Piglets are the
 Piglet-specific capability-scoping mechanism.
 
-`pig --piglet` directly selects source semantics. It never searches PATH or
+`ompig-slim --piglet` directly selects source semantics. It never searches PATH or
 silently selects a built artifact. A source Piglet entering required `agentEnv`
 remains the Host Piglet carrier. Piglet Binaries execute directly.
 
@@ -87,9 +87,9 @@ Columns 2 and 3 are the tools in the registry, where `codemode` and `tool_search
 
 <!-- tool-scope-table:end -->
 
-If a Piglet hides MCP tools, `pig piglet show` prints a line that gives the reason. When the first prompt starts, PiG also tells you which servers and tools the Piglet hid, and why. The agent gets one short line with the name of the Piglet and the most that its tool scope lets it reach. The line leaves out the tools that the strip lists remove. If the project is not trusted, the line also says so.
+If a Piglet hides MCP tools, `ompig-slim piglet show` prints a line that gives the reason. When the first prompt starts, PiG also tells you which servers and tools the Piglet hid, and why. The agent gets one short line with the name of the Piglet and the most that its tool scope lets it reach. The line leaves out the tools that the strip lists remove. If the project is not trusted, the line also says so.
 
-The root `tools` list limits the built-in tools. It does not activate them. A run activates only the default tools (`read`, `bash`, `edit`, `write`) that the list keeps. `pig piglet show` prints both: `Built-in tools` is the limit, and `Active by default` is what a run activates.
+The root `tools` list limits the built-in tools. It does not activate them. A run activates only the default tools (`read`, `bash`, `edit`, `write`) that the list keeps. `ompig-slim piglet show` prints both: `Built-in tools` is the limit, and `Active by default` is what a run activates.
 
 ## Piglet schema
 
@@ -151,7 +151,7 @@ A Piglet selects ordinary extensions. This includes an extension that calls
 activate a Piglet.
 
 Package dependencies materialize without changing user/project Package settings.
-Only members selected by kind/name become active. Direct `pig install` keeps
+Only members selected by kind/name become active. Direct `ompig-slim install` keeps
 upstream Package discovery behavior.
 
 ## Origins, Resource closure, and executable plan
@@ -213,17 +213,17 @@ extends:
 
 A name in `extends.remove` must exist in the Binary. Naming a member the Binary does not have fails with `remove.extensions: "codegraph" is absent`. The `tern-lite` overlay above needs a Binary that has an extension named `codegraph`.
 
-To test an overlay, start the Binary with the overlay as its Piglet, for example `./pig-base --piglet ./tern-lite.yaml`. Stock `pig piglet validate` rejects an overlay file by design, because an `extends` block without a `source` has no base to extend.
+To test an overlay, start the Binary with the overlay as its Piglet, for example `./pig-base --piglet ./tern-lite.yaml`. Stock `ompig-slim piglet validate` rejects an overlay file by design, because an `extends` block without a `source` has no base to extend.
 
 Three things stay fixed, because they are compiled into the Binary. Each refusal names the field, the Binary and the reason:
 
 | The overlay | Why it is refused |
 |---|---|
 | sets `slots.frontend` (a new one, or another under the Binary's) | A frontend is Go code linked into the Binary. Removing the Binary's frontend with `extends.remove.slots: [frontend]` is allowed. |
-| removes a `strip` entry whose built-in a build tag compiled out: `strip.extensions` (`mcp`, `codemode` and the other built-in extensions), `strip.apis`, and the compile-out `strip.features` (`docs` is one) | The code is not in the executable. `pig piglet show` marks these `stripped(binary)`. |
+| removes a `strip` entry whose built-in a build tag compiled out: `strip.extensions` (`mcp`, `codemode` and the other built-in extensions), `strip.apis`, and the compile-out `strip.features` (`docs` is one) | The code is not in the executable. `ompig-slim piglet show` marks these `stripped(binary)`. |
 | names a fused or embedded extension again with `origins` | The Binary selects its own members by name and cannot build another at run time under that name. Remove it with `extends.remove.extensions` and add the new one under another name. |
 
-An overlay can undo runtime strips: `strip.tools`, `strip.commands` and the runtime-only features (`themes`, `skills`, `prompt-templates`), which `pig piglet show` marks `stripped(runtime)`. It cannot undo a `stripped(binary)` entry.
+An overlay can undo runtime strips: `strip.tools`, `strip.commands` and the runtime-only features (`themes`, `skills`, `prompt-templates`), which `ompig-slim piglet show` marks `stripped(runtime)`. It cannot undo a `stripped(binary)` entry.
 
 ## Required agent environment
 
@@ -277,43 +277,43 @@ The environment constrains the whole agent across current Host Piglet and Piglet
 ## Commands
 
 ```bash
-pig piglet list
-pig piglet show <name>
-pig piglet show --record <path>
-pig piglet show <name> --effective --json
-pig piglet validate <name|path>
-pig piglet schema
-pig piglet add <path|npm:<package>|git:<repository>>
-pig piglet pull <release-index-url|github:owner/repo[/piglet]@version> [--target os/arch]
-pig piglet update <name> [--version version] [--target os/arch] [--accept-signer key-id]
-pig piglet publish <name|path> --to github --repo <owner/repo> --sign-key <key> [--targets os/arch,...] [--artifacts <dir>] [--tag-prefix <name>/] [--yes]
-pig piglet remove <name> [--source|--binary|--all]
-pig piglet build <name> --format script --out <path|->
-pig piglet build <name> --format binary --out <path>
+ompig-slim piglet list
+ompig-slim piglet show <name>
+ompig-slim piglet show --record <path>
+ompig-slim piglet show <name> --effective --json
+ompig-slim piglet validate <name|path>
+ompig-slim piglet schema
+ompig-slim piglet add <path|npm:<package>|git:<repository>>
+ompig-slim piglet pull <release-index-url|github:owner/repo[/piglet]@version> [--target os/arch]
+ompig-slim piglet update <name> [--version version] [--target os/arch] [--accept-signer key-id]
+ompig-slim piglet publish <name|path> --to github --repo <owner/repo> --sign-key <key> [--targets os/arch,...] [--artifacts <dir>] [--tag-prefix <name>/] [--yes]
+ompig-slim piglet remove <name> [--source|--binary|--all]
+ompig-slim piglet build <name> --format script --out <path|->
+ompig-slim piglet build <name> --format binary --out <path>
 ```
 
 Owned verbs use full words; `ls`, `rm`, and `check` are not aliases.
 
-Binary builds report real phases and elapsed time on stderr (D18). A terminal shows a spinner and dim step text. CI and pipes receive plain phase lines. Add `--verbose` to stream toolchain output with member labels. Packed members share one compiler invocation; fused Go members compile with the final binary. Failures show the current phase, a diagnostic tail, and a hint. The final summary gives the binary path, size, and time after verification and record publication. `--json` keeps stdout as one JSON result. `pig build [--verbose]` uses the same display when building Stock PiG from its source checkout.
+Binary builds report real phases and elapsed time on stderr (D18). A terminal shows a spinner and dim step text. CI and pipes receive plain phase lines. Add `--verbose` to stream toolchain output with member labels. Packed members share one compiler invocation; fused Go members compile with the final binary. Failures show the current phase, a diagnostic tail, and a hint. The final summary gives the binary path, size, and time after verification and record publication. `--json` keeps stdout as one JSON result. `ompig-slim build [--verbose]` uses the same display when building Stock PiG from its source checkout.
 
-The native builder compiles PiG from source with the host Go toolchain. It uses the PiG checkout that contains the current directory, or `PIG_SOURCE_ROOT`. A release binary without a checkout fetches the source of exactly its own version with `go mod download github.com/MichaelKinsy/PiG@v<version>` and prints `fetching PiG v<version> source (cached after first build)`. `GOPROXY` and `GOSUMDB` verify the download, and later builds reuse the Go module cache and a staged copy under `~/.pig/cache/pig-source/`. The fetch needs no Git and no checkout. A development build has no published source for its version, so it reports `source-unavailable` and asks for a checkout or `PIG_SOURCE_ROOT` (D18).
+The native builder compiles PiG from source with the host Go toolchain. It uses the PiG checkout that contains the current directory, or `PIG_SOURCE_ROOT`. A release binary without a checkout fetches the source of exactly its own version with `go mod download github.com/MichaelKinsy/PiG@v<version>` and prints `fetching PiG v<version> source (cached after first build)`. `GOPROXY` and `GOSUMDB` verify the download, and later builds reuse the Go module cache and a staged copy under `~/.pi/cache/pig-source/`. The fetch needs no Git and no checkout. A development build has no published source for its version, so it reports `source-unavailable` and asks for a checkout or `PIG_SOURCE_ROOT` (D18).
 
-Without a ready native builder, auto selection uses the built-in `container` builder; `--builder container` selects it explicitly. It runs the build in Podman or Docker: `PIG_CONTAINER_ENGINE=docker|podman` selects the engine, and otherwise Podman wins when both are on `PATH`. It pulls the digest-pinned public Go image of PiG's ci-go CI image, installs exactly the running PiG release in it with `go install`, and runs that release's native builder. The host needs no Go and no PiG source, and the target can be any `linux/<arch>` the engine runs; another architecture needs the engine's emulation. Go modules and build output are cached under `~/.pig/cache/container-go/`. The image contains only the Go toolchain, so a Piglet with packed or isolated Rust extensions needs a configured builder image that also has Cargo. A development build cannot install itself in the container, and the container builder does not sign (D18).
+Without a ready native builder, auto selection uses the built-in `container` builder; `--builder container` selects it explicitly. It runs the build in Podman or Docker: `PIG_CONTAINER_ENGINE=docker|podman` selects the engine, and otherwise Podman wins when both are on `PATH`. It pulls the digest-pinned public Go image of PiG's ci-go CI image, installs exactly the running PiG release in it with `go install`, and runs that release's native builder. The host needs no Go and no PiG source, and the target can be any `linux/<arch>` the engine runs; another architecture needs the engine's emulation. Go modules and build output are cached under `~/.pi/cache/container-go/`. The image contains only the Go toolchain, so a Piglet with packed or isolated Rust extensions needs a configured builder image that also has Cargo. A development build cannot install itself in the container, and the container builder does not sign (D18).
 
 Piglet YAML is authored directly with a user editor or coding agent. `schema`,
-`validate`, `show`, direct `pig --piglet <path>`, and `build` all use the same
+`validate`, `show`, direct `ompig-slim --piglet <path>`, and `build` all use the same
 closed source contract.
 
-`piglet add` accepts a local Piglet path, an `npm:` package, or a `git:` repository. For a local path, it validates the source and copyable Piglet-relative prompt files, then copies them without replacement into `~/.pig/piglets/`. It does not infer Resources from a directory or installed state, rewrite source, or change Package settings, shell state, Sessions, or artifact inventory. A contributed catalog ref works only when installed product code registers its resolver; Stock PiG provides no `marketplace:` or `catalog:` Piglet resolver.
+`piglet add` accepts a local Piglet path, an `npm:` package, or a `git:` repository. For a local path, it validates the source and copyable Piglet-relative prompt files, then copies them without replacement into `~/.pi/piglets/`. It does not infer Resources from a directory or installed state, rewrite source, or change Package settings, shell state, Sessions, or artifact inventory. A contributed catalog ref works only when installed product code registers its resolver; Stock PiG provides no `marketplace:` or `catalog:` Piglet resolver.
 
 Add a Piglet from npm or Git:
 
 ```bash
-pig piglet add npm:@acme/review@^1.0.0
-pig piglet add git:https://github.com/acme/review.git@v2.0.0
+ompig-slim piglet add npm:@acme/review@^1.0.0
+ompig-slim piglet add git:https://github.com/acme/review.git@v2.0.0
 ```
 
-PiG fetches the package or repository, finds the Piglet file, validates it, and copies it into `~/.pig/piglets/`. It writes a `<name>.origin.json` file next to the Piglet that records the source, the resolved version, the npm integrity or Git commit, and the Piglet digest. `pig piglet list` shows the origin.
+PiG fetches the package or repository, finds the Piglet file, validates it, and copies it into `~/.pi/piglets/`. It writes a `<name>.origin.json` file next to the Piglet that records the source, the resolved version, the npm integrity or Git commit, and the Piglet digest. `ompig-slim piglet list` shows the origin.
 
 PiG reads the Piglet path from the `pig.piglet` field of the package's `package.json`. Without that field, it reads `piglet.yaml` at the package or repository root. The path must stay inside the package.
 
@@ -324,30 +324,30 @@ A remote Piglet must be portable. PiG refuses a Git URL that contains credential
 Select a repository subdirectory at a full lowercase commit SHA (D18). The Piglet monorepo is `MichaelKinsy/pigpen`. Replace `<full-commit-sha>` with the reviewed commit:
 
 ```bash
-pig piglet add 'git:https://github.com/MichaelKinsy/pigpen.git@<full-commit-sha>#subdirectory=piglets%2Fpig-with-batteries'
+ompig-slim piglet add 'git:https://github.com/MichaelKinsy/pigpen.git@<full-commit-sha>#subdirectory=piglets%2Fpig-with-batteries'
 ```
 
 PiG reads `pig.piglet` or `piglet.yaml` inside the selected directory. It never selects the repository-root Piglet as a fallback. The selected checkout must match the commit and contain no modified or untracked files.
 
-This form copies declared relative local Packages, extensions, skills, and prompt files into `~/.pig/piglets/<name>.source/<commit>/`. It rewrites their paths in the registered YAML without changing explicit empty tool scopes. Each local path must exist beneath the Piglet file's directory. Executable permissions are preserved. Absolute paths, parent traversal, symlinks, Git metadata, non-regular files, and closures exceeding 4,096 entries or 32 MiB fail before registration. Keep all required build files inside each declared local Resource directory. Use explicit YAML fields rather than aliases or merge keys for this form. `extends`, local agent environments, Dev Containers, and file-based secrets remain unsupported for remote registration.
+This form copies declared relative local Packages, extensions, skills, and prompt files into `~/.pi/piglets/<name>.source/<commit>/`. It rewrites their paths in the registered YAML without changing explicit empty tool scopes. Each local path must exist beneath the Piglet file's directory. Executable permissions are preserved. Absolute paths, parent traversal, symlinks, Git metadata, non-regular files, and closures exceeding 4,096 entries or 32 MiB fail before registration. Keep all required build files inside each declared local Resource directory. Use explicit YAML fields rather than aliases or merge keys for this form. `extends`, local agent environments, Dev Containers, and file-based secrets remain unsupported for remote registration.
 
 The origin records the selected source, commit, original and registered Piglet digests, and copied file digests. Inventory verifies the closure. Source removal removes only that Piglet's recorded files. Other remote source forms still reject local Resource origins.
 
 ### Publish source to npm
 
 ```text
-pig piglet publish <name|path> --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
+ompig-slim piglet publish <name|path> --to npm [--yes] [--tag <dist-tag>] [--access public|restricted] [--otp <code>]
 ```
 
-This publishes a Piglet's source to npm with the `pig-piglet` keyword so that `pig piglet add npm:<name>` installs it. It is a dry run until `--yes` is present. PiG validates the Piglet, writes the npm package (`piglet.yaml`, `package.json`, README, LICENSE, and the system prompt file), replaces each local Package by `npm:<name>@^<version>`, refuses a `name@version` that npm already has, and runs `npm publish`. npm authenticates you; PiG never handles an npm token. A signed Binary release that this machine published with `--to github`, or that `--binaries github:<owner/repo>` names, is recorded in `package.json` under `pig.binaries`. See [Publishing](publishing.md).
+This publishes a Piglet's source to npm with the `pig-piglet` keyword so that `ompig-slim piglet add npm:<name>` installs it. It is a dry run until `--yes` is present. PiG validates the Piglet, writes the npm package (`piglet.yaml`, `package.json`, README, LICENSE, and the system prompt file), replaces each local Package by `npm:<name>@^<version>`, refuses a `name@version` that npm already has, and runs `npm publish`. npm authenticates you; PiG never handles an npm token. A signed Binary release that this machine published with `--to github`, or that `--binaries github:<owner/repo>` names, is recorded in `package.json` under `pig.binaries`. See [Publishing](publishing.md).
 
 ### Planned (not in this release): named pulls and Image artifacts
 
 ```text
-pig piglet pull <name>
-pig piglet build <name> --format image --out <reference>
-pig piglet build <name> --format binary|image --locked
-pig piglet build <name> --format binary|image --record <path>
+ompig-slim piglet pull <name>
+ompig-slim piglet build <name> --format image --out <reference>
+ompig-slim piglet build <name> --format binary|image --locked
+ompig-slim piglet build <name> --format binary|image --record <path>
 ```
 
 Pull by installed Piglet name and the reserved Image, `--locked`, and `--record` build paths are not available in this release.
@@ -381,8 +381,8 @@ and build Piglet source.
 Create an Ed25519 author key and sign during a native Binary build:
 
 ```text
-pig piglet keygen ./author.key
-pig piglet build <name> --format binary --out ./pig-<name> --sign-key ./author.key
+ompig-slim piglet keygen ./author.key
+ompig-slim piglet build <name> --format binary --out ./pig-<name> --sign-key ./author.key
 ```
 
 The private file is mode 0600 and is never replaced. Publish `author.key.pub`, not the private key. The Binary embeds the public key and verifies the signed DSSE manifest and every executable byte before command dispatch.
@@ -390,11 +390,11 @@ The private file is mode 0600 and is never replaced. Publish `author.key.pub`, n
 Check the file without running it and manage local trust explicitly:
 
 ```text
-pig verify ./pig-<name>
-pig piglet verify ./pig-<name>
-pig piglet trust add ./author.key.pub
-pig piglet trust revoke ed25519:<key-id>
-pig piglet trust require on
+ompig-slim verify ./pig-<name>
+ompig-slim piglet verify ./pig-<name>
+ompig-slim piglet trust add ./author.key.pub
+ompig-slim piglet trust revoke ed25519:<key-id>
+ompig-slim piglet trust require on
 ```
 
 An unsigned Binary reports unsigned. It runs by default, but `trust require on` makes every Piglet Binary require a signature by a trusted, non-revoked key. A valid embedded-key signature proves continuity from that key, not the human identity of its holder.
@@ -402,17 +402,17 @@ An unsigned Binary reports unsigned. It runs by default, but `trust require on` 
 Pull a published per-target Binary from a signed release index:
 
 ```text
-pig piglet pull https://github.com/acme/reviewer/releases/download/v1.2.3/piglet-release.json
-pig piglet pull github:acme/reviewer@1.2.3 --target linux/amd64
+ompig-slim piglet pull https://github.com/acme/reviewer/releases/download/v1.2.3/piglet-release.json
+ompig-slim piglet pull github:acme/reviewer@1.2.3 --target linux/amd64
 ```
 
-Pull verifies the index signature, complete asset checksum and size, Binary signature, and release identities before installing any file. The first pull pins the signer for that Piglet. A different signer is refused unless `--accept-signer ed25519:<key-id>` names the new index key exactly. Revoked keys and an enabled required-signature policy fail before installation. Pulled Binary facets and their signed receipts appear in `pig piglet list` and `show`.
+Pull verifies the index signature, complete asset checksum and size, Binary signature, and release identities before installing any file. The first pull pins the signer for that Piglet. A different signer is refused unless `--accept-signer ed25519:<key-id>` names the new index key exactly. Revoked keys and an enabled required-signature policy fail before installation. Pulled Binary facets and their signed receipts appear in `ompig-slim piglet list` and `show`.
 
 Publish signed Binaries as one GitHub Release named `v<release.version>`:
 
 ```text
-pig piglet publish reviewer --to github --repo acme/reviewer --sign-key ./reviewer-signing.key
-pig piglet publish reviewer --to github --repo acme/reviewer --sign-key ./reviewer-signing.key --artifacts ./dist --yes
+ompig-slim piglet publish reviewer --to github --repo acme/reviewer --sign-key ./reviewer-signing.key
+ompig-slim piglet publish reviewer --to github --repo acme/reviewer --sign-key ./reviewer-signing.key --artifacts ./dist --yes
 ```
 
 Publish is a dry run until `--yes` is present: it validates the Piglet, key, and targets, checks that the release does not exist, and prints the assets without building or uploading. With `--yes` it uploads one signed Binary per target named `pig-<name>-<os>-<arch>` (`.exe` for Windows), `SHA256SUMS`, and the signed `piglet-release.json` index. Targets come from `--targets`, else `build.targets`, else the host target. A target without a ready signing builder is listed with each builder's reason, and nothing is uploaded; the native builder builds only the host target, and container builders do not sign. `--artifacts <dir>` publishes prebuilt Binaries instead: each file must be signed by `--sign-key` and built from this Piglet source and `release.version`, with exactly one Binary per target. Publish runs `gh release view` and `gh release create` with the user's `gh` login and never handles a GitHub token. It refuses an existing release. `docs/examples/piglet-release.yml` in the PiG repository is a reusable GitHub Actions workflow that builds each target on a native runner, attests provenance, and publishes with `--artifacts`.
@@ -422,10 +422,10 @@ Publish is a dry run until `--yes` is present: it validates the Piglet, key, and
 Use `MichaelKinsy/pigpen` for the Piglet monorepo. Replace `<version>` with a published release version:
 
 ```bash
-pig piglet publish ./piglets/pig-with-batteries/piglet.yaml --to github --repo MichaelKinsy/pigpen --tag-prefix pig-with-batteries/ --sign-key ./pig-with-batteries-signing.key --yes
-pig piglet pull 'github:MichaelKinsy/pigpen/pig-with-batteries@<version>'
-pig piglet update pig-with-batteries
-pig piglet update pig-with-batteries --version 2.0.0-rc.1
+ompig-slim piglet publish ./piglets/pig-with-batteries/piglet.yaml --to github --repo MichaelKinsy/pigpen --tag-prefix pig-with-batteries/ --sign-key ./pig-with-batteries-signing.key --yes
+ompig-slim piglet pull 'github:MichaelKinsy/pigpen/pig-with-batteries@<version>'
+ompig-slim piglet update pig-with-batteries
+ompig-slim piglet update pig-with-batteries --version 2.0.0-rc.1
 ```
 
 The explicit `--tag-prefix` must equal the manifest name followed by `/`. It selects `pig-with-batteries/v1.2.3` without changing release SemVer. The default remains unprefixed `v1.2.3`. PiG never infers a namespace from repository layout. Dry runs, existence checks, uploads, default Git source refs, and URLs use that namespace. Download URLs escape the tag slash as `%2F`.
@@ -436,7 +436,7 @@ Update reads the current signed receipt and enumerates GitHub's public releases 
 
 Update refuses rollback, repository or namespace changes, revoked keys, and signer changes without an exact `--accept-signer` key ID. Required-signature policy still applies. It verifies the same index, complete checksum and size, Binary signature, and manifest identities as pull. It revalidates continuity under the release-store lock before publishing. An already-current version is a no-op. Indexes without signed GitHub identity cannot supply automatic updates. Update does not refresh registered source Piglets or query a catalog. `PIG_OFFLINE` and `PI_OFFLINE` prevent update requests.
 
-Sigstore keyless provenance is separate CI identity evidence. Verify it explicitly with `pig verify --provenance --repo <owner/name> --signer-workflow <workflow> <binary>`. This invokes `gh attestation verify` and may contact GitHub. Piglet Binary startup never performs that network check; its Ed25519 verification is offline.
+Sigstore keyless provenance is separate CI identity evidence. Verify it explicitly with `ompig-slim verify --provenance --repo <owner/name> --signer-workflow <workflow> <binary>`. This invokes `gh attestation verify` and may contact GitHub. Piglet Binary startup never performs that network check; its Ed25519 verification is offline.
 
 ### Planned (not in this release): Piglet Image
 
@@ -462,6 +462,6 @@ provenance.
 
 ## Replace a bundled extension
 
-A Piglet Binary pins every embedded component: fused Go extensions and prebuilt Go or Rust cells. At startup it verifies the registered closure and exits if a component is missing or different, so a bundled extension cannot be swapped inside a built binary. To ship a fix, change the extension source and rebuild the binary with `pig piglet build`.
+A Piglet Binary pins every embedded component: fused Go extensions and prebuilt Go or Rust cells. At startup it verifies the registered closure and exits if a component is missing or different, so a bundled extension cannot be swapped inside a built binary. To ship a fix, change the extension source and rebuild the binary with `ompig-slim piglet build`.
 
-When two configured origins provide the same extension name, PiG loads neither and names both origins in the error, so no copy wins silently. During development, run Stock `pig` with the Piglet file or the extension source instead of the built binary: edit the source and run `/reload`. Compiled cells are cached under `~/.pig/cache/ext` by source digest, so a changed source is rebuilt on reload.
+When two configured origins provide the same extension name, PiG loads neither and names both origins in the error, so no copy wins silently. During development, run Stock `ompig-slim` with the Piglet file or the extension source instead of the built binary: edit the source and run `/reload`. Compiled cells are cached under `~/.pi/cache/ext` by source digest, so a changed source is rebuilt on reload.

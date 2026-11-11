@@ -15,26 +15,26 @@ Project trust is not a complete startup boundary. As in Pi, PiG reads the projec
 Trust-sensitive project paths include:
 
 ```text
-.pig/settings.json
-.pig/mcp.json
-.pig/extensions/
-.pig/skills/
-.pig/prompts/
-.pig/themes/
-.pig/SYSTEM.md
-.pig/APPEND_SYSTEM.md
+.pi/settings.json
+.pi/mcp.json
+.pi/extensions/
+.pi/skills/
+.pi/prompts/
+.pi/themes/
+.pi/SYSTEM.md
+.pi/APPEND_SYSTEM.md
 .agents/skills/
 ```
 
-A bare `.pig` directory does not require project trust. Context files such as `AGENTS.override.md`, `AGENTS.md` and `CLAUDE.md` load whatever the trust decision is, unless you disable context loading. Treat instructions in a folder as untrusted input even when you decline project trust.
+A bare `.pi` directory does not require project trust. Context files such as `AGENTS.override.md`, `AGENTS.md` and `CLAUDE.md` load whatever the trust decision is, unless you disable context loading. Treat instructions in a folder as untrusted input even when you decline project trust.
 
-A Piglet in `.pig/piglets/` is also project input. `--piglet <name>` uses it only with a saved trust decision, `defaultProjectTrust: "always"` or `--approve`, and a bare name is never read from the working directory.
+A Piglet in `.pi/piglets/` is also project input. `--piglet <name>` uses it only with a saved trust decision, `defaultProjectTrust: "always"` or `--approve`, and a bare name is never read from the working directory.
 
 PiG chooses a trust decision as Pi does:
 
 1. A command-line `--approve` or `--no-approve` applies first.
 2. User-level and command-line extensions can handle the `project_trust` event. The first extension that returns yes or no owns the decision.
-3. Otherwise PiG uses the saved decision for the current directory or its closest parent. Decisions are stored by canonical directory in `~/.pig/agent/trust.json`.
+3. Otherwise PiG uses the saved decision for the current directory or its closest parent. Decisions are stored by canonical directory in `~/.pi/agent/trust.json`.
 4. Otherwise PiG follows the global `defaultProjectTrust` setting, whose default is `"ask"`.
 
 Print, JSON and RPC modes cannot show the trust prompt. Without an override, extension or saved decision, `defaultProjectTrust: "always"` loads the protected project files, and `"ask"` or `"never"` skips them.
@@ -72,13 +72,13 @@ A Package can distribute executable extensions and instruction Resources. Instal
 Review Package membership before installation:
 
 ```bash
-pig package validate ./package
+ompig-slim package validate ./package
 ```
 
 Validate extension behavior without changing settings:
 
 ```bash
-pig install ./extension --validate-only --json
+ompig-slim install ./extension --validate-only --json
 ```
 
 Package installation never activates a Piglet. A Piglet separately selects an agent application.
@@ -108,7 +108,7 @@ The guarantees below hold for a Piglet Binary built with `build.closed: true`. A
 
 **No Piglet or ambient Resource selection at run time.** A closed Binary refuses `--piglet`, `PIG_PIGLET_PATH`, `PIG_PIGLET_NAME` and `--system-prompt`, and each refusal names `build.closed`. It loads no ambient extension or skill, even when its Piglet lists a discovery scope.
 
-**No extension or MCP server added at run time.** A closed Binary refuses `-e`/`--extension` (a path, `npm:` or `git:` source), `pig install`, `pig remove`, `pig update --extensions` and `pig mcp add`, and each refusal names the option, the Binary and `build.closed`. It ignores `settings.extensions` and the servers of the user and project `mcp.json`, and reports a notice. Only what its signed closure lists runs; an extension in the closure can still register MCP servers.
+**No extension or MCP server added at run time.** A closed Binary refuses `-e`/`--extension` (a path, `npm:` or `git:` source), `ompig-slim install`, `ompig-slim remove`, `ompig-slim update --extensions` and `ompig-slim mcp add`, and each refusal names the option, the Binary and `build.closed`. It ignores `settings.extensions` and the servers of the user and project `mcp.json`, and reports a notice. Only what its signed closure lists runs; an extension in the closure can still register MCP servers.
 
 **A fixed set of fused and packed extensions.** At startup the Binary checks that the fused and packed extensions that start have the names its component plan lists, no more and no fewer. This is a check of names. It does not pin `PATH` for tools or runtimes. Startup does not install a Package or download a component.
 
@@ -116,23 +116,23 @@ The guarantees below hold for a Piglet Binary built with `build.closed: true`. A
 
 **Strips that overlays cannot undo.** A strip entry marked `stripped(binary)` names code that a build tag left out of the executable. An overlay cannot re-enable it, with or without `extends.allowWiden`. The strip list is part of the Binary record digest.
 
-**Signed Binaries.** A Binary built with `--sign-key` carries an Ed25519 signature in a DSSE envelope. At every start the Binary verifies the signature offline. It refuses to run when the executable, the manifest, or the signature changed. With `pig piglet trust require on`, a Binary without a signature from a locally trusted key does not run, and `pig piglet pull` does not install it. `pig piglet pull` also verifies the DSSE release index and pins the first signer of each Piglet.
+**Signed Binaries.** A Binary built with `--sign-key` carries an Ed25519 signature in a DSSE envelope. At every start the Binary verifies the signature offline. It refuses to run when the executable, the manifest, or the signature changed. With `ompig-slim piglet trust require on`, a Binary without a signature from a locally trusted key does not run, and `ompig-slim piglet pull` does not install it. `ompig-slim piglet pull` also verifies the DSSE release index and pins the first signer of each Piglet.
 
-**A container for the agent, when the Piglet declares one.** A source Piglet with `agentEnv.image` and `pigRuntime.mode: image` runs `pig` in a container. The container runs as the invoking user with all capabilities dropped, `no-new-privileges`, a read-only root file system and limits on memory, CPU and processes. It does not receive the host environment. It receives only the secrets that `agentEnv.secrets` binds with a declared `secretRef`, and the fixed `PIG_*` variables that the launch sets. If the environment cannot start, PiG does not fall back to the host.
+**A container for the agent, when the Piglet declares one.** A source Piglet with `agentEnv.image` and `pigRuntime.mode: image` runs `ompig-slim` in a container. The container runs as the invoking user with all capabilities dropped, `no-new-privileges`, a read-only root file system and limits on memory, CPU and processes. It does not receive the host environment. It receives only the secrets that `agentEnv.secrets` binds with a declared `secretRef`, and the fixed `PIG_*` variables that the launch sets. If the environment cannot start, PiG does not fall back to the host.
 
 ## What a Piglet Binary does not guarantee
 
 - **It is not a sandbox.** A Binary runs as the user. The fused code shares the PiG process. The model can still run the tools that the ceiling leaves.
-- **An open Binary does not stop `-e`, `pig install` or MCP configuration.** An open Binary loads an extension that the user names with `-e` (a path, `npm:` or `git:` source), accepts the package commands, and loads the MCP servers of the user configuration and of a trusted project, as stock PiG does. Only a closed Binary (`build.closed: true`) refuses them. Strip `mcp` to remove MCP from a Binary of either kind.
+- **An open Binary does not stop `-e`, `ompig-slim install` or MCP configuration.** An open Binary loads an extension that the user names with `-e` (a path, `npm:` or `git:` source), accepts the package commands, and loads the MCP servers of the user configuration and of a trusted project, as stock PiG does. Only a closed Binary (`build.closed: true`) refuses them. Strip `mcp` to remove MCP from a Binary of either kind.
 - **It does not pin `PATH` or runtimes.** The `bash` tool, MCP servers and extensions find programs through the inherited `PATH`. A Node extension runs the `node` found on `PATH`. A Python or Lisp source extension finds `uv`, Python or SBCL on `PATH`.
 - **The signature is a self-check.** A signature proves that the file is unchanged since a key signed it. A person who can rewrite the Binary and the trust store can sign a replacement. An unsigned Binary runs unless `trust require` is on.
-- **Revocation is local.** `pig piglet trust revoke` changes a file on one machine. There is no revocation list, no key expiry and no online check. Distribute the `revoked` file with your configuration tool.
-- **Builds are not locked.** `pig piglet build --locked` and `--record` fail with "not implemented". A Binary record holds digests, and `pig piglet verify --source` checks them.
-- **The `agentEnv` container is not available for a Binary.** `pig piglet build` refuses a Piglet with `agentEnv`. The container runs only for a source Piglet that names an image. The `--unsafe-host` option skips the container and prints a warning. The container network is the default bridge network, and no setting limits it. A command that the `bash` tool runs inherits the container environment, including the bound secrets.
+- **Revocation is local.** `ompig-slim piglet trust revoke` changes a file on one machine. There is no revocation list, no key expiry and no online check. Distribute the `revoked` file with your configuration tool.
+- **Builds are not locked.** `ompig-slim piglet build --locked` and `--record` fail with "not implemented". A Binary record holds digests, and `ompig-slim piglet verify --source` checks them.
+- **The `agentEnv` container is not available for a Binary.** `ompig-slim piglet build` refuses a Piglet with `agentEnv`. The container runs only for a source Piglet that names an image. The `--unsafe-host` option skips the container and prints a warning. The container network is the default bridge network, and no setting limits it. A command that the `bash` tool runs inherits the container environment, including the bound secrets.
 
 ## What needs the planned Piglet Image
 
-A Piglet Image is planned and is not built today. `pig piglet build --format image` fails with `Piglet Image build is not implemented`. These need it:
+A Piglet Image is planned and is not built today. `ompig-slim piglet build --format image` fails with `Piglet Image build is not implemented`. These need it:
 
 - a Binary that carries its own `agentEnv` and starts inside it;
 - the Dev Container and materialized source forms of `agentEnv`;
@@ -180,9 +180,9 @@ The check compares public-key digests, so it also refuses the cross-signed certi
 
 A Piglet Binary verifies its embedded Piglet and component plan before command dispatch. A Binary built with `--sign-key` also verifies its Ed25519 signature offline and refuses to run when its executable, manifest, or signature changed. When its file is unchanged since its last passing start, it skips the hash of its executable bytes. See [Verification cache](https://pi-in-go.dev/docs/latest/piglet-binaries#verification-cache) for what that keeps and gives up. The startup check is a self-check: it does not stop an attacker who can rewrite the Binary.
 
-Use `pig verify <binary>` to report the signature status without running the Binary. Use `pig piglet trust add <key.pub>` to trust a reviewed publisher key, `pig piglet trust revoke <key-id>` to reject it, and `pig piglet trust require on` to require signatures by locally trusted keys. An embedded author key proves continuity from that key, not the human identity of its holder.
+Use `ompig-slim verify <binary>` to report the signature status without running the Binary. Use `ompig-slim piglet trust add <key.pub>` to trust a reviewed publisher key, `ompig-slim piglet trust revoke <key-id>` to reject it, and `ompig-slim piglet trust require on` to require signatures by locally trusted keys. An embedded author key proves continuity from that key, not the human identity of its holder.
 
-A Sigstore keyless attestation is separate build-provenance evidence. `pig verify --provenance --repo <owner/name> --signer-workflow <workflow> <binary>` delegates to `gh attestation verify` and may contact GitHub. Startup never makes that network request.
+A Sigstore keyless attestation is separate build-provenance evidence. `ompig-slim verify --provenance --repo <owner/name> --signer-workflow <workflow> <binary>` delegates to `gh attestation verify` and may contact GitHub. Startup never makes that network request.
 
 It does not silently install, download, substitute, or weaken missing requirements. Verify the release checksum, offline signature, and available provenance before execution.
 
@@ -205,9 +205,9 @@ Build a controlled Binary in these steps:
 1. Set an exact `tools` list, and set `discovery.extensions: []` and `discovery.skills: []`.
 2. Strip the built-ins that the application does not need, with `strip`.
 3. Set `build.closed: true`, and add `mcp` to `strip.extensions` when the application needs no MCP server.
-4. Build with `--sign-key`. Run `pig piglet trust add` for the publisher key, and run `pig piglet trust require on` on each host.
+4. Build with `--sign-key`. Run `ompig-slim piglet trust add` for the publisher key, and run `ompig-slim piglet trust require on` on each host.
 5. Run the Binary in a container or virtual machine that you provide, with the secrets injected at run time. The closed Binary refuses `-e`, the package commands and MCP configuration, so the command line cannot add code. The Binary fixes what it ships, and the container fixes what it can reach.
-6. Run `pig verify <binary>` and `pig piglet verify <binary> --source <piglet.yaml>` before you release it. The second command fails when the source differs from the baked Piglet, which includes a source that turns `build.closed` off.
+6. Run `ompig-slim verify <binary>` and `ompig-slim piglet verify <binary> --source <piglet.yaml>` before you release it. The second command fails when the source differs from the baked Piglet, which includes a source that turns `build.closed` off.
 
 An open Binary refuses nothing for `--piglet`. A closed Binary refuses `--piglet` with a message that names `build.closed`. Use that message to test a build.
 

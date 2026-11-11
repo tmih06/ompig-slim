@@ -2,7 +2,7 @@
 
 PiG speaks to inference providers through the provider registry shared with its Pi compatibility model. Each built-in provider has a Go implementation under `ai/` that handles authentication, request shaping, and stream parsing. Extensions can register additional providers through the public extension API. See [Extensions](extensions.md).
 
-Most hosted providers accept an API key, and some also accept a browser or device sign-in through OAuth. Amazon Bedrock and Google Vertex AI can also use ambient cloud credentials. Run `/login` or `pig login --list` to see the sign-in methods for each provider.
+Most hosted providers accept an API key, and some also accept a browser or device sign-in through OAuth. Amazon Bedrock and Google Vertex AI can also use ambient cloud credentials. Run `/login` or `ompig-slim login --list` to see the sign-in methods for each provider.
 
 ## Built-in providers
 
@@ -20,7 +20,7 @@ PiG ships the same built-in chat providers and classifier models as Pi 1.5.0. `t
 | `cloudflare-workers-ai` | Cloudflare Workers AI | `openai-completions` | `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` |
 | `deepseek` | DeepSeek | `openai-completions` | `DEEPSEEK_API_KEY` |
 | `fireworks` | Fireworks | `anthropic-messages`, `openai-completions` | `FIREWORKS_API_KEY` |
-| `github-copilot` | GitHub Copilot | `anthropic-messages`, `openai-completions`, `openai-responses` | OAuth via `pig login github-copilot`, or `COPILOT_GITHUB_TOKEN` |
+| `github-copilot` | GitHub Copilot | `anthropic-messages`, `openai-completions`, `openai-responses` | OAuth via `ompig-slim login github-copilot`, or `COPILOT_GITHUB_TOKEN` |
 | `google` | Google Gemini | `google-generative-ai` | `GEMINI_API_KEY` |
 | `google-vertex` | Google Vertex AI | `google-vertex` | `GOOGLE_CLOUD_API_KEY` or Application Default Credentials. See [Google Vertex AI](#google-vertex-ai). |
 | `groq` | Groq | `openai-completions` | `GROQ_API_KEY` |
@@ -34,7 +34,7 @@ PiG ships the same built-in chat providers and classifier models as Pi 1.5.0. `t
 | `moonshotai-cn` | Moonshot AI (China) | `openai-completions` | `MOONSHOT_API_KEY` |
 | `nvidia` | NVIDIA NIM | `openai-completions` | `NVIDIA_API_KEY` |
 | `openai` | OpenAI | `openai-responses` | `OPENAI_API_KEY` |
-| `openai-codex` | OpenAI Codex (ChatGPT subscription) | `openai-codex-responses` | OAuth via `pig login openai-codex` |
+| `openai-codex` | OpenAI Codex (ChatGPT subscription) | `openai-codex-responses` | OAuth via `ompig-slim login openai-codex` |
 | `opencode` | OpenCode Zen | `anthropic-messages`, `google-generative-ai`, `openai-completions`, `openai-responses` | `OPENCODE_API_KEY` |
 | `opencode-go` | OpenCode Go | `anthropic-messages`, `openai-completions`, `openai-responses` | `OPENCODE_API_KEY` |
 | `openrouter` | OpenRouter | `anthropic-messages`, `openai-completions` | `OPENROUTER_API_KEY` or OAuth. Every model also lists its `:nitro` and `:floor` routing variants (D199, see [Models](models.md)). |
@@ -52,9 +52,9 @@ PiG ships the same built-in chat providers and classifier models as Pi 1.5.0. `t
 | `zai` | ZAI Coding Plan (Global) | `openai-completions` | `ZAI_API_KEY` |
 | `zai-coding-cn` | ZAI Coding Plan (China) | `openai-completions` | `ZAI_CODING_CN_API_KEY` |
 
-`pig --list-models` shows only the providers that have a credential. `pig --list-models <search>` filters that list.
+`ompig-slim --list-models` shows only the providers that have a credential. `ompig-slim --list-models <search>` filters that list.
 
-To add an endpoint that is not in this table, such as a local Ollama, LM Studio or vLLM server, declare it in `~/.pig/agent/models.json`. See [Custom providers](custom-provider.md).
+To add an endpoint that is not in this table, such as a local Ollama, LM Studio or vLLM server, declare it in `~/.pi/agent/models.json`. See [Custom providers](custom-provider.md).
 
 ## Use an API key from the environment
 
@@ -62,10 +62,10 @@ Set the provider's variable before you start PiG:
 
 ```bash
 export GEMINI_API_KEY=...
-pig --model google/gemini-2.5-flash
+ompig-slim --model google/gemini-2.5-flash
 ```
 
-Each provider in the table above reads the variable in its credential column. Use `GEMINI_API_KEY` for `google`. PiG does not treat `GOOGLE_API_KEY` as a `google` credential: `pig auth check`, `/login` and `--list-models` ignore it, as Pi does.
+Each provider in the table above reads the variable in its credential column. Use `GEMINI_API_KEY` for `google`. PiG does not treat `GOOGLE_API_KEY` as a `google` credential: `ompig-slim auth check`, `/login` and `--list-models` ignore it, as Pi does.
 
 `anthropic` reads three variables. `ANTHROPIC_AUTH_TOKEN` is sent as an `Authorization: Bearer` token and takes precedence over the other two. `ANTHROPIC_OAUTH_TOKEN` is used as an API key and takes precedence over `ANTHROPIC_API_KEY`. Subscription tokens (`sk-ant-oat`) are sent with the Claude Code identity, and subscription auth shows a warning at session start.
 
@@ -85,7 +85,7 @@ Bedrock prompts for a bearer token, an AWS profile, or the existing credential c
 
 Escape in a key or text prompt aborts login without replacing an existing credential. As in Pi, the error reads `Failed to save API key for <Name>: This operation was aborted`. `/logout` lists only stored credentials and does not change environment variables or `models.json`. With nothing stored, it reports that there are no credentials to remove. Matching login options retain their credential-source labels, such as `stored`; logout uses `configured` for the stored credentials it lists.
 
-PiG stores credentials in `~/.pig/agent/auth.json`. Agent startup creates a missing file containing `{}` with owner-only permissions (mode `0600` on POSIX; an owner-only DACL on Windows, D68). Startup leaves existing contents and permissions unchanged. Stored credentials take precedence over environment fallback; a runtime API key can override them for the current process.
+PiG stores credentials in `~/.pi/agent/auth.json`. Agent startup creates a missing file containing `{}` with owner-only permissions (mode `0600` on POSIX; an owner-only DACL on Windows, D68). Startup leaves existing contents and permissions unchanged. Stored credentials take precedence over environment fallback; a runtime API key can override them for the current process.
 
 `auth.json` can contain API keys and OAuth tokens. Keep it private and do not commit it.
 
@@ -136,32 +136,32 @@ A failed Copilot refresh reports an explicit reauthentication instruction:
 github-copilot: refresh failed - run 'pig login' to re-authenticate
 ```
 
-### `pig login` shapes
+### `ompig-slim login` shapes
 
 ```
-pig login                 # interactive picker
-pig login <provider>      # specific provider
-pig login --list          # list the targets without reading credentials
-pig logout <provider>     # remove credentials for one provider
+ompig-slim login                 # interactive picker
+ompig-slim login <provider>      # specific provider
+ompig-slim login --list          # list the targets without reading credentials
+ompig-slim logout <provider>     # remove credentials for one provider
 ```
 
-`pig logout` does not unset environment variables or revoke the credential at the provider.
+`ompig-slim logout` does not unset environment variables or revoke the credential at the provider.
 
 ### Credential commands
 
-`pig auth` resolves credentials the way a model request does and writes them for external clients. Each command needs `--provider <provider>`, `--model <model>`, or both.
+`ompig-slim auth` resolves credentials the way a model request does and writes them for external clients. Each command needs `--provider <provider>`, `--model <model>`, or both.
 
 ```
-pig auth check --provider openai --json      # ready / not_ready / invalid, exit 0 / 1 / 2
-pig auth print-api-key --provider openai     # API key on stdout
-pig auth print-bearer-token --provider openai-codex --min-expiry 1h
+ompig-slim auth check --provider openai --json      # ready / not_ready / invalid, exit 0 / 1 / 2
+ompig-slim auth print-api-key --provider openai     # API key on stdout
+ompig-slim auth print-bearer-token --provider openai-codex --min-expiry 1h
 ```
 
 Credential-printing commands write secrets to stdout. `auth check` prints a credential only with `--credentials`.
 
-Use `pig auth check` to confirm that PiG sees a credential before you start a session.
+Use `ompig-slim auth check` to confirm that PiG sees a credential before you start a session.
 
-An OAuth login can wait for device authorization or a browser callback. This wait belongs to the provider flow. PiG does not start a model Session while `pig login` runs.
+An OAuth login can wait for device authorization or a browser callback. This wait belongs to the provider flow. PiG does not start a model Session while `ompig-slim login` runs.
 
 ## Cloud providers
 
@@ -260,7 +260,7 @@ To use a service-account key file, set `GOOGLE_APPLICATION_CREDENTIALS` with the
 
 Radius is a gateway that speaks Pi's own message protocol, `pi-messages`: PiG posts the conversation to `<baseUrl>/messages` and reads the reply as a stream of Pi events. `/login` → **Sign in with an account** → **Radius** offers a browser sign-in (a callback on `127.0.0.1:1456`) or a device code for signing in from another machine. You can also paste a key with **Sign in with an API key** or set `RADIUS_API_KEY`.
 
-PiG ships Radius's published model list. With credentials configured, PiG fetches the gateway's current list from `<gateway>/v1/config` in the background when interactive or RPC mode starts and after you sign in with `/login`, and caches it in `~/.pig/agent/models-store.json`. Print mode and `--list-models` use the cached list. `PI_OFFLINE` (any value) or `PIG_OFFLINE` (`1`, `true` or `yes`) turns the fetch off. Without Radius credentials, PiG contacts the gateway only while you sign in.
+PiG ships Radius's published model list. With credentials configured, PiG fetches the gateway's current list from `<gateway>/v1/config` in the background when interactive or RPC mode starts and after you sign in with `/login`, and caches it in `~/.pi/agent/models-store.json`. Print mode and `--list-models` use the cached list. `PI_OFFLINE` (any value) or `PIG_OFFLINE` (`1`, `true` or `yes`) turns the fetch off. Without Radius credentials, PiG contacts the gateway only while you sign in.
 
 To use another Radius gateway, add a provider with `"oauth": "radius"` to `models.json`. `baseUrl` is required; PiG drops a trailing `v1` path segment to find the gateway. The published model list applies only to the default gateway.
 
@@ -290,8 +290,8 @@ Extensions can add inference providers at register time. The host treats the `co
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Missing bearer or basic authentication` | No API key in env, no token in `auth.json` | `pig login <provider>` or export the env var. |
-| `pig auth check --provider google` prints `not_ready` | Only `GOOGLE_API_KEY` is set | Set `GEMINI_API_KEY`. |
-| `Bad credentials` (Copilot 401) | OAuth token expired or revoked | `pig login github-copilot`. |
+| `Missing bearer or basic authentication` | No API key in env, no token in `auth.json` | `ompig-slim login <provider>` or export the env var. |
+| `ompig-slim auth check --provider google` prints `not_ready` | Only `GOOGLE_API_KEY` is set | Set `GEMINI_API_KEY`. |
+| `Bad credentials` (Copilot 401) | OAuth token expired or revoked | `ompig-slim login github-copilot`. |
 | Model selector shows nothing | No providers have valid auth | Login or set an env var; check `/login`. |
 | Cycling lands on the wrong model | Bare ID in a custom helper | Always pass `provider/model`; see [Models](models.md). |

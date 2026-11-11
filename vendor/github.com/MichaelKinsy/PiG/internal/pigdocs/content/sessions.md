@@ -6,7 +6,7 @@ Every Session has an ID, including print (`-p`), JSON, RPC, and `--no-session` r
 
 ## Where sessions are stored
 
-Sessions live under `~/.pig/agent/sessions/`, in a directory per project. The
+Sessions live under `~/.pi/agent/sessions/`, in a directory per project. The
 directory name is the project path with separators replaced, wrapped in `--`, so
 sessions for different projects never mix.
 
@@ -63,7 +63,7 @@ An unnamed session is identified by its time and first message, which is hard to
 recognize later. `/name` gives it a name, and `ctrl+n` in the session list filters
 to named sessions.
 
-Run `pig -r` or `/resume` to open the session picker. Search matches the session ID, name, user and assistant message text, and working directory. Separate words must all match. Unquoted words use fuzzy matching; double quotes match a phrase with whitespace normalized. Use `re:<pattern>` for a case-insensitive regular expression.
+Run `ompig-slim -r` or `/resume` to open the session picker. Search matches the session ID, name, user and assistant message text, and working directory. Separate words must all match. Unquoted words use fuzzy matching; double quotes match a phrase with whitespace normalized. Use `re:<pattern>` for a case-insensitive regular expression.
 
 The `/resume` picker includes the current Session when its file is saved and matches the selected scope and filters. Its name or first-message preview uses the accent color. Selecting it reloads the same Session and reports `Resumed session`. You cannot delete the active Session from the picker.
 

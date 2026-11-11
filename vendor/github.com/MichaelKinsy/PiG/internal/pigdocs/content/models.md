@@ -18,7 +18,7 @@ A model in pig is identified by a **provider-qualified spec**: `provider/modelID
 
 | Mechanism | Effect |
 |---|---|
-| `pig --model openai/gpt-5.5` | Override for this process. |
+| `ompig-slim --model openai/gpt-5.5` | Override for this process. |
 | `/model` slash command | Open the selector. Enter selects for this session. Ctrl+S selects and saves the default. |
 | `Ctrl+P` / `Shift+Ctrl+P` | Cycle next/previous within scoped models. |
 | `/scoped-models` | Edit the cycle list interactively. |
@@ -80,7 +80,7 @@ PiG integrates with the llama.cpp router: the `/llama` command manages it and `/
 
 ## Configure models.json
 
-`~/.pig/agent/models.json` adds providers and models, or changes built-in ones. The top level is `{ "providers": { "<provider>": { ... } } }`. Errors in the file name its path; a missing file is fine and PiG leaves an invalid file unchanged.
+`~/.pi/agent/models.json` adds providers and models, or changes built-in ones. The top level is `{ "providers": { "<provider>": { ... } } }`. Errors in the file name its path; a missing file is fine and PiG leaves an invalid file unchanged.
 
 Provider fields, all optional: `name`, `baseUrl`, `apiKey`, `api`, `oauth`, `headers`, `compat`, `authHeader`, `models` and `modelOverrides`. `apiKey` and header values accept `$NAME` or `${NAME}`, a literal, or a leading `!command`.
 
@@ -208,6 +208,6 @@ New built-in models go into `ai/models_generated.go` and are committed in source
 |---|---|---|
 | `defaultModel` contains `github-copilot/gpt-6-sol`, but a new session starts on another model | The saved default expects separate provider and model fields. | Set `"defaultProvider": "github-copilot"` and `"defaultModel": "gpt-6-sol"`. |
 | `model gpt-5.5 routed to openai but I selected copilot` | Bare ID passed to `BuildModel()` | Always pass `provider/id`. |
-| `GPT-5.5 does not support thinking` after a binary swap | Stale `pig` on `PATH` | Reinstall or rebuild PiG, run `hash -r`, and restart the TUI. |
+| `GPT-5.5 does not support thinking` after a binary swap | Stale `ompig-slim` on `PATH` | Reinstall or rebuild PiG, run `hash -r`, and restart the TUI. |
 | Thinking cycle has no effect | Active model has `Reasoning: false` | Switch to a reasoning model. |
-| Model selector empty after `pig login` | Credentials wrote to wrong root | Check `PIG_HOME` vs `~/.pig`. |
+| Model selector empty after `ompig-slim login` | Credentials wrote to wrong root | Check `PIG_HOME` vs `~/.pi`. |

@@ -11,7 +11,7 @@ The format is the Session format of Pi 1.5.0 ([Pi's session file format](https:/
 The default location is:
 
 ```text
-~/.pig/agent/sessions/--<project-path>--/<timestamp>_<uuid>.jsonl
+~/.pi/agent/sessions/--<project-path>--/<timestamp>_<uuid>.jsonl
 ```
 
 PiG uses `PIG_CODING_AGENT_DIR` when you configure a different agent directory.

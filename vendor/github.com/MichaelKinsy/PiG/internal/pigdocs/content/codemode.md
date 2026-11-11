@@ -4,7 +4,7 @@
 
 `codemode` lets the model write a short JavaScript program that calls PiG's other tools, instead of calling them one at a time. Only the script's output reaches the model. `tool_search` finds tools that are not declared to the model and declares the matches for the next call.
 
-The scripts run in [QuickJS](https://bellard.org/quickjs/) compiled to WebAssembly and executed by [wazero](https://wazero.io) inside the `pig` process. PiG needs no Node.js for codemode, and a script can reach only the tools you give it.
+The scripts run in [QuickJS](https://bellard.org/quickjs/) compiled to WebAssembly and executed by [wazero](https://wazero.io) inside the `ompig-slim` process. PiG needs no Node.js for codemode, and a script can reach only the tools you give it.
 
 PiG ships two built-in extensions that add tools. Both are written in Go and are off by default. The `mcp` extension turns them on when an MCP server needs them (see [MCP](mcp.md#control-tool-exposure)). To enable them yourself, name them in `--tools` or `defaultTools`.
 
@@ -15,7 +15,7 @@ PiG ships two built-in extensions that add tools. Both are written in Go and are
 
 ## Enable codemode
 
-To turn on `codemode` for every session, add it to the default tools in `~/.pig/agent/settings.json` or a project's `.pig/settings.json`:
+To turn on `codemode` for every session, add it to the default tools in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
 
 ```json
 {
@@ -26,10 +26,10 @@ To turn on `codemode` for every session, add it to the default tools in `~/.pig/
 This keeps `read`, `bash`, `edit`, and `write` and adds `codemode`. For one invocation, add it with `--tools`:
 
 ```sh
-pig --tools +codemode
+ompig-slim --tools +codemode
 ```
 
-A `--tools` list of only `+name` and `-name` entries changes the default selection. A list of plain names replaces it, so name every tool you want: `pig --tools read,bash,edit,write,codemode`. `--tools` keeps MCP tools unless an entry starts with `mcp__` (see [CLI reference](commands.md)).
+A `--tools` list of only `+name` and `-name` entries changes the default selection. A list of plain names replaces it, so name every tool you want: `ompig-slim --tools read,bash,edit,write,codemode`. `--tools` keeps MCP tools unless an entry starts with `mcp__` (see [CLI reference](commands.md)).
 
 Codemode is useful without MCP: scripts can run several tool calls in parallel, filter large output before it reaches the model, call classifier models through `models.classify()`, and generate images through `models.generateImages()` (see [Models](#models)).
 
@@ -50,7 +50,7 @@ The result starts with `Script completed` or `Script failed`, the wall time, and
 
 An `Error` nested in a value that `text()`, `console` or `return` writes appears as `{"name":...,"message":...}` followed by its own enumerable fields, such as `code`. For example, `text(await Promise.allSettled([...]))` shows each rejection's message. Pi writes such an `Error` as `{}` (D145, Pi #10650). An explicit `JSON.stringify` in the script and the arguments a script passes to a tool keep normal JavaScript behavior.
 
-The `codemode` description lists each script global in one line and points the model to this page for the details, such as the `models` API. A copy of this page ships with `pig` in its docs bundle under `~/.pig/docs/` (`pig docs path` prints the directory), so the model can read it with the `read` tool.
+The `codemode` description lists each script global in one line and points the model to this page for the details, such as the `models` API. A copy of this page ships with `ompig-slim` in its docs bundle under `~/.pi/docs/` (`ompig-slim docs path` prints the directory), so the model can read it with the `read` tool.
 
 ## Worked example: two files in one script
 
