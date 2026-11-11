@@ -351,12 +351,14 @@ def check_clients(base, binary):
                 raise CheckFailed(f"client {name} failed: {result.stderr.strip()[:400]}")
             return result
 
-        run("a", "--version")
+        # --version deliberately skips broker startup; list-models still runs
+        # the normal startup sync without requiring a provider request.
+        run("a", "--list-models")
         edited = json.loads((profiles["a"] / "settings.json").read_text())
         edited["modelRoles"]["smol"] = "test-faux/model"
         (profiles["a"] / "settings.json").write_text(json.dumps(edited))
-        run("a", "--version")
-        run("b", "--version")
+        run("a", "--list-models")
+        run("b", "--list-models")
         pulled = json.loads((profiles["b"] / "settings.json").read_text())
         expect("a second machine pulls a preference edit", pulled.get("modelRoles", {}).get("smol") == "test-faux/model", pulled)
 
