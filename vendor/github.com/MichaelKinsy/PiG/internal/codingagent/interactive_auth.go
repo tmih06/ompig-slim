@@ -523,8 +523,9 @@ func loginDialogOutcome(dlg *tui.LoginDialogComponent, failed *atomic.Bool, prov
 	return nil
 }
 
-// loginOpenAICodex is the Codex flow runLoginOpenAICodex starts; tests replace it to observe the callbacks.
-var loginOpenAICodex = ai.LoginOpenAICodex
+// loginOpenAICodex dispatches the selected browser/device flow with cancellation.
+// The browser-only helper ignores OnSelect and must not own interactive login.
+var loginOpenAICodex = (ai.CodexOAuthProvider{}).LoginContext
 
 // runLoginOpenAICodex runs the OpenAI Codex (ChatGPT) OAuth flow.
 // Mirrors upstream openai-codex.ts login(), which first presents a method
