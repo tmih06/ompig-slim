@@ -127,6 +127,13 @@ func (p *CombinedProvider) getSuggestions(ctx context.Context, lines []string, c
 		if result := p.slash.GetSuggestions(ctx, lines, cursorLine, cursorCol, AutocompleteSuggestionOptions{}); result != nil {
 			return result
 		}
+		// A leading slash followed by a space is a command-shaped prompt. Once
+		// its command completer has no result, do not reinterpret the argument
+		// text as a filesystem prefix and reopen an irrelevant path menu.
+		trimmed := widthx.JSTrimStart(before)
+		if strings.HasPrefix(trimmed, "/") && strings.Contains(trimmed, " ") {
+			return nil
+		}
 	}
 
 	// Mirrors upstream autocomplete.ts:358 + editor.ts forceFileAutocomplete.

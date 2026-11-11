@@ -1290,8 +1290,9 @@ func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
 }
 
 // unknownSlashCommand reports a leading slash command name that is absent from
-// the builtin/extension registry, prompt templates, and loaded skills. It only
-// examines prompts whose first character is '/', so ordinary prose is untouched.
+// the builtin/extension registry, prompt templates, and loaded skills. It is
+// retained for callers that need diagnostic classification; ordinary prompt
+// submission does not reject its result.
 func (m *InteractiveMode) unknownSlashCommand(prompt string) (bool, string) {
 	if !strings.HasPrefix(prompt, "/") || m.slashRegistry == nil {
 		return false, ""
