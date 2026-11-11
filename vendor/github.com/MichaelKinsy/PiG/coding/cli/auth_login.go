@@ -145,7 +145,7 @@ func runAuthLogin(args []string, env authRunEnv) int {
 	if kind == ai.CredentialAPIKey {
 		verb = "Saved API key for "
 	}
-	terminal.write(verb + provider.Name + ". Credentials saved to " + ai.SQLiteAuthPath(env.agentDir))
+	terminal.write(verb + provider.Name + ". Credentials saved.")
 	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	result := runtime.Refresh(refreshCtx, ai.ModelsRefreshOptions{Providers: []string{provider.ID}, AllowNetwork: new(true)})

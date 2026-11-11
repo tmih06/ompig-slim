@@ -128,13 +128,13 @@ a Herdr server restart.
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
 Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live
-in local SQLite, unencrypted at rest.
+in local SQLite, or in the configured broker’s SQLite vault, unencrypted at rest.
 
 ## Remote broker
 
 One hosted service keeps sign-in, custom providers, settings, model roles and keybindings identical across
-your machines. It stores profile state only: **inference, OAuth refresh and tools still run on each client**,
-so this is not a traffic proxy.
+your machines. Its SQLite vault owns credentials and **refreshes OAuth tokens on the broker**; clients
+receive access credentials, never refresh tokens. Inference and tools stay on each client—no traffic proxy.
 
 ```sh
 docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
@@ -144,10 +144,11 @@ docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
 
 On each client, open `/login`, choose **Remote ompig-slim broker**, and enter the URL and secret. Unattended
 machines can skip the dialog: `ompig-slim broker setup --url <origin> --token-file <path>` writes the same
-connection. The first client seeds storage; the rest download it. Editing preferences or signing in anywhere
-synchronizes with revision checks instead of overwriting. Use HTTPS or a private network: stored credentials,
-including refresh tokens, sync too. See [broker setup and containers](docs/remote-broker.md) for deployment
-and limits.
+connection. Import existing local accounts explicitly with `ompig-slim broker migrate --from-local`.
+Preferences synchronize with revision checks; account writes persist directly on the broker. Use HTTPS or
+a private encrypted network. See [broker setup and containers](docs/remote-broker.md) for migration,
+deployment and limits. Broker and standalone mode use the same `agent.db`, so a closed database can
+[transfer directly between them](docs/remote-broker.md#back-up-or-switch-to-standalone-mode).
 
 ## Development
 

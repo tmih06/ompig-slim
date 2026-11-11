@@ -18,8 +18,8 @@ func TestLoginPersistsLocalConnection(t *testing.T) {
 	a, _, server := testClients(t)
 	t.Setenv("OMPIG_BROKER_URL", "")
 	t.Setenv("OMPIG_BROKER_TOKEN", "")
-	previous := ai.CredentialStoreSync
-	t.Cleanup(func() { ai.CredentialStoreSync = previous })
+	previous := ai.CredentialStoreFactory
+	t.Cleanup(func() { ai.CredentialStoreFactory = previous })
 	var prompts []ai.AuthPrompt
 	interaction := ai.AuthInteraction{Prompt: func(ctx context.Context, prompt ai.AuthPrompt) (string, error) {
 		prompts = append(prompts, prompt)
@@ -51,11 +51,11 @@ func TestLoginPersistsLocalConnection(t *testing.T) {
 		t.Fatal("saved connection lost", err)
 	}
 	// Verification must not upload the sync secret or start credential sync.
-	var empty Item
-	if err = a.request(context.Background(), "GET", "/v1/items/credentials.json", "", "", nil, &empty); err != nil {
+	empty, err := (&remoteStore{client: a}).snapshot(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if empty.Data != nil {
+	if len(empty) != 0 {
 		t.Fatal("login unexpectedly changed hosted credentials")
 	}
 	if slices.Contains(SharedFiles, connectionFile) {
@@ -65,7 +65,7 @@ func TestLoginPersistsLocalConnection(t *testing.T) {
 	if err != nil || connected == nil {
 		t.Fatal("saved login did not reconnect", err)
 	}
-	if err = a.request(context.Background(), "GET", "/v1/items/"+connectionFile, "", "", nil, nil); err == nil {
+	if err = a.request(context.Background(), "GET", "/v1/items/"+connectionFile, "", nil, nil); err == nil {
 		t.Fatal("connection secret exposed as shared file")
 	}
 }
