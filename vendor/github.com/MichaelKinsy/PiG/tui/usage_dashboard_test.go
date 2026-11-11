@@ -359,6 +359,47 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	}
 }
 
+// TestUsageReportDoesNotReserveColumnsForAccountsWithoutLimits ensures a
+// no-limit account rendered below the quota rows cannot create a blank quota
+// column that changes wrapping and makes later bars appear to shift.
+func TestUsageReportDoesNotReserveColumnsForAccountsWithoutLimits(t *testing.T) {
+	limit := func(accountID string, used float64) ai.UsageLimit {
+		quota := usageTestLimit("openai", accountID, "7d", "Weekly",
+			ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)
+		quota.ID = "openai:7d"
+		return quota
+	}
+	reports := []ai.UsageReport{
+		usageTestReport("openai", "a@test", []ai.UsageLimit{limit("a", 0.8)}, nil),
+		usageTestReport("openai", "b@test", nil, nil),
+		usageTestReport("openai", "c@test", []ai.UsageLimit{limit("c", 0.2)}, nil),
+	}
+	lines := strings.Split(plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+		Reports: reports, NowMs: 1000, Width: 60,
+	}), "\n")), "\n")
+	for index, line := range lines {
+		if !strings.Contains(line, "✔ Weekly") || index+2 >= len(lines) {
+			continue
+		}
+		bars := lines[index+2]
+		if strings.Count(bars, "█") == 0 {
+			t.Fatalf("weekly bars missing:\n%s", strings.Join(lines, "\n"))
+		}
+		if strings.Contains(lines[index+1], "b@test") || strings.Contains(bars, "b@test") {
+			t.Fatalf("no-limit account entered the quota columns:\n%s", strings.Join(lines, "\n"))
+		}
+		if strings.Count(bars, "░") < 2 {
+			t.Fatalf("weekly row did not retain both limited accounts:\n%s", strings.Join(lines, "\n"))
+		}
+		barPart := strings.TrimRight(strings.TrimSuffix(bars, "50% free"), " ")
+		if widthx.VisibleWidth(barPart) < 45 {
+			t.Fatalf("weekly row reserved a narrow column for the no-limit account: %q", bars)
+		}
+		return
+	}
+	t.Fatalf("weekly bucket missing:\n%s", strings.Join(lines, "\n"))
+}
+
 func TestUsageReportMarksOnlyTheKeyedAccountActive(t *testing.T) {
 	now := time.Now().UnixMilli()
 	makeReport := func(accountID, accountKey string, used float64) ai.UsageReport {

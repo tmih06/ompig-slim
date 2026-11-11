@@ -724,7 +724,10 @@ func RenderUsageReports(options UsageReportOptions) string {
 				}
 			}
 			sortedLimits := make([]ai.UsageLimit, 0, len(accounts))
-			accountColumns := make([]usageAccountColumn, len(providerReports))
+			// Only reports with quota limits participate in these columns. Accounts
+			// without limits are rendered separately below and must not consume a
+			// blank slot that narrows or shifts the visible quota bars.
+			accountColumns := make([]usageAccountColumn, len(accountOrder))
 			for _, account := range accounts {
 				sortedLimits = append(sortedLimits, account.limit)
 				accountColumns[columnByPosition[account.position]] = account
