@@ -70,6 +70,14 @@ func (m *InteractiveMode) setupEditorSubmitHandler(ctx context.Context) {
 			m.editor.SetText("")
 			return
 		}
+		// Keep a leading unknown slash command in the editor. Treating it as a
+		// prompt is surprising and can spend a model turn on a typo; restoring the
+		// text here also lets the user correct it without retyping the command.
+		if unknown, name := m.unknownSlashCommand(text); unknown {
+			m.editor.SetText(text)
+			m.showStatus("Unknown slash command: /" + name)
+			return
+		}
 		if m.slashRegistry != nil && m.resolvableSlashCommand(text) && !m.isExtensionCommand(text) {
 			m.handleSubmit(ctx, text)
 			return
