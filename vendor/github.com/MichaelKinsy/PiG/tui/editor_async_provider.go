@@ -105,8 +105,9 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 			}
 			if done != nil {
 				done(strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:"))
-			} else if strings.HasPrefix(prefix, "/") {
+			} else if strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:") {
 				// Tab has no submit continuation: query arguments after applying the name.
+				// Skills remain prose tokens; refreshing here would reopen file completion.
 				e.refreshAutocomplete()
 			}
 		}, nil

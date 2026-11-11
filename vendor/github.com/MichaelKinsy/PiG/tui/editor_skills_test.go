@@ -93,6 +93,21 @@ func TestSkillSelectionContinuesPrompt(t *testing.T) {
 	}
 }
 
+// TestForcedSkillSelectionDoesNotReopenCompletion keeps a single Tab completion
+// from falling through to file completion after the skill token is complete.
+func TestForcedSkillSelectionDoesNotReopenCompletion(t *testing.T) {
+	e := NewEditor()
+	e.SetAutocomplete(skillTestProvider())
+	e.SetText("/rev")
+	e.applySingleForcedCompletion(AutocompleteItem{Value: "skill:review"}, "/rev")
+	if e.AutocompleteOpen() {
+		t.Fatal("skill completion reopened autocomplete")
+	}
+	if got := e.Text(); got != "/skill:review " {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 // TestAsyncSkillSelection stays in the composer when an extension wraps the provider.
 func TestAsyncSkillSelection(t *testing.T) {
 	e := NewEditor()
