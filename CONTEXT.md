@@ -151,6 +151,16 @@ Embedded preference API keys remain trusted plaintext. The broker needs outbound
 OAuth connectivity and host-specific refresh configuration; client-only custom
 provider refresh code cannot run remotely without broker registration.
 
+### The workspace image
+
+`Dockerfile.workspace` publishes `ghcr.io/<owner>/ompig-slim-workspace` for linux/amd64 and
+linux/arm64 on the same version tags as the release. It uses Alpine as the runtime base and a
+static, stripped `ompig-slim` binary from the Go build stage. The package set is deliberately
+small: shell and BusyBox provide the base Unix commands, while `git`, `fd`, `ripgrep`, `jq`,
+`curl`, SSH, Python, and archive/patch utilities cover common agent work without bundling
+language toolchains. The image runs as an unprivileged `agent` user in `/workspace`; projects
+that need compilers or runtimes should layer them separately.
+
 ### The broker image
 
 `Dockerfile.broker` builds a separate vault executable, cross-compiling natively
@@ -202,6 +212,7 @@ Do not grow this into a prompt file plus a `SYSTEM.md` override layered on top. 
 
 - `scripts/build-binaries.sh` produces four archives (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`), each containing `ompig-slim/ompig-slim` plus README, LICENSE, NOTICE, and vendored license texts, and a `.sha256` sidecar naming that archive.
 - CI's `release` job builds and verifies the archives once. The `publish` job runs only for a `refs/tags/v*` push, re-runs `scripts/verify-releases.py` on the downloaded artifact, and attaches the archives and checksums with `gh release create --verify-tag`. Branch and pull-request runs never publish, so the newest non-prerelease release is always a tagged, verified build.
+- The `workspace-image` job publishes `ghcr.io/<owner>/ompig-slim-workspace` for linux/amd64 and linux/arm64 on the same release tags. It is a separate Alpine-based, unprivileged runtime image for agent work; it contains the static CLI and selected repository/network/archive tools, not language toolchains.
 - `scripts/install.sh` is piped from `raw.githubusercontent.com` and is the first code a user runs. It is POSIX-ish bash with no repository checkout: it selects `linux|darwin` and `x64|arm64` from `uname`, downloads `…/releases/latest/download/<archive>` (or `…/releases/download/<tag>/<archive>` when a version is pinned), and fetches the `.sha256` beside it.
 - Placement contract: the executable is copied to a hidden staging file inside the destination, run with `--version` there, and only then renamed over `ompig-slim`. A checksum mismatch, missing member, symlink member, unusable archive, or executable that fails to start leaves any existing installation byte-for-byte unchanged and exits non-zero. Usage errors exit 2. The archive's README, notices, and license tree are intentionally not installed onto `PATH`.
 - The checksum is fetched from the same release as the archive, so it detects corruption and truncation, not a compromised release. Do not describe the installer as a signature or supply-chain guarantee without adding one.

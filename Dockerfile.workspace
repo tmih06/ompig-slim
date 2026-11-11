@@ -1,0 +1,51 @@
+# Small agent workspace image: the static CLI plus the tools agents use to inspect
+# and edit a checkout. Keep language toolchains out of this base so projects can
+# add only the runtimes they need in their own image.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -mod=vendor -trimpath -ldflags="-s -w" \
+    -o /out/ompig-slim .
+
+FROM alpine:3.22
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="ompig-slim workspace" \
+      org.opencontainers.image.description="A lightweight workspace for agents with ompig-slim, git, fd, ripgrep and essential shell tools" \
+      org.opencontainers.image.version="$VERSION"
+
+# BusyBox supplies the basic Unix commands. These packages cover repository
+# navigation, patching, networking, JSON, SSH and common archive formats without
+# pulling in a compiler or language runtime.
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
+      curl \
+      diffutils \
+      fd \
+      file \
+      git \
+      jq \
+      less \
+      openssh-client \
+      patch \
+      python3 \
+      ripgrep \
+      tar \
+      unzip \
+      gzip \
+    && addgroup -S agent \
+    && adduser -S -G agent -h /home/agent agent \
+    && mkdir -p /workspace /usr/share/doc/ompig-slim \
+    && chown agent:agent /workspace
+
+COPY --from=build /out/ompig-slim /usr/local/bin/ompig-slim
+COPY LICENSE NOTICE /usr/share/doc/ompig-slim/
+COPY --from=build /src/vendor/github.com/MichaelKinsy/PiG/LICENSE /usr/share/doc/ompig-slim/PiG-LICENSE
+COPY --from=build /src/vendor/github.com/MichaelKinsy/PiG/NOTICE /usr/share/doc/ompig-slim/PiG-NOTICE
+USER agent
+ENV HOME=/home/agent
+WORKDIR /workspace
+ENTRYPOINT ["ompig-slim"]
