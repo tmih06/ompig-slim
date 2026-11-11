@@ -67,8 +67,8 @@ type CredentialAccountInfo struct {
 }
 
 // CredentialAccount is an enabled account and its resolved credential, returned by the local
-// SQLite store's bulk account read. The credential is resolved in one database pass so callers
-// exporting a complete account view do not perform an N+1 query sequence.
+// SQLite store's bulk account read. Callers exporting a complete account view avoid an N+1
+// credential-row query sequence.
 type CredentialAccount struct {
 	Info       CredentialAccountInfo
 	Credential Credential
@@ -647,8 +647,8 @@ func (s *SQLiteAuthStorage) ReadAccount(ctx context.Context, providerID string, 
 	return resolveRowCredential(row), context.Cause(ctx)
 }
 
-// ReadAccounts returns every enabled account and resolved credential in one SQLite read. It
-// preserves ListAccounts ordering and selection semantics while avoiding one query per account.
+// ReadAccounts returns every enabled account and resolved credential with one credential-row
+// query. It preserves ListAccounts ordering and selection semantics without one query per account.
 func (s *SQLiteAuthStorage) ReadAccounts(ctx context.Context) ([]CredentialAccount, error) {
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
