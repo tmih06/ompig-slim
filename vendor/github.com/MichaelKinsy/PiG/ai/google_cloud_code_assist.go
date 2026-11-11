@@ -44,13 +44,19 @@ const (
 
 // Endpoints. They are variables so a fixture server can stand in for Google in tests; production code
 // never writes them.
+const (
+	googleAntigravityPrimaryHost = "https://daily-cloudcode-pa.googleapis.com"
+	googleAntigravitySandboxHost = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+)
+
 var (
 	// googleCloudCodeAssistEndpoint serves the Gemini CLI provider.
 	googleCloudCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com"
 	// googleAntigravityPrimaryEndpoint and googleAntigravitySandboxEndpoint are the Antigravity hosts,
-	// in failover order.
-	googleAntigravityPrimaryEndpoint   = "https://daily-cloudcode-pa.googleapis.com"
-	googleAntigravitySandboxEndpoint   = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	// in failover order. Variables let fixture tests replace them without treating a fixture as a
+	// production endpoint.
+	googleAntigravityPrimaryEndpoint   = googleAntigravityPrimaryHost
+	googleAntigravitySandboxEndpoint   = googleAntigravitySandboxHost
 	googleCloudCodeStreamAssistPath    = "/v1internal:streamGenerateContent?alt=sse"
 	googleCloudCodeAvailableModelsPath = "/v1internal:fetchAvailableModels"
 )
@@ -539,11 +545,12 @@ func ccaAntigravityUserAgent() string {
 	return "antigravity/hub/" + version + " (aidev_client; os_type=" + osType + "; arch=" + arch + "; cl=" + change + ")"
 }
 
-// ccaAntigravityHeaders are the native client's headers: Go net/http offers gzip and no Accept.
+// ccaAntigravityHeaders supplies the native client identity without an Accept header.
+// Let net/http negotiate gzip: setting Accept-Encoding here disables its automatic
+// decompression and feeds compressed bytes to discovery JSON and stream SSE parsers.
 func ccaAntigravityHeaders() map[string]string {
 	return map[string]string{
-		"User-Agent":      ccaAntigravityUserAgent(),
-		"Accept-Encoding": "gzip",
+		"User-Agent": ccaAntigravityUserAgent(),
 	}
 }
 
@@ -776,6 +783,21 @@ func (p *googleCloudCodeAssistProvider) Stream(ctx context.Context, transcript T
 	accountKey := ""
 	if isAntigravity {
 		accountKey = ccaAccountKeyOf(credentials)
+		// Model discovery normally runs during catalog refresh, but a saved role can
+		// start before that refresh completes. Without the account roster, logical
+		// ids such as gemini-3.8-flash cannot be routed to the served high/medium/
+		// low SKU and Antigravity answers 404 for the logical id. Custom endpoints
+		// are test/proxy transports and must not receive a discovery request.
+		endpoint := strings.TrimRight(cmp.Or(p.cfg.BaseURL, model.ProviderMeta.BaseURL), "/")
+		knownEndpoint := endpoint == googleAntigravityPrimaryHost || endpoint == googleAntigravitySandboxHost
+		if knownEndpoint {
+			if _, known := ccaAccountFamily(accountKey, model.ID); !known {
+				_, _ = googleDiscoverAntigravityModels(ctx, &Credential{
+					Type: CredentialOAuth, Access: credentials.AccessToken, ProjectID: credentials.ProjectID,
+					AccountID: credentials.AccountID, EnterpriseDomain: credentials.Email,
+				})
+			}
+		}
 	}
 	wireModelID, reviewed := ccaRouteWireID(accountKey, model.ID, ccaOptions, ccaThinkingLevelOfRequest(options))
 	projectID := cmp.Or(optionString(ccaOptions, func(o *GoogleCloudCodeOptions) string { return o.ProjectID }), credentials.ProjectID)
