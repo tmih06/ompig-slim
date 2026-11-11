@@ -136,7 +136,7 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the release archives cover Linux and macOS only")
 	}
-	archive := archiveFor(t, map[string]string{archiveMember: "#!/bin/sh\necho 2.0.0\n"})
+	archive := archiveFor(t, map[string]string{archiveMember: "#!/bin/sh\nif [ \"$1\" != \"--internal-stage-extension-sdks\" ]; then exit 2; fi\necho 2.0.0\n"})
 	server := releaseServer(t, "v2.0.0", archive, digestOf(archive))
 
 	dir := t.TempDir()
@@ -176,7 +176,7 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 		t.Fatalf("stdout did not report the update: %q", stdout.String())
 	}
 	// The mark is printed once per run, before the progress.
-	if !strings.Contains(stdout.String(), "in Go \u00b7 slim harness") {
+	if !strings.Contains(stdout.String(), "███ █▄ ▄█ ▀▀█     ███ ███ -slim") {
 		t.Fatalf("stdout did not print the banner: %q", stdout.String())
 	}
 	// No staging file may survive beside the executable, which is on PATH.
