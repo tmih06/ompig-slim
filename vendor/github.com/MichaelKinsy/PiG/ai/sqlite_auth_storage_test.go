@@ -86,6 +86,27 @@ func TestSQLiteStoreSavesSeveralAccountsPerProvider(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreDeleteAccountScrubsCredential(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	key := "acct-a"
+	credential := Credential{Type: CredentialOAuth, Access: "access-secret", Refresh: "refresh-secret"}
+	if _, err := store.SaveAccount(ctx, "google-antigravity", &key, credential); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := store.DeleteAccount(ctx, "google-antigravity", key); err != nil || !removed {
+		t.Fatalf("delete = %v, %v", removed, err)
+	}
+	var data string
+	var disabled string
+	if err := store.db.QueryRowContext(ctx, `SELECT data, disabled_cause FROM auth_credentials WHERE provider = ? AND identity_key = ?`, "google-antigravity", key).Scan(&data, &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if data != "{}" || disabled != logoutCause {
+		t.Fatalf("deleted credential = %q, cause = %q; want scrubbed tombstone", data, disabled)
+	}
+}
+
 func TestSQLiteStoreDeleteAccountKeepsSiblings(t *testing.T) {
 	store, _ := openTestStore(t)
 	ctx := context.Background()
