@@ -25,11 +25,11 @@ import (
 )
 
 // FooterComponent is the rich footer rendered at the bottom of the
-// interactive viewport. Renders as two lines matching upstream pi's
-// FooterComponent (footer.ts):
+// interactive viewport. It renders two lines built from upstream pi's
+// FooterComponent (footer.ts), with the model moved up beside the project:
 //
-//	Line 1: ~/<pwd> (<branch>) • <session-name>
-//	Line 2: ↑<in> ↓<out> $<cost> <context%>/<window> (auto)     <model> • <thinking>
+//	Line 1: ~/<pwd> (<branch>) • <session-name>                  <model> • <thinking>
+//	Line 2: ↑<in> ↓<out> [R<cache>] [W<cache>] [$<cost>] <context%>/<window> (auto)
 //
 // Color coding on the context-% column (upstream thresholds):
 //
@@ -505,9 +505,12 @@ func footerToken(token tui.ThemeColor, text string) string {
 // segment's color reads as part of that segment.
 func footerSeparator() string { return footerToken(tui.ThemeColorStatusLineSep, " \u2022 ") }
 
-// renderFooter produces the 2-line footer matching upstream footer.ts.
-// Line 1: pwd (branch) • name
-// Line 2: ↑in ↓out [Rcache] [Wcache] $cost context%/window (auto)   model • thinking
+// renderFooter produces the 2-line footer. Its segments come from upstream
+// footer.ts, but the model shares line 1 with the project so that a narrow
+// terminal still shows both on the row under the prompt:
+//
+//	Line 1: pwd (branch) • name                                  model • thinking
+//	Line 2: ↑in ↓out [Rcache] [Wcache] $cost context%/window (auto)
 //
 // Every segment carries its own statusLine* token, as OMP's status line does:
 // path, branch, session name, the token counters, cost, context window and the
@@ -518,25 +521,176 @@ func renderFooter(d footerData, width int) []string {
 		width = 80
 	}
 
-	// ── Line 1: pwd (branch) • name ──────────────────────────────────
+	line1, line2 := footerLines(d, width)
+	result := []string{line1, line2}
+
+	// ── Line 3: extension statuses (optional) ──────────────────────────
+	// Mirrors upstream footer.ts:205-215: sorted by key, space-separated,
+	// sanitized (control chars → space), truncated to width.
+	if status, ok := renderExtensionStatuses(d.extensionStatuses, width); ok {
+		result = append(result, status)
+	}
+
+	return result
+}
+
+// footerLines lays out the two rows above the extension statuses.
+//
+// Line 1 carries the project on the left and the model on the right, the two facts
+// a session is identified by, so a short terminal width shows both on the row under
+// the prompt instead of letting one of them take a row of its own. Line 2 then
+// holds the whole stats row. When the model cannot be shown beside even the
+// project's leaf, the footer falls back to upstream's layout — the project alone on
+// line 1, the model right-aligned on line 2 — because two rows still beat one row
+// that lost a fact.
+func footerLines(d footerData, width int) (string, string) {
+	stats := footerStats(d)
+	withProvider, plain := footerModelSide(d)
+	minPad := 2
+	// Prefer the provider-qualified model; a narrower terminal keeps the model and
+	// loses only the qualifier, which names where it comes from rather than what it
+	// is (upstream footer.ts:167-173). The two forms are equal until a second
+	// provider is available, and Compact then keeps the loop from trying the same
+	// budget twice.
+	for _, model := range slices.Compact([]string{withProvider, plain}) {
+		modelWidth := widthx.VisibleWidth(model)
+		project, ok := footerProject(d, width-minPad-modelWidth)
+		if !ok {
+			continue
+		}
+		padding := strings.Repeat(" ", max(0, width-widthx.VisibleWidth(project)-modelWidth))
+		return project + padding + model, widthx.TruncateToWidth(stats, width, "...", false)
+	}
+	// The model does not fit beside the project even with the full width, so the two
+	// rows carry one fact each: the project on line 1 and the model on line 2 beside
+	// the stats. Upstream's layout, reached only by terminals this narrow because a
+	// shared row is what keeps both visible at phone widths.
+	project, _ := footerProject(d, width)
+	if project == "" {
+		// Widths too small for the compacted path still get its head: an empty row
+		// would read as a rendering fault rather than as a truncated footer.
+		project = widthx.TruncateToWidth(footerToken(tui.ThemeColorStatusLinePath, footerCwd(d.cwd)), width, dim("..."), false)
+	}
+	return project, footerStatsWithModel(stats, withProvider, plain, width)
+}
+
+// footerProject renders line 1's project segment — the home-abbreviated working
+// directory, the branch, and the session name — inside budget columns.
+//
+// Decorations are dropped before the path is: when the full path no longer fits,
+// the session name goes first and then the branch, because the branch ties the row
+// to the checkout while the name only names the conversation. The path itself is
+// never dropped, only middle-elided, so the leaf that names the project survives
+// any width the caller can give it.
+//
+// The bool reports whether the segment fit at all: false means budget cannot
+// show even the path's leaf, and the caller must widen it by taking line 1 for the
+// project alone.
+func footerProject(d footerData, budget int) (string, bool) {
 	// The branch is statusLineContext, not statusLineGitClean/Dirty: this footer
 	// resolves only the branch name, so coloring it clean or dirty would claim a
 	// working-tree state it never read. OMP reads staged, modified and untracked
 	// counts on its status line, and that is where those two colors belong.
-	pwd := footerToken(tui.ThemeColorStatusLinePath, footerCwd(d.cwd))
+	branch := ""
 	if d.gitBranch != "" {
-		pwd += footerToken(tui.ThemeColorStatusLineSep, " (") +
+		branch = footerToken(tui.ThemeColorStatusLineSep, " (") +
 			footerToken(tui.ThemeColorStatusLineContext, d.gitBranch) +
 			footerToken(tui.ThemeColorStatusLineSep, ")")
 	}
+	name := ""
 	if d.sessionName != "" {
-		pwd += footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
+		name = footerSeparator() + footerToken(tui.ThemeColorStatusLineModel, d.sessionName)
 	}
-	line1 := widthx.TruncateToWidth(pwd, width, dim("..."), false)
+	path := footerCwd(d.cwd)
+	// The decorations are already styled, and VisibleWidth ignores the escapes, so
+	// the suffix width is what it costs the path.
+	//
+	// The stages trade away the least important thing first: keep everything and
+	// elide the middle, then drop the session name, then the branch, and only then
+	// cut the leaf itself. The leaf is cut last because a cut name reads as a
+	// different project, which is why the row surrenders its decorations first.
+	// Empty decorations make the earlier stages repeat, and compactFooterPath answers
+	// them identically, so the repetition costs one comparison each.
+	for _, stage := range []struct {
+		suffix       string
+		allowLeafCut bool
+	}{
+		{branch + name, false},
+		{branch, false},
+		{"", false},
+		{"", true},
+	} {
+		compacted, ok := compactFooterPath(path, budget-widthx.VisibleWidth(stage.suffix), stage.allowLeafCut)
+		if !ok {
+			continue
+		}
+		return footerToken(tui.ThemeColorStatusLinePath, compacted) + stage.suffix, true
+	}
+	return "", false
+}
 
-	// ── Line 2: stats (left) + model (right) ─────────────────────────
-	// Left side: ↑in ↓out [Rcache] [Wcache] $cost context%/window (auto)
-	leftParts := footerUsageParts(d.usage, d.usingSubscription)
+// compactFooterPath fits path into budget columns by eliding its middle. The first
+// segment is the anchor a reader needs (the home marker, the root, or a Windows
+// drive) and the last segments are the part that names the project, so the
+// segments in between are what go. Candidates drop as few of them as possible
+// first, so the result degrades from "~/…/a/b/c" through "~/…/c" to "~/c", and the
+// shortest form that still names the project wins.
+//
+// allowLeafCut decides whether the last segment may be truncated once the anchor and
+// the leaf no longer fit together. It is false for the first attempts, so a project
+// name is only ever cut after the caller has given up the decorations that shared
+// its row.
+//
+// It reports false when the path cannot be shown within budget on these terms; the
+// caller then either widens the budget or allows the cut.
+func compactFooterPath(path string, budget int, allowLeafCut bool) (string, bool) {
+	if budget <= 0 {
+		return "", false
+	}
+	if widthx.VisibleWidth(path) <= budget {
+		return path, true
+	}
+	separator := string(filepath.Separator)
+	segments := strings.Split(path, separator)
+	last := len(segments) - 1
+	if last == 0 {
+		// A single segment, so there is no middle to elide: "~" on its own, or a
+		// relative directory name.
+		return cutLeaf(path, budget, allowLeafCut)
+	}
+	head, leaf := segments[0], segments[last]
+	// The ellipsis marks the segments it replaces, so it only appears while one is
+	// actually dropped: "~/…/c", never "~/…/" for a path that always had two parts.
+	for drop := 1; drop <= last-1; drop++ {
+		candidate := head + separator + "…" + separator + strings.Join(segments[1+drop:], separator)
+		if widthx.VisibleWidth(candidate) <= budget {
+			return candidate, true
+		}
+	}
+	// The anchor and the leaf with nothing elided between them is shorter than the
+	// narrowest elided form, and still says the project sits under the anchor.
+	if candidate := head + separator + leaf; widthx.VisibleWidth(candidate) <= budget {
+		return candidate, true
+	}
+	if widthx.VisibleWidth(leaf) <= budget {
+		return leaf, true
+	}
+	return cutLeaf(leaf, budget, allowLeafCut)
+}
+
+// cutLeaf truncates the path's last segment to budget columns, or refuses when the
+// caller has not given up its decorations yet.
+func cutLeaf(leaf string, budget int, allow bool) (string, bool) {
+	if !allow || budget <= 1 {
+		return "", false
+	}
+	return widthx.TruncateToWidth(leaf, budget, "…", false), true
+}
+
+// footerStats renders line 2's left side: the token counters, the cost and the
+// context window.
+func footerStats(d footerData) string {
+	parts := footerUsageParts(d.usage, d.usingSubscription)
 
 	// Context usage: context%/window (auto). The percentage takes over the
 	// segment's color as the window fills, because at that point the number is
@@ -550,94 +704,80 @@ func renderFooter(d footerData, width int) []string {
 	if d.contextUnknown {
 		display = fmt.Sprintf("?/%s%s", formatTokens(contextWindow), autoTag)
 	}
-	leftParts = append(leftParts, colorContextDisplay(pct, display))
+	parts = append(parts, colorContextDisplay(pct, display))
 
 	// Experimental features indicator. Upstream footer.ts:162-164 pushes a dim
 	// "•" separator plus a bold warning "xp" badge onto the stats when
 	// PI_EXPERIMENTAL=1. Off by default, so the idle footer is unchanged.
 	if experimentalFeaturesEnabled() {
-		leftParts = append(leftParts, dim("•")+" "+boldWarning("xp"))
+		parts = append(parts, dim("•")+" "+boldWarning("xp"))
 	}
 
-	statsLeft := strings.Join(leftParts, footerSeparator())
+	return strings.Join(parts, footerSeparator())
+}
 
-	// Right side: [provider] model • thinking
-	// When multiple providers are available, prepend "(provider) ".
-	// Mirrors upstream footer.ts:165-174.
+// footerModelSide renders the model segment: the role and model name, the
+// thinking level, and where a virtual model routed the latest request. It returns
+// the preferred form, which names the provider while more than one is available,
+// and the bare form for a terminal too narrow for the qualifier
+// (footer.ts:165-174).
+func footerModelSide(d footerData) (withProvider, plain string) {
 	modelName, modelProvider, thinkingLevel := footerModel(d)
-	rightSide := footerSelection(d.role, d.roleColor, modelName)
+	side := footerSelection(d.role, d.roleColor, modelName)
 	switch thinkingLevel {
 	case "":
 	case "off":
-		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineSep, "thinking "+thinkingLevel)
+		side += footerSeparator() + footerToken(tui.ThemeColorStatusLineSep, "thinking "+thinkingLevel)
 	default:
-		rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, thinkingLevel)
+		side += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, thinkingLevel)
 	}
 
 	// A virtual model routes each request; show where the latest response went (footer.ts:237-243).
 	if d.routed != nil && d.routed.Model != nil {
-		rightSide += footerToken(tui.ThemeColorStatusLineSep, " \u2192 ") +
+		side += footerToken(tui.ThemeColorStatusLineSep, " \u2192 ") +
 			footerToken(tui.ThemeColorStatusLineContext, d.routed.Model.ID)
 		if d.routed.ThinkingLevel != "" {
-			rightSide += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, string(d.routed.ThinkingLevel))
+			side += footerSeparator() + footerToken(tui.ThemeColorStatusLineContext, string(d.routed.ThinkingLevel))
 		}
 	}
 
-	// Prepend the provider in parentheses when multiple providers are active.
-	rightSideWithProvider := rightSide
 	if d.providerCount > 1 && modelProvider != "" {
-		rightSideWithProvider = footerToken(tui.ThemeColorStatusLineSep, "("+modelProvider+") ") + rightSide
+		return footerToken(tui.ThemeColorStatusLineSep, "("+modelProvider+") ") + side, side
 	}
+	return side, side
+}
 
-	// Compose line 2 with right-alignment.
-	// Try provider-prefixed right side first; fall back to plain if too wide.
-	// Mirrors upstream footer.ts:167-173.
-	statsLeftWidth := widthx.VisibleWidth(statsLeft)
-	// If statsLeft is too wide, truncate it (upstream footer.ts).
-	if statsLeftWidth > width {
-		statsLeft = widthx.TruncateToWidth(statsLeft, width, "...", false)
-		statsLeftWidth = widthx.VisibleWidth(statsLeft)
-	}
+// footerMinStatsWidth is the narrowest slice of the stats row worth keeping beside
+// the model on the fallback row. It is the width of the in/out counters with their
+// separator ("↑12k • ↓3.4k"); a narrower slice would be one counter and an
+// ellipsis, which reports less than the model name does.
+const footerMinStatsWidth = 14
+
+// footerStatsWithModel is the narrow-terminal fallback row: the stats on the left
+// and the model right-aligned, composed as upstream footer.ts:167-173 does. That
+// composition keeps the stats and truncates the model, which is right for upstream
+// because the model has a row of its own to be cut on. Here the model reached this
+// row by failing to fit beside the project, so it is what the row is for: the stats
+// are truncated to make room for it, and once they could not stay readable the
+// model takes the row and the stats give up what is left of it.
+func footerStatsWithModel(stats, withProvider, plain string, width int) string {
 	minPad := 2
-
-	// Pick the widest right-side variant that fits.
-	chosenRight := rightSideWithProvider
-	chosenRightWidth := widthx.VisibleWidth(chosenRight)
-	if statsLeftWidth+minPad+chosenRightWidth > width {
-		// Provider prefix doesn't fit; fall back to plain.
-		chosenRight = rightSide
-		chosenRightWidth = widthx.VisibleWidth(chosenRight)
-	}
-
-	var line2 string
-	totalNeeded := statsLeftWidth + minPad + chosenRightWidth
-	if totalNeeded <= width {
-		padding := strings.Repeat(" ", width-statsLeftWidth-chosenRightWidth)
-		line2 = statsLeft + padding + chosenRight
-	} else {
-		// Right side doesn't fit at full width; truncate or omit
-		avail := width - statsLeftWidth - minPad
-		if avail > 0 {
-			truncRight := widthx.TruncateToWidth(chosenRight, avail, "", false)
-			truncWidth := widthx.VisibleWidth(truncRight)
-			padding := strings.Repeat(" ", max(0, width-statsLeftWidth-truncWidth))
-			line2 = statsLeft + padding + truncRight
-		} else {
-			// The remainder after the stats is empty but still dimmed (footer.ts:262-263).
-			line2 = statsLeft + dim("")
+	for _, model := range slices.Compact([]string{withProvider, plain}) {
+		modelWidth := widthx.VisibleWidth(model)
+		room := width - minPad - modelWidth
+		if room < footerMinStatsWidth {
+			continue
 		}
+		truncated := widthx.TruncateToWidth(stats, room, "...", false)
+		padding := strings.Repeat(" ", max(0, width-widthx.VisibleWidth(truncated)-modelWidth))
+		return truncated + padding + model
 	}
-
-	result := []string{line1, line2}
-
-	// ── Line 3: extension statuses (optional) ──────────────────────────
-	// Mirrors upstream footer.ts:205-215: sorted by key, space-separated,
-	// sanitized (control chars → space), truncated to width.
-	if status, ok := renderExtensionStatuses(d.extensionStatuses, width); ok {
-		result = append(result, status)
+	// Right-align the model in what room is left, so the row still ends with the
+	// model's own name rather than with its first characters.
+	if modelWidth := widthx.VisibleWidth(plain); modelWidth < width {
+		return strings.Repeat(" ", width-modelWidth) + plain
 	}
-
-	return result
+	return widthx.TruncateToWidth(plain, width, "…", false)
 }
 
 // renderExtensionStatuses is footer.ts:205-215: the statuses sorted by key with localeCompare, each sanitized (sanitizeStatusText) and
