@@ -1,6 +1,6 @@
 [
   "╭─ Models ───────────┬─────────────────────────────────────────────────────────────────────────────────────────────────╮",
-  "│   ✦ Roles     2/17 │  Assigning DEFAULT — ⏎ assigns, ⎋ cancels                                                       │",
+  "│   ✦ Roles     2/18 │  Assigning DEFAULT — ⏎ assigns, ⎋ cancels                                                       │",
   "│   ⬢ All models   2 │  Kind: ◀ all ▶  chat ┆ tiny ┆ image ┆ tts ┆ stt ┆ search ┆ judge ┆ embedding ┆ rerank ┆ video … │",
   "│ ────────────────── │  🔍 >                                                                                           │",
   "│   ● fixture      2 │                                                                                                 │",

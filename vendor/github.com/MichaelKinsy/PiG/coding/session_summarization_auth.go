@@ -27,7 +27,11 @@ type summarizationRequest struct {
 }
 
 func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.CompactionPreparation, model *ai.Model, customInstructions, reason string) (compaction.CompactionResult, error) {
-	request, err := s.prepareSummarizationRequest(ctx, model)
+	compactionModel, err := s.compactionModel(model)
+	if err != nil {
+		return compaction.CompactionResult{}, err
+	}
+	request, err := s.prepareSummarizationRequest(ctx, compactionModel)
 	if err != nil {
 		return compaction.CompactionResult{}, err
 	}
@@ -38,6 +42,20 @@ func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.Comp
 		streamFn = compaction.CompleterStreamFn(request.completer)
 	}
 	return compaction.Compact(ctx, prep, request.model, request.apiKey, request.headers, customInstructions, request.thinkingLevel, streamFn, request.env, retry, retryCallbacks, "")
+}
+
+// compactionModel returns the assigned compact role model when one exists. An
+// unassigned role preserves the historical behavior of compacting with the
+// active session model; assigning @compact is therefore an opt-in override.
+func (s *Session) compactionModel(fallback *ai.Model) (*ai.Model, error) {
+	if s.SettingsManager().Get().ModelRoles["compact"] == "" {
+		return fallback, nil
+	}
+	selector, err := s.SettingsManager().ResolveModelRole("@compact")
+	if err != nil {
+		return nil, err
+	}
+	return BuildModel(selector, s.services)
 }
 
 // withoutDeletedHeaders drops the headers an auth result deletes; summary requests take only header values.
