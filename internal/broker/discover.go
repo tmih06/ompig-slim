@@ -26,6 +26,7 @@ func installFailedStore(dir string, failure error) {
 // The factory stays installed on network failure, preventing a silent fallback
 // to local refresh material. Configure once, before any runtimes are opened.
 func installRemoteStore(client *Client) {
+	store := &remoteStore{client: client}
 	ai.CredentialStoreFactory = func(dir string) (ai.ApplicationCredentialStore, error) {
 		path, err := filepath.Abs(dir)
 		if err != nil {
@@ -34,6 +35,6 @@ func installRemoteStore(client *Client) {
 		if path != client.dir {
 			return ai.OpenLocalCredentialStore(dir)
 		}
-		return &remoteStore{client: client}, nil
+		return store, nil
 	}
 }

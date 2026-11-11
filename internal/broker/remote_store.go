@@ -17,11 +17,10 @@ type remoteStore struct{ client *Client }
 var _ ai.ApplicationCredentialStore = (*remoteStore)(nil)
 var _ ai.RemoteOAuthCredentialStore = (*remoteStore)(nil)
 
-// snapshot fetches current enabled accounts; the response never has refreshes.
+// snapshot fetches current enabled accounts through the client's short-lived
+// shared view; the response never has refreshes.
 func (s *remoteStore) snapshot(ctx context.Context) ([]vaultEntry, error) {
-	var entries []vaultEntry
-	err := s.client.request(ctx, "GET", "/v1/snapshot", "", nil, &entries)
-	return entries, err
+	return s.client.snapshot(ctx)
 }
 
 // accountInfos fetches only non-secret metadata for callers that do not need
@@ -87,7 +86,11 @@ func (s *remoteStore) ListAccounts(ctx context.Context) ([]ai.CredentialAccountI
 
 // operation sends one explicit vault mutation and waits for durable persistence.
 func (s *remoteStore) operation(ctx context.Context, request vaultRequest, result any) error {
-	return s.client.request(ctx, "POST", "/v1/credential", "", request, result)
+	if err := s.client.request(ctx, "POST", "/v1/credential", "", request, result); err != nil {
+		return err
+	}
+	s.client.invalidateSnapshot()
+	return nil
 }
 
 // SaveAccount uploads a new login/import; refresh ownership transfers to host.
@@ -173,6 +176,9 @@ func (s *remoteStore) RefreshOAuth(ctx context.Context, provider string, key *st
 	}
 	var result *ai.Credential
 	err = s.client.request(ctx, "POST", "/v1/credential/refresh", "", vaultRequest{Provider: provider, AccountKey: resolved, Explicit: true, Expected: &expected}, &result)
+	if err == nil {
+		s.client.invalidateSnapshot()
+	}
 	return result, err
 }
 
