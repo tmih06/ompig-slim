@@ -11,6 +11,9 @@ import (
 type InfoWidget struct {
 	Key, Title string
 	Render     func(width int, expanded bool) []string
+	// FocusRow optionally returns the working row in the last rendered body,
+	// or -1 for no target. It runs only when expanded, after Render.
+	FocusRow func(width int) int
 }
 
 // InfoWidgets hosts persistent information outside the transcript. Its state is
@@ -27,16 +30,19 @@ type InfoWidgets struct {
 	offset     int
 	lastHeight int
 	viewHeight int
+	focusRow   int
+	refocus    bool
 }
 
 // Invalidate has no cached rows to discard: sections read live owner-loop state.
 func (w *InfoWidgets) Invalidate() {}
 
 // Toggle folds the whole overlay into its prompt-border control or reopens it.
-// Per-section disclosure is preserved while hidden; no transcript hit box remains.
+// Disclosure and manual scroll position survive hiding. Reopening reveals the
+// provider's working row when available; no transcript hit box remains hidden.
 func (w *InfoWidgets) Toggle() {
 	w.hidden = !w.hidden
-	w.offset = 0
+	w.refocus = true
 }
 
 // ControlLabel is the persistent prompt-border source point. It stays available
@@ -66,6 +72,7 @@ func (w *InfoWidgets) Render(width int) []string { return w.render(width, 12) }
 // or styling offscreen content. The header/footer stay pinned. Hidden or tiny
 // viewports skip providers entirely; switching candidates resets scroll position.
 func (w *InfoWidgets) render(width, height int) []string {
+	previousHeight := w.viewHeight
 	w.lastHeight, w.viewHeight = 0, 0
 	if w.hidden || width < 4 || height < 3 {
 		return nil
@@ -78,6 +85,7 @@ func (w *InfoWidgets) render(width, height int) []string {
 		}
 		if w.activeKey != s.Key {
 			w.activeKey, w.offset = s.Key, 0
+			w.refocus = true
 		}
 		marker := "▾ "
 		if collapsed {
@@ -86,7 +94,20 @@ func (w *InfoWidgets) render(width, height int) []string {
 		}
 		w.lastHeight = len(body) + 2
 		w.viewHeight = min(12, height, w.lastHeight)
-		w.Scroll(0) // Clamp after content changes or viewport resizing.
+		offset := 0
+		if !collapsed {
+			if s.FocusRow != nil {
+				focus := s.FocusRow(max(1, width-4))
+				if focus >= 0 && (w.refocus || focus != w.focusRow || previousHeight != w.viewHeight) {
+					// Keep two context rows above the work on ordinary viewports.
+					w.offset = max(0, focus-min(2, w.viewHeight-3))
+				}
+				w.focusRow = focus
+			}
+			w.refocus = false
+			w.Scroll(0) // Clamp after content changes or viewport resizing.
+			offset = w.offset
+		}
 		rows := make([]string, w.viewHeight)
 		// Frame lines take `border`, the title `accent` bold and the keyboard
 		// hints `dim`, as every other framed surface does. Segments are colored
@@ -108,7 +129,7 @@ func (w *InfoWidgets) render(width, height int) []string {
 			theme.Fg(string(ThemeColorDim), hint) +
 			border(strings.Repeat("─", max(0, inner-widthx.VisibleWidth(title)-widthx.VisibleWidth(hint)))+"╮")
 		left, right := border("│")+" ", " "+border("│")
-		for i, line := range body[w.offset : w.offset+w.viewHeight-2] {
+		for i, line := range body[offset : offset+w.viewHeight-2] {
 			rows[i+1] = left + widthx.TruncateToWidth(line, width-4, "…", true) + right
 		}
 		// Navigation hints live inside the bottom border; only a scrolling panel
@@ -135,6 +156,9 @@ func (w *InfoWidgets) render(width, height int) []string {
 // Scroll moves content between the pinned edges, clamped to the last viewport.
 // Keyboard page navigation and mouse wheel navigation share the same offset.
 func (w *InfoWidgets) Scroll(delta int) {
+	if w.hidden || w.collapsed[w.activeKey] {
+		return
+	}
 	w.offset = max(0, min(w.offset+delta, max(0, w.lastHeight-w.viewHeight)))
 }
 
@@ -160,7 +184,7 @@ func (w *InfoWidgets) HandleMouse(e TuiMouseEvent) *TuiMouseEventResult {
 		w.collapsed = map[string]bool{}
 	}
 	w.collapsed[w.activeKey] = !w.collapsed[w.activeKey]
-	w.offset = 0
+	w.refocus = true
 	return &TuiMouseEventResult{Handled: true}
 }
 
