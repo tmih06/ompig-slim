@@ -69,7 +69,7 @@ make test-self-update
 make test-broker-container
 ```
 
-`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make test-broker-container` runs `scripts/test-broker-container.py`, which builds `Dockerfile.broker` and drives the running container: image identity, the missing-secret refusal, unprivileged UID, private data directory, authorization on every data route, the absence of any inference route, the document allowlist, revision conflicts, the credential lease, restart durability, the volume contents, and two real clients synchronizing through it. It needs a Docker daemon and skips no check when one is available. `make test-broker-cluster` runs `scripts/test-broker-cluster.py`, which covers the deployed shape rather than the HTTP surface: one broker container and two client containers on a private Docker network, with no published ports, so the clients reach the service by its network name exactly as a composed deployment does. It builds the broker image and a client image from the binary under test, then drives profile seeding, preference propagation in both directions, an independent document, deletion tombstones, a same-document conflict that is reported and preserves both copies, credential synchronization as logical records, the credential lease under contention, the device-local connection file staying private and unsynchronized, a restart revoking the lease, a wrong secret, hosting nothing but allowlisted documents, a late joiner downloading the whole profile, the non-interactive `ompig-slim broker setup` path a provisioned machine uses, and degraded local-only operation. Because both suites build their images from the checkout, CI tests the same Dockerfile the release workflow publishes, and the release job reuses that job's result rather than trusting an untested build. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
+`make check` runs tests and vet for the root and patched library through `scripts/check-go.sh`. `make smoke` builds the executable and runs its codemode, subagent, and web-tool scenarios from that build; `make smoke-built` runs the same scenarios against an executable CI already extracted from a verified release archive. `make race` repeats tests with the race detector. `make test-install` runs `scripts/test-install.py`, which serves fixture releases over loopback and asserts the installer's download, verification, placement, and failure behavior. `make test-self-update` runs `scripts/test-self-update.py` against a built executable, proving that `update` and `upgrade` replace the installed file and that an install without the ownership marker keeps PiG's own refusal. `make test-broker-container` runs `scripts/test-broker-container.py` against the deployable image: identity, missing-secret refusal, UID/private directory, bearer admission, preference CAS, credential redaction, removed legacy routes, SQLite restart durability and two real clients without credential mirrors. `make test-broker-cluster` runs `scripts/test-broker-cluster.py` with one broker and two clients on a private Docker network: preference propagation/deletion/conflicts, live account access, shared quota blocks, restart, local-only connection configuration, late/provisioned clients, and unavailable-broker refusal without local credential fallback. Both need a Docker daemon and skip no check when it is available. Because both suites build their images from the checkout, CI tests the same Dockerfile the release workflow publishes, and the release job reuses that job's result rather than trusting an untested build. `make benchmark` compares an already-built executable with pinned OMP and Pi using a local mock model; CI reuses the verified release artifact and never rebuilds inside the benchmark job. See the scripts and CI configuration for exact coverage and platform-specific checks; do not infer that cross-compilation means a target was executed on that platform.
 
 ## Project-specific rulings
 
@@ -81,70 +81,87 @@ make test-broker-container
 
 ## Remote broker
 
-`internal/broker` owns hosted document storage and opt-in client synchronization;
-`cmd/ompig-slim-broker` owns the storage-only executable. This is explicitly NOT
-an inference gateway or OMP snapshot-protocol port. Provider configuration is
-copied unchanged. All provider traffic, login and OAuth refresh execute locally.
-Setup, wire routes, conflicts and security boundaries are canonical in
+Authentication and credential ownership follow OMP's auth-broker architecture,
+not its wire protocol. `internal/broker` owns the canonical SQLite vault and
+portable preference sync; `cmd/ompig-slim-broker` runs it without an inference
+runtime or gateway. Provider inference and login flows execute on clients;
+subsequent OAuth refreshes execute only on the host. Setup, API contracts,
+migration and failure semantics are canonical in
 [docs/remote-broker.md](docs/remote-broker.md).
 
-`main.go` starts synchronization before PiG reads preferences when a saved
-`remote-broker.json` connection or `OMPIG_BROKER_URL` is configured. The native
-`/login` entry is installed through `MainOptions.ProfileLogin`, reuses the typed
-URL/secret dialog prompts and verifies access before saving the connection with
-mode 0600. It never stores the broker secret in provider credentials or shared
-files.
+The server opens `<data-dir>/agent.db` using PiG's existing OMP-compatible
+SQLite store. Broker and standalone mode must keep using this exact `agent.db`
+file/schema: a closed database transfers directly in either direction without
+logical export/import. Preserve real credentials, selection, tombstones and
+quota blocks, not just redacted snapshot contents. Stop all old token owners
+before switching modes; use SQLite-aware live backups or close/checkpoint before
+copying the main file, and never restore over an open destination or stale WAL.
+`vault_portability_test.go` pins the broker → standalone → broker round trip.
+Snapshots redact OAuth refresh fields, including opaque retained
+JSON, with `__OMPIG_REMOTE_REFRESH__`. Direct clients remain trusted with API
+keys/access tokens. Account selection, logout tombstones and quota blocks are
+broker-owned. Manual refresh and immediate/one-minute proactive sweeps use the
+same SQLite account lease, recheck the observed access-token version and persist
+before returning. Sweeps target expiry within five minutes, never overlap, and
+continue past account failures. Cancellation cannot discard an in-flight rotated
+token. Existing provider-specific definitive-failure classification is reused;
+unclassified/transient failures retain credentials. An external provider crash
+window still exists between exchange and database commit.
 
-`ompig-slim broker setup|show|clear` is the non-interactive path for a container,
-a CI job or a machine provisioned by configuration management, which cannot answer
-a prompt. `main.go` claims the subcommand at the same point as the archive
-self-updater and for the same reason: PiG has no `broker` word, so it would read it
-as a prompt and fail on the missing model. `broker.Setup` writes the same
-device-local file `/login` writes, applying the same URL and secret validation, so
-a scripted setup cannot save a connection the next startup would reject. The secret
-resolves from `--token-file`, `--token`, `OMPIG_BROKER_TOKEN_FILE`,
-`OMPIG_BROKER_TOKEN`, then stdin, keeping the value out of argv whenever the caller
-chooses a file or a pipe. `--verify` contacts the service first; omitting it lets a
-deployment provision before the broker exists, and startup then reports the
-unreachable service rather than failing the machine. A destination different from
-the saved one requires `--force`, so a converge step cannot silently repoint a
-machine that is already synchronized elsewhere, and an identical setup is a no-op
-that leaves the file's mtime alone. `broker show` prints the URL and that a secret
-is stored, never the secret itself; `broker clear` disconnects and leaves the
-downloaded profile in place. A `OMPIG_BROKER_TOKEN_FILE` that cannot be read is an
-error rather than a fallback to the saved secret: silent fallback would sync to a
-different destination than the operator believes the mount configures. Activation requires restart; replacing the global credential-sync callback
-inside a running session would race its workers. An unreachable or refusing
-service degrades to local-only operation with one stderr line instead of failing
-startup, so the CLI and the `/login` repair path stay usable. The existing profile receives allowlisted settings,
-keybindings, model definition files and logical multi-account credential records.
-Preferences reconcile on startup, five-second polling and normal CLI exit via
-`MainOptions.BeforeExit`; local files and hosted revisions retain common-ancestor
-hashes for conflict detection. First-adoption backups and interrupted credential
-writes must not be discarded. Idle polling pulls credentials without the hosted
-lease, because inference never needs one and an idle session must not block the
-machine that is rotating a token; a pull with unsent local state stops and reports
-instead of discarding the pending rotation. Keep sessions, project configuration
-and arbitrary SQLite tables out of the synchronization allowlist.
+Vendored `ai.CredentialStoreFactory` is installed once before runtimes open and
+selects `remoteStore` for exactly the configured profile. It returns the
+application-owned account-store interface rather than assuming local SQLite.
+Runtime credential overlays are unwrapped only to find remote OAuth refresh
+support; the local provider callback must never see a refresh sentinel. No
+credential snapshot is cached on disk and no local credential database is opened
+for a broker profile. A down, refusing or invalidly configured broker leaves the
+CLI repair commands usable but never silently falls back to a local vault.
+Explicit environment/runtime key overrides retain existing precedence.
 
-Vendored `ai/credential_sync.go` provides raw logical export/import and an optional
-`CredentialStoreSync` mutation seam. Its root-owned callback obtains a hosted
-lease, reconciles pending local writes, pulls, runs the local mutation once and
-publishes with CAS. The original SQLite refresh/account logic still owns the
-mutation. IDs, blocks and leases stay local; identity, selection and tombstones
-travel. Configure the callback before opening runtimes, never concurrently with
-requests. A failed/conflicting upload retains the local rotation and must never
-trigger a blind replay. A hosted lease is not an atomic transaction with the
-OAuth provider; the crash/partition limits are documented. The service and all
-clients are trusted with plaintext secrets; there is no end-to-end encryption.
+The hosted credential-document format and client-owned HTTP lease protocol are removed. Local credentials require
+`broker migrate --from-local`: it inserts missing enabled identities only, never
+overwrites rotations or revives logout, and leaves local recovery copies
+untouched. Server and client upgrades must be coordinated; this is not OMP wire
+parity.
+
+Credential reads and writes use the broker's account store directly. Benchmarks
+in `internal/broker/credential_benchmark_test.go` cover live reads and account
+pool scaling. Live snapshot timing remained within noise; its credential codec/SQL
+work is deliberately unchanged.
+
+`main.go` starts discovery before PiG reads preferences when a saved
+`remote-broker.json` or `OMPIG_BROKER_URL` is configured. Native `/login`
+and unattended `broker setup|show|clear` share private device-local bootstrap
+configuration. Setup validates an origin and resolves the secret from flags,
+mounted file, environment, or stdin; `--verify` contacts the service first.
+A changed destination needs `--force`. Restart activates a changed connection.
+The bootstrap secret is never uploaded as a provider credential or preference.
+Bearer admission remains environment-configured and in-memory hashed,
+constant-time compared, not SQLite-backed. TLS is operator-owned.
+
+Preferences retain their separate startup/five-second/normal-exit reconciliation,
+allowlist, private first-adoption backups and CAS/common-ancestor conflict rules.
+Sessions, project config and arbitrary SQLite tables never synchronize.
+Embedded preference API keys remain trusted plaintext. The broker needs outbound
+OAuth connectivity and host-specific refresh configuration; client-only custom
+provider refresh code cannot run remotely without broker registration.
 
 ### The broker image
 
-`Dockerfile.broker` is the deployable storage image, separate from the archives because it ships a different binary for a different purpose. Its build stage is `--platform=$BUILDPLATFORM` and cross-compiles with Go, so a `linux/amd64` and `linux/arm64` build needs no emulated compiler and only the small runtime stage runs under emulation. `VERSION` reaches the binary through `-X main.version`, so `ompig-slim-broker --version` reports the tag an operator pulled. The runtime image creates `/data` as mode 0700, and `internal/broker` re-tightens that mode at every start because the directory holds every synchronized secret.
+`Dockerfile.broker` builds a separate vault executable, cross-compiling natively
+for linux/amd64 and linux/arm64. `VERSION` reaches `--version` through
+`-X main.version`. The runtime uses UID/GID 10001 and re-tightens `/data` to
+0700. A process lock rejects duplicate owners. Preserve the SQLite WAL along with
+the database in backups, or stop the service first. Shutdown drains HTTP and
+stops the refresher before closing the vault. Only `/healthz` is public;
+never widen the image health check to a credential-bearing route.
 
-The `container-image` job publishes to GHCR only on a `v*` tag push, needs the same gates as the archives, and derives the image name from `github.repository_owner` so a fork publishes to its own namespace. It requests `packages: write` and nothing else. `container` is the test job that runs `make test-broker-container` and `make test-broker-cluster` on every push and pull request; both build their images from the checkout, so the tested Dockerfile is the published one, and `container-image` and `publish` both depend on it rather than trusting an untested build.
-
-`curl` is in the runtime image only for the declared `HEALTHCHECK`, which probes `/healthz` — the single unauthenticated route. Do not widen that health check to a data route; it would need the bearer and would leak it into image metadata.
+The existing container/release gates build the actual checkout. Container HTTP
+coverage includes authentication, redaction, SQLite persistence, preference
+CAS, restart and real clients without local credential mirrors. The private-network cluster suite covers shared account access/blocks,
+preference conflict and deletion, provisioned/late clients, restart and failure
+without local credential fallback. Go fixture tests cover server-side refresh,
+coalescing, cancellation durability, migration, CAS and direct inference.
 
 ## Feature behavior notes
 

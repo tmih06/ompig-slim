@@ -1,5 +1,5 @@
-// ompig-slim-broker hosts opaque profile documents. It contains no model runtime,
-// provider transport, OAuth refresher or inference forwarding routes.
+// ompig-slim-broker owns the SQLite credential vault and OAuth refresher.
+// It also hosts preferences, but never forwards inference or constructs a runtime.
 package main
 
 import (
@@ -67,7 +67,17 @@ func run() error {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	refreshed := make(chan struct{})
+	go func() {
+		defer close(refreshed)
+		handler.RunRefresher(ctx, func(err error) { fmt.Fprintln(os.Stderr, err) })
+	}()
+	defer func() {
+		// Also stop the sweep when listener startup fails without a signal.
+		stop()
+		<-refreshed
+		handler.Close()
+	}()
 	server := &http.Server{Addr: *bind, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	result := make(chan error, 1)
 	go func() { result <- server.ListenAndServe() }()

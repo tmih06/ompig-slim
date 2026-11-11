@@ -42,8 +42,8 @@ func main() {
 		os.Exit(code)
 	}
 	// Load the saved /login connection (or environment override) and synchronize
-	// local profile storage before PiG loads configuration. Provider
-	// requests and OAuth exchanges remain on this machine; no gateway is used.
+	// preferences before PiG loads configuration, and install remote credential
+	// discovery. Inference stays local; OAuth refresh belongs to the broker.
 	finishSync, err := broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

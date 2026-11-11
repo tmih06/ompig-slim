@@ -378,7 +378,13 @@ func refreshStoredOAuth(ctx context.Context, credentials CredentialStore, provid
 	}
 	if force || expiresSoon(credential) {
 		// Optimistic check said expired; the authoritative check runs under the lock.
-		post, err := refreshStoredOAuthCredential(ctx, credentials, providerID, oauth, needsRefresh, overrides)
+		var post *Credential
+		var err error
+		if remote, ok := remoteOAuthStore(credentials); ok {
+			post, err = remote.RefreshOAuth(ctx, providerID, overrides.AccountKey, overrides.AccountKeySet, stored)
+		} else {
+			post, err = refreshStoredOAuthCredential(ctx, credentials, providerID, oauth, needsRefresh, overrides)
+		}
 		if err != nil {
 			return nil, err
 		}

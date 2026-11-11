@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
-"""Run the broker container and prove its storage contract end to end.
+"""Run the broker container and prove vault and preference contracts end to end.
 
-The container is the artifact users deploy, so its contract is tested as a
-running service: what it answers, what it refuses, what survives a restart, and
-what a real `ompig-slim` client on the host can do against it.
+The image under test owns SQLite and refreshes OAuth, but never proxies inference.
+All credentials are fixtures; loopback HTTP checks cover bearer admission, secret
+redaction, removed raw-download routes, preference CAS, restart durability and
+real clients without local credential mirrors. No real provider is contacted.
 
-Every check is deterministic and loopback-only. The bearer is generated per run
-and never printed. When `--binary` names a built executable, the last checks
-drive two isolated client profiles through the container, which proves the
-end-to-end path without any provider call: synchronization is storage only, so
-the model runtime is never involved.
-
-Exit status: 0 all checks passed, 1 a check failed, 2 the environment cannot run
-the suite (no Docker daemon or no image).
-
+Exit status: 0 passed, 1 failed, 2 missing Docker/image.
 Usage: scripts/test-broker-container.py [--image NAME] [--binary PATH] [--keep]
 """
 import argparse
@@ -200,15 +193,15 @@ def check_identity():
 
 def check_authorization(base):
     """Every data route requires the bearer; only health is public."""
-    for path in ("/v1/items/settings.json", "/v1/items/credentials.json"):
+    for path in ("/v1/items/settings.json", "/v1/snapshot", "/v1/credential", "/v1/credential/refresh"):
         status, _, _ = http(base, "GET", path)
         expect(f"{path} refuses an unauthenticated read", status == 401, status)
         status, _, _ = http(base, "GET", path, token="not-the-secret")
         expect(f"{path} refuses a wrong secret", status == 401, status)
         status, _, _ = http(base, "PUT", path, body={"data": encode("{}")})
         expect(f"{path} refuses an unauthenticated write", status == 401, status)
-    status, _, _ = http(base, "POST", "/v1/auth/lease", token="not-the-secret")
-    expect("the credential lease refuses a wrong secret", status == 401, status)
+    status, _, _ = http(base, "POST", "/v1/credential", token="not-the-secret")
+    expect("the credential vault refuses a wrong secret", status == 401, status)
 
 
 def check_no_inference_route(base):
@@ -286,46 +279,28 @@ def check_documents(base):
     expect("a tombstone can be republished", status == 204, status)
 
 
-def check_lease(base):
-    """Credential writes need a live lease, so a rotation cannot race another."""
-    status, _, _ = http(base, "PUT", "/v1/items/credentials.json", token=SECRET,
-                        body={"data": encode("[]")}, headers={"If-Match": f'"{empty_revision()}"'})
-    expect("a credential write without the lease is refused", status == 423, status)
-
-    status, payload, _ = http(base, "POST", "/v1/auth/lease", token=SECRET)
-    expect("the lease is granted", status == 200 and payload.get("lease"), payload)
-    lease = payload["lease"]
-
-    status, _, _ = http(base, "PUT", "/v1/items/credentials.json", token=SECRET,
-                        body={"data": encode("[]")}, headers={"If-Match": f'"{empty_revision()}"'})
-    expect("another write is still refused while held", status == 423, status)
-
-    status, _, _ = http(base, "POST", "/v1/auth/lease", token=SECRET)
-    expect("a second lease request is refused while held", status == 423, status)
-
-    status, _, _ = http(base, "PUT", "/v1/items/credentials.json", token=SECRET,
-                        body={"data": encode("[]")}, headers={"If-Match": f'"{empty_revision()}"',
-                                                             "X-Broker-Lease": lease})
-    expect("the lease holder may write credentials", status == 204, status)
-
-    status, _, _ = http(base, "PUT", "/v1/items/settings.json", token=SECRET,
-                        body={"data": encode("{}")}, headers={"If-Match": '"bogus"', "X-Broker-Lease": lease})
-    expect("the lease does not bypass document revisions", status == 412, status)
-
-    status, _, _ = http(base, "PUT", "/v1/auth/lease", token=SECRET, headers={"X-Broker-Lease": lease})
-    expect("the lease holder may renew", status == 204, status)
-    return lease
-
+def check_vault(base):
+    """Credentials persist in SQLite; refresh material never returns to clients."""
+    credential = {"type": "oauth", "access": "fixture-access", "refresh": "fixture-private-refresh",
+                  "expires": 4102444800000}
+    status, _, _ = http(base, "POST", "/v1/credential", token=SECRET,
+                        body={"operation": "save", "provider": "fixture", "accountKey": None,
+                              "explicit": True, "credential": credential})
+    expect("a credential is persisted by the vault", status == 200, status)
+    status, snapshot, _ = http(base, "GET", "/v1/snapshot", token=SECRET)
+    expect("the snapshot exposes access credentials", status == 200 and snapshot[0]["credential"]["access"] == "fixture-access", snapshot)
+    expect("the snapshot never exposes refresh material", "fixture-private-refresh" not in json.dumps(snapshot))
+    expect("the snapshot marks remote refresh ownership", snapshot[0]["credential"]["refresh"] == "__OMPIG_REMOTE_REFRESH__")
 
 def check_volume_contents():
-    """The volume holds only allowlisted documents plus the ownership lock."""
+    """The volume holds preferences, the private vault and the ownership lock."""
     listing = set(docker("exec", CONTAINER, "ls", "-A", "/data").stdout.split())
-    unexpected = listing - {"settings.json", "keybindings.json", "credentials.json", "server.lock"}
+    unexpected = listing - {"settings.json", "keybindings.json", "agent.db", "agent.db-wal", "agent.db-shm", "server.lock"}
     expect("the volume holds only synchronized state", not unexpected, sorted(unexpected))
 
 
-def check_restart(base, lease):
-    """State survives a restart; the old lease does not, so it cannot be reused.
+def check_restart(base):
+    """Preferences and redacted credentials survive a broker restart.
 
     Docker reassigns an ephemeral host port when a stopped container starts
     again, so the address is re-resolved rather than assumed stable.
@@ -338,10 +313,9 @@ def check_restart(base, lease):
     expect("documents survive a restart",
            status == 200 and json.loads(decode(payload["data"]))["modelRoles"]["smol"] == "test-faux/model",
            payload)
-    status, _, _ = http(base, "PUT", "/v1/items/credentials.json", token=SECRET,
-                        body={"data": encode("[]")}, headers={"If-Match": f'"{payload["revision"]}"',
-                                                             "X-Broker-Lease": lease})
-    expect("a restart revokes the previous lease", status in (412, 423), status)
+    status, snapshot, _ = http(base, "GET", "/v1/snapshot", token=SECRET)
+    expect("vault credentials survive a restart", status == 200 and snapshot[0]["credential"]["access"] == "fixture-access", snapshot)
+    expect("restart does not expose refresh material", "fixture-private-refresh" not in json.dumps(snapshot))
     return base
 
 
@@ -386,11 +360,11 @@ def check_clients(base, binary):
         pulled = json.loads((profiles["b"] / "settings.json").read_text())
         expect("a second machine pulls a preference edit", pulled.get("modelRoles", {}).get("smol") == "test-faux/model", pulled)
 
-        status, payload, _ = http(base, "GET", "/v1/items/credentials.json", token=SECRET)
-        expect("the container holds a logical credential snapshot, not a database",
-               decode(payload["data"]) == "[]", decode(payload["data"]))
-        expect("the client never uploads its connection secret",
-               SECRET not in json.dumps([decode(payload["data"])]))
+        status, payload, _ = http(base, "GET", "/v1/snapshot", token=SECRET)
+        expect("clients use the redacted vault snapshot", status == 200 and len(payload) == 1, payload)
+        expect("the client never uploads its connection secret", SECRET not in json.dumps(payload))
+        for profile in profiles.values():
+            expect("remote clients never create a local credential mirror", not (profile / "agent.db").exists())
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -407,7 +381,6 @@ def run(image, binary, keep):
 
     docker("rm", "-f", CONTAINER, check=False)
     docker("volume", "rm", "-f", VOLUME, check=False)
-    lease = None
     try:
         base = start_container(image)
         check_health(base, image)
@@ -416,11 +389,11 @@ def run(image, binary, keep):
         check_no_inference_route(base)
         check_allowlist(base)
         check_documents(base)
-        lease = check_lease(base)
+        check_vault(base)
         check_volume_contents()
         # A restart reassigns the ephemeral port, so later checks use the
         # address the container reports now.
-        base = check_restart(base, lease)
+        base = check_restart(base)
         if binary is not None:
             check_clients(base, binary)
         else:

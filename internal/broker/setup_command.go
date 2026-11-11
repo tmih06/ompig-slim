@@ -12,6 +12,7 @@ import (
 // other.
 const SetupUsage = `Usage:
   ompig-slim broker setup --url <origin> [--token-file <path>] [--token-stdin] [--verify] [--force]
+  ompig-slim broker migrate --from-local
   ompig-slim broker show
   ompig-slim broker clear
 
@@ -30,7 +31,10 @@ Options for setup:
 The secret is also read from OMPIG_BROKER_TOKEN_FILE, then OMPIG_BROKER_TOKEN,
 when no token option is given. 'broker show' prints the saved URL and whether a
 secret is stored (never the secret itself). 'broker clear' disconnects this
-device; the downloaded profile and credentials remain local.
+device; preferences and pre-existing local credentials remain local.
+
+Migration uploads local provider credentials (including refresh tokens) once.
+Existing broker identities and logout tombstones are never overwritten.
 
 Restart ompig-slim to activate a changed connection: a running session keeps the
 sync worker it started with.
@@ -56,6 +60,8 @@ func HandleSetup(ctx context.Context, args []string, dir string, stdin io.Reader
 	switch rest[0] {
 	case "setup":
 		return true, runSetup(ctx, rest[1:], dir, stdin, stdout, stderr)
+	case "migrate":
+		return true, runMigrate(ctx, rest[1:], dir, stdout, stderr)
 	case "show":
 		return true, runShow(dir, stdout, stderr)
 	case "clear":

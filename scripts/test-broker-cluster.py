@@ -1,30 +1,14 @@
 #!/usr/bin/env python3
-"""Run one broker host and two real clients as three Docker containers.
+"""Run one broker vault and two real clients on a private Docker network.
 
-`test-broker-container.py` drives one container from the host and covers the
-storage contract as an HTTP surface. This suite covers the deployment shape
-instead: the broker, and the clients that use it, are all containers on a private
-network, so the checks exercise what a user actually runs — a client image with no
-provider access, connecting to a service it can only reach by its network name.
+The checkout builds both images. Fixture API keys exercise login writes to the
+canonical host SQLite vault, live reads without client credential mirrors, shared
+quota blocks, preference CAS/deletion/conflict, restart durability, late and
+provisioned clients, and unavailable-broker refusal without local vault fallback.
+No real provider is contacted and no inference is forwarded by the broker.
 
-Three containers, one bridge network, no published ports: the clients reach the
-broker as `http://broker:8765`, which also proves the deployed URL form works.
-Everything asserted here is deterministic and offline. Credentials are fixture
-values, and no provider is ever contacted: login writes the API key locally, and
-synchronization is storage only.
-
-Covered: the hosted profile seeding an empty broker, preference propagation in
-both directions, deletion propagation, per-document revision conflict detection
-that preserves both copies, credential snapshots syncing as logical records (never
-a SQLite file), the credential lease refusing a concurrent mutation, the saved
-connection file staying device-local and 0600, a restart revoking the lease while
-keeping documents, a wrong secret and an unreachable service degrading to
-local-only, and a third container joining late to receive the whole profile.
-
-Exit status: 0 all checks passed, 1 a check failed, 2 the environment cannot run
-the suite (no Docker daemon).
-
-Usage: scripts/test-broker-cluster.py [--binary PATH] [--keep] [--no-build]
+Exit status: 0 passed, 1 failed, 2 missing Docker.
+Usage: scripts/test-broker-cluster.py [--binary PATH] [--keep]
 """
 import argparse
 import base64
@@ -370,60 +354,47 @@ def check_conflict():
            (read_json(CLIENT_B, "/profile/agent/settings.json") or {}).get("theme") == "conflict-a")
 
 
+def broker_snapshot():
+    """Read live redacted credentials from inside the deployment network."""
+    result = client(CLIENT_A, "sh", "-c",
+                    "curl -fsS -H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
+                    "\"$OMPIG_BROKER_URL/v1/snapshot\"")
+    return json.loads(result.stdout)
+
+
 def check_credentials():
-    """Credentials sync as a logical record, and never as a SQLite file."""
+    """A login writes the host vault; another machine needs no local database."""
     login(CLIENT_A, "openai", "sk-cluster-fixture-key")
-    accounts = client(CLIENT_A, "auth", "accounts", "--json", check=False)
-    expect("login stored an account on A", accounts.returncode == 0 and "openai" in accounts.stdout,
-           token_from_stderr(accounts))
-
-    sync(CLIENT_A)
-    staged = broker_get("credentials.json")
-    expect("the host holds a credential snapshot", staged is not None, staged)
-    document = json.loads(staged) if staged else {}
-    expect("the snapshot is the documented document, not a database file",
-           isinstance(document, (dict, list)), type(document).__name__)
-    expect("the snapshot carries the stored key", "sk-cluster-fixture-key" in staged, staged[:200])
-    expect("the snapshot is not SQLite", not staged.startswith("SQLite format 3"),
-           staged[:16])
-
-    sync(CLIENT_B)
+    staged = broker_snapshot()
+    expect("the vault carries the stored key", "sk-cluster-fixture-key" in json.dumps(staged))
     printed = client(CLIENT_B, "auth", "print-api-key", "--provider", "openai", check=False)
     expect("B resolves the account A stored", printed.returncode == 0, token_from_stderr(printed))
-    expect("B printed A's key verbatim", printed.stdout.strip() == "sk-cluster-fixture-key",
-           printed.stdout.strip()[:40])
-    # The account arrives as a logical record, so B can resolve it without ever
-    # receiving A's SQLite file: the key proves the record, not a copied database.
-    expect("B has no copied credential database",
-           not docker("exec", CLIENT_B, "test", "-e", "/profile/agent/.broker-agent.db",
-                      check=False).returncode == 0)
+    expect("B printed A's key verbatim", printed.stdout.strip() == "sk-cluster-fixture-key")
+    for name in (CLIENT_A, CLIENT_B):
+        expect("remote access creates no local credential vault",
+               client(name, "test", "-e", "/profile/agent/agent.db", check=False).returncode != 0)
     listed = client(CLIENT_B, "auth", "accounts", "--json", check=False)
-    expect("B lists the synchronized account", "sk-cluster-fixture-key" not in listed.stdout
+    expect("B lists the remote account without secrets", "sk-cluster-fixture-key" not in listed.stdout
            and "openai" in listed.stdout, listed.stdout[:200])
 
 
-def check_lease():
-    """A held credential lease makes a concurrent mutation wait, not interleave."""
-    lease = acquire_lease(CLIENT_A)
-    expect("a lease is granted to the first caller", bool(lease), lease)
-
-    # The lease is what a live rotation holds; a second holder must be refused.
-    second = client(CLIENT_B, "sh", "-c",
-                    "curl -s -o /dev/null -w '%{http_code}' -X POST "
-                    "-H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
-                    "\"$OMPIG_BROKER_URL/v1/auth/lease\"", check=False)
-    expect("a second lease is refused while one is held", second.stdout.strip() == "423", second.stdout.strip())
-
-    released = client(CLIENT_A, "sh", "-c",
-                      "curl -fsS -X DELETE -H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
-                      f"-H 'X-Broker-Lease: {lease}' \"$OMPIG_BROKER_URL/v1/auth/lease\"", check=False)
-    expect("the lease holder may release", released.returncode == 0, token_from_stderr(released))
-    third = client(CLIENT_B, "sh", "-c",
-                   "curl -s -o /dev/null -w '%{http_code}' -X POST "
-                   "-H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
-                   "\"$OMPIG_BROKER_URL/v1/auth/lease\"", check=False)
-    expect("a lease is grantable again after release", third.stdout.strip() == "200", third.stdout.strip())
-    client(CLIENT_B, "sh", "-c", "true")
+def check_shared_blocks():
+    """Quota blocks live at the credential owner and are shared by clients."""
+    account = next(entry["info"]["accountKey"] for entry in broker_snapshot()
+                   if entry["info"]["providerId"] == "openai")
+    def operation(container, body):
+        """Post one vault operation through the deployed private network."""
+        result = client(container, "sh", "-c",
+                        "curl -fsS -X POST -H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
+                        "-H 'Content-Type: application/json' -d @- \"$OMPIG_BROKER_URL/v1/credential\"",
+                        stdin=json.dumps(dict(provider="openai", accountKey=account, **body)))
+        return json.loads(result.stdout)
+    until = int(time.time() * 1000) + 60000
+    operation(CLIENT_A, dict(operation="block", scope="chat", untilMs=until))
+    blocked = operation(CLIENT_B, dict(operation="blocked", scopes=["chat"]))
+    expect("B sees A's shared quota block", blocked == until, blocked)
+    operation(CLIENT_B, dict(operation="clear-blocks", scopes=["chat"]))
+    expect("B's block clear is visible to A", operation(CLIENT_A, dict(operation="blocked", scopes=["chat"])) is None)
 
 
 def check_connection_file_is_local():
@@ -433,49 +404,17 @@ def check_connection_file_is_local():
         expect("a saved connection file is private", stat.stdout.strip() in ("600", "0600"), stat.stdout.strip())
     hosted = broker_get("remote-broker.json")
     expect("the connection file is never uploaded", hosted is None, hosted)
-    staged = broker_get("credentials.json") or ""
-    expect("the connection secret is not in the credential snapshot", SECRET not in staged)
+    expect("the connection secret is not in the credential snapshot", SECRET not in json.dumps(broker_snapshot()))
 
 
-def acquire_lease(container):
-    """Acquire the credential lease, retrying while a previous holder releases.
-
-    `check_lease` leaves the lease free, but a lease has a 60-second lifetime and a
-    just-released one still counts as held for a moment. Retrying makes this check
-    independent of how the previous one ended.
-    """
-    deadline = time.monotonic() + 70
-    while time.monotonic() < deadline:
-        result = client(container, "sh", "-c",
-                        "curl -s -X POST -H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
-                        "\"$OMPIG_BROKER_URL/v1/auth/lease\"", check=False)
-        try:
-            payload = json.loads(result.stdout)
-        except (json.JSONDecodeError, ValueError):
-            payload = {}
-        if payload.get("lease"):
-            return payload["lease"]
-        time.sleep(2)
-    raise CheckFailed("no lease could be acquired")
-
-
-def check_restart_revokes_lease():
-    """Documents survive a broker restart; a lease held across it does not."""
-    lease = acquire_lease(CLIENT_A)
-    expect("a lease is granted before the restart", bool(lease), lease)
-
+def check_restart():
+    """The canonical vault and preferences survive a broker restart."""
     docker("stop", "-t", "10", HOST)
     docker("start", HOST)
     wait_healthy(HOST)
-
-    renewed = client(CLIENT_A, "sh", "-c",
-                     "curl -s -o /dev/null -w '%{http_code}' -X PUT "
-                     "-H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
-                     f"-H 'X-Broker-Lease: {lease}' \"$OMPIG_BROKER_URL/v1/auth/lease\"", check=False)
-    expect("the restart revoked the previous lease", renewed.stdout.strip() in ("401", "423"), renewed.stdout.strip())
+    expect("credentials survive restart", "sk-cluster-fixture-key" in json.dumps(broker_snapshot()))
     expect("documents survive the restart",
-           (json.loads(broker_get("settings.json") or "{}")).get("theme") == "conflict-a",
-           broker_get("settings.json"))
+           (json.loads(broker_get("settings.json") or "{}")).get("theme") == "conflict-a")
 
 
 def check_wrong_secret():
@@ -483,8 +422,8 @@ def check_wrong_secret():
     attempts = {
         "read": "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "
                 "\"$OMPIG_BROKER_URL/v1/items/settings.json\"",
-        "lease": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer wrong' "
-                 "\"$OMPIG_BROKER_URL/v1/auth/lease\"",
+        "vault": "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "
+                 "\"$OMPIG_BROKER_URL/v1/snapshot\"",
     }
     for route, script in attempts.items():
         result = client(CLIENT_A, "sh", "-c", script, check=False)
@@ -567,7 +506,8 @@ def check_degraded_client():
            token_from_stderr(result))
     expect("the inactive sync is reported", "profile sync inactive" in (result.stderr + result.stdout),
            token_from_stderr(result))
-    client(LATE_CLIENT, "auth", "accounts", check=False)
+    unavailable = client(LATE_CLIENT, "auth", "print-api-key", "--provider", "openai", check=False)
+    expect("unreachable vault refuses credential access", unavailable.returncode != 0)
     docker("rm", "-f", LATE_CLIENT)
     docker("volume", "rm", "-f", f"{LATE_CLIENT}-profile")
 
@@ -598,13 +538,13 @@ def check_late_joiner():
            printed.stdout.strip()[:40])
 
 
-def check_host_is_storage_only():
+def check_host_vault():
     """The broker container never holds provider traffic or a client's local state."""
     listing = set(docker("exec", HOST, "ls", "-A", "/data", check=False).stdout.split())
-    unexpected = listing - {"settings.json", "keybindings.json", "credentials.json", "models.json",
+    unexpected = listing - {"settings.json", "keybindings.json", "agent.db", "agent.db-wal", "agent.db-shm", "models.json",
                             "models.yml", "models.yaml", "server.lock"}
     expect("the host volume holds only synchronized documents", not unexpected, sorted(unexpected))
-    expect("the host holds no client database", "agent.db" not in listing, sorted(listing))
+    expect("the host owns the canonical vault", "agent.db" in listing, sorted(listing))
     probe = client(CLIENT_A, "sh", "-c",
                    "curl -s -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $OMPIG_BROKER_TOKEN\" "
                    "-d '{}' \"$OMPIG_BROKER_URL/v1/chat/completions\"", check=False)
@@ -629,11 +569,11 @@ def cluster(binary, keep):
         check_deletion()
         check_conflict()
         check_credentials()
-        check_lease()
+        check_shared_blocks()
         check_connection_file_is_local()
-        check_restart_revokes_lease()
+        check_restart()
         check_wrong_secret()
-        check_host_is_storage_only()
+        check_host_vault()
         check_late_joiner()
         check_configured_client()
         check_degraded_client()

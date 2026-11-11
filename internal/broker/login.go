@@ -118,7 +118,7 @@ func newClient(dir string, saved connection) (*Client, error) {
 // It verifies bearer access without uploading/downloading profile state, then
 // atomically saves a private local connection. Cancellation or failed validation
 // leaves any previous connection intact. Activation occurs at the next startup
-// to avoid replacing a running runtime's credential synchronization callback.
+// to avoid replacing a running runtime's credential store discovery.
 func Login(ctx context.Context, dir string, interaction ai.AuthInteraction) error {
 	endpoint, err := interaction.Prompt(ctx, ai.AuthTextPrompt{Message: "Broker URL", Placeholder: "https://sync.example.com"})
 	if err != nil {
@@ -133,7 +133,7 @@ func Login(ctx context.Context, dir string, interaction ai.AuthInteraction) erro
 		return err
 	}
 	var item Item
-	if err = client.request(ctx, http.MethodGet, "/v1/items/settings.json", "", "", nil, &item); err != nil {
+	if err = client.request(ctx, http.MethodGet, "/v1/items/settings.json", "", nil, &item); err != nil {
 		return fmt.Errorf("could not verify broker connection: %w", err)
 	}
 	if err = context.Cause(ctx); err != nil {

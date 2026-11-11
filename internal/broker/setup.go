@@ -110,7 +110,7 @@ func Setup(ctx context.Context, dir string, options SetupOptions) (SetupResult, 
 	verified := false
 	if options.Verify {
 		var item Item
-		if err := client.request(ctx, "GET", "/v1/items/settings.json", "", "", nil, &item); err != nil {
+		if err := client.request(ctx, "GET", "/v1/items/settings.json", "", nil, &item); err != nil {
 			return SetupResult{}, fmt.Errorf("could not verify broker connection: %w", err)
 		}
 		verified = true

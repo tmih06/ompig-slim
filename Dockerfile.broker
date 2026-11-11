@@ -1,4 +1,4 @@
-# The storage service image. Build with buildx for multi-architecture releases:
+# The credential vault and preference service image. Build with buildx for multi-architecture releases:
 # the build stage runs natively on the builder and cross-compiles with Go, so no
 # emulated compiler is needed for the other architectures.
 FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
