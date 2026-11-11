@@ -164,7 +164,7 @@ const autocompleteTokenWrappers = "([{<`"
 func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
 	before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
 	triggered := autocompleteTriggered(before, e.asyncAutocomplete.TriggerCharacters)
-	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
+	slash := e.commandSlashContext(before)
 	return triggered || slash || e.skillSlashContext(before) || e.AutocompleteOpen(), triggered
 }
 

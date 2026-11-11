@@ -98,6 +98,19 @@ func (e *Editor) segmentSkills(text string, base iter.Seq[SegmentData]) iter.Seq
 // skillLabel is the compact display text, including one cell of pill padding per side.
 func skillLabel(name string) string { return " ◆ " + name + " " }
 
+// skillBadge paints the shared composer/transcript pill. Callers restore their
+// surrounding text style after its explicit resets, rather than extending its background.
+func skillBadge(name string) string {
+	theme := ActiveTheme()
+	return skillBadgeOpen(theme) + skillLabel(name) + "\x1b[22m\x1b[39m\x1b[49m"
+}
+
+// skillBadgeOpen starts the badge style without its label, so the editor can
+// insert a cursor into the same styled span used by submitted messages.
+func skillBadgeOpen(theme *Theme) string {
+	return theme.GetBgAnsi("customMessageBg") + theme.GetFgAnsi("customMessageLabel") + "\x1b[1m"
+}
+
 // skillColumn maps a source UTF-16 column to its compact display column.
 // Interior token positions snap to the start because skills are atomic.
 func (e *Editor) skillColumn(text string, col int) int {
@@ -166,7 +179,7 @@ func (e *Editor) skillDisplay(text string, col int, emit bool) string {
 	theme := ActiveTheme()
 	for _, span := range spans {
 		appendPart(text[offset:span.Start], jsstring.Length(text[:offset]))
-		out.WriteString(theme.GetBgAnsi("customMessageBg") + theme.GetFgAnsi("customMessageLabel") + "\x1b[1m")
+		out.WriteString(skillBadgeOpen(theme))
 		label := skillLabel(span.Name)
 		start, end := jsstring.Length(text[:span.Start]), jsstring.Length(text[:span.End])
 		if col >= start && col < end {
@@ -181,6 +194,21 @@ func (e *Editor) skillDisplay(text string, col int, emit bool) string {
 		out.WriteString(e.renderCursorAt("", 0, emit))
 	}
 	return out.String()
+}
+
+// commandSlashContext retains leading command argument menus, but a completed
+// skill starts prose rather than command arguments. Explicit trailing slash and
+// attachment triggers are handled independently, so more skills and files work.
+func (e *Editor) commandSlashContext(before string) bool {
+	if e.cursor[0] != 0 || !strings.HasPrefix(widthx.JSTrimStart(before), "/") {
+		return false
+	}
+	for _, span := range e.skillSpans(before) {
+		if strings.TrimSpace(before[:span.Start]) == "" && span.End < len(before) {
+			return false
+		}
+	}
+	return true
 }
 
 // skillSlashContext keeps slash completion active after prose or a previous skill.

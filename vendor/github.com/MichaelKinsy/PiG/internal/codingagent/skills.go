@@ -288,19 +288,25 @@ func DefaultSkillsDir() string {
 	return filepath.Join(DefaultAgentDir(), "skills")
 }
 
-// ExpandSkillCommand loads every known skill token in source order, once per name, then appends the remaining prompt. Unknown tokens stay literal. Read/parse errors return no expansion so a failed multi-skill load cannot submit a partial result. Command arguments and shell input are never interpreted as skill invocations.
+// ExpandSkillCommand loads every known skill token in source order, once per name,
+// then appends the original prompt. Keeping the tokens preserves badge positions
+// and repeated invocations in persisted transcripts, without reloading a body.
+// Unknown tokens stay literal. Read/parse errors return no partial expansion.
+// Command arguments and shell input are never interpreted as skill invocations.
 func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
 	if !tui.AllowsSkillTokens(text) {
 		return "", false, nil
 	}
+	// Interactive preflight and Session can both pass through expansion. A
+	// loaded message is already complete; neither its body nor its retained
+	// source tokens should cause a second resource read or nested expansion.
+	if blocks, _ := ParseExpandedSkillMessage(text); len(blocks) > 0 {
+		return "", false, nil
+	}
 	var blocks []string
-	var prompt strings.Builder
 	seen := make(map[string]bool)
-	offset := 0
 	for _, token := range tui.SkillTokens(text) {
 		if seen[token.Name] {
-			prompt.WriteString(text[offset:token.Start])
-			offset = token.End
 			continue
 		}
 		block, ok, err := expandSingleSkillCommand(text[token.Start:token.End], skills)
@@ -310,18 +316,13 @@ func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extensi
 		if !ok {
 			continue
 		}
-		prompt.WriteString(text[offset:token.Start])
-		offset = token.End
 		blocks = append(blocks, block)
 		seen[token.Name] = true
 	}
 	if len(blocks) == 0 {
 		return "", false, nil
 	}
-	prompt.WriteString(text[offset:])
-	if rest := jsTrim(prompt.String()); rest != "" {
-		blocks = append(blocks, rest)
-	}
+	blocks = append(blocks, text)
 	return strings.Join(blocks, "\n\n"), true, nil
 }
 

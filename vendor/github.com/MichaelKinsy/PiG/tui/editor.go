@@ -1472,7 +1472,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
 	if e.skillSlashContext(before) {
 		return true
 	}
-	if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") {
+	if e.commandSlashContext(before) {
 		return true
 	}
 	previousBoundary := true
