@@ -301,18 +301,15 @@ class InstallTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.install_dir().exists())
 
-    def test_banner_is_printed_and_stays_aligned_without_color(self):
-        # The mark is plain text with optional color runs, so redirected output
-        # keeps the same geometry and no escape sequence reaches a log file.
+    def test_banner_matches_the_startup_mark_without_color(self):
+        # The installer uses the same two-line half-block mark as the startup
+        # TUI. Redirected output drops color escapes but preserves its geometry.
         stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("in Go \u00b7 slim harness", result.stdout)
-        art = [line for line in result.stdout.splitlines() if "\u2588" in line or "\u255a" in line]
-        self.assertEqual(len(art), 5, result.stdout)
-        # Every row of the mark is the same width once color is stripped.
-        widths = {len(line) for line in art}
-        self.assertEqual(len(widths), 1, f"logo rows differ in width: {art}")
+        self.assertIn("███ █▄ ▄█ ▀▀█     ███ ███ -slim", result.stdout)
+        self.assertIn("█▄█ █▀ ▀█ █▀ █ in █▀█ █▄█", result.stdout)
+        self.assertNotIn("in Go · slim harness", result.stdout)
         self.assertNotIn("\x1b", result.stdout)
 
     def test_a_refused_platform_prints_no_banner(self):

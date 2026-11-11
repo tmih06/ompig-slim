@@ -176,7 +176,7 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 		t.Fatalf("stdout did not report the update: %q", stdout.String())
 	}
 	// The mark is printed once per run, before the progress.
-	if !strings.Contains(stdout.String(), "in Go \u00b7 slim harness") {
+	if !strings.Contains(stdout.String(), "███ █▄ ▄█ ▀▀█     ███ ███ -slim") {
 		t.Fatalf("stdout did not print the banner: %q", stdout.String())
 	}
 	// No staging file may survive beside the executable, which is on PATH.

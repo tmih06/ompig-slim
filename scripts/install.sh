@@ -110,22 +110,20 @@ if [[ -t 1 ]]; then interactive=1; fi
 # printf calls emit plain text without a second code path.
 if [[ "$interactive" == 1 ]]; then
     c_reset=$'\033[0m' c_bold=$'\033[1m' c_dim=$'\033[2m'
-    c_white=$'\033[97m' c_coral=$'\033[91m' c_blue=$'\033[94m'
+    c_white=$'\033[97m' c_coral=$'\033[91m' c_blue=$'\033[94m' c_blue_bg=$'\033[104m'
     c_yellow=$'\033[93m' c_purple=$'\033[95m' c_cyan=$'\033[96m'
 else
     c_reset='' c_bold='' c_dim=''
-    c_white='' c_coral='' c_blue='' c_yellow='' c_purple='' c_cyan=''
+    c_white='' c_coral='' c_blue='' c_blue_bg='' c_yellow='' c_purple='' c_cyan=''
 fi
 
-# print_banner writes the ompig-slim mark and its tagline.
+# print_banner writes the same two-line half-block mark as the startup TUI.
 print_banner() {
     printf '\n'
-    printf ' %s██████╗ ███╗   ███╗%s██████╗ %s██╗%s\n' "$c_white" "$c_coral" "$c_yellow" "$c_reset"
-    printf '%s██╔═══██╗████╗ ████║%s██╔══██╗%s██║%s\n' "$c_white" "$c_coral" "$c_yellow" "$c_reset"
-    printf '%s██║   ██║██╔████╔██║%s██████╔╝%s██║%s\n' "$c_white" "$c_coral" "$c_yellow" "$c_reset"
-    printf '%s╚██████╔╝██║ ╚═╝ ██║%s██║     %s██║%s\n' "$c_white" "$c_blue" "$c_yellow" "$c_reset"
-    printf '%s ╚═════╝ ╚═╝     ╚═╝%s╚═╝     %s╚═╝%s\n' "$c_white" "$c_blue" "$c_yellow" "$c_reset"
-    printf '\n  %sin Go · slim harness%s\n\n' "$c_purple" "$c_reset"
+    printf '%s███ █▄ ▄█%s %s%s▀%s%s▀█%s     %s███ ███%s %s-slim%s\n' \
+        "$c_white" "$c_reset" "$c_blue_bg" "$c_coral" "$c_reset" "$c_coral" "$c_reset" "$c_cyan" "$c_reset" "$c_purple" "$c_reset"
+    printf '%s█▄█ █▀ ▀█%s %s█▀%s %s█%s%s in %s%s█▀█ █▄█%s\n\n' \
+        "$c_white" "$c_reset" "$c_blue" "$c_reset" "$c_yellow" "$c_reset" "$c_white" "$c_reset" "$c_cyan" "$c_reset"
 }
 
 # human_bytes sets REPLY to a byte count formatted the way
