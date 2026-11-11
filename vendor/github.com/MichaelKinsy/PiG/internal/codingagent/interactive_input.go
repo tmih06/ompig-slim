@@ -1289,35 +1289,6 @@ func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
 	return ok
 }
 
-// unknownSlashCommand reports a leading slash command name that is absent from
-// the builtin/extension registry, prompt templates, and loaded skills. It is
-// retained for callers that need diagnostic classification; ordinary prompt
-// submission does not reject its result.
-func (m *InteractiveMode) unknownSlashCommand(prompt string) (bool, string) {
-	if !strings.HasPrefix(prompt, "/") || m.slashRegistry == nil {
-		return false, ""
-	}
-	name, _ := parseSlashLine(prompt)
-	if name == "" {
-		return true, name
-	}
-	m.syncExtensionSlashCommands()
-	if _, ok := m.slashRegistry.Match("/" + name); ok {
-		return false, ""
-	}
-	for _, template := range m.promptTemplates {
-		if template.Name == name {
-			return false, ""
-		}
-	}
-	for _, skill := range m.opts.Skills {
-		if "skill:"+skill.Name == name {
-			return false, ""
-		}
-	}
-	return true, name
-}
-
 // restoreQueuedMessagesToEditor moves every queued message (the agent's
 // steering and follow-up queues plus messages queued during compaction) into
 // the editor ahead of its current text, and reports how many it restored.

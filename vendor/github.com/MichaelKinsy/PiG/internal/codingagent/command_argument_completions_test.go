@@ -48,36 +48,17 @@ func TestBuiltinArgumentSuggestions(t *testing.T) {
 	}
 }
 
-// TestUnknownSlashCommandStaysInEditor verifies an unknown leading slash is
-// rejected without losing the editable draft.
-func TestUnknownSlashCommandStaysInEditor(t *testing.T) {
+// TestLeadingAbsolutePathIsOrdinaryPrompt ensures filesystem paths are sent as
+// ordinary prompts instead of being rejected as unknown commands.
+func TestLeadingAbsolutePathIsOrdinaryPrompt(t *testing.T) {
 	m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry()}
 	m.setupEditorSubmitHandler(context.Background())
-	m.editor.SetText("/does-not-exist")
+	var submitted string
+	m.onInputCallback = func(text string) { submitted = text }
+	m.editor.SetText("/tmp/project/file")
 	m.editor.HandleInput("\r")
-	if got := m.editor.Text(); got != "/does-not-exist" {
-		t.Fatalf("unknown slash command was submitted: editor text %q", got)
-	}
-}
-
-// TestUnknownSlashCommandOnlyChecksLeadingText keeps slash-looking prose and
-// loaded prompt resources outside the rejection path.
-func TestUnknownSlashCommandOnlyChecksLeadingText(t *testing.T) {
-	m := &InteractiveMode{slashRegistry: NewSlashRegistry(), promptTemplates: []PromptTemplate{{Name: "review"}}, opts: InteractiveModeOptions{Skills: []*SkillDef{{Name: "ship"}}}}
-	for _, tc := range []struct {
-		prompt  string
-		unknown bool
-	}{
-		{"/missing", true},
-		{"plain /missing", false},
-		{"/review", false},
-		{"/skill:ship", false},
-		{"/quit extra", false},
-	} {
-		unknown, _ := m.unknownSlashCommand(tc.prompt)
-		if unknown != tc.unknown {
-			t.Errorf("unknownSlashCommand(%q) = %t, want %t", tc.prompt, unknown, tc.unknown)
-		}
+	if submitted != "/tmp/project/file" {
+		t.Fatalf("absolute path was not submitted as ordinary prompt: %q", submitted)
 	}
 }
 

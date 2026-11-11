@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -46,6 +48,19 @@ func TestArgumentMenuAfterNativeCheckpoint(t *testing.T) {
 		if e.autocompleteItems[0].Description != "Enable example" {
 			t.Fatal("argument purpose was lost")
 		}
+	}
+}
+
+// TestSlashCommandContextDoesNotFallThroughToPathCompletion keeps an
+// unrecognized command-shaped line out of the filesystem completion branch.
+func TestSlashCommandContextDoesNotFallThroughToPathCompletion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "child"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewCombinedProvider([]SlashCommand{{Name: "known"}}, dir, "")
+	if got := provider.GetSuggestions(context.Background(), []string{"/unknown "}, 0, len("/unknown "), AutocompleteSuggestionOptions{}); got != nil {
+		t.Fatalf("slash command context produced path suggestions: %+v", got)
 	}
 }
 
