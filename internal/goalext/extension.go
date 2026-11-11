@@ -99,14 +99,12 @@ func Extension(api extension.API) error {
 		if state == nil || state.Status != goal.StatusActive {
 			return nil
 		}
-		api.SendMessage(extension.SendMessagePayload{CustomType: "goal-continuation", Content: fmt.Sprintf("Continue working toward this goal: %s", state.Objective), Display: false}, &extension.SendMessageOptions{TriggerTurn: boolPtr(true), DeliverAs: extension.DeliverAsNextTurn})
+		triggerTurn := true
+		api.SendMessage(extension.SendMessagePayload{CustomType: "goal-continuation", Content: fmt.Sprintf("Continue working toward this goal: %s", state.Objective), Display: false}, &extension.SendMessageOptions{TriggerTurn: &triggerTurn, DeliverAs: extension.DeliverAsNextTurn})
 		return nil
 	})
 	return nil
 }
-
-// boolPtr supplies the optional trigger flag required by SendMessage.
-func boolPtr(value bool) *bool { return &value }
 
 // render formats the compact model and command response shared by both surfaces.
 func render(state *goal.State) string {
