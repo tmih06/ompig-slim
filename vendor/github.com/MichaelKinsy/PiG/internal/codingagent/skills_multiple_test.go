@@ -1,6 +1,7 @@
 package codingagent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 )
 
 // TestExpandMultipleSkillCommands covers real resource reads, ordered deduplication,
-// prose preservation, namespaced skills and the existing single-skill format.
+// prose preservation, namespaced skills and retained invocation positions.
 func TestExpandMultipleSkillCommands(t *testing.T) {
 	dir := t.TempDir()
 	var skills []*SkillDef
@@ -31,17 +32,20 @@ func TestExpandMultipleSkillCommands(t *testing.T) {
 		if strings.Count(expanded, "<skill name=\"review\"") != 1 || strings.Count(expanded, "<skill name=\"team/check\"") != 1 {
 			t.Fatalf("missing or duplicate skill: %s", expanded)
 		}
-		if strings.Index(expanded, "Instructions for review") > strings.Index(expanded, "Instructions for team/check") || strings.Contains(expanded, "name: fixture") || strings.Contains(expanded, "/skill:") {
+		if strings.Index(expanded, "Instructions for review") > strings.Index(expanded, "Instructions for team/check") || strings.Contains(expanded, "name: fixture") {
 			t.Fatalf("bad expansion: %s", expanded)
 		}
-		if strings.HasPrefix(prompt, "fix ") && !strings.HasSuffix(expanded, "fix  this  now") {
-			t.Fatalf("prose changed: %s", expanded)
+		if !strings.HasSuffix(expanded, "\n\n"+prompt) {
+			t.Fatalf("source prompt changed: %s", expanded)
+		}
+		if _, again, err := ExpandSkillCommand(expanded, skills); again || err != nil {
+			t.Fatal("already loaded skill expanded a second time")
 		}
 	}
 	single, _, _ := ExpandSkillCommand("/skill:review hello", skills)
-	original, _, _ := expandSingleSkillCommand("/skill:review hello", skills)
-	if single != original {
-		t.Fatal("single-skill format changed")
+	original, _, _ := expandSingleSkillCommand("/skill:review", skills)
+	if single != original+"\n\n/skill:review hello" {
+		t.Fatal("single-skill source prompt was not retained")
 	}
 	for _, prompt := range []string{"/model /skill:review", "!echo /skill:review", "$\necho /skill:review", "/skill:unknown"} {
 		if _, ok, err := ExpandSkillCommand(prompt, skills); ok || err != nil {
@@ -108,8 +112,25 @@ func TestParseExpandedSkillMessage(t *testing.T) {
 	}
 }
 
-// TestSkillExpansionRendersBadgesOnly drives the transcript: a prompt with two
-// skills shows both badges and none of their bodies while collapsed.
+// TestLegacySkillSubmissionRemainsOneBubble keeps old stored expansions
+// readable without requiring the original skill files or source token positions.
+func TestLegacySkillSubmissionRemainsOneBubble(t *testing.T) {
+	for _, prose := range []string{"", "\n\nfix this"} {
+		mode := resetWiringTest(t, nil)
+		text := "<skill name=\"review\" location=\"/removed/review.md\">\nOLD BODY\n</skill>" + prose
+		mode.addUserMessageToChat(agent.AgentMessage{}, text, messageMeta{})
+		got := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(80), "\n"))
+		if len(mode.chatContainer.Children()) != 1 || !strings.Contains(got, "◆ review") || strings.Contains(got, "OLD BODY") {
+			t.Fatalf("old expansion did not stay in one collapsed bubble: %q", got)
+		}
+		if prose != "" && !strings.Contains(got, "fix this") {
+			t.Fatal("old expansion lost its trailing prompt")
+		}
+	}
+}
+
+// TestSkillExpansionRendersBadgesOnly drives the same entry point used live
+// and on reload: skill badges stay inline in one submitted user bubble.
 func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 	cwd := t.TempDir()
 	var skills []*SkillDef
@@ -120,7 +141,7 @@ func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 		}
 		skills = append(skills, &SkillDef{Name: name, FilePath: path, BaseDir: cwd})
 	}
-	expanded, ok, err := ExpandSkillCommand("/skill:review /skill:test please fix", skills)
+	expanded, ok, err := ExpandSkillCommand("please /skill:review fix /skill:test now", skills)
 	if !ok || err != nil {
 		t.Fatalf("expansion failed: ok=%v err=%v", ok, err)
 	}
@@ -131,10 +152,34 @@ func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 		Content: ai.UserContentBlocks{ai.TextContent{Text: expanded}},
 	}}, expanded, messageMeta{})
 	transcript := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(90), "\n"))
-	for _, want := range []string{"[skill] review", "[skill] test", "please fix"} {
+	if children := mode.chatContainer.Children(); len(children) != 1 {
+		t.Fatalf("one submission split into %d transcript components", len(children))
+	}
+	for _, want := range []string{"please  ◆ review  fix  ◆ test  now"} {
 		if !strings.Contains(transcript, want) {
 			t.Fatalf("transcript missing %q: %q", want, transcript)
 		}
+	}
+	// Resume from the persisted message, not from the current skill registry.
+	// The original source and loaded bodies must be sufficient on their own.
+	record, marshalErr := json.Marshal(map[string]any{
+		"type": "message", "id": "saved-skill-prompt",
+		"message": map[string]any{"role": "user", "content": []map[string]string{{"type": "text", "text": expanded}}},
+	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	var entries []SessionEntry
+	for _, record := range ParseSessionEntries(string(record)) {
+		if entry, ok := record.(SessionEntry); ok {
+			entries = append(entries, entry)
+		}
+	}
+	mode.chatContainer.Clear() // rebuildChat clears before replaying entries.
+	mode.renderSessionEntryList(entries, false)
+	resumed := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(90), "\n"))
+	if resumed != transcript || len(mode.chatContainer.Children()) != 1 {
+		t.Fatalf("resume changed the submitted bubble: %q; live %q", resumed, transcript)
 	}
 	for _, unwanted := range []string{"SECRET review BODY", "SECRET test BODY", "<skill name=", "</skill>"} {
 		if strings.Contains(transcript, unwanted) {
