@@ -60,3 +60,17 @@ Each landing step loads a skill by reading its file, resolved against this skill
 3. **Pull request** — read `../pr/SKILL.md` and open the PR with the base branch, body, and evidence taken from commands run in this session. One commit per purpose, matching `AGENTS.md`: lane work, then debloat, then a measured optimize when one exists.
 
 Done: the branch carries those commits, and the PR exists with a diff that matches them and evidence that quotes this session's real output.
+
+## 6. Summary report
+
+After landing is complete, return a concise summary report. Use these headings, and write **None** when a category produced no work:
+
+- **Made** — the ticket behavior implemented or fixed, with the key files or commits.
+- **Simplified** — the debloat changes made, including notable removals or clarifications.
+- **Optimized** — each measured performance or efficiency change, with before/after evidence; state when review found no measured optimization.
+- **Verification** — the checks run and their results.
+- **Delivery** — the branch, commits, and pull-request link.
+
+The report must describe the complete run, not only the final diff, and must distinguish measured optimization from an optimization opportunity that was left unchanged.
+
+Done: the report is returned after the PR is open and every heading accounts for the work performed or explicitly records that none was done.
