@@ -752,8 +752,8 @@ func (s *SQLiteAuthStorage) HasProvider(ctx context.Context, providerID string) 
 	return true, nil
 }
 
-// saveAccountLocal stores credential as accountKey, reviving a tombstone, and makes it active.
-func (s *SQLiteAuthStorage) saveAccountLocal(ctx context.Context, providerID string, accountKey *string, credential Credential) ([]CredentialAccountInfo, error) {
+// SaveAccount stores credential as accountKey, reviving a tombstone, and makes it active.
+func (s *SQLiteAuthStorage) SaveAccount(ctx context.Context, providerID string, accountKey *string, credential Credential) ([]CredentialAccountInfo, error) {
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
@@ -815,8 +815,8 @@ func (s *SQLiteAuthStorage) saveAccount(ctx context.Context, providerID string, 
 	})
 }
 
-// selectAccountLocal makes accountKey the account Read resolves to.
-func (s *SQLiteAuthStorage) selectAccountLocal(ctx context.Context, providerID, accountKey string) (bool, error) {
+// SelectAccount makes accountKey the account Read resolves to.
+func (s *SQLiteAuthStorage) SelectAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
@@ -841,8 +841,8 @@ func (s *SQLiteAuthStorage) selectAccountLocal(ctx context.Context, providerID, 
 	return true, nil
 }
 
-// deleteAccountLocal tombstones one account, keeping the provider's others.
-func (s *SQLiteAuthStorage) deleteAccountLocal(ctx context.Context, providerID, accountKey string) (bool, error) {
+// DeleteAccount tombstones one account, keeping the provider's others.
+func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
@@ -893,13 +893,13 @@ func (s *SQLiteAuthStorage) deleteAccountLocal(ctx context.Context, providerID, 
 
 // Modify implements CredentialStore: serialized read-modify-write for one account.
 func (s *SQLiteAuthStorage) Modify(ctx context.Context, providerID string, fn func(current *Credential) (*Credential, error)) (*Credential, error) {
-	return s.modify(ctx, providerID, nil, false, fn)
+	return s.modifyLocal(ctx, providerID, nil, false, fn)
 }
 
 // ModifyAccount is Modify for one named account (nil: the identity-less row). It never touches
 // another identity and leaves the provider's selection alone.
 func (s *SQLiteAuthStorage) ModifyAccount(ctx context.Context, providerID string, accountKey *string, fn func(current *Credential) (*Credential, error)) (*Credential, error) {
-	return s.modify(ctx, providerID, accountKey, true, fn)
+	return s.modifyLocal(ctx, providerID, accountKey, true, fn)
 }
 
 // modifyLocal serializes read-modify-write for one account.
@@ -1456,8 +1456,8 @@ func providerKey(row *credentialRow) string {
 	return row.Provider + ":" + row.CredentialType
 }
 
-// deleteLocal tombstones every enabled credential of a provider and drops its selection.
-func (s *SQLiteAuthStorage) deleteLocal(ctx context.Context, providerID string) error {
+// Delete tombstones every enabled credential of a provider and drops its selection.
+func (s *SQLiteAuthStorage) Delete(ctx context.Context, providerID string) error {
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
@@ -1752,10 +1752,19 @@ func SQLiteAuthPath(agentDir string) string { return filepath.Join(agentDir, "ag
 // login status text (getAuthPath) and migration reads it.
 func LegacyAuthJSONPath(agentDir string) string { return filepath.Join(agentDir, "auth.json") }
 
-// OpenCredentialStore opens the application's credential store for agentDir - the multi-account
-// SQLite database at <agentDir>/agent.db - and performs the one-time auth.json import when the
-// database is still empty. It is the store every caller that used to open auth.json must use.
-func OpenCredentialStore(agentDir string) (*SQLiteAuthStorage, error) {
+// OpenCredentialStore discovers the application-owned credential store for this
+// profile: the configured broker, otherwise local multi-account SQLite with its
+// one-time auth.json migration. A configured broker never falls back to SQLite.
+func OpenCredentialStore(agentDir string) (ApplicationCredentialStore, error) {
+	if CredentialStoreFactory != nil {
+		return CredentialStoreFactory(agentDir)
+	}
+	return OpenLocalCredentialStore(agentDir)
+}
+
+// OpenLocalCredentialStore opens SQLite explicitly, bypassing remote discovery.
+// Only vault ownership and an explicit local-to-broker migration should use it.
+func OpenLocalCredentialStore(agentDir string) (*SQLiteAuthStorage, error) {
 	store, err := OpenSQLiteAuthStorage(SQLiteAuthPath(agentDir))
 	if err != nil {
 		return nil, err
@@ -1764,9 +1773,13 @@ func OpenCredentialStore(agentDir string) (*SQLiteAuthStorage, error) {
 	return store, nil
 }
 
-// OpenReadOnlyCredentialStore inspects credentials without creating a store or migrating legacy
-// credentials: the SQLite database when it exists, otherwise a read-only view of auth.json.
+// OpenReadOnlyCredentialStore discovers broker credentials when configured;
+// otherwise it inspects local SQLite or auth.json without creation/migration.
+// The returned store is used for inspection; callers must not mutate it.
 func OpenReadOnlyCredentialStore(agentDir string) (CredentialStore, error) {
+	if CredentialStoreFactory != nil {
+		return CredentialStoreFactory(agentDir)
+	}
 	path := SQLiteAuthPath(agentDir)
 	if _, err := os.Stat(path); err == nil {
 		return OpenReadOnlySQLiteAuthStorage(path)

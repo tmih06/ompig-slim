@@ -1,12 +1,10 @@
-// Package broker implements a hosted profile store. It never constructs a model
-// runtime, calls providers, or refreshes OAuth tokens; clients do all of that.
+// Package broker owns a SQLite credential vault and synchronized preferences.
+// Provider inference stays on clients; only OAuth refresh executes on the host.
 package broker
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,56 +14,58 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/MichaelKinsy/PiG/ai"
 )
 
 const maxItemBytes = 8 << 20
-const leaseDuration = 60 * time.Second
 
-// SharedFiles is the explicit portable configuration allowlist. Neither session
-// logs nor the SQLite database itself is ever uploaded.
+// SharedFiles is the portable configuration allowlist. Credentials are served
+// only by vault APIs, never as a downloadable raw database or document.
 var SharedFiles = []string{"settings.json", "keybindings.json", "models.json", "models.yml", "models.yaml"}
 
-// Item is an opaque profile document and its content revision. Nil Data is a
-// deletion tombstone. Revisions support compare-and-swap, not last-writer-wins.
+// Item is a preference document with a CAS revision; nil Data is a tombstone.
 type Item struct {
 	Data     []byte `json:"data"`
 	Revision string `json:"revision"`
 }
 
-// Store serializes document commits and credential leases for a single user.
-// One process must own its directory; the executable enforces a filesystem lock.
-// A restart revokes all leases, so old clients cannot commit over a new owner.
+// Store owns one vault and serializes preference commits. One process must own
+// its directory; the executable enforces a filesystem lock. Close after draining
+// HTTP and stopping RunRefresher, so no refresh loses its persistence target.
 type Store struct {
-	dir        string
-	mu         sync.Mutex
-	lease      string
-	leaseUntil time.Time
+	dir       string
+	mu        sync.Mutex
+	vault     *ai.SQLiteAuthStorage
+	handler   http.Handler
+	lifecycle sync.RWMutex
+	closed    bool
 }
 
-// NewHandler opens a storage-only HTTP service. Every data operation requires
-// the shared bearer; its holder can download all stored secrets. TLS is external.
-func NewHandler(dir, token string) (http.Handler, error) {
+// NewHandler opens the canonical SQLite vault. Every data operation requires
+// the shared bearer; TLS is operator-owned.
+func NewHandler(dir, token string) (*Store, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("broker token is required")
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	// The directory holds every synchronized secret, so its mode is enforced even
-	// for a directory an image or an operator created with a wider mode; a host
-	// that cannot tighten it must be repaired rather than served from.
 	if err := os.Chmod(dir, 0700); err != nil {
 		return nil, fmt.Errorf("make data directory private: %w", err)
 	}
-	s := &Store{dir: dir}
+	vault, err := ai.OpenLocalCredentialStore(dir)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{dir: dir, vault: vault}
 	digest := sha256.Sum256([]byte(token))
 	routes := http.NewServeMux()
 	routes.HandleFunc("GET /v1/items/{name}", s.get)
 	routes.HandleFunc("PUT /v1/items/{name}", s.put)
-	routes.HandleFunc("POST /v1/auth/lease", s.acquire)
-	routes.HandleFunc("PUT /v1/auth/lease", s.renew)
-	routes.HandleFunc("DELETE /v1/auth/lease", s.release)
+	routes.HandleFunc("GET /v1/snapshot", s.snapshot)
+	routes.HandleFunc("POST /v1/credential", s.credential)
+	routes.HandleFunc("POST /v1/credential/refresh", s.refresh)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,15 +79,39 @@ func NewHandler(dir, token string) (http.Handler, error) {
 		w.Header().Set("Cache-Control", "no-store")
 		routes.ServeHTTP(w, r)
 	}))
-	return mux, nil
+	s.handler = mux
+	return s, nil
 }
 
-// itemName admits only portable preferences and the logical credential snapshot.
-func itemName(name string) bool {
-	return name == "credentials.json" || slices.Contains(SharedFiles, name)
+// ServeHTTP admits authenticated vault and preference requests, never inference.
+// Holding the lifecycle read lock keeps SQLite alive through any rotated-token
+// persistence, even if HTTP shutdown times out and disconnects the caller.
+func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.lifecycle.RLock()
+	defer s.lifecycle.RUnlock()
+	if s.closed {
+		http.Error(w, "broker closed", http.StatusServiceUnavailable)
+		return
+	}
+	s.handler.ServeHTTP(w, r)
 }
 
-// read returns a tombstone for absent documents. Callers hold s.mu.
+// Close waits for admitted HTTP work and closes SQLite once. Callers must stop
+// RunRefresher first; new HTTP requests are refused after the vault is closed.
+func (s *Store) Close() error {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	return s.vault.Close()
+}
+
+// itemName admits only portable preference documents.
+func itemName(name string) bool { return slices.Contains(SharedFiles, name) }
+
+// read returns a tombstone for absent preferences. Callers hold s.mu.
 func (s *Store) read(name string) (Item, error) {
 	data, err := os.ReadFile(filepath.Join(s.dir, name))
 	if os.IsNotExist(err) {
@@ -98,7 +122,7 @@ func (s *Store) read(name string) (Item, error) {
 	return Item{Data: data, Revision: hashData(data)}, nil
 }
 
-// get returns a consistent document without logging or interpreting its secrets.
+// get returns a consistent preference document without interpreting its values.
 func (s *Store) get(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !itemName(name) {
@@ -117,8 +141,7 @@ func (s *Store) get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(item)
 }
 
-// put atomically commits one CAS update. Auth updates additionally require the
-// current unexpired lease: refreshing clients cannot overwrite a newer rotation.
+// put commits one allowlisted preference with CAS; stale writes never overwrite.
 func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !itemName(name) {
@@ -133,10 +156,6 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if name == "credentials.json" && !s.owns(r) {
-		http.Error(w, "credential lease required", 423)
-		return
-	}
 	current, err := s.read(name)
 	if err != nil {
 		http.Error(w, "storage read failed", 500)
@@ -159,52 +178,6 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// owns checks both lease identity and its deadline while the store mutex is held.
-func (s *Store) owns(r *http.Request) bool {
-	return s.lease != "" && r.Header.Get("X-Broker-Lease") == s.lease && time.Now().Before(s.leaseUntil)
-}
-
-// acquire serializes short credential mutations, never inference requests.
-func (s *Store) acquire(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.lease != "" && time.Now().Before(s.leaseUntil) {
-		http.Error(w, "credentials busy", 423)
-		return
-	}
-	var random [32]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		http.Error(w, "lease unavailable", 500)
-		return
-	}
-	s.lease = hex.EncodeToString(random[:])
-	s.leaseUntil = time.Now().Add(leaseDuration)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"lease": s.lease})
-}
-
-// renew keeps a live client's mutation exclusive without exposing OAuth data.
-func (s *Store) renew(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.owns(r) {
-		http.Error(w, "lease lost", 423)
-		return
-	}
-	s.leaseUntil = time.Now().Add(leaseDuration)
-	w.WriteHeader(204)
-}
-
-// release is owner-fenced; a late release cannot remove another client's lease.
-func (s *Store) release(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.owns(r) {
-		s.lease = ""
-	}
-	w.WriteHeader(204)
 }
 
 // replaceFile publishes a fully written private file atomically; fsync ensures
