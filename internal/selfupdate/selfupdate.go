@@ -549,14 +549,10 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 				continue
 			}
 			i++
-			resolved.channel = args[i]
-			if resolved.channel == "" {
-				resolved.channel = "invalid"
-			}
-			continue
+			arg = "--channel=" + args[i]
 		}
-		if strings.HasPrefix(arg, "--channel=") {
-			resolved.channel = strings.TrimPrefix(arg, "--channel=")
+		if channel, found := strings.CutPrefix(arg, "--channel="); found {
+			resolved.channel = channel
 			if resolved.channel == "" {
 				resolved.channel = "invalid"
 			}

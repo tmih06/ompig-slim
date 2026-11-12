@@ -12,7 +12,8 @@ import (
 )
 
 // TestUpdateChannels observes replacement, not the private release selector:
-// stable is always the default and crossing channels permits a downgrade.
+// Update's empty channel selects stable; crossing channels permits a downgrade.
+// Handle's saved preference is exercised by the real-binary suite.
 func TestUpdateChannels(t *testing.T) {
 	for _, tc := range []struct {
 		name, channel, current, target string
