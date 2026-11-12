@@ -132,6 +132,44 @@ class SelfUpdateTests(unittest.TestCase):
         self.assertEqual(self.installed_version(), newer)
         self.assertIn("Updated ompig-slim", result.stdout)
 
+    def test_beta_selection_is_remembered(self):
+        """A second plain update uses beta even with a newer stable available."""
+        self.install()
+        self.server.publish("v99.0.0-beta.9", release_archive(self.payload))
+        result = self.run_binary("upgrade", "--channel", "beta")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("channel=beta", (self.home / ".pi/ompig-slim-install").read_text())
+        self.publish_newer("100.0.0")
+        self.server.publish("v99.0.0-beta.10", release_fixture.archive_bytes(
+            release_fixture.script_payload("99.0.0-beta.10")))
+        result = self.run_binary("update")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.installed_version(), "99.0.0-beta.10")
+
+    def test_explicit_stable_overrides_saved_beta(self):
+        """Switching to stable persists the selection after replacement."""
+        self.install()
+        marker = self.home / ".pi/ompig-slim-install"
+        marker.write_text(marker.read_text() + "channel=beta\n")
+        self.publish_newer()
+        self.server.publish("v100.0.0-beta.1", release_fixture.archive_bytes(
+            release_fixture.script_payload("100.0.0-beta.1")))
+        result = self.run_binary("update", "--channel=stable")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.installed_version(), "99.0.0")
+        self.assertIn("channel=stable", marker.read_text())
+        self.assertNotIn("channel=beta", marker.read_text())
+
+    def test_failed_switch_does_not_save_channel(self):
+        """No published beta must not change the default stable selection."""
+        self.install()
+        marker = self.home / ".pi/ompig-slim-install"
+        before = marker.read_bytes()
+        self.server.documents.clear()
+        result = self.run_binary("update", "--channel", "beta")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(marker.read_bytes(), before)
+
     def test_upgrade_does_the_same_thing_as_update(self):
         self.install()
         newer = self.publish_newer()
@@ -151,14 +189,18 @@ class SelfUpdateTests(unittest.TestCase):
     def test_update_is_a_no_op_when_current(self):
         target = self.install()
         before = pathlib.Path(target).read_bytes()
-        result = self.run_binary("update")
+        # CI also runs this suite against beta archives: request that channel
+        # when checking currency rather than intentionally switching to stable.
+        channel = "beta" if "-beta." in self.version else "stable"
+        result = self.run_binary("update", "--channel", channel)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("up to date", result.stdout)
         self.assertEqual(pathlib.Path(target).read_bytes(), before)
 
     def test_force_reinstalls_the_current_release(self):
         self.install()
-        result = self.run_binary("update", "--force")
+        channel = "beta" if "-beta." in self.version else "stable"
+        result = self.run_binary("update", "--force", "--channel", channel)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Updated ompig-slim", result.stdout)
 

@@ -334,6 +334,8 @@ func TestResolveRequest(t *testing.T) {
 	}{
 		{"bare update", []string{"update"}, request{}, true},
 		{"bare upgrade", []string{"upgrade"}, request{}, true},
+		{"beta", []string{"upgrade", "--channel", "beta"}, request{channel: "beta"}, true},
+		{"stable", []string{"update", "--channel=stable"}, request{channel: "stable"}, true},
 		{"self flag", []string{"update", "--self"}, request{}, true},
 		{"self name", []string{"update", "self"}, request{}, true},
 		{"app name", []string{"update", "ompig-slim"}, request{}, true},

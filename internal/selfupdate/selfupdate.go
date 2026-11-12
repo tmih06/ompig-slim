@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -76,8 +77,12 @@ type Options struct {
 	// DownloadBase is the release root that serves
 	// download/<tag>/ompig-slim-<platform>.tar.gz, mirroring GitHub's layout.
 	DownloadBase string
-	// ReleasesAPI returns the latest non-prerelease release document.
+	// ReleasesAPI returns the latest stable release document. Beta selection
+	// lists releases at the same URL with its trailing /latest removed.
 	ReleasesAPI string
+	// Channel selects stable (also the empty default) or beta. Handle resolves
+	// and persists the installation's preference; Update only replaces the file.
+	Channel string
 	// Client performs every request. A nil client uses a fresh one bounded by
 	// updateTimeout.
 	Client *http.Client
@@ -92,7 +97,8 @@ type Options struct {
 // Update downloads the latest verified release and atomically replaces
 // Options.ExePath with it. It returns a process exit status: 0 when the
 // executable is current or was replaced, 1 when anything failed before the
-// rename, which leaves the previous executable untouched.
+// rename, which leaves the previous executable untouched. Invalid channels
+// return 2 without making a request.
 func Update(o Options) int {
 	if o.Stdout == nil {
 		o.Stdout = io.Discard
@@ -108,6 +114,10 @@ func Update(o Options) int {
 		return 1
 	}
 
+	if o.Channel != "" && o.Channel != "stable" && o.Channel != "beta" {
+		fmt.Fprintln(o.Stderr, "Update failed: --channel must be stable or beta")
+		return 2
+	}
 	archiveName, err := archiveNameFor(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: %v\n", err)
@@ -121,7 +131,10 @@ func Update(o Options) int {
 		return 1
 	}
 	latest := strings.TrimPrefix(strings.TrimSpace(tag), "v")
-	if !o.Force && !isNewer(latest, current) {
+	// Channel switches deliberately permit downgrades; within a channel the
+	// ordinary semver guard still prevents installing an older release.
+	switching := (o.Channel == "beta") != isBetaVersion(current)
+	if !o.Force && !switching && !isNewer(latest, current) {
 		fmt.Fprintf(o.Stdout, "ompig-slim %s is up to date.\n", current)
 		return 0
 	}
@@ -157,8 +170,11 @@ func fallback() string {
 		"https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash"
 }
 
-// latestTag returns the tag of the latest published release.
+// latestTag returns the newest published release in the requested channel.
 func (o Options) latestTag() (string, error) {
+	if o.Channel == "beta" {
+		return o.latestBetaTag()
+	}
 	req, err := http.NewRequest(http.MethodGet, o.ReleasesAPI, nil)
 	if err != nil {
 		return "", err
@@ -176,17 +192,85 @@ func (o Options) latestTag() (string, error) {
 		return "", fmt.Errorf("release channel answered %s", resp.Status)
 	}
 	var document struct {
-		TagName string `json:"tag_name"`
+		TagName    string `json:"tag_name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
 	}
 	// Bound the read: a release document is small, and this endpoint is remote.
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&document); err != nil {
 		return "", fmt.Errorf("parse release channel response: %w", err)
 	}
 	tag := strings.TrimSpace(document.TagName)
-	if tag == "" {
-		return "", errors.New("release channel did not name a release")
+	version, parseErr := semver.NewVersion(strings.TrimPrefix(tag, "v"))
+	if parseErr != nil || document.Draft || document.Prerelease || version.Prerelease() != "" {
+		return "", errors.New("release channel did not name a stable release")
 	}
 	return tag, nil
+}
+
+// isBetaVersion recognizes the numbered beta line without treating RCs or
+// malformed release tags as beta builds.
+func isBetaVersion(tag string) bool {
+	version, err := semver.NewVersion(strings.TrimPrefix(tag, "v"))
+	return err == nil && strings.HasPrefix(version.Prerelease(), "beta.")
+}
+
+// latestBetaTag scans all release pages, ignoring drafts and other prerelease
+// lines. Numeric semver ordering handles beta.10 versus beta.9, independently
+// of publication order. Pagination stays on the configured host, not Link URLs.
+func (o Options) latestBetaTag() (string, error) {
+	endpoint, err := url.Parse(o.ReleasesAPI)
+	if err != nil {
+		return "", err
+	}
+	endpoint.Path = strings.TrimSuffix(endpoint.Path, "/latest")
+	best := ""
+	for page := 1; ; page++ {
+		query := endpoint.Query()
+		query.Set("per_page", "100")
+		query.Set("page", fmt.Sprint(page))
+		endpoint.RawQuery = query.Encode()
+		req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "ompig-slim-selfupdate")
+		resp, err := o.Client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		var releases []struct {
+			TagName    string `json:"tag_name"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return "", fmt.Errorf("release channel answered %s", resp.Status)
+		}
+		err = json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&releases)
+		_ = resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("parse beta release channel: %w", err)
+		}
+		for _, release := range releases {
+			version := "v" + strings.TrimPrefix(release.TagName, "v")
+			if release.Draft || !release.Prerelease || !isBetaVersion(version) {
+				continue
+			}
+			if best == "" || isNewer(strings.TrimPrefix(version, "v"), strings.TrimPrefix(best, "v")) {
+				best = release.TagName
+			}
+		}
+		if !strings.Contains(resp.Header.Get("Link"), `rel="next"`) {
+			break
+		}
+	}
+	if best == "" {
+		return "", errors.New("release channel did not name a beta release")
+	}
+	return best, nil
 }
 
 // download fetches the archive and its published SHA-256 into the system
@@ -441,6 +525,8 @@ type request struct {
 	all bool
 	// force reinstalls even when the running version is current.
 	force bool
+	// channel overrides the saved selection; empty retains it (initially stable).
+	channel string
 }
 
 // resolveRequest reads a `update`/`upgrade` argument list without running
@@ -455,7 +541,23 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 		return request{}, false
 	}
 	selfTarget, extensionsOnly := false, false
-	for _, arg := range args[1:] {
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--channel" {
+			if i+1 == len(args) {
+				resolved.channel = "invalid"
+				continue
+			}
+			i++
+			arg = "--channel=" + args[i]
+		}
+		if channel, found := strings.CutPrefix(arg, "--channel="); found {
+			resolved.channel = channel
+			if resolved.channel == "" {
+				resolved.channel = "invalid"
+			}
+			continue
+		}
 		switch arg {
 		case "-h", "--help", "--models", "--extension":
 			// Package and help forms are PiG's. --extension is followed by a
@@ -507,6 +609,11 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 		return canonicalUpdate(args), false, 0
 	}
 
+	if resolved.channel != "" && resolved.channel != "stable" && resolved.channel != "beta" {
+		fmt.Fprintln(stderr, "Update failed: --channel must be stable or beta")
+		return nil, true, 2
+	}
+
 	marker, err := readMarker()
 	if err != nil {
 		// Not an archive install, so this package must not replace the binary.
@@ -523,6 +630,9 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 	// elsewhere) is not this package's to replace, so PiG keeps the decision.
 	if !sameExecutable(marker.ExecutablePath, executable) {
 		return canonicalUpdate(args), false, 0
+	}
+	if resolved.channel == "" {
+		resolved.channel = marker.Channel
 	}
 	if resolved.all {
 		// `update --all` is packages then this binary, matching PiG's order. The
@@ -544,7 +654,7 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 	if releasesAPI == "" {
 		releasesAPI = defaultReleasesAPI
 	}
-	return nil, true, Update(Options{
+	code = Update(Options{
 		Version:      version,
 		ExePath:      executable,
 		DownloadBase: downloadBase,
@@ -552,7 +662,15 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 		Stdout:       stdout,
 		Stderr:       stderr,
 		Force:        resolved.force,
+		Channel:      resolved.channel,
 	})
+	if code == 0 && resolved.channel != marker.Channel {
+		if err := saveChannel(resolved.channel); err != nil {
+			fmt.Fprintf(stderr, "Update succeeded, but could not save the channel: %v\n", err)
+			return nil, true, 1
+		}
+	}
+	return nil, true, code
 }
 
 // canonicalUpdate returns args with the `upgrade` alias rewritten to `update`.
@@ -590,6 +708,8 @@ type marker struct {
 	// DownloadBase is the release root the installer used, so later updates
 	// come from the same place.
 	DownloadBase string
+	// Channel defaults to stable for markers written before channel selection.
+	Channel string
 }
 
 // configRoot mirrors PiG's own resolution, which internal/configroot owns so the
@@ -621,10 +741,49 @@ func readMarker() (marker, error) {
 	if values["kind"] != markerKind {
 		return marker{}, fmt.Errorf("%s does not describe an archive installation", path)
 	}
+	channel := values["channel"]
+	if channel == "" {
+		channel = "stable"
+	}
 	return marker{
 		ExecutablePath: values["executable"],
 		DownloadBase:   values["download-base"],
+		Channel:        channel,
 	}, nil
+}
+
+// saveChannel atomically rewrites only the channel in the installer marker,
+// preserving ownership and mirror metadata. Call only after a successful
+// update (including a no-op); failed downloads must retain the old preference.
+func saveChannel(channel string) error {
+	root, err := configRoot()
+	if err != nil {
+		return err
+	}
+	name := filepath.Join(root, markerName)
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, _, _ := strings.Cut(strings.TrimSpace(line), "=")
+		if key != "channel" {
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines, "channel="+channel)
+	staged, err := os.CreateTemp(root, ".ompig-slim-install-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(staged.Name()) }()
+	_, writeErr := io.WriteString(staged, strings.Join(lines, "\n")+"\n")
+	closeErr := staged.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return err
+	}
+	return os.Rename(staged.Name(), name)
 }
 
 // sameExecutable reports whether two spellings name the same installed file.

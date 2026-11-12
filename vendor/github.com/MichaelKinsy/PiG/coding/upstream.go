@@ -13,7 +13,7 @@ const PigVersion = pigversion.PigVersion
 
 // Version is the personal harness release; PigVersion remains the pinned PiG
 // library release used for SDK and Piglet compatibility.
-const Version = pigversion.HarnessVersion
+var Version = pigversion.HarnessVersion
 
 // UpstreamCommit is the exact Pi commit of the pin.
 const UpstreamCommit = pigversion.UpstreamCommit
