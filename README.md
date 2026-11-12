@@ -88,6 +88,21 @@ Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/co
 `/export` `/hotkeys`. Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;
 `/goal pause`, `/goal resume`, `/goal complete`, and `/goal drop` control it. `ompig-slim --help` lists every flag.
 
+### Durable headless work
+
+Daily interactive usage is unchanged. For unattended work with crash recovery:
+
+```sh
+ompig-slim durable run --state /data/workdesk --cwd /work/repo \
+  --model provider/model --request-id ticket-123 'Implement and verify the change'
+ompig-slim durable resume --state /data/workdesk
+ompig-slim durable status --state /data/workdesk
+```
+
+Persist both directories across sandbox restarts. This opt-in mode uses PiG
+Durable and its native coding tools, not the daily agent's extensions or session
+format. See [durability guarantees and limits](docs/durable.md).
+
 ### For other tools
 
 Every session publishes what the agent is doing, so a multiplexer, status bar, or notifier can watch

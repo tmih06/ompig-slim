@@ -11,6 +11,7 @@ func TestBrokerStartupSkipsNonInteractiveFastPaths(t *testing.T) {
 		{name: "offline", args: []string{"--offline", "--no-session"}},
 		{name: "diagnose", args: []string{"diagnose"}},
 		{name: "help", args: []string{"--help"}},
+		{name: "durable status", args: []string{"durable", "status", "--state", "/unused"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if brokerStartupNeeded(test.args) {

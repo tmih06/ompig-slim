@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"slices"
+	"syscall"
 
 	_ "github.com/MichaelKinsy/PiG/ai/all" // Register bundled providers, including Amazon Bedrock.
 	"github.com/MichaelKinsy/PiG/coding"
@@ -22,12 +25,16 @@ import (
 	goalext "ompig-slim/internal/goalext"
 	"ompig-slim/internal/loopguard"
 	"ompig-slim/internal/selfupdate"
+	"ompig-slim/internal/workdesk"
 	"ompig-slim/prompts"
 )
 
 // brokerStartupNeeded reports whether normal CLI execution can use broker-backed
 // credentials. These fast paths are handled without opening the configured broker.
 func brokerStartupNeeded(args []string) bool {
+	if len(args) >= 2 && args[0] == "durable" && args[1] == "status" {
+		return false
+	}
 	if slices.Contains(args, "--offline") || slices.Contains(args, "--version") || slices.Contains(args, "-v") || slices.Contains(args, "--help") || slices.Contains(args, "-h") {
 		return false
 	}
@@ -76,6 +83,19 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+	if len(args) > 0 && args[0] == "durable" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		err := workdesk.Run(ctx, args[1:], os.Stdout)
+		stop()
+		if finishSync != nil {
+			err = errors.Join(err, finishSync())
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
 	// The vendored personal runtime owns the slim feature set and defaults.
