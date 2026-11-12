@@ -214,15 +214,21 @@ func readLocal(path string) ([]byte, error) {
 // SyncFiles reconciles independent documents with CAS. Concurrent edits of the
 // same file fail explicitly and leave both copies intact; unrelated files still
 // reconcile. Deletions synchronize once a common ancestor has been recorded.
-// All document failures are returned together after releasing the profile lock.
+// Documents run concurrently under the same profile lock: their ancestry and
+// paths are independent, so network RTT is paid once per phase, not per file.
+// All failures are returned in allowlist order after every document completes.
 func (c *Client) SyncFiles(ctx context.Context) error {
 	return c.locked(ctx, func() error {
-		var failures []error
-		for _, name := range SharedFiles {
-			if err := c.syncFile(ctx, name); err != nil {
-				failures = append(failures, fmt.Errorf("%s: %w", name, err))
-			}
+		failures := make([]error, len(SharedFiles))
+		var workers sync.WaitGroup
+		for i, name := range SharedFiles {
+			workers.Go(func() {
+				if err := c.syncFile(ctx, name); err != nil {
+					failures[i] = fmt.Errorf("%s: %w", name, err)
+				}
+			})
 		}
+		workers.Wait()
 		return errors.Join(failures...)
 	})
 }

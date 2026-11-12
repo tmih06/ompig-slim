@@ -187,10 +187,12 @@ func (s *remoteStore) RefreshOAuth(ctx context.Context, provider string, key *st
 	return result, err
 }
 
-// GetAccountBlockedUntil reads shared quota state from the canonical store.
+// GetAccountBlockedUntil reads shared quota state from the canonical store on
+// every call. Unlike mutations, this read cannot change access credentials and
+// must not invalidate the shared credential view used by account routing.
 func (s *remoteStore) GetAccountBlockedUntil(ctx context.Context, provider string, key *string, scopes []string) (*int64, error) {
 	var result *int64
-	err := s.operation(ctx, vaultRequest{Operation: "blocked", Provider: provider, AccountKey: key, Scopes: scopes}, &result)
+	err := s.client.request(ctx, "POST", "/v1/credential", "", vaultRequest{Operation: "blocked", Provider: provider, AccountKey: key, Scopes: scopes}, &result)
 	return result, err
 }
 
