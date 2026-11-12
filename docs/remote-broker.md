@@ -204,13 +204,21 @@ not a fallback to stored local secrets.
 | Stored accounts, selection, quota blocks | Owned by broker SQLite, accessed via vault APIs |
 | Refresh leases | Internal broker SQLite coordination, never client-owned |
 | Sessions, project `.pi`, tools, workspaces, logs | Local, never uploaded |
-| Skills, themes, extensions, MCP state, other files | Not synchronized |
+| Profile `themes/*.json` | Bidirectional per-file sync, including deletion |
+| Skills, extensions, MCP state, other files | Not synchronized |
 
 Preferences reconcile at startup, every five seconds and on normal exit. The
-five allowlisted documents reconcile concurrently under one cross-process profile
-lock, with per-document CAS and ancestry unchanged. Each poll waits for every
-document and reports failures in allowlist order. This overlaps network latency
-without increasing polling frequency or introducing a new protocol/cache. See
+five fixed preference documents and discovered profile `themes/*.json` files
+reconcile concurrently under one cross-process profile lock, with per-document
+CAS and ancestry unchanged. Theme discovery uses a hosted name listing and a
+private per-host client index that retains previously seen names so deletions
+remain retryable after restart. Only direct JSON children are shared; nested,
+project, package and externally referenced themes remain local. Symlink theme
+files/directories are refused. Theme ancestry and first-adoption backups use
+hashed names to keep them flat and within filesystem filename limits. Each poll
+waits for every document and reports failures in file order. This overlaps network latency
+without increasing polling frequency. Theme discovery adds one listing request
+per poll; upgrade clients and the broker together. See
 [remote latency measurements](benchmarks.md#remote-client-round-trip-latency)
 for the delayed-network comparison and reproduction command. First
 connection adopts hosted files and privately backs up differing local files as
@@ -243,7 +251,8 @@ restart, then update clients.
 | `GET /v1/snapshot` | Live enabled accounts with access credentials; OAuth refresh replaced by `__OMPIG_REMOTE_REFRESH__` |
 | `POST /v1/credential` | `operation`: `save`, `modify`, `import`, `select`, `delete-account`, `delete`, `blocked`, `block`, `clear-blocks`. `delete-account` accepts a null/omitted `accountKey` to remove only the identity-less row; `select` requires a string key. |
 | `POST /v1/credential/refresh` | Exact provider/account and observed credential; host refreshes and returns redacted result |
-| `GET/PUT /v1/items/{name}` | Allowlisted preferences; writes require `If-Match` |
+| `GET /v1/themes` | Direct profile theme names, used for discovery |
+| `GET/PUT /v1/items/{name}` | Allowlisted preferences or `themes/<filename>.json`; writes require `If-Match` |
 
 Vault requests use `provider`, nullable `accountKey`, and operation-specific
 `credential`, `expected`, `scope`, `scopes`, or `untilMs`. Generic `modify` uses

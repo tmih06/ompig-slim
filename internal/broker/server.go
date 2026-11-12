@@ -61,8 +61,9 @@ func NewHandler(dir, token string) (*Store, error) {
 	s := &Store{dir: dir, vault: vault}
 	digest := sha256.Sum256([]byte(token))
 	routes := http.NewServeMux()
-	routes.HandleFunc("GET /v1/items/{name}", s.get)
-	routes.HandleFunc("PUT /v1/items/{name}", s.put)
+	routes.HandleFunc("GET /v1/items/{name...}", s.get)
+	routes.HandleFunc("PUT /v1/items/{name...}", s.put)
+	routes.HandleFunc("GET /v1/themes", s.themes)
 	routes.HandleFunc("GET /v1/snapshot", s.snapshot)
 	routes.HandleFunc("GET /v1/accounts", s.accounts)
 	routes.HandleFunc("GET /v1/account-count", s.accountCount)
@@ -112,7 +113,7 @@ func (s *Store) Close() error {
 }
 
 // itemName admits only portable preference documents.
-func itemName(name string) bool { return slices.Contains(SharedFiles, name) }
+func itemName(name string) bool { return slices.Contains(SharedFiles, name) || themeName(name) }
 
 // accounts exposes live non-secret account metadata without decoding or
 // serializing credentials. Callers that only need selection or provider
@@ -158,7 +159,12 @@ func (s *Store) hasProvider(w http.ResponseWriter, r *http.Request) {
 
 // read returns a tombstone for absent preferences. Callers hold s.mu.
 func (s *Store) read(name string) (Item, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, name))
+	if themeName(name) {
+		if err := prepareThemeDir(s.dir); err != nil {
+			return Item{}, err
+		}
+	}
+	data, err := readLocal(filepath.Join(s.dir, name))
 	if os.IsNotExist(err) {
 		data = nil
 	} else if err != nil {

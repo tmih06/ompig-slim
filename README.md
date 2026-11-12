@@ -157,8 +157,8 @@ in local SQLite, or in the configured broker’s SQLite vault, unencrypted at re
 
 ## Remote broker
 
-One hosted service keeps sign-in, custom providers, settings, model roles and keybindings identical across
-your machines. Its SQLite vault owns credentials and **refreshes OAuth tokens on the broker**; clients
+One hosted service keeps sign-in, custom providers, settings, model roles, keybindings and custom profile
+themes identical across your machines. Its SQLite vault owns credentials and **refreshes OAuth tokens on the broker**; clients
 receive access credentials, never refresh tokens. Inference and tools stay on each client—no traffic proxy.
 
 ```sh

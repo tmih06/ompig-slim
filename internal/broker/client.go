@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,6 +170,11 @@ func (c *Client) locked(ctx context.Context, run func() error) error {
 
 // statePath separates synchronization ancestry for different hosted locations.
 func (c *Client) statePath(name string) string {
+	// Hash nested theme names to keep ancestry flat and within filename limits,
+	// including first-adoption backups. Existing preference paths stay intact.
+	if strings.HasPrefix(name, "themes/") {
+		name = "theme-" + hashData([]byte(name))
+	}
 	return filepath.Join(c.dir, ".broker-sync-"+hashData([]byte(c.base))[:16]+"-"+name)
 }
 
@@ -216,12 +223,19 @@ func readLocal(path string) ([]byte, error) {
 // reconcile. Deletions synchronize once a common ancestor has been recorded.
 // Documents run concurrently under the same profile lock: their ancestry and
 // paths are independent, so network RTT is paid once per phase, not per file.
-// All failures are returned in allowlist order after every document completes.
+// Theme discovery adds direct JSON files and remembered deletions to the fixed
+// allowlist. Discovery failures do not prevent fixed documents from syncing.
+// All failures are returned in file order after every document completes.
 func (c *Client) SyncFiles(ctx context.Context) error {
 	return c.locked(ctx, func() error {
-		failures := make([]error, len(SharedFiles))
+		themes, themeErr := c.themeFiles(ctx)
+		names := append(append([]string(nil), SharedFiles...), themes...)
+		failures := make([]error, len(names)+1)
+		if themeErr != nil {
+			failures[len(names)] = fmt.Errorf("themes: %w", themeErr)
+		}
 		var workers sync.WaitGroup
-		for i, name := range SharedFiles {
+		for i, name := range names {
 			workers.Go(func() {
 				if err := c.syncFile(ctx, name); err != nil {
 					failures[i] = fmt.Errorf("%s: %w", name, err)
@@ -245,7 +259,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 		return err
 	}
 	var remote Item
-	if err = c.request(ctx, "GET", "/v1/items/"+name, "", nil, &remote); err != nil {
+	if err = c.request(ctx, "GET", "/v1/items/"+url.PathEscape(name), "", nil, &remote); err != nil {
 		return err
 	}
 	localHash := hashData(local)
@@ -266,7 +280,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 			}
 			local = remote.Data
 		} else if remote.Data == nil && local != nil {
-			if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
+			if err = c.request(ctx, "PUT", "/v1/items/"+url.PathEscape(name), remote.Revision, Item{Data: local}, nil); err != nil {
 				return err
 			}
 			remote.Data = local
@@ -279,7 +293,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 			return errors.New("sync conflict: local and hosted copies retained; reconcile them before retrying")
 		}
 		if localChanged && !bytes.Equal(local, remote.Data) {
-			if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
+			if err = c.request(ctx, "PUT", "/v1/items/"+url.PathEscape(name), remote.Revision, Item{Data: local}, nil); err != nil {
 				return err
 			}
 			remote.Data = local
