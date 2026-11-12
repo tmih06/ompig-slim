@@ -143,11 +143,11 @@ func (m *InteractiveMode) finishProviderAuthentication(providerID, actionLabel s
 			selected = nil
 		}
 		m.updateProviderInfo()
-		status := actionLabel + "."
+		selectedID := ""
 		if selected != nil {
-			status += " Selected " + selected.ID + "."
+			selectedID = selected.ID
 		}
-		m.showStatus(redact(status + " Credentials saved to " + authPath))
+		m.showLoginSummary(providerID, actionLabel, selectedID, authPath, redact)
 		if selectionError != "" {
 			m.showError(redact(selectionError))
 		} else {
