@@ -466,8 +466,8 @@ func (service *UsageService) readCredentialFor(ctx context.Context, providerID s
 }
 
 // fetchAccount probes one stored account, refreshing only that account's OAuth
-// token near expiry or once after a Codex JSON usage 401. Retirement is owned
-// by auth resolution; permission failures alone never remove credentials.
+// token near expiry or once after a broker-owned/Codex JSON usage 401. Retirement
+// is owned by auth resolution; permission failures alone never remove credentials.
 func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProviderProbe, account ai.CredentialAccountInfo, force bool) (usageProbeResult, error) {
 	credential, err := service.readCredentialFor(ctx, probe.provider, account.AccountKey)
 	if err != nil {
@@ -515,10 +515,12 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 	target.credential = ai.UsageCredentialFromStored(credential)
 	key = usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
 	result, err := service.fetchCached(ctx, key, target, force)
-	if err == nil && result.authRejected && probe.provider == "codex-json" && credential.Type == ai.CredentialOAuth && service.options.GetAuth != nil {
-		// Revocation can precede the imported expiry. Let the resolver rotate or
-		// retire this exact account under its lease; a usage 401 alone is not
-		// proof that the refresh token is dead. Retry only a changed bearer once.
+	if err == nil && result.authRejected && (probe.provider == "codex-json" || credential.Refresh == ai.RemoteRefreshSentinel) && credential.Type == ai.CredentialOAuth && service.options.GetAuth != nil {
+		// Revocation or a broker rotation can precede the observed expiry. Let
+		// scoped auth resolve the owner's current grant; never refresh locally
+		// with the broker marker. A usage 401 alone cannot retire an account.
+		// Retry only a changed bearer, once; 403 and transient failures do not
+		// spend a refresh token or overwrite account selection.
 		refreshed, readErr := service.refreshUsageAccount(ctx, probe.provider, account.AccountKey, true)
 		if readErr != nil {
 			if ctx.Err() != nil {

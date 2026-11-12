@@ -620,7 +620,9 @@ func antigravityInferWindowDescriptors(infos []antigravityQuotaInfo, nowMs int64
 	return descriptors
 }
 
-// antigravityFetchEndpoint posts to the first endpoint that answers.
+// antigravityFetchEndpoint posts to the first endpoint that answers. Auth
+// failures return a typed error so the usage service can recover a broker token
+// on 401 without mistaking permission errors (403) for a refresh request.
 func antigravityFetchEndpoint(ctx context.Context, fctx UsageFetchContext, endpoints []string, path, projectID, accessToken string) (*usageResponse, string, error) {
 	attempted := antigravityDefaultEndpoint
 	if len(endpoints) > 0 {
@@ -643,6 +645,9 @@ func antigravityFetchEndpoint(ctx context.Context, fctx UsageFetchContext, endpo
 				return nil, attempted, err
 			}
 			continue
+		}
+		if response.Status == 401 || response.Status == 403 {
+			return nil, endpoint, NewUsageHTTPError("Antigravity usage endpoint returned "+usageFormatCount(int64(response.Status))+" "+usageStatusText(response), response.Status)
 		}
 		last = response
 		if response.OK() || !isTransientUsageStatus(response.Status) {
@@ -1117,7 +1122,8 @@ func antigravityBuildLegacyReport(data map[string]any, params UsageFetchParams, 
 }
 
 // fetchAntigravityUsage probes the Antigravity quota summary, falling back to
-// the legacy per-model catalog for older deployments.
+// the legacy per-model catalog for older deployments. Request errors propagate
+// to the service; authentication failures must not look like an empty quota.
 func fetchAntigravityUsage(ctx context.Context, params UsageFetchParams, fctx UsageFetchContext) (*UsageReport, error) {
 	credential := params.Credential
 	if params.Provider != "google-antigravity" || credential.ProjectID == "" {
@@ -1143,7 +1149,7 @@ func fetchAntigravityUsage(ctx context.Context, params UsageFetchParams, fctx Us
 		if ctx.Err() != nil {
 			return nil, context.Cause(ctx)
 		}
-		return nil, nil
+		return nil, err
 	}
 	if summaryResponse != nil && summaryResponse.OK() {
 		if payload, ok := summaryResponse.JSON(); ok {
@@ -1159,7 +1165,7 @@ func fetchAntigravityUsage(ctx context.Context, params UsageFetchParams, fctx Us
 		if ctx.Err() != nil {
 			return nil, context.Cause(ctx)
 		}
-		return nil, nil
+		return nil, err
 	}
 	if legacyResponse == nil || !legacyResponse.OK() {
 		usageLogWarn(fctx, "Antigravity usage fetch failed", nil)
