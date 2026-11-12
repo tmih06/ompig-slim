@@ -39,6 +39,7 @@ smoke: build
 
 # CI extracts a verified release binary before calling this build-free target.
 smoke-built:
+	python3 scripts/smoke-test-durable.py ./bin/ompig-slim
 	python3 scripts/test-model-menu.py
 	python3 scripts/smoke-test-model-menu.py ./bin/ompig-slim
 	python3 scripts/smoke-test-logout.py ./bin/ompig-slim

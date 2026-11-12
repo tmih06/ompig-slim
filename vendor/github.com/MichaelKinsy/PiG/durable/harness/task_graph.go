@@ -1,0 +1,491 @@
+// Ports packages/durable/src/harness/task-graph.ts.
+
+package harness
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"maps"
+	"slices"
+	"strconv"
+	"sync"
+
+	"github.com/MichaelKinsy/PiG/chord"
+	"github.com/MichaelKinsy/PiG/chord/delta"
+	"github.com/MichaelKinsy/PiG/durable"
+	"github.com/MichaelKinsy/PiG/durable/session"
+)
+
+// TaskGraphState is a live task's durable status without its checkpoint and outcome payloads (spec §9.5): pending or running with Phase, waiting with Phase, On, and Policy, sleeping with Phase and Until, or completing with the held Outcome status.
+type TaskGraphState struct {
+	Status durable.TaskStatus `json:"status"`
+	Phase  string             `json:"phase,omitempty"`
+	On     []durable.TaskId   `json:"on,omitempty"`
+	Policy durable.JoinPolicy `json:"policy,omitempty"`
+	// Until is the time a sleeping task wakes at.
+	Until float64 `json:"until,omitempty"`
+	// Outcome is the status of the outcome held until its ordinary owned work drains.
+	Outcome durable.TaskOutcomeStatus `json:"outcome,omitempty"`
+}
+
+// MarshalJSON encodes the upstream variant of the state's Status.
+func (state TaskGraphState) MarshalJSON() ([]byte, error) {
+	var encoded *delta.JsonObject
+	switch state.Status {
+	case durable.TaskPending, durable.TaskRunning:
+		encoded = delta.JsonObjectOf("status", state.Status, "phase", state.Phase)
+	case durable.TaskSleeping:
+		encoded = delta.JsonObjectOf("status", state.Status, "phase", state.Phase, "until", state.Until)
+	case durable.TaskWaiting:
+		on := state.On
+		if on == nil {
+			on = []durable.TaskId{}
+		}
+		encoded = delta.JsonObjectOf("status", state.Status, "phase", state.Phase, "on", on, "policy", state.Policy)
+	default:
+		encoded = delta.JsonObjectOf("status", state.Status, "outcome", state.Outcome)
+	}
+	return json.Marshal(encoded)
+}
+
+// TaskGraphNode is one live task of the graph.
+type TaskGraphNode struct {
+	Id             durable.TaskId         `json:"id"`
+	Kind           string                 `json:"kind"`
+	ConversationId durable.ConversationId `json:"conversationId"`
+	// Owner is the owner task; nil for a conversation-owned task.
+	Owner          *durable.TaskId `json:"owner,omitempty"`
+	Background     bool            `json:"background"`
+	AbortRequested bool            `json:"abortRequested"`
+	State          TaskGraphState  `json:"state"`
+	// Conversations are the conversations this task owns, in ID order.
+	Conversations []durable.ConversationId `json:"conversations"`
+	// Blocked is why it cannot run here, when it cannot: no registered definition takes it (missing_task, task_too_old,
+	// migration_failed). Follows registry changes. Empty when it can.
+	Blocked durable.BlockedReason `json:"blocked,omitempty"`
+}
+
+// TaskGraph is every live task of the Session (spec §9.5).
+type TaskGraph struct {
+	// Tasks holds every live task, keyed by its decimal ID.
+	Tasks map[string]TaskGraphNode `json:"tasks"`
+}
+
+// TaskGraphWatch is a serialized watch of the task graph.
+type TaskGraphWatch = durable.WatchHandle[TaskGraph]
+
+// taskGraphObserver is a chord.Watch of the graph or a guarded host observer (ObserveTaskGraph).
+type taskGraphObserver interface {
+	Advance(ctx context.Context, call chord.WatchCall[TaskGraph])
+	End(end chord.WatchEnd)
+}
+
+// guardedGraphObserver adapts a session.GuardedObserver to the mount's observer interface.
+type guardedGraphObserver struct {
+	*session.GuardedObserver[TaskGraph]
+}
+
+// graphWatch adapts a chord.Watch to the mount's observer interface: a Watch ends with EndWith.
+type graphWatch struct {
+	*chord.Watch[TaskGraph]
+}
+
+func (observer graphWatch) End(end chord.WatchEnd) { observer.EndWith(end) }
+
+type taskGraphMount struct {
+	value     TaskGraph
+	observers []taskGraphObserver
+	// records is what the blocked reason reads of each live task, so a registry change can derive it again without
+	// payloads.
+	records map[string]BlockedSubject
+}
+
+// TaskGraphBlocking is what the graph asks the scheduler: a task's blocked reason, and when reasons may change without a
+// commit.
+type TaskGraphBlocking struct {
+	Blocked          func(record BlockedSubject) durable.BlockedReason
+	SubscribeBlocked func(listener func()) func()
+}
+
+var taskGraphLiveStatuses = []durable.TaskStatus{durable.TaskPending, durable.TaskRunning, durable.TaskWaiting, durable.TaskSleeping, durable.TaskCompleting}
+
+const taskGraphScanPageSize = 256
+
+// TaskGraphView is the Harness's task graph mount: built on the Session line by its first observer and dropped with its last. It advances from the Session's commit publications as memory adopts them.
+type TaskGraphView struct {
+	session  *session.SessionImpl
+	blocking TaskGraphBlocking
+	// mu guards mount and closed: a watch may detach off the line, from its delivery goroutine.
+	mu     sync.Mutex
+	mount  *taskGraphMount
+	closed bool
+}
+
+// NewTaskGraphView subscribes the mount to the Session's commits and close.
+func NewTaskGraphView(sessionImpl *session.SessionImpl, blocking TaskGraphBlocking) *TaskGraphView {
+	view := &TaskGraphView{session: sessionImpl, blocking: blocking}
+	sessionImpl.FollowCommits(func(ctx context.Context, publication session.ObservedCommit) {
+		// A commit held in memory changes documents only, which the graph does not show.
+		if publication.Memory {
+			return
+		}
+		view.mu.Lock()
+		mount := view.mount
+		var observers []taskGraphObserver
+		if mount != nil {
+			observers = slices.Clone(mount.observers)
+		}
+		view.mu.Unlock()
+		if mount != nil {
+			advanceTaskGraph(ctx, mount, observers, publication, blocking.Blocked, view.session.Report)
+		}
+	})
+	blocking.SubscribeBlocked(view.refreshBlocked)
+	sessionImpl.SubscribeClose(func() {
+		watchEnd, observerEnd := session.CloseEnds(view.session.Failure())
+		view.mu.Lock()
+		view.closed = true
+		var observers []taskGraphObserver
+		if view.mount != nil {
+			observers = slices.Clone(view.mount.observers)
+		}
+		view.mount = nil
+		view.mu.Unlock()
+		for _, observer := range observers {
+			end := observerEnd
+			if _, follows := observer.(graphWatch); follows {
+				end = watchEnd
+			}
+			session.Contained(func() { observer.End(end) }, view.session.Report)
+		}
+	})
+	return view
+}
+
+// Observe attaches a synchronous observer of the graph (Harness.ObserveTaskGraph), behind session.GuardObserver; ctx governs
+// only the attachment.
+func (view *TaskGraphView) Observe(ctx context.Context, observer durable.Observer[TaskGraph]) (durable.Observation[TaskGraph], error) {
+	var value TaskGraph
+	var guarded *session.GuardedObserver[TaskGraph]
+	detach, err := view.attach(ctx, func(current TaskGraph, release func()) taskGraphObserver {
+		value = current
+		guarded = session.GuardObserver(observer, release, view.session.Report)
+		return guardedGraphObserver{guarded}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		detach()
+		return nil, context.Cause(ctx)
+	}
+	return session.NewObservation(value, guarded), nil
+}
+
+// Watch returns a serialized watch of the graph, an observer of its mount; cancelling ctx stops it.
+func (view *TaskGraphView) Watch(ctx context.Context) (TaskGraphWatch, error) {
+	var watch *chord.Watch[TaskGraph]
+	if _, err := view.attach(ctx, func(value TaskGraph, release func()) taskGraphObserver {
+		watch = session.NewSessionWatch(view.session, value, release)
+		return graphWatch{watch}
+	}); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		watch.Abort()
+		return nil, context.Cause(ctx)
+	}
+	if ctx.Done() != nil {
+		watch.ObserveAbort(ctx)
+	}
+	return watch, nil
+}
+
+// attach registers an observer created from the current revision, atomically on the Session line.
+func (view *TaskGraphView) attach(ctx context.Context, create func(value TaskGraph, release func()) taskGraphObserver) (func(), error) {
+	result, err := view.session.ReadOnLineCtx(ctx, func(storage durable.Storage) (any, error) {
+		view.mu.Lock()
+		mount := view.mount
+		view.mu.Unlock()
+		if mount == nil {
+			built, err := view.build(ctx, storage)
+			if err != nil {
+				return nil, err
+			}
+			mount = built
+		}
+		var observer taskGraphObserver
+		detach := func() {
+			view.mu.Lock()
+			defer view.mu.Unlock()
+			mount.observers = slices.DeleteFunc(mount.observers, func(candidate taskGraphObserver) bool { return candidate == observer })
+			if len(mount.observers) == 0 && view.mount == mount {
+				view.mount = nil
+			}
+		}
+		observer = create(mount.value, detach)
+		view.mu.Lock()
+		defer view.mu.Unlock()
+		// Close or cancellation may begin while the mount builds; register nothing then.
+		if view.closed {
+			return nil, closedError(view.session)
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		view.mount = mount
+		mount.observers = append(mount.observers, observer)
+		return detach, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(func()), nil
+}
+
+// refreshBlocked derives every node's blocked reason again on the Session line, and publishes the ones that changed.
+func (view *TaskGraphView) refreshBlocked() {
+	view.mu.Lock()
+	skip := view.mount == nil || view.closed
+	view.mu.Unlock()
+	if skip {
+		return
+	}
+	// Rejected only once the Session is closing or failed.
+	_, _ = view.session.ReadOnLine(func(durable.Storage) (any, error) {
+		view.mu.Lock()
+		mount := view.mount
+		var observers []taskGraphObserver
+		if mount != nil {
+			observers = slices.Clone(mount.observers)
+		}
+		view.mu.Unlock()
+		if mount == nil {
+			return nil, nil
+		}
+		var ops []durable.Op
+		changed := map[string]TaskGraphNode{}
+		for _, key := range slices.Sorted(maps.Keys(mount.records)) {
+			blocked := view.blocking.Blocked(mount.records[key])
+			node, ok := mount.value.Tasks[key]
+			if !ok || blocked == node.Blocked {
+				continue
+			}
+			node.Blocked = blocked
+			changed[key] = node
+			if blocked == "" {
+				ops = append(ops, durable.Op{"d", []any{"tasks", key, "blocked"}})
+			} else {
+				ops = append(ops, durable.Op{"s", []any{"tasks", key, "blocked"}, blocked})
+			}
+		}
+		//portlint:allow ctxbackground task-graph.ts publishes a registry-change refresh under BACKGROUND_CONTEXT: no caller started it
+		publishTaskGraph(context.Background(), mount, observers, changed, ops, view.session.Report)
+		return nil, nil
+	})
+}
+
+// build reads the graph on the line, through the line's storage.
+func (view *TaskGraphView) build(ctx context.Context, storage durable.Storage) (*taskGraphMount, error) {
+	tasks := map[string]TaskGraphNode{}
+	live := map[string]BlockedSubject{}
+	var records []durable.TaskRecord[durable.JsonValue, durable.JsonValue, durable.JsonValue]
+	for _, status := range taskGraphLiveStatuses {
+		scanned, err := ScanAll(func(cursor durable.Cursor) (durable.Page[durable.TaskRecord[durable.JsonValue, durable.JsonValue, durable.JsonValue], durable.Cursor], error) {
+			return storage.ScanTasks(ctx, durable.TaskQuery{Status: &status}, taskGraphScanPageSize, cursor)
+		})
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, scanned...)
+	}
+	slices.SortFunc(records, func(a, b durable.TaskRecord[durable.JsonValue, durable.JsonValue, durable.JsonValue]) int {
+		return int(a.Id - b.Id)
+	})
+	for _, record := range records {
+		owner := record.Id
+		owned, err := ScanAll(func(cursor durable.Cursor) (durable.Page[durable.ConversationRecord, durable.Cursor], error) {
+			return storage.ScanConversations(ctx, durable.ConversationQuery{OwnerTaskId: &owner}, taskGraphScanPageSize, cursor)
+		})
+		if err != nil {
+			return nil, err
+		}
+		conversations := make([]durable.ConversationId, len(owned))
+		for i, conversation := range owned {
+			conversations[i] = conversation.Id
+		}
+		slices.Sort(conversations)
+		subject := BlockedSubjectOf(record)
+		tasks[taskKey(record.Id)] = taskGraphNodeOf(record, conversations, view.blocking.Blocked(subject))
+		live[taskKey(record.Id)] = subject
+	}
+	return &taskGraphMount{value: TaskGraph{Tasks: tasks}, records: live}, nil
+}
+
+func taskKey(id durable.TaskId) string { return strconv.FormatInt(int64(id), 10) }
+
+// advanceTaskGraph derives the mount's operations from one publication, applies them, and hands the revision to every observer.
+func advanceTaskGraph(ctx context.Context, mount *taskGraphMount, observers []taskGraphObserver, publication session.ObservedCommit, blocked func(BlockedSubject) durable.BlockedReason, report func(error)) {
+	var ops []durable.Op
+	// Nodes this publication set (non-nil) or deleted (nil), over the mount's value.
+	changed := map[string]*TaskGraphNode{}
+	node := func(key string) *TaskGraphNode {
+		if next, ok := changed[key]; ok {
+			return next
+		}
+		if current, ok := mount.value.Tasks[key]; ok {
+			return &current
+		}
+		return nil
+	}
+	for _, change := range publication.Changes {
+		write, ok := change.(durable.TaskWrite)
+		if !ok {
+			continue
+		}
+		record := write.Value
+		key := taskKey(record.Id)
+		previous := node(key)
+		if record.State.Status == durable.TaskTerminal {
+			delete(mount.records, key)
+			if previous == nil {
+				continue
+			}
+			ops = append(ops, durable.Op{"d", []any{"tasks", key}})
+			changed[key] = nil
+			continue
+		}
+		conversations := []durable.ConversationId{}
+		if previous != nil {
+			conversations = previous.Conversations
+		}
+		subject := BlockedSubjectOf(record)
+		mount.records[key] = subject
+		next := taskGraphNodeOf(record, conversations, blocked(subject))
+		if previous != nil && sameNode(next, *previous) {
+			continue
+		}
+		value, err := durable.ToJsonValue(next)
+		if err != nil {
+			panic(err)
+		}
+		ops = append(ops, durable.Op{"s", []any{"tasks", key}, value})
+		changed[key] = &next
+	}
+	// After the tasks, so a conversation created with its owner task in one commit finds the owner's node. Change order within a publication is unspecified, so each owner's list is sorted again.
+	created := map[string][]durable.ConversationId{}
+	var createdOrder []string
+	for _, change := range publication.Changes {
+		write, ok := change.(durable.ConversationWrite)
+		if !ok || write.Value.Owner == nil {
+			continue
+		}
+		key := taskKey(write.Value.Owner.TaskId)
+		if node(key) == nil {
+			continue
+		}
+		if _, seen := created[key]; !seen {
+			createdOrder = append(createdOrder, key)
+		}
+		created[key] = append(created[key], write.Value.Id)
+	}
+	for _, key := range createdOrder {
+		current := node(key)
+		conversations := slices.Concat(current.Conversations, created[key])
+		slices.Sort(conversations)
+		next := *current
+		next.Conversations = conversations
+		changed[key] = &next
+		values := make([]any, len(conversations))
+		for i, id := range conversations {
+			values[i] = float64(id)
+		}
+		ops = append(ops, durable.Op{"s", []any{"tasks", key, "conversations"}, values})
+	}
+	publishChanged(ctx, mount, observers, changed, ops, report)
+}
+
+// publishTaskGraph applies the changed nodes (non-nil set, nil deleted) and ops to the mount and hands the revision to
+// every observer; one that panics is reported.
+func publishTaskGraph(ctx context.Context, mount *taskGraphMount, observers []taskGraphObserver, changed map[string]TaskGraphNode, ops []durable.Op, report func(error)) {
+	nodes := make(map[string]*TaskGraphNode, len(changed))
+	for key, node := range changed {
+		nodes[key] = &node
+	}
+	publishChanged(ctx, mount, observers, nodes, ops, report)
+}
+
+func publishChanged(ctx context.Context, mount *taskGraphMount, observers []taskGraphObserver, changed map[string]*TaskGraphNode, ops []durable.Op, report func(error)) {
+	if len(ops) == 0 {
+		return
+	}
+	tasks := maps.Clone(mount.value.Tasks)
+	for key, next := range changed {
+		if next == nil {
+			delete(tasks, key)
+		} else {
+			tasks[key] = *next
+		}
+	}
+	mount.value = TaskGraph{Tasks: tasks}
+	frameContext := context.WithoutCancel(ctx)
+	change := chord.WatchCall[TaskGraph]{Kind: chord.WatchCallValue, Value: mount.value, Ops: ops}
+	for _, observer := range observers {
+		session.Contained(func() { observer.Advance(frameContext, change) }, report)
+	}
+}
+
+// sameNode compares nodes by their JSON form, as upstream compares JSON.stringify output.
+func sameNode(a, b TaskGraphNode) bool {
+	left, errLeft := json.Marshal(a)
+	right, errRight := json.Marshal(b)
+	if errLeft != nil || errRight != nil {
+		panic("durable/harness: task graph node is not JSON")
+	}
+	return bytes.Equal(left, right)
+}
+
+func taskGraphNodeOf(record durable.TaskRecord[durable.JsonValue, durable.JsonValue, durable.JsonValue], conversations []durable.ConversationId, blocked durable.BlockedReason) TaskGraphNode {
+	return TaskGraphNode{
+		Id:             record.Id,
+		Kind:           record.Kind,
+		ConversationId: record.ConversationId,
+		Owner:          record.Owner,
+		Background:     record.Background,
+		AbortRequested: record.AbortRequested,
+		State:          taskGraphStateOf(record),
+		Conversations:  conversations,
+		Blocked:        blocked,
+	}
+}
+
+func taskGraphStateOf(record durable.TaskRecord[durable.JsonValue, durable.JsonValue, durable.JsonValue]) TaskGraphState {
+	state := record.State
+	switch state.Status {
+	case durable.TaskPending, durable.TaskRunning:
+		return TaskGraphState{Status: state.Status, Phase: phaseOf(state.Checkpoint)}
+	case durable.TaskWaiting:
+		return TaskGraphState{Status: durable.TaskWaiting, Phase: phaseOf(state.Checkpoint), On: slices.Clone(state.On), Policy: state.Policy}
+	case durable.TaskSleeping:
+		var until float64
+		if state.Until != nil {
+			until = *state.Until
+		}
+		return TaskGraphState{Status: durable.TaskSleeping, Phase: phaseOf(state.Checkpoint), Until: until}
+	}
+	// Terminal records never reach here: they leave the graph.
+	var outcome durable.TaskOutcomeStatus
+	if state.Outcome != nil {
+		outcome = state.Outcome.Status
+	}
+	return TaskGraphState{Status: durable.TaskCompleting, Outcome: outcome}
+}
+
+func phaseOf(checkpoint *durable.JsonValue) string {
+	if checkpoint == nil {
+		return ""
+	}
+	phase, _ := jsonMember(*checkpoint, "phase").(string)
+	return phase
+}

@@ -11,6 +11,21 @@ Technical orientation and maintenance rulings for coding agents working in this 
 - Build and test commands use `-mod=vendor`. Only patched PiG and `vendor/modules.txt` are tracked; `make deps` restores unmodified packages through Go’s checksum-verified module downloads in a scratch module. It retains all manifest packages across platforms and their embed assets/license notices, then replaces generated namespaces without touching PiG. A manifest completion marker avoids repeated restores. Builds/tests, release builds, and Docker builds bootstrap automatically; direct Go commands require `make deps` first. The dependency lock is `go.mod`/`go.sum`; do not run `go mod vendor` in the checkout without preserving and deliberately reapplying the personal runtime patches. See [CONTRIBUTING.md](CONTRIBUTING.md).
 - Removing generated dependencies reduces the current source snapshot, not existing Git history. Full clones still fetch old dependency blobs until maintainers coordinate a history rewrite; shallow clones avoid that history. Never rewrite or force-push shared history as part of an ordinary cleanup.
 
+### Durable headless workdesks
+
+`internal/workdesk` owns the opt-in `durable run|resume|status` command.
+`main.go` dispatches it separately; daily CLI/TUI/RPC sessions remain on the
+ordinary coding runtime. It embeds PiG's `durable/harness` over private SQLite
+storage with FULL synchronization, an immutable fsynced admission intent, and
+an exclusive OS writer lock. Provider/auth ownership stays on the existing
+`coding.ModelRuntime`; no credentials are stored in workdesk state. Status
+bypasses broker startup and never starts the task scheduler. Normal coding
+extensions and session formats are not interchangeable with Durable's APIs.
+The canonical contract, deployment assumptions, dependency provenance, and
+failure/replay limits live in [docs/durable.md](docs/durable.md). Preserve both
+state and workspace on recovery; do not infer exactly-once external effects or
+Kubernetes/node-failure certification from local process tests.
+
 ### Repeated tool-call guard
 
 `internal/loopguard` ports OMP's tool-call detector and corrective message.
