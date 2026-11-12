@@ -156,6 +156,14 @@ refresh share the existing SQLite per-account refresh leases and fenced writes.
 Concurrent requests observing the same access token reuse the first rotation.
 A refresh never resurrects an account logged out during exchange.
 
+Antigravity grants use Antigravity's published desktop OAuth client, not the
+Gemini CLI client. The broker must include this provider-specific client for
+imported Antigravity accounts to refresh; updating only the quota-fetching client
+cannot fix a broker returning `unauthorized_client`. Accounts originally signed
+in using the wrong desktop client may need signing in again after upgrading.
+A Codex `refresh_token_invalidated` rejection requires signing in to that exact
+account again; retrying quota or token refresh cannot restore an invalidated grant.
+
 Once an exchange starts, the broker finishes and persists it despite client
 cancellation or a disconnected response. Retrying with the old observed access
 token returns the committed rotation instead of spending the refresh token again.
