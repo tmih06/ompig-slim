@@ -364,6 +364,54 @@ func TestUsageReportKeepsAccountColumnsAlignedAcrossWindows(t *testing.T) {
 	}
 }
 
+// TestUsageReportKeepsColumnsAlignedWithDifferentAggregateWidths ensures the
+// trailing total cannot change account positions or wrapping between windows.
+func TestUsageReportKeepsColumnsAlignedWithDifferentAggregateWidths(t *testing.T) {
+	limit := func(accountID, windowID, label string, used float64) ai.UsageLimit {
+		quota := usageTestLimit("openai", accountID, windowID, label,
+			ai.UsageAmount{UsedFraction: new(used), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)
+		quota.ID = windowID
+		return quota
+	}
+	reports := []ai.UsageReport{
+		usageTestReport("openai", "a@test", []ai.UsageLimit{
+			limit("a", "7d", "Weekly", 0.99), limit("a", "5h", "5 Hour", 0),
+		}, nil),
+		usageTestReport("openai", "b@test", []ai.UsageLimit{
+			limit("b", "7d", "Weekly", 0.98), limit("b", "5h", "5 Hour", 0),
+		}, nil),
+		usageTestReport("openai", "c@test", []ai.UsageLimit{
+			limit("c", "7d", "Weekly", 0.97), limit("c", "5h", "5 Hour", 0),
+		}, nil),
+	}
+	for _, width := range []int{40, 45, 60, 100, 120} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			text := plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+				Reports: reports, NowMs: 1000, Width: width,
+			}), "\n"))
+			lines := strings.Split(text, "\n")
+			for _, account := range []string{"a@test", "b@test", "c@test"} {
+				positions := make([]int, 0, 2)
+				for index, line := range lines {
+					at := strings.Index(line, account)
+					if at < 0 {
+						continue
+					}
+					column := widthx.VisibleWidth(line[:at])
+					positions = append(positions, column)
+					if index+1 >= len(lines) || len([]rune(lines[index+1])) <= column ||
+						!strings.ContainsRune("█▓▒░·", []rune(lines[index+1])[column]) {
+						t.Fatalf("bar for %s is not under its header:\n%s", account, text)
+					}
+				}
+				if len(positions) != 2 || positions[0] != positions[1] {
+					t.Errorf("%s columns = %v, want the same column in both windows:\n%s", account, positions, text)
+				}
+			}
+		})
+	}
+}
+
 func TestUsageReportAlignsBarsUnderAccountLabelsAndKeepsResetsWithBars(t *testing.T) {
 	now := int64(1000)
 	reset := func(limit ai.UsageLimit, after int64) ai.UsageLimit {
