@@ -504,7 +504,7 @@ def check_degraded_client():
     result = client(LATE_CLIENT, "--list-models", check=False)
     expect("an unreachable broker does not fail the CLI", result.returncode == 0,
            token_from_stderr(result))
-    expect("the inactive sync is reported", "profile sync inactive" in (result.stderr + result.stdout),
+    expect("pending sync retries are reported", "profile sync pending (will retry)" in (result.stderr + result.stdout),
            token_from_stderr(result))
     unavailable = client(LATE_CLIENT, "auth", "print-api-key", "--provider", "openai", check=False)
     expect("unreachable vault refuses credential access", unavailable.returncode != 0)
@@ -517,7 +517,7 @@ def check_degraded_client():
     rejected = client(LATE_CLIENT, "--list-models", check=False)
     expect("a wrong secret does not fail the CLI", rejected.returncode == 0, token_from_stderr(rejected))
     expect("the rejected connection is reported",
-           "profile sync inactive" in (rejected.stderr + rejected.stdout), token_from_stderr(rejected))
+           "profile sync pending (will retry)" in (rejected.stderr + rejected.stdout), token_from_stderr(rejected))
     docker("rm", "-f", LATE_CLIENT)
     docker("volume", "rm", "-f", f"{LATE_CLIENT}-profile")
 
