@@ -178,7 +178,10 @@ authenticated name listing and a durable per-client/host discovery index. The
 index retains deleted names for retry; each theme reuses document CAS, ancestry,
 private adoption backups and conflict handling. Only direct JSON children sync;
 symlink files/directories, project/package themes and external paths do not.
-Theme ancestry paths are hashed to remain flat and bounded. File sync does
+Theme ancestry paths are hashed to remain flat and bounded. The `themes`
+directory is created only by a write, never by listing, discovery or reading a
+missing theme: the broker volume contract allows only synchronized state, so an
+empty directory from a poll would be untracked state nobody wrote. File sync does
 not hot-apply every runtime setting; session reload/restart remains necessary.
 Sessions, project config and arbitrary SQLite tables never synchronize.
 Embedded preference API keys remain trusted plaintext. The broker needs outbound

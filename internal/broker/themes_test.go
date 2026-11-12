@@ -135,3 +135,54 @@ func TestThemePathSafety(t *testing.T) {
 		t.Fatal("server followed symlink directory")
 	}
 }
+
+// TestThemeDiscoveryCreatesNoStorage pins the deployment volume contract: a host
+// and a client that have seen no theme must not acquire an empty themes directory
+// merely by listing, probing or reconciling. Creating the directory on read put a
+// `themes` entry in the broker data volume, which the container and cluster suites
+// reject as unsynchronized state. Only writing a theme may create it.
+func TestThemeDiscoveryCreatesNoStorage(t *testing.T) {
+	host, err := NewHandler(t.TempDir(), "sync-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Close()
+	server := httptest.NewServer(host)
+	defer server.Close()
+	client := &Client{base: server.URL, token: "sync-secret", dir: t.TempDir(), http: server.Client()}
+
+	var names []string
+	if err := client.request(context.Background(), "GET", "/v1/themes", "", nil, &names); err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("empty host listed themes: %v", names)
+	}
+	var item Item
+	if err := client.request(context.Background(), "GET", "/v1/items/themes/absent.json", "", nil, &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.Data != nil {
+		t.Fatalf("absent theme has data: %s", item.Data)
+	}
+	if err := client.SyncFiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{host.dir, client.dir} {
+		if _, err := os.Stat(filepath.Join(dir, "themes")); !os.IsNotExist(err) {
+			t.Errorf("discovery created theme storage in %s: %v", dir, err)
+		}
+	}
+
+	// A theme that really exists still creates the directory and syncs.
+	if err := prepareThemeDir(client.dir); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(client.dir, "themes", "night.json"), `{"name":"night"}`)
+	if err := client.SyncFiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(host.dir, "themes", "night.json")); err != nil {
+		t.Fatalf("theme upload: %v", err)
+	}
+}

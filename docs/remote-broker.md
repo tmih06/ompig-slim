@@ -19,7 +19,8 @@ network or SSH tunnel for remote access. TLS is operator-owned. One server proce
 owns the data directory; a filesystem lock refuses a second owner.
 
 The directory is mode 0700 and contains `agent.db` (0600), SQLite WAL/SHM files,
-portable preference files, and `server.lock`. Keep the volume across upgrades.
+portable preference files, `themes/` once a theme has been written, and
+`server.lock`. Keep the volume across upgrades.
 Use SQLite-aware backups or stop the service before copying the database.
 
 ### Back up or switch to standalone mode
@@ -215,7 +216,10 @@ private per-host client index that retains previously seen names so deletions
 remain retryable after restart. Only direct JSON children are shared; nested,
 project, package and externally referenced themes remain local. Symlink theme
 files/directories are refused. Theme ancestry and first-adoption backups use
-hashed names to keep them flat and within filesystem filename limits. Each poll
+hashed names to keep them flat and within filesystem filename limits. Only a
+write creates the `themes` directory: discovery, reads and an empty sync leave the
+profile without one, so a broker that stored no theme keeps a data directory
+holding only synchronized documents. Each poll
 waits for every document and reports failures in file order. This overlaps network latency
 without increasing polling frequency. Theme discovery adds one listing request
 per poll; upgrade clients and the broker together. See

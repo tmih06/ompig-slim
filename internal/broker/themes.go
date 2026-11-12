@@ -19,15 +19,18 @@ func themeName(name string) bool {
 		!strings.ContainsAny(file, "/\\\x00")
 }
 
-// prepareThemeDir creates a private theme directory and refuses symlink parents.
-// Profile directories are trusted; this does not defend against concurrent local
-// attackers swapping paths while the process is operating on them.
-func prepareThemeDir(dir string) error {
-	path := filepath.Join(dir, "themes")
-	if err := os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
-		return err
+// checkThemeDir reports whether the theme directory is present and usable without
+// creating it. A missing directory means no themes: discovery and reads must
+// never leave an empty directory behind, so a host that stored no theme keeps a
+// storage volume holding only synchronized documents. A symlink or non-directory
+// in its place is refused, because every theme operation must stay inside the
+// profile. Profile directories are trusted; this does not defend against
+// concurrent local attackers swapping paths while the process is operating.
+func checkThemeDir(dir string) error {
+	info, err := os.Lstat(filepath.Join(dir, "themes"))
+	if os.IsNotExist(err) {
+		return nil
 	}
-	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
@@ -37,14 +40,27 @@ func prepareThemeDir(dir string) error {
 	return nil
 }
 
+// prepareThemeDir creates the private theme directory ahead of a write, then
+// applies the same refusal. Only writers call it: creating storage is a write
+// side effect that a listing or a read must not perform.
+func prepareThemeDir(dir string) error {
+	if err := os.Mkdir(filepath.Join(dir, "themes"), 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	return checkThemeDir(dir)
+}
+
 // localThemes discovers direct JSON names without following links or recursing.
 // Non-regular JSON-named entries remain visible so reconciliation reports the
 // unsafe file rather than silently treating it as a deletion.
 func localThemes(dir string) ([]string, error) {
-	if err := prepareThemeDir(dir); err != nil {
+	if err := checkThemeDir(dir); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "themes"))
+	if os.IsNotExist(err) {
+		return []string{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +86,19 @@ func (s *Store) themes(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(names)
+}
+
+// publishDocument writes one synchronized document into the profile, creating the
+// private theme directory first when the document is a theme. Writers own that
+// creation: a downloaded theme needs a parent directory, while an unread profile
+// stays without one.
+func publishDocument(dir, name string, data []byte) error {
+	if themeName(name) {
+		if err := prepareThemeDir(dir); err != nil {
+			return err
+		}
+	}
+	return replaceFile(filepath.Join(dir, name), data)
 }
 
 // themeFiles unions local, hosted and previously seen names. Persisting the

@@ -275,7 +275,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 					return err
 				}
 			}
-			if err = replaceFile(filepath.Join(c.dir, name), remote.Data); err != nil {
+			if err = publishDocument(c.dir, name, remote.Data); err != nil {
 				return err
 			}
 			local = remote.Data
@@ -305,7 +305,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 					err = nil
 				}
 			} else {
-				err = replaceFile(filepath.Join(c.dir, name), remote.Data)
+				err = publishDocument(c.dir, name, remote.Data)
 			}
 			if err != nil {
 				return err

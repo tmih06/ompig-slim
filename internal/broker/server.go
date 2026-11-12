@@ -157,10 +157,12 @@ func (s *Store) hasProvider(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(present)
 }
 
-// read returns a tombstone for absent preferences. Callers hold s.mu.
+// read returns a tombstone for absent preferences. Callers hold s.mu. A theme
+// read validates the directory without creating it, so discovery of an empty
+// host leaves the volume exactly as it was.
 func (s *Store) read(name string) (Item, error) {
 	if themeName(name) {
-		if err := prepareThemeDir(s.dir); err != nil {
+		if err := checkThemeDir(s.dir); err != nil {
 			return Item{}, err
 		}
 	}
@@ -222,7 +224,7 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 			err = nil
 		}
 	} else {
-		err = replaceFile(filepath.Join(s.dir, name), next.Data)
+		err = publishDocument(s.dir, name, next.Data)
 	}
 	if err != nil {
 		http.Error(w, "storage write failed", 500)
