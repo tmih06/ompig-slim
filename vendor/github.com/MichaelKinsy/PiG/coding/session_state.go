@@ -63,25 +63,6 @@ func (s *Session) HasPendingBashMessages() bool {
 	return len(s.pendingBashMessages) > 0
 }
 
-// ExportToHTMLOptions is exportToHtml's presentation settings (agent-session.ts exportToHtml options).
-type ExportToHTMLOptions struct {
-	// ThemeName exports with this theme when it is registered; otherwise the settings theme, then the active theme.
-	ThemeName string
-}
-
-// ExportToHTML writes the Session as an HTML file and returns its path (agent-session.ts exportToHtml). The export embeds
-// the live system prompt and active tool schemas, and draws a tool through its extension's renderers. It reports an
-// in-memory Session or one without a file yet with upstream's messages.
-func (s *Session) ExportToHTML(outputPath string, options ...ExportToHTMLOptions) (string, error) {
-	var requested string
-	if len(options) > 0 {
-		requested = options[0].ThemeName
-	}
-	themeName := icodingagent.ExportThemeName(requested, s.services.SettingsManager().GetTheme())
-	state := icodingagent.NewShareState(icodingagent.AgentStateSystemPrompt(s.agent.MessagesSnapshot()), s.Tools())
-	return icodingagent.ExportSessionToHTML(s.Path(), outputPath, icodingagent.ExportToolRenderers(s.currentRunner()), s.CWD(), state, themeName)
-}
-
 // ExportToJsonl writes the current branch (the session header, then every entry on the branch path) to outputPath and
 // returns the path written; an empty path becomes a timestamped file in the working directory (agent-session.ts exportToJsonl).
 func (s *Session) ExportToJsonl(outputPath string) (string, error) {

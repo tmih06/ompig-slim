@@ -2,7 +2,6 @@ package codingagent
 
 import (
 	"path/filepath"
-	"strings"
 
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -31,29 +30,8 @@ func classifyCompactRead(rawPath, cwd string) (tui.CompactReadClassification, bo
 		}
 		return tui.CompactReadClassification{Kind: "skill", Label: label}, true
 	}
-	if label, ok := pigDocsLabel(absolutePath, GetDocsPath()); ok {
-		return tui.CompactReadClassification{Kind: "docs", Label: label}, true
-	}
 	if compactResourceFileNames[fileName] {
 		return tui.CompactReadClassification{Kind: "resource", Label: FormatPathRelativeToCwdOrAbsolute(absolutePath, cwd)}, true
 	}
 	return tui.CompactReadClassification{}, false
-}
-
-// pigDocsLabel is upstream read.ts getPiDocsClassification for PiG's
-// documentation bundle. Upstream labels README.md and docs/ and examples/
-// relative to its package root. The system prompt points PiG's model at
-// <docs>/README.md and resolves docs/... under <docs> (prompts docsSection),
-// so a file there is labelled as upstream labels the same page: README.md,
-// or docs/<path>.
-func pigDocsLabel(absolutePath, docsRoot string) (string, bool) {
-	relativePath, err := filepath.Rel(filepath.Clean(docsRoot), filepath.Clean(absolutePath))
-	if err != nil || relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) || filepath.IsAbs(relativePath) {
-		return "", false
-	}
-	label := filepath.ToSlash(relativePath)
-	if label == "README.md" {
-		return label, true
-	}
-	return "docs/" + label, true
 }

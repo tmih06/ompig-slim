@@ -76,10 +76,6 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
 	if provider.ID == "amazon-bedrock" {
 		theme := tui.ActiveTheme()
 		details := []string{theme.Fg("text", "You can also use an AWS profile, IAM keys, or role-based credentials.")}
-		// pig additive (D92): no docs path when the process strips the docs bundle.
-		if providers, ok := PigDocsFile("providers.md"); ok {
-			details = append(details, theme.Fg("muted", "See:"), theme.Fg("accent", "  "+providers))
-		}
 		dialog.ShowDetails(details)
 	}
 	go func() {

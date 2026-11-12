@@ -30,6 +30,11 @@ func isUserBashCommand(text string) bool {
 }
 
 func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
+	if removedBuiltinCommand(prompt) && !m.resolvableSlashCommand(prompt) {
+		m.showError("This command has been removed from " + AppName + ".")
+		m.editor.SetText("")
+		return
+	}
 	if m.handleAgentMention(prompt) {
 		return
 	}

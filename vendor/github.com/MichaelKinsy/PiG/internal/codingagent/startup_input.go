@@ -36,19 +36,6 @@ func (m *InteractiveMode) handleStartupInput(input inputChunk, render bool) {
 	}
 }
 
-// hiddenSubmitCommand names the commands the submit handler recognizes by exact text and that are not in the slash registry (interactive-mode.ts
-// setupEditorSubmitHandler: /arminsayshi and /dementedelves), or returns "".
-func hiddenSubmitCommand(text string) string {
-	switch text {
-	// pig divergence (D87): /pigsayhi is PiG's name for the same easter egg; Pi sends it to the model.
-	case "/arminsayshi", "/pigsayhi":
-		return "arminsayshi"
-	case "/dementedelves":
-		return "dementedelves"
-	}
-	return ""
-}
-
 var flushPendingBashComponents = (*InteractiveMode).flushPendingBashBlocks
 
 // setupEditorSubmitHandler installs ordinary submission after managed-tool setup and trims ECMAScript whitespace. Idle prompts wait for the main prompt loop; commands and inputs for an active operation retain their immediate dispatch.
@@ -57,17 +44,6 @@ func (m *InteractiveMode) setupEditorSubmitHandler(ctx context.Context) {
 	m.editor.OnSubmit = func(text string) {
 		text = widthx.JSTrim(text)
 		if text == "" {
-			return
-		}
-		// Pi recognizes the hidden commands only here, before history, compaction queueing and prompt dispatch.
-		switch hiddenSubmitCommand(text) {
-		case "arminsayshi":
-			m.handleArminSaysHi()
-			m.editor.SetText("")
-			return
-		case "dementedelves":
-			m.handleDementedDelves()
-			m.editor.SetText("")
 			return
 		}
 		if m.slashRegistry != nil && m.resolvableSlashCommand(text) && !m.isExtensionCommand(text) {

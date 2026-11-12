@@ -78,8 +78,6 @@ func stripHelpLine(line string) (string, bool) {
 		return strings.Replace(line, ", MCP tools included\n", "\n", 1), true
 	case strings.HasPrefix(line, "  pig update [source|self|pig] ") && feature(pigstrip.SelfUpdate):
 		return "  pig update [source]           Update extensions or model catalogs\n", true
-	case strings.HasPrefix(line, "  pig docs "):
-		return line, !feature(pigstrip.Docs)
 	case strings.HasPrefix(line, "  pig piglet <command> ") && feature(pigstrip.PigletBuilder):
 		return strings.Replace(line, "List, show, validate, and build Piglets", "List, show, and validate Piglets", 1), true
 	case strings.HasPrefix(line, "  pig extension init "):
@@ -90,8 +88,6 @@ func stripHelpLine(line string) (string, bool) {
 		return line, !feature(pigstrip.Skills)
 	case name == "--prompt-template" || name == "--no-prompt-templates,":
 		return line, !feature(pigstrip.PromptTemplates)
-	case name == "--export" || strings.HasPrefix(trimmed, "pig --export "):
-		return line, !feature(pigstrip.ExportHTML)
 	case strings.HasPrefix(trimmed, "pig --tools "):
 		tools, _, _ := strings.Cut(strings.TrimPrefix(trimmed, "pig --tools "), " ")
 		for tool := range strings.SplitSeq(tools, ",") {

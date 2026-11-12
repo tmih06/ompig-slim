@@ -1,9 +1,7 @@
 package codingagent
 
 // session_export.go ports upstream core/session-export.ts: the current branch
-// serialized as a standalone JSONL session, with optional export-only entries
-// appended after it (the pi.share presentation entry). The session-level HTML
-// export of core/export-html/index.ts is in session_export_html.go.
+// serialized as a standalone JSONL session with optional trailing entries.
 
 import (
 	"bufio"
@@ -19,7 +17,6 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
 	"github.com/MichaelKinsy/PiG/internal/nodeerrno"
 	"github.com/MichaelKinsy/PiG/internal/nodepath"
-	"github.com/MichaelKinsy/PiG/tui"
 )
 
 // TrailingEntries builds export-only entries appended after the branch. It
@@ -327,15 +324,4 @@ func rewriteMemberJSONField(raw json.RawMessage, field string, value any, remove
 	}
 	out.WriteByte('}')
 	return out.Bytes(), nil
-}
-
-// ExportThemeName is the theme AgentSession.exportToHtml exports with (agent-session.ts exportToHtml): the first candidate
-// (the caller's themeName option, then the settings theme) that names a registered theme, or empty when none does.
-func ExportThemeName(candidates ...string) string {
-	for _, candidate := range candidates {
-		if candidate != "" && tui.ThemeByName(candidate) != nil {
-			return candidate
-		}
-	}
-	return ""
 }

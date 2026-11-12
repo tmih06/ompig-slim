@@ -117,9 +117,6 @@ type Args struct {
 	// ContextFilesTrustedOnly withholds the project's context files until the project is trusted. A Piglet's contextFiles: trusted-only sets it; no command-line flag does.
 	// pig additive (D211).
 	ContextFilesTrustedOnly bool
-	// Export exports a session file to HTML and exits.
-	// Mirrors upstream --export (args.ts:106).
-	Export string
 	// APIKey overrides the API key.
 	// Mirrors upstream --api-key (args.ts:82).
 	APIKey string
@@ -331,9 +328,6 @@ func parseArgs(args []string) Args {
 			flags.NoThemes = true
 		case arg == "--no-context-files" || arg == "-nc":
 			flags.NoContextFiles = true
-		case arg == "--export" && i+1 < len(args):
-			i++
-			flags.Export = args[i]
 		case arg == "--list-models":
 			// Optional search pattern (not a flag or @file).
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !strings.HasPrefix(args[i+1], "@") {
@@ -423,7 +417,6 @@ const pigCommands = `PiG Commands:
   pig setup [go|container]      Show or install the toolchains that extensions and Piglet builds use
   pig verify [path...]          Verify this binary, downloads, installed Packages, and Resources
   pig status [--json]           Show Resources, Packages, and Piglets
-  pig docs [show <topic>]       Read the local PiG documentation
   pig version                   Show PiG, pinned Pi, Go, and platform versions
   pig diagnose                  Show resolved configuration and binary identity
 

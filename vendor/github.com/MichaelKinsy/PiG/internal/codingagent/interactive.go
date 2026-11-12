@@ -281,7 +281,6 @@ type InteractiveMode struct {
 	backgroundCtx    context.Context
 	backgroundCancel context.CancelFunc
 	backgroundTasks  backgroundGroup
-	arminComponents  []*ArminComponent
 	markdownQueue    tui.MarkdownTransformQueue
 	markdownBlocks   []tui.Disposable
 	// markdownTheme is the theme markdownThemeWithSettings last built, valid while the code-block indent still equals markdownThemeIndent.
@@ -343,9 +342,6 @@ type InteractiveMode struct {
 	frontendStartupWarning string
 	// frontendCloseErr is reported once cooked output returns.
 	frontendCloseErr error
-	// frontendMark is the mark the frontend surface last read. Owner loop
-	// only.
-	frontendMark frontendMarkCache
 	// frontendInputRunning is set once the session is told the input loop
 	// runs; the editor is sendable only from then on.
 	frontendInputRunning bool
@@ -445,9 +441,6 @@ type InteractiveMode struct {
 	toolsExpandedChanged func()
 	// builtInHeaderExpanded starts from verbose || toolsExpanded, then follows explicit expansion and restoration. Guarded by toolMu.
 	builtInHeaderExpanded bool
-	// builtInHeaderLogo is the clickable logo of the built-in header as last rendered; the render loop writes it and the
-	// owner loop's mouse dispatch reads it.
-	builtInHeaderLogo atomic.Pointer[builtInHeaderLogoArea]
 	// builtInHeaderLast is the built-in header as last drawn, kept for the next frame with the same inputs.
 	builtInHeaderLast atomic.Pointer[builtInHeaderRender]
 	// builtInHeaderShowDetails is shouldShowStartupDetails when the built-in header was first built; the compact onboarding line keeps it for the run, as Pi's header captures showDetails once at init (interactive-mode.ts:997). builtInHeaderBuilt records the capture. Guarded by toolMu.
@@ -455,15 +448,6 @@ type InteractiveMode struct {
 	// headerBox is the header container every layout mount shares. startupHeaderPending is true from the first paint until startup has the terminal's colors, and keeps the container empty. Owner loop only.
 	headerBox            *tui.Container
 	startupHeaderPending bool
-	// spriteOwners names the extensions whose sprites the bound build registered in piglogin's catalogue (D2). Binding
-	// another build's bridge removes them first, since the outgoing bridge no longer reaches the UI when its host shuts
-	// down. Guarded by spriteOwnersMu.
-	spriteOwners   map[string]struct{}
-	spriteOwnersMu sync.Mutex
-	// logoAnimationPlaying is Pi's module-level `playing` flag of the logo easter egg; logoAnimation is the one shown.
-	// Owner loop only.
-	logoAnimationPlaying bool
-	logoAnimation        *pigLogoAnimation
 
 	// pendingArgs accumulates ToolCallDelta fragments keyed by index.
 	// Used to build progressive args preview during streaming.
@@ -1592,8 +1576,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.onStop(func() error {
 		m.backgroundCancel()
 		m.disposeUsageDashboard()
-		m.disposeArminComponents()
-		m.disposeLogoAnimation()
 		m.disposeMarkdownBlocks()
 		m.backgroundTasks.Wait()
 		m.userBashTasks = nil
@@ -1868,35 +1850,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.tuiInst.Render()
 	m.loadRemainingHighlightLanguages()
 
-	// Show "what's new" on fresh sessions (no prior messages) when the
-	// binary version differs from the last recorded version, and send the
-	// install-telemetry ping on the same two occasions upstream does: a
-	// fresh install and an update with new changelog entries.
-	// Mirrors upstream getChangelogForDisplay + showStartupNoticesIfNeeded
-	// (interactive-mode.ts:816-843, 487-522, 1265-1307).
-	if m.opts.SettingsManager != nil && m.opts.ResumePath == "" {
-		var newEntries []ChangelogEntry
-		if m.opts.AppVersion != "" {
-			newEntries = startupChangelog(m.opts.SettingsManager, m.opts.AppVersion)
-		}
-		if extensionUpdates := m.getExtensionChangelogUpdates(); len(newEntries) > 0 || len(extensionUpdates) > 0 {
-			m.showStartupChangelog(newEntries, extensionUpdates)
-			m.tuiInst.Render()
-		}
-	}
-
 	return nil
-}
-
-// startupChangelog records the changelog version and returns the What's New entries of a fresh session (recordChangelogVersionAndMaybeReportInstall).
-// Only a recorded version other than appVersion reads the entries, so the bundled changelog is parsed only then; the first start and a start of the recorded version parse nothing.
-// pig additive (D92): a Piglet that strips the changelog parses an empty bundle; see changelog_bundle.go.
-func startupChangelog(sm *SettingsManager, appVersion string) []ChangelogEntry {
-	var allEntries []ChangelogEntry
-	if lastSeen := sm.GetLastChangelogVersion(); lastSeen != "" && lastSeen != appVersion {
-		allEntries = ParseChangelog(bundledChangelog())
-	}
-	return recordChangelogVersionAndMaybeReportInstall(sm, appVersion, allEntries)
 }
 
 // run is upstream's run() after init(): the startup checks, the background refreshes, the signal and resize handlers, the initial messages and

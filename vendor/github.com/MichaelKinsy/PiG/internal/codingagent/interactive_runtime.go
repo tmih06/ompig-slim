@@ -236,10 +236,6 @@ func (m *InteractiveMode) attachSubprocess() {
 	if m.tuiInst == nil {
 		return
 	}
-	// The sprite catalogue holds exactly the bound build's extension sprites; the bridge replays its own below.
-	if m.dropBoundSprites() {
-		defer m.invalidateBuiltInHeader()
-	}
 	if bridge := m.opts.SubprocessUIBridge; bridge != nil {
 		extUI := &ExtUIContext{m: m}
 		if keybindings, ok := bridge.(interface{ SetKeybindingsFunc(func() any) }); ok {

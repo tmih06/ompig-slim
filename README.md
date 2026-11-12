@@ -124,9 +124,9 @@ a Herdr server restart.
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub |
-| TUI | omp-style tool cards, prompt-anchored task/quota widget, stop-time todo reminder |
+| TUI | omp-style tool cards, task/quota widget, todo reminder, Mermaid diagrams |
 | Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |
-| Themes | 100 palettes plus `system`/`dark`/`light`, colorful Markdown, palette-aware body color |
+| Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
 Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live

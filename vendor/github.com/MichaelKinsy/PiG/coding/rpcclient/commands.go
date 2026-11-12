@@ -240,11 +240,6 @@ func (c *RpcClient) GetSessionStats() (SessionStats, error) {
 	return sendFor[SessionStats](c, command("get_session_stats"))
 }
 
-// ExportHtml exports the session to HTML.
-func (c *RpcClient) ExportHtml(outputPath *string) (ExportHtmlResult, error) {
-	return sendFor[ExportHtmlResult](c, command("export_html", optionalField("outputPath", outputPath)...))
-}
-
 // SwitchSession switches to another session file; the result reports whether
 // an extension cancelled it.
 func (c *RpcClient) SwitchSession(sessionPath string) (CancelledResult, error) {

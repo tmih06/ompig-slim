@@ -15,14 +15,12 @@ package codemode
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"slices"
 	"strings"
 
 	sandbox "github.com/MichaelKinsy/PiG/codemode"
 	"github.com/MichaelKinsy/PiG/coding/extension"
-	"github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/jsstring/localecompare"
 )
@@ -36,29 +34,6 @@ const DefaultInlineBudget = 3000
 
 // charsPerToken is the number of characters per token when estimating the cost of a tool section.
 const charsPerToken = 4
-
-// DocsPath is the reference for scripts: globals, tool results, `store()`, the `models` API, and limits. It is the
-// codemode page of the documentation bundle PiG materializes under its config root, the directory the system prompt's
-// docs section names.
-//
-// Ports packages/coding-agent/src/extensions/codemode/tool.ts (CODEMODE_DOCS_PATH).
-func DocsPath() string {
-	// pig additive (D22): Pi names the docs of its installed package; PiG names its materialized documentation bundle.
-	// pig additive (D92): the literal "docs" is pigdocs.SubDir, so a Binary that strips docs does not link pigdocs.
-	path, _ := codingagent.PigDocsFile("codemode.md")
-	return path
-}
-
-// docsCitation formats sentence, which holds one %s, with DocsPath, or is empty when the process strips the docs bundle
-// and never writes the page.
-// pig additive (D92): no text points at a docs page a docs strip never writes.
-func docsCitation(sentence string) string {
-	path, ok := codingagent.PigDocsFile("codemode.md")
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf(sentence, path)
-}
 
 // textOutputSchema is what a script sees of a tool without an output schema: its text output.
 var textOutputSchema = json.RawMessage(`{"type":"string"}`)

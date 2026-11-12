@@ -28,10 +28,6 @@ const (
 // omPrefixCells is the white "OM" prefix: O is 3 cells, M is 5, one space between them.
 const omPrefixCells = 3 + 1 + 5
 
-// logoMarkCells is the whole startup mark, the prefix, one space and Pi's logo. The header's clickable logo and the logo
-// easter egg's cleared area cover it, since the mark is the header's logo now.
-const logoMarkCells = omPrefixCells + 1 + piLogoCells
-
 // logoTag is the plain-text suffix following the block-letter GO mark.
 const logoTag = "-slim"
 
@@ -115,7 +111,7 @@ func piWordmark(mode tui.TerminalColorMode) string {
 func StartupMark(mode tui.TerminalColorMode) (top, bottom string) { return logoMark(mode) }
 
 // logoMark is the mark's two lines: the OM + Pi prefix and the cyan "in GO", with the product tag closing the first
-// line. The built-in header and the first-time setup dialog both draw it, so the brand is spelled once.
+// line. The startup header and the updater banner draw it, so the brand is spelled once.
 func logoMark(mode tui.TerminalColorMode) (string, string) {
 	top, bottom := piLogoLines(mode)
 	inText := tui.ForegroundAnsi(logoWhite, mode) + "in " + logoReset

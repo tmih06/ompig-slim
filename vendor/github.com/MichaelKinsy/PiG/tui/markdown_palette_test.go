@@ -253,7 +253,7 @@ func sgrEnd(s string) int {
 // active theme's color. Resolving the color once at construction left the old escape
 // on screen until the message was rebuilt.
 func TestProseColorFollowsThemeSwitch(t *testing.T) {
-	titanium := paletteTheme("titanium")
+	titanium := optionalPalette(t, "titanium")
 	light, err := loadBuiltinThemeWithMode("light", TerminalColorModeTrueColor)
 	if err != nil {
 		t.Fatalf("light: %v", err)

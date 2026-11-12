@@ -36,7 +36,7 @@ type Options struct {
 	Mcp McpOptions
 }
 
-// All lists the built-in extensions in upstream's order, then PiG's own `pig-login`. A stripped built-in has no row.
+// All lists the coding extensions included in this build.
 // pig additive (D92): each row comes from a registration shim a Piglet Binary compiles out with pig_strip_<name>.
 func All(options Options) []Extension {
 	registerCompiledInReferences()
@@ -44,8 +44,7 @@ func All(options Options) []Extension {
 	// linked, so it exists with --no-extensions and is active by default (upstream core/tools/codemode).
 	entries := append(codemodeEntries(options), toolSearchEntries()...)
 	entries = append(entries, mcpEntries(options)...)
-	// pig divergence (D2): the sprite login is PiG's own built-in; upstream's index.ts lists no such entry.
-	return append(entries, pigLoginEntries()...)
+	return entries
 }
 
 // registerCompiledInReferences makes the built-ins that are linked the ones an extension names by reference (createCodemodeExtension, createToolSearchExtension), as

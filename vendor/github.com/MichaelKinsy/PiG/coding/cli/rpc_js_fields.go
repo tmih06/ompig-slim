@@ -102,7 +102,7 @@ func (v rpcJSValue) cannotRead(property, expression string) string {
 // the command's fields to the typed values Pi's handler ends up using. Known difference: set_steering_mode, set_follow_up_mode,
 // set_auto_compaction and set_auto_retry store and report any JSON value in Pi (get_state echoes it); Pig coerces a non-boolean `enabled` to
 // its truthiness and rejects a non-string `mode` with the decoder's message. A compact `customInstructions` that is not a string is rejected
-// with the decoder's message where Pi's compaction reads it (state-dependent TypeErrors), and new_session and export_html treat a non-string
+// with the decoder's message where Pi's compaction reads it (state-dependent TypeErrors), and new_session treats a non-string
 // field as absent. images are read as rpcJSImages describes.
 func rpcJSAdapt(env RPCCommandEnvelope) (RPCCommandEnvelope, string, bool) {
 	var fields map[string]json.RawMessage
@@ -142,10 +142,6 @@ func rpcJSAdapt(env RPCCommandEnvelope) (RPCCommandEnvelope, string, bool) {
 		// session-manager.ts newSession({ parentSession }) writes any value into the header; only a path string names a parent here.
 		if parent := field("parentSession"); parent.present && !parent.isString() {
 			return drop("parentSession")
-		}
-	case RPCCommandExportHtml:
-		if path := field("outputPath"); path.present && !path.isString() {
-			return drop("outputPath")
 		}
 	case RPCCommandPrompt, RPCCommandSteer, RPCCommandFollowUp:
 		// agent-session.ts:1977 text.startsWith("/") in prompt, steer and followUp.

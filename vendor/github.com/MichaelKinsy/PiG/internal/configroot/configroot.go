@@ -8,10 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
-
-	"github.com/MichaelKinsy/PiG/internal/nodepath"
 )
 
 // ExpandTilde expands a leading ~ in a filesystem path, as upstream expandTildePath (utils/paths.ts normalizePath) does. It has no error result:
@@ -71,77 +67,4 @@ func Dir() string {
 		panic(&UnresolvedError{Err: err})
 	}
 	return root
-}
-
-// docsBundle is the registered name of this binary's documentation bundle directory under <config root>/docs.
-var docsBundle struct {
-	mu   sync.Mutex
-	name func() (string, error)
-}
-
-// RegisterDocsBundle names, under <config root>/docs, the directory of the documentation bundle this binary embeds. internal/pigdocs registers
-// it; a Binary that strips docs links no pigdocs and registers none.
-// pig additive (D22): each build's bundle has its own content-addressed directory, so builds that share a config root never rewrite each other's.
-func RegisterDocsBundle(name func() (string, error)) {
-	docsBundle.mu.Lock()
-	defer docsBundle.mu.Unlock()
-	docsBundle.name = name
-}
-
-// DocsDir is the absolute directory of this binary's documentation bundle under the config root, and false when the binary embeds none. Pi's
-// config.ts getDocsPath is resolve(join(<package dir>, "docs")); PiG has no installed package directory, so its bundle lives under the config root
-// (D22). A relative PIG_HOME resolves against the working directory, as Node's resolve does.
-func DocsDir() (string, bool) {
-	docsBundle.mu.Lock()
-	name := docsBundle.name
-	docsBundle.mu.Unlock()
-	if name == nil {
-		return "", false
-	}
-	bundle, err := name()
-	if err != nil {
-		return "", false
-	}
-	// pig additive (D22): PiG has no installed package directory; its documentation bundle lives under the config root.
-	// pig additive (D92): the literal "docs" is pigdocs.SubDir, so a Binary that strips docs does not link pigdocs.
-	dir := filepath.Join(Dir(), "docs", bundle)
-	if resolved, err := nodepath.Resolve(dir); err == nil {
-		return resolved, true
-	}
-	return dir, true
-}
-
-// docsMissing records that this process found no documentation bundle of its own build at [DocsDir] and could not write one.
-var docsMissing atomic.Bool
-
-// SetDocsPresent records whether [DocsDir] holds this build's documentation bundle. Startup sets it once, after it tries to write the bundle; until
-// then a registered bundle counts as present.
-// pig additive (D22): Pi's package docs exist wherever Pi runs. PiG's bundle exists only once written, so no text may name it after a failed write.
-func SetDocsPresent(present bool) { docsMissing.Store(!present) }
-
-// docsWriter writes a bundle whose write startup deferred; nil when nothing is deferred.
-var docsWriter atomic.Pointer[func()]
-
-// SetDocsWriter registers write as the function that writes the bundle startup deferred; it must update [SetDocsPresent] when the write fails.
-// pig additive (D22): PiG writes its bundle before the first reader, not at every start.
-func SetDocsWriter(write func()) {
-	if write == nil {
-		docsWriter.Store(nil)
-		return
-	}
-	docsWriter.Store(&write)
-}
-
-// WriteDocs writes the bundle when startup deferred its write, so a path to it can be handed to a reader. It is safe to call from any goroutine
-// and at any time.
-func WriteDocs() {
-	if write := docsWriter.Load(); write != nil {
-		(*write)()
-	}
-}
-
-// DocsPresent reports whether text may name [DocsDir] and the pages in it: the binary embeds a bundle and startup did not fail to write it.
-func DocsPresent() bool {
-	_, ok := DocsDir()
-	return ok && !docsMissing.Load()
 }

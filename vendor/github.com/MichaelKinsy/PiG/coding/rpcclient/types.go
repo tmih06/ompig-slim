@@ -310,11 +310,6 @@ type ForkMessage struct {
 	Text    string `json:"text"`
 }
 
-// ExportHtmlResult mirrors upstream exportHtml's result.
-type ExportHtmlResult struct {
-	Path string `json:"path"`
-}
-
 // GetEntriesResult mirrors upstream getEntries' result.
 type GetEntriesResult struct {
 	Entries []SessionEntry `json:"entries"`

@@ -69,14 +69,6 @@ func isPlainRuntimeMetadataCommand(flags Args) bool {
 
 // processAppMode resolves the app mode for this process's flags and standard
 // streams.
-// shouldRunFirstTimeSetup is PiG's first-time setup gate: an interactive start in the default agent directory (no
-// PIG_CODING_AGENT_DIR) that holds no settings.json, as Pi's shouldRunFirstTimeSetup requires (cli/startup-ui.ts:144-146).
-// Print, JSON and RPC modes never show it.
-// pig divergence (D88): Pi's gate also requires the official distribution and PI_EXPERIMENTAL.
-func shouldRunFirstTimeSetup(mode appMode, agentDirConfigured bool, agentDir string) bool {
-	return mode == appModeInteractive && !agentDirConfigured && !codingagent.SettingsFileExists(agentDir)
-}
-
 func processAppMode(flags Args) appMode {
 	return resolveAppMode(flags.Mode, flags.Print,
 		term.IsTerminal(int(os.Stdin.Fd())), term.IsTerminal(int(os.Stdout.Fd())))

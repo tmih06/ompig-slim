@@ -198,7 +198,6 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		AppendThemedText: func(build func() string) { m.appendChatBlock(tui.NewThemedText(build, 1, 0)) },
 		AppendBlock:      func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 1, nil)) },
 		Clear: func() {
-			m.disposeArminComponents()
 			m.disposeMarkdownBlocks()
 			m.chatContainer.Clear()
 		},
@@ -275,19 +274,6 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			}
 			return names
 		},
-		ToolRenderers: func() func(name string) *extension.ToolRenderers {
-			return ExportToolRenderers(m.newRunner)
-		},
-		// Pi's /export, /share and /bug read session.state (agent-session.ts:3921, session-share.ts:38): the transcript's system prompt and the active tools.
-		ShareState: func() ShareState {
-			if m.agent == nil {
-				return NewShareState("", nil)
-			}
-			return NewShareState(AgentStateSystemPrompt(m.agent.MessagesSnapshot()), m.agent.Tools())
-		},
-		ShareSession: func(session *Session, state ShareState, showStatus func(string)) (string, error) {
-			return m.shareSessionWithLoader(ctx, session, state, showStatus)
-		},
 		SkillNames: func() []string { return nil },
 		SessionInfo: func() (string, string, int) {
 			if m.currentSession() == nil {
@@ -316,7 +302,6 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			return formatCostSummary(snap, m.opts.Model)
 		},
 		ShowHotkeys:            m.handleHotkeysCommand,
-		ShowChangelog:          m.handleChangelogCommand,
 		ShowUsage:              m.showUsageDashboard,
 		ListResetCredits:       m.listResetCredits,
 		ShowResetUsageSelector: m.showResetUsageSelector,

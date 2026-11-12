@@ -394,24 +394,3 @@ func TestFooterContextThresholds(t *testing.T) {
 		}
 	}
 }
-
-// TestFirstRunHighlightMatchesPreview covers the first-run dialog's theme step: the
-// highlighted option must be the theme the dialog previews, which is the appearance
-// default. A fixed first entry would show Titanium selected over a light preview on a
-// light terminal.
-func TestFirstRunHighlightMatchesPreview(t *testing.T) {
-	previous := tui.ActiveTheme()
-	t.Cleanup(func() {
-		tui.SetTerminalColorScheme("")
-		tui.SetThemeInstance(previous)
-	})
-
-	for _, appearance := range []tui.TerminalTheme{"dark", "light"} {
-		tui.SetTerminalColorScheme(appearance)
-		component := NewFirstTimeSetupComponent(FirstTimeSetupOptions{})
-		want := tui.DefaultThemeName(appearance)
-		if got := firstTimeSetupThemeOptions[component.themeIndex].value; got != want {
-			t.Fatalf("%s: highlighted %q, want the previewed %q", appearance, got, want)
-		}
-	}
-}
