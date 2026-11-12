@@ -7,13 +7,7 @@ import (
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 )
 
-// getClientIdentity is how PiG's requests identify it to providers: a detailed `User-Agent` with PiG's version, and attribution to PiG as a CLI agent while install telemetry is enabled.
+// getClientIdentity identifies the client without optional provider attribution.
 func getClientIdentity(settings *icodingagent.SettingsManager) *ai.ClientIdentity {
-	identity := &ai.ClientIdentity{UserAgent: new(ai.UserAgentDetailed), Version: new(Version)}
-	if settings.IsInstallTelemetryEnabled() {
-		identity.Attribution = new(ai.PiAttribution)
-	} else {
-		identity.AttributionNull = true
-	}
-	return identity
+	return &ai.ClientIdentity{UserAgent: new(ai.UserAgentDetailed), Version: new(Version), AttributionNull: true}
 }

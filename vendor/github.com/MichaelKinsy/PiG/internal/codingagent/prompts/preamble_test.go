@@ -25,6 +25,23 @@ func TestPreambleOverride(t *testing.T) {
 	}
 }
 
+// TestNoHarnessDocumentationContext prevents explicit legacy documentation paths
+// from adding a self-help index to either prompt-building entry point.
+func TestNoHarnessDocumentationContext(t *testing.T) {
+	options := Options{Cwd: "/tmp"}
+	for _, section := range BuildSystemPromptSections(options) {
+		if section.Name == "docs" {
+			t.Fatal("documentation section is still present")
+		}
+	}
+	out := BuildDefaultPrompt(options)
+	for _, unwanted := range []string{"<docs>", "harness-docs", "harness-readme", "harness-examples"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("documentation leaked into prompt: %s", unwanted)
+		}
+	}
+}
+
 // TestPreambleEmptyFallsBack pins the guard that keeps a cleared variable from
 // producing a prompt with no opening paragraph.
 func TestPreambleEmptyFallsBack(t *testing.T) {

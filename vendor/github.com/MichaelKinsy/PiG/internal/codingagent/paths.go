@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/MichaelKinsy/PiG/internal/codingagent/prompts"
 	"github.com/MichaelKinsy/PiG/internal/configroot"
 	"github.com/MichaelKinsy/PiG/internal/linkerexec"
 	"github.com/MichaelKinsy/PiG/internal/nodepath"
@@ -228,31 +227,6 @@ func selfUpdateUninstallStep(command string, argsPrefix []string, installedPacka
 // ConfigRoot returns PIG_HOME when explicitly set for library assets, else ~/.pi.
 // Agent credentials, settings, and sessions share Pi/OMP's agent directory.
 func ConfigRoot() string { return configroot.Dir() }
-
-// GetDocsPath is the directory of this binary's documentation bundle, which the system prompt, the login help and the codemode description point
-// at, or "" when the bundle is not on disk: the binary embeds none, or startup could not write it.
-// upstream: config.ts:449 getDocsPath (join(getPackageDir(), "docs")); pig additive (D22): PiG materializes its documentation bundle under the configuration root, one content-addressed directory per build, instead of shipping it in the package directory.
-func GetDocsPath() string {
-	dir, ok := configroot.DocsDir()
-	if !ok || !configroot.DocsPresent() {
-		return ""
-	}
-	return dir
-}
-
-// GetReadmePath is the README of the documentation bundle, the "Main documentation" entry of the system prompt, or "" when the bundle is not on
-// disk.
-// upstream: config.ts:444 getReadmePath (join(getPackageDir(), "README.md")); pig additive (D22): the README is the bundle's own.
-func GetReadmePath() string {
-	if docs := GetDocsPath(); docs != "" {
-		return filepath.Join(docs, "README.md")
-	}
-	return ""
-}
-
-// GetExamplesPath is where the system prompt says PiG's examples are.
-// upstream: config.ts:454 getExamplesPath (join(getPackageDir(), "examples")); pig additive (D22): PiG's examples are published in its repository, so the location is [prompts.PigExamplesLocation], a URL, not a directory.
-func GetExamplesPath() string { return prompts.PigExamplesLocation }
 
 // CanonicalizePath resolves a nonempty path to its absolute canonical filesystem form, following symlinks and drive junctions while preserving Windows volume mount points as directories. It preserves the raw input if resolution fails, including an empty or missing path.
 // Mirrors upstream canonicalizePath.

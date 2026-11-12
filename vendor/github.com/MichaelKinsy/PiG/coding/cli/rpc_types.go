@@ -58,7 +58,6 @@ const (
 	RPCCommandBash                       RPCCommandType = "bash"
 	RPCCommandAbortBash                  RPCCommandType = "abort_bash"
 	RPCCommandGetSessionStats            RPCCommandType = "get_session_stats"
-	RPCCommandExportHtml                 RPCCommandType = "export_html"
 	RPCCommandSwitchSession              RPCCommandType = "switch_session"
 	RPCCommandFork                       RPCCommandType = "fork"
 	RPCCommandClone                      RPCCommandType = "clone"
@@ -182,7 +181,6 @@ func (RPCNewSessionCommand) isRPCCommand()                 {}
 func (RPCCycleModelCommand) isRPCCommand()                 {}
 func (RPCGetAvailableThinkingLevelsCommand) isRPCCommand() {}
 func (RPCAbortRetryCommand) isRPCCommand()                 {}
-func (RPCExportHTMLCommand) isRPCCommand()                 {}
 func (RPCSwitchSessionCommand) isRPCCommand()              {}
 func (RPCForkCommand) isRPCCommand()                       {}
 func (RPCCloneCommand) isRPCCommand()                      {}
@@ -261,12 +259,6 @@ type RPCGetAvailableThinkingLevelsCommand struct {
 type RPCAbortRetryCommand struct {
 	ID   rpcRequestID `json:"id,omitempty"`
 	Type string       `json:"type"`
-}
-
-type RPCExportHTMLCommand struct {
-	ID         rpcRequestID `json:"id,omitempty"`
-	Type       string       `json:"type"`
-	OutputPath string       `json:"outputPath,omitempty"`
 }
 
 type RPCSwitchSessionCommand struct {

@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/internal/coding/pigversion"
 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -62,7 +61,6 @@ type builtInHeaderKey struct {
 type builtInHeaderRender struct {
 	key   builtInHeaderKey
 	lines []string
-	logo  *builtInHeaderLogoArea
 }
 
 // renderBuiltInHeader renders the current startup help expansion. Verbose seeds this state only at initialization; tool toggles and header restoration subsequently select it.
@@ -71,15 +69,13 @@ func (m *InteractiveMode) renderBuiltInHeader(width int) []string {
 	key := m.builtInHeaderInputs(width)
 	bindings := key.bindings
 	if last := m.builtInHeaderLast.Load(); last != nil && last.key == key {
-		m.builtInHeaderLogo.Store(last.logo)
 		return last.lines
 	}
 	if bindings == nil {
 		bindings = tui.NewKeybindingsManager(keybindingDefinitionsFor(tui.HostKeybindingPlatform()), nil)
 	}
-	lines, logo := drawBuiltInHeader(key, bindings)
-	m.builtInHeaderLogo.Store(logo)
-	m.builtInHeaderLast.Store(&builtInHeaderRender{key: key, lines: lines, logo: logo})
+	lines := drawBuiltInHeader(key, bindings)
+	m.builtInHeaderLast.Store(&builtInHeaderRender{key: key, lines: lines})
 	return lines
 }
 
@@ -112,8 +108,8 @@ func (m *InteractiveMode) builtInHeaderUnchanged() bool {
 	return last.key == key
 }
 
-// drawBuiltInHeader draws the built-in header for in with bindings, and returns its lines and the logo's clickable area.
-func drawBuiltInHeader(in builtInHeaderKey, bindings *tui.TUIKeybindingsManager) ([]string, *builtInHeaderLogoArea) {
+// drawBuiltInHeader returns static branding and useful startup shortcuts.
+func drawBuiltInHeader(in builtInHeaderKey, bindings *tui.TUIKeybindingsManager) []string {
 	width, theme, expanded, showDetails := in.width, in.theme, in.expanded, in.showDetails
 	mode := theme.GetColorMode()
 	key := func(action string) string {
@@ -188,52 +184,5 @@ func drawBuiltInHeader(in builtInHeaderKey, bindings *tui.TUIKeybindingsManager)
 		}
 		instructions = withLogo(instructions) + "\n" + themeFg(theme.Dim, "Press "+key("app.tools.expand")+" to show full startup help"+resources+".")
 	}
-	// The self-help names this product, the way Pi's names Pi. ompig-slim can explain its own features; without the docs
-	// bundle there are no docs to look up (pig additive D92).
-	onboarding := themeFg(theme.Dim, AppName+" can explain its own features and look up its docs. Ask it how to use or extend "+AppName+".")
-	if pigstrip.Has(pigstrip.ListFeatures, pigstrip.Docs) {
-		onboarding = themeFg(theme.Dim, AppName+" can explain its own features. Ask it how to use or extend "+AppName+".")
-	}
-	text := instructions + "\n\n" + onboarding
-	// interactive-mode.ts:1058 sets onLogoClick only when the logo is drawn: Apple Terminal's wordmark takes no click.
-	if !in.showLogo {
-		return tui.NewPaddedText(text, 1, 0, nil).Render(width), &builtInHeaderLogoArea{}
-	}
-	// interactive-mode.ts:1058 sets onLogoClick only when the logo is drawn; this header's logo is the whole OM + Pi mark.
-	area := builtInHeaderLogoArea{visible: true, column: 1, columns: logoMarkCells, rows: piLogoRows}
-	return tui.NewPaddedText(text, 1, 0, nil).Render(width), &area
-}
-
-// builtInHeaderLogoArea is the clickable logo of the built-in header as last drawn: the fork's mark, relative to the header's
-// first line.
-type builtInHeaderLogoArea struct {
-	visible       bool
-	column, row   int
-	columns, rows int
-}
-
-// handleBuiltInHeaderMouse plays the logo easter egg when the header's logo is clicked. Mirrors interactive-mode.ts
-// BuiltInHeader.handleMouse, which takes a click on the logo's cells (x 1 to 4 of its two lines, after one column of
-// padding) and passes the logo's top-left screen cell; Pi sets onLogoClick only when it draws its logo (interactive-mode.ts:1058).
-// The mark begins with the fork's OM prefix and then Pi's original four-cell logo, so the clickable area is the whole mark.
-func (m *InteractiveMode) handleBuiltInHeaderMouse(event tui.TuiMouseEvent) *tui.TuiMouseDispatchResult {
-	area := m.builtInHeaderLogo.Load()
-	if event.Type != tui.MouseClick || area == nil || !area.visible ||
-		event.X < area.column || event.X >= area.column+area.columns || event.Y < area.row || event.Y >= area.row+area.rows {
-		return nil
-	}
-	left, top := event.ScreenX-event.X+area.column, event.ScreenY-event.Y+area.row
-	// The easter egg is PiG's 3D pig, which lifts off the mark: it clears and centers on the clicked mark's cells, the
-	// OM + Pi mark the header drew there.
-	m.playPigLogoAnimation(left, top, area.columns, area.rows)
-	return &tui.TuiMouseDispatchResult{TuiMouseEventResult: tui.TuiMouseEventResult{Handled: true}}
-}
-
-// pig additive (D91): builtInHeaderClickArea is the header's logo as a frontend session reports a click on it.
-func (m *InteractiveMode) builtInHeaderClickArea() (frontend.Area, bool) {
-	area := m.builtInHeaderLogo.Load()
-	if area == nil || !area.visible {
-		return frontend.Area{}, false
-	}
-	return frontend.Area{Row: area.row, Column: area.column, Rows: area.rows, Columns: area.columns}, true
+	return tui.NewPaddedText(instructions, 1, 0, nil).Render(width)
 }

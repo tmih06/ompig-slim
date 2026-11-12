@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
-	"github.com/MichaelKinsy/PiG/coding/piglogin"
 	"github.com/MichaelKinsy/PiG/coding/source"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -605,51 +604,6 @@ func (u *ExtUIContext) SetLogin(definition extension.LoginDefinition) error {
 	return nil
 }
 
-var _ extension.SpriteRegistrar = (*ExtUIContext)(nil)
-
-// RegisterSprite adds an extension's sprite to /sprite (D2). The header redraws, since it may be the saved sprite, drawn
-// as the default until now.
-func (u *ExtUIContext) RegisterSprite(owner string, definition extension.ValidatedSpriteDefinition) error {
-	u.m.spriteOwnersMu.Lock()
-	err := piglogin.Register(owner, definition)
-	if err == nil {
-		if u.m.spriteOwners == nil {
-			u.m.spriteOwners = map[string]struct{}{}
-		}
-		u.m.spriteOwners[owner] = struct{}{}
-	}
-	u.m.spriteOwnersMu.Unlock()
-	if err != nil {
-		return err
-	}
-	u.m.invalidateBuiltInHeader()
-	return nil
-}
-
-// UnregisterSprites removes the sprites of an extension that unloaded; the header redraws in case it showed one.
-func (u *ExtUIContext) UnregisterSprites(owner string) {
-	u.m.spriteOwnersMu.Lock()
-	piglogin.Unregister(owner)
-	delete(u.m.spriteOwners, owner)
-	u.m.spriteOwnersMu.Unlock()
-	u.m.invalidateBuiltInHeader()
-}
-
-// dropBoundSprites removes the sprites of the build whose bridge was bound, before another build's bridge replays its own,
-// and reports whether it removed any. The outgoing bridge is detached by then, so its host's shutdown no longer reaches the
-// UI to remove them.
-// pig divergence (D2): extension sprites leave /sprite with the build that registered them; Pi has no sprites.
-func (m *InteractiveMode) dropBoundSprites() bool {
-	m.spriteOwnersMu.Lock()
-	defer m.spriteOwnersMu.Unlock()
-	for owner := range m.spriteOwners {
-		piglogin.Unregister(owner)
-	}
-	dropped := len(m.spriteOwners) > 0
-	m.spriteOwners = nil
-	return dropped
-}
-
 // invalidateBuiltInHeader redraws the header slot, whose built-in header bakes the theme's colors.
 func (m *InteractiveMode) invalidateBuiltInHeader() {
 	if m.extHeader != nil {
@@ -684,7 +638,7 @@ func (m *InteractiveMode) setBuiltInHeader(expanded bool) {
 	}
 	m.toolMu.Unlock()
 	// The built-in header draws this build's own OM + Pi mark, which follows the theme alone, so no sprite state is read here.
-	m.extHeader.SetRendererWithMouse(m.renderBuiltInHeader, m.handleBuiltInHeaderMouse, m.builtInHeaderClickArea, m.builtInHeaderUnchanged)
+	m.extHeader.SetRendererWithMouse(m.renderBuiltInHeader, nil, nil, m.builtInHeaderUnchanged)
 }
 
 func (u *ExtUIContext) SetTitle(title string) {

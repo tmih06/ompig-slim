@@ -3,17 +3,13 @@ package codingagent
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"io"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/MichaelKinsy/PiG/agent"
-	"github.com/MichaelKinsy/PiG/coding/piglogin"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
@@ -167,61 +163,10 @@ func (m *InteractiveMode) frontendSurfaceHooks() tui.SurfaceHooks {
 			}
 			return ""
 		},
-		Mark: m.frontendMark.read,
 		// pig additive (D91): a click on an extension's view reaches its
 		// component only in the mode where Pi's terminal reports the mouse.
 		Mouse: func() bool { return m.opts.TuiMode == "fullscreen" },
 	}
-}
-
-// frontendMarkCache keeps PiG's mark, the pig head of the active sprite, with
-// the sprite and the color mode it was built from, so a frame rebuilds it
-// only after one of them changed.
-type frontendMarkCache struct {
-	variant piglogin.Variant
-	mode    tui.TerminalColorMode
-	mark    frontend.Mark
-	built   bool
-}
-
-// read returns the mark of the sprite the startup header draws now, in the
-// active theme's color mode.
-func (c *frontendMarkCache) read() frontend.Mark {
-	variant, mode := piglogin.Active(), tui.ActiveTheme().GetColorMode()
-	if !c.built || mode != c.mode || !piglogin.SameHead(variant, c.variant) {
-		c.variant, c.mode, c.mark, c.built = variant, mode, headMark(variant, mode), true
-	}
-	return c.mark
-}
-
-// headMark is the variant's pig head as HeadLines draws it in mode: its
-// opaque pixels, each in the color its half block takes.
-func headMark(variant piglogin.Variant, mode tui.TerminalColorMode) frontend.Mark {
-	head := piglogin.HeadPixels(variant)
-	pixels := make([]frontend.MarkPixel, len(head))
-	for i, pixel := range head {
-		pixels[i] = frontend.MarkPixel{X: pixel.X, Y: pixel.Y, Color: markPixelColor(pixel.Color, mode)}
-	}
-	return frontend.Mark{Width: piglogin.HeadWidth, Height: piglogin.HeadHeight, Pixels: pixels}
-}
-
-// markPixelColor is the color a terminal shows for value drawn in mode: the
-// color itself in truecolor, and in 256-color mode the xterm color of the
-// palette index the SGR sequence that HeadLines writes selects.
-func markPixelColor(value color.RGBA, mode tui.TerminalColorMode) string {
-	c, err := tui.NewRgbColor(float64(value.R), float64(value.G), float64(value.B))
-	if err != nil {
-		panic(err) // the channels are bytes, inside the 0..255 range NewRgbColor accepts
-	}
-	if mode == tui.TerminalColorModeTrueColor {
-		return tui.ColorToHex(c)
-	}
-	sgr := tui.ForegroundAnsi(c, mode)
-	index, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(sgr, "\x1b[38;5;"), "m"))
-	if err != nil {
-		panic(fmt.Sprintf("256-color sequence %q", sgr))
-	}
-	return tui.ColorToHex(tui.IndexedColor{Index: index})
 }
 
 // frontendWorking reports the active status indicator, which the terminal

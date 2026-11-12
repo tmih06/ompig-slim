@@ -65,18 +65,9 @@ const (
 	// WordDictionaries are the dictionaries that find word boundaries in CJK,
 	// Thai, Lao, Khmer and Burmese text for word navigation.
 	WordDictionaries = "word-dictionaries"
-	// ExportHTML is the HTML session export (/export to .html, --export,
-	// RPC export_html).
-	ExportHTML = "export-html"
 	// SelfUpdate is `pig update` of the pig binary and the startup new
 	// version notice.
 	SelfUpdate = "self-update"
-	// Changelog is the bundled changelog behind /changelog and the startup
-	// What's New.
-	Changelog = "changelog"
-	// Docs is the bundled PiG documentation (`pig docs`) and the system
-	// prompt section that points the model at it.
-	Docs = "docs"
 	// Mermaid draws mermaid code blocks as diagrams.
 	Mermaid = "mermaid"
 	// PigletBuilder is `pig piglet build` and `pig piglet publish`.
@@ -94,8 +85,7 @@ func Features() []string {
 func BinaryFeatures() []string {
 	return []string{
 		NodeExtensions, ExtensionSDKGo, ExtensionSDKRust, ExtensionSDKPython, ExtensionSDKLisp,
-		SyntaxHighlight, WordDictionaries, ExportHTML, SelfUpdate, Changelog,
-		Docs, Mermaid, PigletBuilder,
+		SyntaxHighlight, WordDictionaries, SelfUpdate, Mermaid, PigletBuilder,
 	}
 }
 

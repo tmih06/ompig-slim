@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
@@ -157,21 +156,12 @@ type SlashContext struct {
 	// SelectedModelKey is `provider/id` of the session's selected model, the key of a single-model /session cost total.
 	SelectedModelKey func() string
 	ToolNames        func() []string
-	// ToolRenderers returns how HTML exports draw tool calls; see [ExportToolRenderers].
-	ToolRenderers func() func(name string) *extension.ToolRenderers
-	// ShareState returns the system prompt and active tool schemas for the
-	// pi.share entry attached to exported transcripts.
-	ShareState func() ShareState
-	// ShareSession uploads an explicitly requested share artifact. The host
-	// captures the command context so cancellation reaches the HTTP request.
-	ShareSession  func(session *Session, state ShareState, showStatus func(string)) (string, error)
-	SkillNames    func() []string
-	SessionInfo   func() (id, dir string, msgCount int)
-	LastAssistant func() string
-	CopyClipboard func(text string) error
-	CostSummary   func() string
-	ShowHotkeys   func()
-	ShowChangelog func()
+	SkillNames       func() []string
+	SessionInfo      func() (id, dir string, msgCount int)
+	LastAssistant    func() string
+	CopyClipboard    func(text string) error
+	CostSummary      func() string
+	ShowHotkeys      func()
 	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
 	ShowUsage func()
 	// ListResetCredits reads every stored account's saved rate-limit resets.
@@ -636,18 +626,14 @@ func parseSlashLine(line string) (name, args string) {
 // `/help`, the dispatcher, and the autocomplete popup -
 // mirrors upstream's `BUILTIN_SLASH_COMMANDS` re-export from
 // `core/slash-commands.ts`.
-// pig additive (D92): a command the process strips (pigstrip commands), or whose feature it strips (featureCommands), is
+// pig additive (D92): a command the process strips (pigstrip commands) is
 // not in the list, so no registry, dispatcher or completion derived from it offers the command, and typing it sends it to
 // the model like any unknown slash command.
 func BuiltinSlashCommands() []BuiltinSlashCommand {
 	return slices.DeleteFunc(defaultBuiltins(), func(command BuiltinSlashCommand) bool {
-		feature, owned := featureCommands[command.Name]
-		return pigstrip.Has(pigstrip.ListCommands, "/"+command.Name) || owned && pigstrip.Has(pigstrip.ListFeatures, feature)
+		return pigstrip.Has(pigstrip.ListCommands, "/"+command.Name)
 	})
 }
-
-// featureCommands are the built-in commands that only show a strippable feature, by command name.
-var featureCommands = map[string]string{"changelog": pigstrip.Changelog}
 
 // upstreamBuiltinCommandNames is the set of names in Pi's BUILTIN_SLASH_COMMANDS (core/slash-commands.ts): the commands /help and
 // autocomplete list. The hidden /debug and the parity harness probes dispatch but are not in Pi's list, so an extension command may
@@ -690,10 +676,8 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
 		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
 		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
-		{Name: "export", Description: "Export session (HTML default, or specify path: .html/.jsonl)", TakesArguments: true, Handler: exportHandler},
+		{Name: "export", Description: "Export session as JSONL", TakesArguments: true, Handler: exportHandler},
 		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
-		// pig divergence (D64): PiG shares through its own expiring gateway, not a GitHub gist.
-		{Name: "share", Description: "Share session with an unlisted 30-day link", Handler: shareHandler},
 		// pig divergence (D62): /bug exports a local archive; it never uploads.
 		{Name: "bug", Description: "Export a bug report as a zip archive", ArgumentHint: "<description>", TakesArguments: true, Handler: bugHandler},
 		{Name: "copy", Description: "Copy last agent message to clipboard", Handler: copyHandler},
@@ -705,7 +689,6 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			{Value: "show", Label: "show", Description: "Show provider quotas and usage activity"},
 			{Value: "reset", Label: "reset", Description: "Choose a saved rate-limit reset to redeem"},
 		}, TakesArguments: true, Handler: usageHandler},
-		{Name: "changelog", Description: "Show changelog entries", Handler: changelogHandler},
 		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
 		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},
 		{Name: "clone", Description: "Duplicate the current session at the current position", Handler: cloneHandler},

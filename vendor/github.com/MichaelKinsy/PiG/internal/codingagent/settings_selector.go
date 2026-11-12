@@ -37,8 +37,6 @@ type SettingsConfig struct {
 	HideThinkingBlock       bool
 	MermaidRenderingMode    MermaidRenderingMode
 	ShowCacheMissNotices    bool
-	CollapseChangelog       bool
-	EnableInstallTelemetry  bool
 	DoubleEscapeAction      string
 	TreeFilterMode          string
 	ShowHardwareCursor      bool
@@ -81,8 +79,6 @@ type SettingsCallbacks struct {
 	OnHideThinkingBlockChange          func(hidden bool)
 	OnMermaidRenderingModeChange       func(mode MermaidRenderingMode)
 	OnShowCacheMissNoticesChange       func(shown bool)
-	OnCollapseChangelogChange          func(collapsed bool)
-	OnEnableInstallTelemetryChange     func(enabled bool)
 	OnDoubleEscapeActionChange         func(action string)
 	OnTreeFilterModeChange             func(mode string)
 	OnShowHardwareCursorChange         func(enabled bool)
@@ -549,9 +545,7 @@ func NewSettingsSelectorComponent(config SettingsConfig, callbacks SettingsCallb
 		toggle("hide-thinking", "Hide thinking", "Hide thinking blocks in assistant responses", config.HideThinkingBlock),
 		cycle("mermaid-rendering", "Mermaid diagrams", "Render Mermaid code blocks as Unicode diagrams", string(config.MermaidRenderingMode), string(MermaidRenderingOff), string(MermaidRenderingFinal), string(MermaidRenderingStreaming)),
 		toggle("cache-miss-notices", "Cache miss notices", "Show transcript notices for cache costs and provider recovery diagnostics", config.ShowCacheMissNotices),
-		toggle("collapse-changelog", "Collapse changelog", "Show condensed changelog after updates", config.CollapseChangelog),
 		cycle("quiet-startup", "Quiet startup", "Disable verbose printing at startup (header: keep only the startup header)", config.QuietStartup.String(), "true", "header", "false"),
-		toggle("install-telemetry", "Install telemetry", "Send an anonymous version/update ping after changelog-detected updates", config.EnableInstallTelemetry),
 		cycle("default-project-trust", "Default project trust", "Fallback behavior when no extension or saved trust decision decides project trust", defaultProjectTrustLabel(config.DefaultProjectTrust), trustLabels...),
 		cycle("double-escape-action", "Double-escape action", "Action when pressing Escape twice with empty editor", config.DoubleEscapeAction, doubleEscapeActions()...),
 		cycle("tree-filter-mode", "Tree filter mode", "Default filter when opening /tree", config.TreeFilterMode, "default", "no-tools", "user-only", "labeled-only", "all"),
@@ -690,10 +684,6 @@ func (s *SettingsSelectorComponent) dispatch(callbacks SettingsCallbacks, id, ne
 		if callbacks.OnShowCacheMissNoticesChange != nil {
 			callbacks.OnShowCacheMissNoticesChange(newValue == "true")
 		}
-	case "collapse-changelog":
-		if callbacks.OnCollapseChangelogChange != nil {
-			callbacks.OnCollapseChangelogChange(newValue == "true")
-		}
 	case "quiet-startup":
 		if callbacks.OnQuietStartupChange != nil {
 			quiet := QuietStartupFalse
@@ -704,10 +694,6 @@ func (s *SettingsSelectorComponent) dispatch(callbacks SettingsCallbacks, id, ne
 				quiet = QuietStartupTrue
 			}
 			callbacks.OnQuietStartupChange(quiet)
-		}
-	case "install-telemetry":
-		if callbacks.OnEnableInstallTelemetryChange != nil {
-			callbacks.OnEnableInstallTelemetryChange(newValue == "true")
 		}
 	case "default-project-trust":
 		for _, entry := range defaultProjectTrustLabels {

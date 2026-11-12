@@ -20,7 +20,7 @@ func describeGlobals(models bool) string {
 		"- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.",
 	}
 	if models {
-		lines = append(lines, "- `models`: classifiers and image generation."+docsCitation(" Read %s first."))
+		lines = append(lines, "- `models`: classifiers and image generation."+"")
 	}
 	return strings.Join(lines, "\n")
 }

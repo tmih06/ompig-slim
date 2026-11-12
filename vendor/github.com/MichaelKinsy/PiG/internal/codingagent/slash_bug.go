@@ -171,12 +171,7 @@ func buildBugReportBundle(sc *SlashContext, choices bugReportChoices, summary *s
 		Summary:     summary,
 	}
 	if choices.includeSession {
-		// Upstream attaches the pi.share presentation entry to the transcript.
-		var trailing TrailingEntries
-		if sc.ShareState != nil {
-			trailing = shareTrailingEntries(sc.ShareState())
-		}
-		jsonl, err := SerializeSessionBranch(inputs.Header, inputs.Branch, now, trailing)
+		jsonl, err := SerializeSessionBranch(inputs.Header, inputs.Branch, now, nil)
 		if err != nil {
 			return BugReportBundle{}, err
 		}

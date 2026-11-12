@@ -336,19 +336,16 @@ type imageSettingsWire struct {
 // settingsWire mirrors upstream settings JSON.
 type settingsWire struct {
 	modelroles.Config
-	LastChangelogVersion       string                  `json:"lastChangelogVersion,omitempty"`
-	ExtensionChangelogVersions map[string]string       `json:"extensionChangelogVersions,omitzero"`
-	DefaultProvider            *string                 `json:"defaultProvider,omitempty"`
-	DefaultModel               *string                 `json:"defaultModel,omitempty"`
-	DefaultThinkingLevel       string                  `json:"defaultThinkingLevel,omitempty"`
-	Transport                  string                  `json:"transport,omitempty"`
-	SessionShareDestination    SessionShareDestination `json:"sessionShareDestination,omitempty"`
-	SteeringMode               string                  `json:"steeringMode,omitempty"`
-	FollowUpMode               string                  `json:"followUpMode,omitempty"`
-	TuiMode                    string                  `json:"tuiMode,omitempty"`
-	FullscreenExitOutput       FullscreenExitOutput    `json:"fullscreenExitOutput,omitempty"`
-	FullscreenScrollbar        string                  `json:"fullscreenScrollbar,omitempty"`
-	FullscreenCopyOnSelect     *bool                   `json:"fullscreenCopyOnSelect,omitempty"`
+	DefaultProvider        *string              `json:"defaultProvider,omitempty"`
+	DefaultModel           *string              `json:"defaultModel,omitempty"`
+	DefaultThinkingLevel   string               `json:"defaultThinkingLevel,omitempty"`
+	Transport              string               `json:"transport,omitempty"`
+	SteeringMode           string               `json:"steeringMode,omitempty"`
+	FollowUpMode           string               `json:"followUpMode,omitempty"`
+	TuiMode                string               `json:"tuiMode,omitempty"`
+	FullscreenExitOutput   FullscreenExitOutput `json:"fullscreenExitOutput,omitempty"`
+	FullscreenScrollbar    string               `json:"fullscreenScrollbar,omitempty"`
+	FullscreenCopyOnSelect *bool                `json:"fullscreenCopyOnSelect,omitempty"`
 	// FullscreenWheelScrollLines keeps the authored JSON value, including null.
 	FullscreenWheelScrollLines  json.RawMessage         `json:"fullscreenWheelScrollLines,omitempty"`
 	DeviceID                    string                  `json:"deviceId,omitempty"`
@@ -367,11 +364,7 @@ type settingsWire struct {
 	ShellCommandPrefix     *string                  `json:"shellCommandPrefix,omitempty"`
 	NpmCommand             []string                 `json:"npmCommand,omitzero"`
 	SelfUpdateCommand      []string                 `json:"selfUpdateCommand,omitzero"`
-	CollapseChangelog      *bool                    `json:"collapseChangelog,omitempty"`
 	ShowCacheMissNotices   *bool                    `json:"showCacheMissNotices,omitempty"`
-	EnableInstallTelemetry *bool                    `json:"enableInstallTelemetry,omitempty"`
-	EnableAnalytics        *bool                    `json:"enableAnalytics,omitempty"`
-	TrackingID             string                   `json:"trackingId,omitempty"`
 	Packages               []PackageSource          `json:"packages,omitzero"`
 	Extensions             []string                 `json:"extensions,omitzero"`
 	Skills                 []string                 `json:"skills,omitzero"`
@@ -579,15 +572,6 @@ type Settings struct {
 	// costs money. Mirrors upstream settings.cacheWarming.
 	CacheWarming CacheWarmingMode `json:"cacheWarming,omitempty"`
 
-	// LastChangelogVersion records the binary version at which the
-	// user last saw the startup changelog notification. Used to gate
-	// "what's new" display to only new entries since last run.
-	// Mirrors upstream settings.lastChangelogVersion (settings-manager.ts:66).
-	LastChangelogVersion string `json:"lastChangelogVersion,omitempty"`
-	// ExtensionChangelogVersions records the last changelog version seen per extension package, keyed by GetSourcePackageKey.
-	// Mirrors upstream settings.extensionChangelogVersions (settings-schema.ts).
-	ExtensionChangelogVersions map[string]string `json:"extensionChangelogVersions,omitzero"`
-
 	// Compaction mirrors upstream settings.compaction (settings-manager.ts:74).
 	// Nested to match upstream JSON schema:
 	// { "compaction": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 } }
@@ -661,10 +645,6 @@ type Settings struct {
 	// pig additive (D19): Pi runs extensions inside its own Node process. Pi's `extensions` setting is an array, so the key cannot nest under it.
 	ExtensionsTypescriptRuntime *string `json:"extensionsTypescriptRuntime,omitempty"`
 
-	// CollapseChangelog shows condensed startup update notices. The /changelog command always shows every released entry.
-	CollapseChangelog    bool `json:"collapseChangelog,omitempty"`
-	collapseChangelogSet bool `json:"-"`
-
 	// ShowCacheMissNotices controls transcript notices for significant prompt
 	// cache misses. Default: true; an explicit false disables them.
 	// (settings-manager.ts:96).
@@ -677,20 +657,6 @@ type Settings struct {
 	// Note: this is a *bool so false can explicitly disable (vs absent=true default).
 	// Use GetEnableSkillCommands() instead of reading directly.
 	EnableSkillCommands *bool `json:"enableSkillCommands,omitempty"`
-
-	// EnableInstallTelemetry controls whether package-install telemetry may be sent
-	// by pig-specific install telemetry hooks when they are configured.
-	// Default: true.
-	// Mirrors upstream settings.enableInstallTelemetry (settings-manager.ts), but
-	// the transport itself is a separate implementation concern.
-	EnableInstallTelemetry *bool `json:"enableInstallTelemetry,omitempty"`
-
-	// EnableAnalytics is the opt-in analytics data sharing setting (default
-	// false). Mirrors upstream settings plumbing only: nothing sends data.
-	EnableAnalytics *bool `json:"enableAnalytics,omitempty"`
-	// TrackingID is the analytics tracking identifier generated on the first
-	// opt-in. Bug reports strip it.
-	TrackingID string `json:"trackingId,omitempty"`
 
 	// Retry mirrors upstream settings.retry (settings-manager.ts:682-690).
 	// Nested JSON: { "retry": { "enabled": true, "maxRetries": 2,
@@ -720,9 +686,6 @@ type Settings struct {
 	// Values: "sse" | "websocket" | "websocket-cached" | "auto". Default: "auto".
 	// Mirrors upstream settings.transport (settings-manager.ts:70).
 	Transport string `json:"transport,omitempty"`
-
-	// SessionShareDestination is Pi's /share destination (settings-schema.ts sessionShareDestination). Values: "auto" | "gist" | "radius". Default: "auto".
-	SessionShareDestination SessionShareDestination `json:"sessionShareDestination,omitempty"`
 
 	// ShowHardwareCursor controls whether the hardware cursor is shown.
 	// Default: false (or PI_HARDWARE_CURSOR=1 env).
@@ -1033,8 +996,6 @@ func cloneSettings(s Settings) Settings {
 		CacheWarming:                   s.CacheWarming,
 		DefaultTools:                   slices.Clone(s.DefaultTools),
 		ModelThinkingLevels:            maps.Clone(s.ModelThinkingLevels),
-		LastChangelogVersion:           s.LastChangelogVersion,
-		ExtensionChangelogVersions:     maps.Clone(s.ExtensionChangelogVersions),
 		Compaction:                     cloneCompactionSettings(s.Compaction),
 		BranchSummary:                  cloneBranchSummary(s.BranchSummary),
 		DoubleEscapeAction:             s.DoubleEscapeAction,
@@ -1052,14 +1013,9 @@ func cloneSettings(s Settings) Settings {
 		MaskSecretInput:                cloneBoolPtr(s.MaskSecretInput),
 		ExtensionsAutoUpgrade:          cloneBoolPtr(s.ExtensionsAutoUpgrade),
 		ExtensionsTypescriptRuntime:    cloneStringPtr(s.ExtensionsTypescriptRuntime),
-		CollapseChangelog:              s.CollapseChangelog,
-		collapseChangelogSet:           s.collapseChangelogSet,
 		ShowCacheMissNotices:           s.ShowCacheMissNotices,
 		showCacheMissNoticesSet:        s.showCacheMissNoticesSet,
 		EnableSkillCommands:            cloneBoolPtr(s.EnableSkillCommands),
-		EnableInstallTelemetry:         cloneBoolPtr(s.EnableInstallTelemetry),
-		EnableAnalytics:                cloneBoolPtr(s.EnableAnalytics),
-		TrackingID:                     s.TrackingID,
 		Retry:                          cloneRetrySettings(s.Retry),
 		ShowImages:                     cloneBoolPtr(s.ShowImages),
 		ImageWidthCells:                s.ImageWidthCells,
@@ -1068,7 +1024,6 @@ func cloneSettings(s Settings) Settings {
 		blockImagesSet:                 s.blockImagesSet,
 		ImageAutoResize:                cloneBoolPtr(s.ImageAutoResize),
 		Transport:                      s.Transport,
-		SessionShareDestination:        s.SessionShareDestination,
 		ShowHardwareCursor:             cloneBoolPtr(s.ShowHardwareCursor),
 		EditorPaddingX:                 cloneIntPtr(s.EditorPaddingX),
 		OutputPad:                      cloneIntPtr(s.OutputPad),
@@ -1099,12 +1054,10 @@ func (s Settings) themeSetting() *string {
 func (s Settings) MarshalJSON() ([]byte, error) {
 	w := settingsWire{
 		Config:                      s.Config,
-		LastChangelogVersion:        s.LastChangelogVersion,
 		DefaultProvider:             optionalString(s.DefaultProvider, s.emptyStrings.defaultProvider),
 		DefaultModel:                optionalString(s.DefaultModel, s.emptyStrings.defaultModel),
 		DefaultThinkingLevel:        s.DefaultThinkingLevel,
 		Transport:                   s.Transport,
-		SessionShareDestination:     s.SessionShareDestination,
 		SteeringMode:                s.SteeringMode,
 		FollowUpMode:                s.FollowUpMode,
 		TuiMode:                     s.TuiMode,
@@ -1123,9 +1076,6 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 		ShellPath:                   optionalString(s.ShellPath, s.emptyStrings.shellPath),
 		NpmCommand:                  s.NpmCommand,
 		SelfUpdateCommand:           s.SelfUpdateCommand,
-		EnableInstallTelemetry:      s.EnableInstallTelemetry,
-		EnableAnalytics:             s.EnableAnalytics,
-		TrackingID:                  s.TrackingID,
 		Packages:                    s.Packages,
 		Extensions:                  s.Extensions,
 		Skills:                      s.Skills,
@@ -1134,7 +1084,6 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 		EnableSkillCommands:         s.EnableSkillCommands,
 		DefaultTools:                s.DefaultTools,
 		ModelThinkingLevels:         s.ModelThinkingLevels,
-		ExtensionChangelogVersions:  s.ExtensionChangelogVersions,
 		DoubleEscapeAction:          s.DoubleEscapeAction,
 		TreeFilterMode:              s.TreeFilterMode,
 		DefaultProjectTrust:         s.DefaultProjectTrust,
@@ -1160,10 +1109,6 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 		w.QuietStartup, _ = s.QuietStartup.MarshalJSON()
 	}
 	w.ShellCommandPrefix = optionalString(s.CommandPrefix, s.emptyStrings.commandPrefix)
-	if s.collapseChangelogSet {
-		v := s.CollapseChangelog
-		w.CollapseChangelog = &v
-	}
 	if s.showCacheMissNoticesSet {
 		v := s.ShowCacheMissNotices
 		w.ShowCacheMissNotices = &v
@@ -1251,13 +1196,11 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.ignored = ignored
-	s.LastChangelogVersion = w.LastChangelogVersion
 	s.DefaultProvider, s.emptyStrings.defaultProvider = presentString(w.DefaultProvider)
 	s.DefaultModel, s.emptyStrings.defaultModel = presentString(w.DefaultModel)
 	s.Config = w.Config
 	s.DefaultThinkingLevel = w.DefaultThinkingLevel
 	s.Transport = w.Transport
-	s.SessionShareDestination = w.SessionShareDestination
 	s.SteeringMode = w.SteeringMode
 	s.FollowUpMode = w.FollowUpMode
 	s.TuiMode = w.TuiMode
@@ -1301,17 +1244,10 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 		s.quietStartupSet = true
 	}
 	s.CommandPrefix, s.emptyStrings.commandPrefix = presentString(w.ShellCommandPrefix)
-	if w.CollapseChangelog != nil {
-		s.CollapseChangelog = *w.CollapseChangelog
-		s.collapseChangelogSet = true
-	}
 	if w.ShowCacheMissNotices != nil {
 		s.ShowCacheMissNotices = *w.ShowCacheMissNotices
 		s.showCacheMissNoticesSet = true
 	}
-	s.EnableInstallTelemetry = w.EnableInstallTelemetry
-	s.EnableAnalytics = w.EnableAnalytics
-	s.TrackingID = w.TrackingID
 	s.Packages = w.Packages
 	if len(w.Packages) > 0 {
 		// The wire decode went through a map, which lost each package object's key order.
@@ -1347,7 +1283,6 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 	}
 	s.DefaultTools = w.DefaultTools
 	s.ModelThinkingLevels = w.ModelThinkingLevels
-	s.ExtensionChangelogVersions = w.ExtensionChangelogVersions
 	s.DoubleEscapeAction = w.DoubleEscapeAction
 	s.TreeFilterMode = w.TreeFilterMode
 	s.DefaultProjectTrust = w.DefaultProjectTrust
@@ -1706,9 +1641,6 @@ func (s Settings) GetShowCacheMissNotices() bool {
 
 // GetQuietStartup returns the quiet startup setting: true, "header" or false.
 func (s Settings) GetQuietStartup() QuietStartup { return s.QuietStartup }
-
-// GetCollapseChangelog returns whether changelog output is collapsed.
-func (s Settings) GetCollapseChangelog() bool { return s.CollapseChangelog }
 
 // GetBlockImages returns whether image rendering is blocked entirely.
 func (s Settings) GetBlockImages() bool { return s.BlockImages }
@@ -2222,46 +2154,6 @@ func (sm *SettingsManager) SetCacheWarmingMode(mode CacheWarmingMode) error {
 	return sm.UpdateGlobal(func(s *Settings) { s.CacheWarming = mode })
 }
 
-// GetLastChangelogVersion returns the last seen changelog version string.
-// Mirrors upstream getLastChangelogVersion (settings-manager.ts:529).
-func (sm *SettingsManager) GetLastChangelogVersion() string {
-	return readMerged(sm, func(s *Settings) string { return s.LastChangelogVersion })
-}
-
-// SetLastChangelogVersion records that the user has seen changelog entries
-// up to and including version. Persists to global settings.
-// Mirrors upstream setLastChangelogVersion (settings-manager.ts:533-535).
-func (sm *SettingsManager) SetLastChangelogVersion(version string) error {
-	return sm.UpdateGlobal(func(s *Settings) {
-		s.LastChangelogVersion = version
-	})
-}
-
-// GetExtensionChangelogVersion returns the last changelog version seen for the extension package key (GetSourcePackageKey), if any.
-// Mirrors upstream getExtensionChangelogVersion (settings-manager.ts).
-func (sm *SettingsManager) GetExtensionChangelogVersion(key string) (string, bool) {
-	type seen struct {
-		version string
-		ok      bool
-	}
-	got := readMerged(sm, func(s *Settings) seen {
-		version, ok := s.ExtensionChangelogVersions[key]
-		return seen{version, ok}
-	})
-	return got.version, got.ok
-}
-
-// SetExtensionChangelogVersion records that the user has seen the changelog of the extension package key up to version. Persists to
-// global settings, changing only that key. Mirrors upstream setExtensionChangelogVersion.
-func (sm *SettingsManager) SetExtensionChangelogVersion(key, version string) error {
-	return sm.UpdateGlobal(func(s *Settings) {
-		if s.ExtensionChangelogVersions == nil {
-			s.ExtensionChangelogVersions = map[string]string{}
-		}
-		s.ExtensionChangelogVersions[key] = version
-	})
-}
-
 // GetSteeringMode returns the steering queue dispatch mode.
 // Default: "one-at-a-time". Mirrors upstream getSteeringMode (settings-manager.ts:581).
 func (sm *SettingsManager) GetSteeringMode() string {
@@ -2460,12 +2352,6 @@ func (sm *SettingsManager) GetMermaidRenderingMode() MermaidRenderingMode {
 // Default: true. Mirrors upstream getEnableSkillCommands (settings-manager.ts:1264-1266).
 func (sm *SettingsManager) GetEnableSkillCommands() bool {
 	return readMerged(sm, func(s *Settings) bool { return s.EnableSkillCommands == nil || *s.EnableSkillCommands })
-}
-
-// GetCollapseChangelog returns whether to show a condensed changelog.
-// Default: false. Mirrors upstream getCollapseChangelog (settings-manager.ts:743).
-func (sm *SettingsManager) GetCollapseChangelog() bool {
-	return readMerged(sm, func(s *Settings) bool { return s.CollapseChangelog })
 }
 
 // GetTreeFilterMode returns the default /tree filter mode.
@@ -2703,16 +2589,6 @@ func (sm *SettingsManager) GetTransport() string {
 	return t
 }
 
-// GetSessionShareDestination returns the configured /share destination. Values other than "gist" and "radius" read as "auto" (settings-manager.ts getSessionShareDestination).
-// pig divergence (D64): /share uploads to the PiG gateway for every value; the setting is kept for shared settings files and the SDK.
-func (sm *SettingsManager) GetSessionShareDestination() SessionShareDestination {
-	switch destination := sm.Get().SessionShareDestination; destination {
-	case SessionShareDestinationGist, SessionShareDestinationRadius:
-		return destination
-	}
-	return SessionShareDestinationAuto
-}
-
 // GetHideThinkingBlock returns whether thinking blocks should be hidden.
 func (sm *SettingsManager) GetHideThinkingBlock() bool {
 	return readMerged(sm, func(s *Settings) bool { return s.HideThinkingBlock })
@@ -2773,67 +2649,6 @@ func (sm *SettingsManager) GetShellCommandPrefix() string {
 // GetNpmCommand returns the npm command override. Default: nil (use "npm").
 func (sm *SettingsManager) GetNpmCommand() []string {
 	return readMerged(sm, func(s *Settings) []string { return slices.Clone(s.NpmCommand) })
-}
-
-// GetEnableAnalytics reports the opt-in analytics setting (default false).
-// Mirrors upstream SettingsManager.getEnableAnalytics.
-func (sm *SettingsManager) GetEnableAnalytics() bool {
-	return readMerged(sm, func(s *Settings) bool { return s.EnableAnalytics != nil && *s.EnableAnalytics })
-}
-
-// GetTrackingID returns the analytics tracking identifier, or "". Mirrors
-// upstream getTrackingId.
-func (sm *SettingsManager) GetTrackingID() string {
-	return readMerged(sm, func(s *Settings) string { return s.TrackingID })
-}
-
-// SetEnableAnalytics saves the analytics opt-in. The first opt-in generates a
-// random UUID tracking identifier, which later toggles keep. Mirrors upstream
-// setEnableAnalytics.
-func (sm *SettingsManager) SetEnableAnalytics(enabled bool) error {
-	return sm.UpdateGlobal(func(s *Settings) {
-		s.EnableAnalytics = &enabled
-		if enabled && s.TrackingID == "" {
-			s.TrackingID = uuid.NewString()
-		}
-	})
-}
-
-// GetEnableInstallTelemetry returns whether package-install telemetry is enabled.
-// Default: true. This only answers the setting/env gate; it does not imply a
-// transport is configured or that telemetry will actually be delivered.
-func (sm *SettingsManager) GetEnableInstallTelemetry() bool {
-	return readMerged(sm, func(s *Settings) bool { return s.EnableInstallTelemetry == nil || *s.EnableInstallTelemetry })
-}
-
-// IsInstallTelemetryEnabled reports whether install/attribution telemetry is
-// enabled, honoring the PI_TELEMETRY env override first and otherwise the
-// enableInstallTelemetry setting (default true). Mirrors upstream
-// isInstallTelemetryEnabled (telemetry.ts:8): when PI_TELEMETRY is set its
-// truthiness wins; otherwise the setting decides. Gates provider attribution
-// headers (provider-attribution.ts) in addition to package-install telemetry.
-// pig divergence (D26): gates the OpenRouter/NVIDIA/Cloudflare attribution headers in coding/model.go.
-func (sm *SettingsManager) IsInstallTelemetryEnabled() bool {
-	if env, ok := os.LookupEnv("PI_TELEMETRY"); ok {
-		return isTruthyTelemetryEnvFlag(env)
-	}
-	return sm.GetEnableInstallTelemetry()
-}
-
-// isTruthyTelemetryEnvFlag mirrors upstream isTruthyEnvFlag (telemetry.ts:3):
-// "1", "true", or "yes" (case-insensitive) are truthy; everything else, including
-// empty, is falsy.
-// pig divergence (D26): telemetry gate feeding the attribution-header decision.
-func isTruthyTelemetryEnvFlag(value string) bool {
-	if value == "" {
-		return false
-	}
-	switch strings.ToLower(value) {
-	case "1", "true", "yes":
-		return true
-	default:
-		return false
-	}
 }
 
 // GetPackages returns the configured package sources, or an empty list.
@@ -3111,11 +2926,6 @@ func (sm *SettingsManager) SetTransport(transport string) error {
 	return sm.UpdateGlobal(func(s *Settings) { s.Transport = transport })
 }
 
-// SetSessionShareDestination sets the /share destination in the global settings.
-func (sm *SettingsManager) SetSessionShareDestination(destination SessionShareDestination) error {
-	return sm.UpdateGlobal(func(s *Settings) { s.SessionShareDestination = destination })
-}
-
 // SetCompactionEnabled enables or disables auto-compaction.
 func (sm *SettingsManager) SetCompactionEnabled(enabled bool) error {
 	return sm.UpdateGlobal(func(s *Settings) {
@@ -3187,20 +2997,6 @@ func (sm *SettingsManager) SetShellCommandPrefix(prefix string) error {
 // SetNpmCommand sets the npm command override.
 func (sm *SettingsManager) SetNpmCommand(cmd []string) error {
 	return sm.UpdateGlobal(func(s *Settings) { s.NpmCommand = cmd })
-}
-
-// SetCollapseChangelog sets whether changelog is collapsed.
-func (sm *SettingsManager) SetCollapseChangelog(collapse bool) error {
-	return sm.UpdateGlobal(func(s *Settings) {
-		s.CollapseChangelog = collapse
-		s.collapseChangelogSet = true
-	})
-}
-
-// SetEnableInstallTelemetry sets whether package-install telemetry is enabled.
-// This toggles the gate only; delivery depends on the configured sender.
-func (sm *SettingsManager) SetEnableInstallTelemetry(enabled bool) error {
-	return sm.UpdateGlobal(func(s *Settings) { s.EnableInstallTelemetry = &enabled })
 }
 
 // SetEnableSkillCommands sets whether skill commands are enabled.
@@ -3897,18 +3693,11 @@ func mergeSettings(global, project Settings) Settings {
 	if project.ShellPath != "" || project.emptyStrings.shellPath {
 		m.ShellPath, m.emptyStrings.shellPath = project.ShellPath, project.emptyStrings.shellPath
 	}
-	// deepMergeSettings lets every project key override, lastChangelogVersion included (settings-manager.ts getLastChangelogVersion reads the merged view).
-	if project.LastChangelogVersion != "" {
-		m.LastChangelogVersion = project.LastChangelogVersion
-	}
 	if project.CommandPrefix != "" || project.emptyStrings.commandPrefix {
 		m.CommandPrefix, m.emptyStrings.commandPrefix = project.CommandPrefix, project.emptyStrings.commandPrefix
 	}
 	if project.Transport != "" {
 		m.Transport = project.Transport
-	}
-	if project.SessionShareDestination != "" {
-		m.SessionShareDestination = project.SessionShareDestination
 	}
 	if project.SessionDir != "" {
 		m.SessionDir = project.SessionDir
@@ -3949,15 +3738,6 @@ func mergeSettings(global, project Settings) Settings {
 		}
 		maps.Copy(merged, project.ModelThinkingLevels)
 		m.ModelThinkingLevels = merged
-	}
-	if project.ExtensionChangelogVersions != nil {
-		// Upstream deep-merges nested objects: project keys override global.
-		merged := maps.Clone(m.ExtensionChangelogVersions)
-		if merged == nil {
-			merged = map[string]string{}
-		}
-		maps.Copy(merged, project.ExtensionChangelogVersions)
-		m.ExtensionChangelogVersions = merged
 	}
 	if project.NpmCommand != nil {
 		m.NpmCommand = append([]string{}, project.NpmCommand...)
@@ -4092,26 +3872,12 @@ func mergeSettings(global, project Settings) Settings {
 	if project.FullscreenCopyOnSelect != nil {
 		m.FullscreenCopyOnSelect = cloneBoolPtr(project.FullscreenCopyOnSelect)
 	}
-	if project.collapseChangelogSet {
-		m.CollapseChangelog = project.CollapseChangelog
-		m.collapseChangelogSet = true
-	}
 	if project.showCacheMissNoticesSet {
 		m.ShowCacheMissNotices = project.ShowCacheMissNotices
 		m.showCacheMissNoticesSet = true
 	}
 	if project.EnableSkillCommands != nil {
 		m.EnableSkillCommands = cloneBoolPtr(project.EnableSkillCommands)
-	}
-	if project.EnableInstallTelemetry != nil {
-		m.EnableInstallTelemetry = cloneBoolPtr(project.EnableInstallTelemetry)
-	}
-	// deepMergeSettings lets a project file override enableAnalytics and trackingId too (getEnableAnalytics and getTrackingId read the merged view).
-	if project.EnableAnalytics != nil {
-		m.EnableAnalytics = cloneBoolPtr(project.EnableAnalytics)
-	}
-	if project.TrackingID != "" {
-		m.TrackingID = project.TrackingID
 	}
 	if project.hideThinkingBlockSet {
 		m.HideThinkingBlock = project.HideThinkingBlock
@@ -4211,13 +3977,4 @@ type FullscreenExitOutput string
 const (
 	FullscreenExitOutputTranscript FullscreenExitOutput = "transcript"
 	FullscreenExitOutputResumeHint FullscreenExitOutput = "resume-hint"
-)
-
-// SessionShareDestination selects where /share uploads (settings-schema.ts SessionShareDestination).
-type SessionShareDestination string
-
-const (
-	SessionShareDestinationAuto   SessionShareDestination = "auto"
-	SessionShareDestinationGist   SessionShareDestination = "gist"
-	SessionShareDestinationRadius SessionShareDestination = "radius"
 )

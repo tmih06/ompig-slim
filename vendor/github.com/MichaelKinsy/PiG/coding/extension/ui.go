@@ -375,3 +375,9 @@ type WidthLines struct {
 	Lines []string
 	Width int
 }
+
+// TerminalBeller is a UI with a terminal to ring: Bell writes BEL between frames. A UI without one (print, JSON and RPC
+// modes) does not implement it, and the call does nothing.
+type TerminalBeller interface {
+	Bell()
+}

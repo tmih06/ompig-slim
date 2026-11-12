@@ -333,10 +333,6 @@ func (g *GraphSettingsManager) Call(_ context.Context, method string, raw json.R
 		return nil, sm.Flush()
 	case "drainErrors":
 		return drainErrors(sm)
-	case "getLastChangelogVersion":
-		return optStr(sm.GetLastChangelogVersion()), nil
-	case "setLastChangelogVersion":
-		return nil, setString(args, 0, sm.SetLastChangelogVersion)
 	case "getSessionDir":
 		dir, err := sm.GetSessionDir()
 		return optStr(dir), err
@@ -416,10 +412,6 @@ func (g *GraphSettingsManager) Call(_ context.Context, method string, raw json.R
 		return sm.GetTransport(), nil
 	case "setTransport":
 		return nil, setString(args, 0, sm.SetTransport)
-	case "getSessionShareDestination":
-		return sm.GetSessionShareDestination(), nil
-	case "setSessionShareDestination":
-		return nil, setString(args, 0, sm.SetSessionShareDestination)
 	case "getCompactionEnabled":
 		return sm.GetCompactionEnabled(), nil
 	case "setCompactionEnabled":
@@ -515,20 +507,6 @@ func (g *GraphSettingsManager) Call(_ context.Context, method string, raw json.R
 		return sm.GetNpmCommand(), nil
 	case "setNpmCommand":
 		return nil, setStrings(args, 0, sm.SetNpmCommand)
-	case "getCollapseChangelog":
-		return sm.GetCollapseChangelog(), nil
-	case "setCollapseChangelog":
-		return nil, setBool(args, 0, sm.SetCollapseChangelog)
-	case "getEnableInstallTelemetry":
-		return sm.GetEnableInstallTelemetry(), nil
-	case "setEnableInstallTelemetry":
-		return nil, setBool(args, 0, sm.SetEnableInstallTelemetry)
-	case "getEnableAnalytics":
-		return sm.GetEnableAnalytics(), nil
-	case "getTrackingId":
-		return optStr(sm.GetTrackingID()), nil
-	case "setEnableAnalytics":
-		return nil, setBool(args, 0, sm.SetEnableAnalytics)
 	case "getOrCreateDeviceId":
 		return sm.GetOrCreateDeviceID(), nil
 	case "getPackages":

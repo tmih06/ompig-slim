@@ -52,7 +52,7 @@ func systemPromptRebuilder(cwd, agentDir string, projectTrusted bool, flags Args
 		resolvedPrompts := resolvePromptInputs(cwd, agentDir, flags, projectTrusted)
 		options := prompts.Options{
 			Cwd: cwd, Tools: toolNames, ToolHints: toolHints, ToolGuidelines: toolGuidelines,
-			Skills: promptSkills, PigDocsPath: codingagent.GetDocsPath(), PigReadmePath: codingagent.GetReadmePath(), PigExamplesPath: codingagent.GetExamplesPath(),
+			Skills:     promptSkills,
 			AppendMode: "append", ContextFiles: promptCtxFiles,
 			CustomPrompt: resolvedPrompts.custom, AppendSystemPrompt: resolvedPrompts.append,
 		}

@@ -20,11 +20,6 @@ type PiSourceInfo = extension.SourceInfo
 // entry type of pi.getCommands() and of RPC get_commands.
 type SlashCommandInfo = extension.SlashCommandInfo
 
-// LlamaExtensionPath is the source path upstream gives the built-in llama.cpp
-// extension (`builtin:${name}`).
-// Ports .upstream/v0.99.1/packages/coding-agent/src/extensions/index.ts:8 and core/resource-loader.ts:706-735.
-const LlamaExtensionPath = BuiltinPathPrefix + "llama.cpp"
-
 // ExtensionCommandLister is the extension runner surface the command catalog
 // reads.
 type ExtensionCommandLister interface {

@@ -223,16 +223,10 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	// and TuiMode), so the runtime settings keep the saved values as Pi's do.
 	settings := services.Settings()
 
-	if extensionset.HasInline(b.extensionFactories) {
-		// An embedding program's own factories run in this process and may read what the system prompt names.
-		writeDocsBundle()
-	}
 	// sdkDiagnostics reports a staging failure of a replacement build, which runs while the mode owns the terminal.
 	var sdkDiagnostics []codingagent.AgentSessionRuntimeDiagnostic
-	// beforeExtensionStart runs before an extension load starts its first extension. An extension process may read any file the system prompt
-	// names, and builds and runtimes read the staged SDKs.
+	// Stage SDKs only when an extension needs to build or run against them.
 	beforeExtensionStart := func(needsStagedSDK bool) {
-		writeDocsBundle()
 		if !needsStagedSDK {
 			return
 		}
@@ -641,9 +635,8 @@ func (b *cliRuntimeBuilder) loadPromptResources(build *cliBuild, agentToolNames 
 		ToolHints:      toolHints,
 		ToolGuidelines: toolGuidelines,
 		Skills:         promptSkills,
-		PigDocsPath:    codingagent.GetDocsPath(), PigReadmePath: codingagent.GetReadmePath(), PigExamplesPath: codingagent.GetExamplesPath(),
-		AppendMode:   "append",
-		ContextFiles: promptCtxFiles,
+		AppendMode:     "append",
+		ContextFiles:   promptCtxFiles,
 	}
 	if resolvedPrompts.custom != "" {
 		promptOptions.CustomPrompt = resolvedPrompts.custom
