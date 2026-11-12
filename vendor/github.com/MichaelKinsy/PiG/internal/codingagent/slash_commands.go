@@ -372,8 +372,14 @@ type SlashContext struct {
 	// started from.
 	StartProviderLogin func(provider tui.OAuthProvider) error
 
-	// Logout removes stored credentials for the given provider.
-	// Mirrors upstream showOAuthSelector logout branch (interactive-mode.ts:4299).
+	// LogoutAccounts lists the provider's live stored accounts, active first.
+	LogoutAccounts func(provider string) ([]ai.CredentialAccountInfo, error)
+	// SelectLogoutAccount selects one row; false cancels without removing credentials.
+	SelectLogoutAccount func(provider tui.OAuthProvider, accounts []ai.CredentialAccountInfo) (ai.CredentialAccountInfo, bool)
+	// LogoutAccount removes exactly the selected stored identity, including a nil key.
+	// False means another client already removed it; errors may follow committed removal.
+	LogoutAccount func(account ai.CredentialAccountInfo) (bool, error)
+	// Logout removes extension-owned credentials when the core store has no accounts.
 	// May be nil in headless/test contexts; handlers must guard.
 	Logout func(provider string) error
 
@@ -916,7 +922,7 @@ func loginHandler(sc *SlashContext) error {
 
 // logoutHandler removes a stored credential without changing environment or models.json configuration.
 func logoutHandler(sc *SlashContext) error {
-	if sc.LogoutProviders == nil || sc.Logout == nil {
+	if sc.LogoutProviders == nil || sc.LogoutAccounts == nil || sc.SelectLogoutAccount == nil || sc.LogoutAccount == nil || sc.Logout == nil {
 		sc.Append("Provider logout is not available in this context.")
 		return nil
 	}

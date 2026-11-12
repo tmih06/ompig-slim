@@ -122,7 +122,7 @@ a Herdr server restart.
 | Loop guard | Steers the primary agent away from identical tool calls after five consecutive turns |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
-| Accounts | Multiple accounts per provider, quota-aware routing, imported credentials, rate-limit resets |
+| Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub |
 | TUI | omp-style tool cards, prompt-anchored task/quota widget, stop-time todo reminder |
 | Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |

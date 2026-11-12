@@ -1080,7 +1080,14 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		ProbeOAuthCodex:        m.probeOAuthCodex,
 		LoginProviders:         func() []tui.OAuthProvider { return m.getLoginProviderOptions() },
 		LogoutProviders:        m.getLogoutProviderOptions,
-		SelectAuthMethod:       m.showLoginAuthTypeSelector,
+		LogoutAccounts: func(provider string) ([]ai.CredentialAccountInfo, error) {
+			return m.getLogoutAccounts(ctx, provider)
+		},
+		SelectLogoutAccount: m.selectLogoutAccount,
+		LogoutAccount: func(account ai.CredentialAccountInfo) (bool, error) {
+			return m.runAccountLogout(ctx, account)
+		},
+		SelectAuthMethod: m.showLoginAuthTypeSelector,
 		SelectAuthProvider: func(mode string, providers []tui.OAuthProvider, initialSearch string) (tui.OAuthProvider, bool) {
 			var chosen tui.OAuthProvider
 			sel := tui.NewOAuthSelectorComponent(mode, providers, func(providerID, authType string) {
@@ -1100,7 +1107,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			}
 			return m.runAPIKeyLogin(provider)
 		},
-		// /logout: remove stored credentials.
+		// /logout: extension-owned credentials have no core account row.
 		Logout: func(provider string) error {
 			return m.runOAuthLogout(ctx, provider)
 		},
