@@ -53,14 +53,14 @@ func (t *ReadTool) Label() string { return "" }
 func (t *ReadTool) Schema() ai.ToolSchema {
 	return toolSchemaWithParameters(ai.ToolSchema{
 		Name:                "read",
-		Description:         "Read the contents of a file, an http(s) URL, or a GitHub issue://n or pr://n reference. A file may be text or an image (jpg, png, gif, webp, bmp); images are sent as attachments. URLs are rendered to readable text, Markdown or an image by a deterministic pipeline. GitHub references use the current repository (or owner/repo in the reference) and include the issue or pull request description and comments. Append :raw to a URL for the unmodified body and :50-80 for a line range. Output is truncated to 2000 lines (300 for a URL) or 50KB, whichever is hit first; use offset/limit for large files, or continue with offset until complete.",
+		Description:         "Read the contents of a file, an http(s) URL, or a GitHub issue://n or pr://n reference. A file may be text or an image (jpg, png, gif, webp, bmp); images are sent as attachments. URLs are rendered to readable text, Markdown or an image by a deterministic pipeline. GitHub issue/PR URLs include the description and comments. For issue://n and pr://n, owner/repo is auto-detected from the current checkout (including worktrees); no username or repository argument is needed. Explicit owner/repo references also work. Append :raw to a URL for the unmodified body and :50-80 for a line range. Output is truncated to 2000 lines (300 for a URL) or 50KB, whichever is hit first; use offset/limit for large files, or continue with offset until complete.",
 		ConstrainedSampling: strictToolSampling(),
 		PromptGuidelines: []string{
 			"Use read to examine files instead of cat or sed.",
 			"Use read with an http(s) URL to fetch a web page or document instead of curl or wget; append :raw for the unmodified body or :50-80 for a line range.",
 		},
 	}, `{"type":"object","required":["path"],"properties":{
-		"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},
+		"path":{"type":"string","description":"File path, http(s) URL, or GitHub issue://n / pr://n reference (repository auto-detected)"},
 		"offset":{"type":"number","description":"Line number to start reading from (1-indexed)"},
 		"limit":{"type":"number","description":"Maximum number of lines to read"}
 	}}`)
