@@ -52,29 +52,26 @@ func TestCommandColorPreservesLayout(t *testing.T) {
 					e.cursor = [2]int{0, cursor}
 				}
 				got, want := strings.Join(colored.Render(width), "\n"), strings.Join(plain.Render(width), "\n")
-				// SGR removal deliberately retains APC cursor/fake-cursor markers.
-				for i := 0; i < len(got); {
-					if strings.HasPrefix(got[i:], "\x1b[") {
-						if n := widthx.ExtractAnsi(got, i); n > 0 {
-							got = got[:i] + got[i+n:]
-							continue
-						}
-					}
-					i++
-				}
-				for i := 0; i < len(want); {
-					if strings.HasPrefix(want[i:], "\x1b[") {
-						if n := widthx.ExtractAnsi(want, i); n > 0 {
-							want = want[:i] + want[i+n:]
-							continue
-						}
-					}
-					i++
-				}
+				got, want = stripCommandTestSGR(got), stripCommandTestSGR(want)
 				if got != want {
 					t.Fatalf("%q width %d cursor %d changed layout:\ngot  %q\nwant %q", text, width, cursor, got, want)
 				}
 			}
 		}
 	}
+}
+
+// stripCommandTestSGR removes only styling, retaining APC cursor/fake-cursor
+// markers so duplicated or dropped markers cannot hide behind ANSI stripping.
+func stripCommandTestSGR(text string) string {
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(text[i:], "\x1b[") {
+			if n := widthx.ExtractAnsi(text, i); n > 0 {
+				text = text[:i] + text[i+n:]
+				continue
+			}
+		}
+		i++
+	}
+	return text
 }

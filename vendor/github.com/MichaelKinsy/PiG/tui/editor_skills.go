@@ -13,12 +13,7 @@ func (p *CombinedProvider) IsKnownSkill(name string) bool { return p.slash.IsKno
 
 // IsKnownSkill reports whether a name has a registered slash invocation.
 func (p *SlashOnlyProvider) IsKnownSkill(name string) bool {
-	for _, command := range p.Commands {
-		if command.commandName() == "skill:"+name {
-			return true
-		}
-	}
-	return false
+	return p.IsKnownCommand("skill:" + name)
 }
 
 // skillTokenGate reports AllowsSkillTokens for the whole draft without joining
