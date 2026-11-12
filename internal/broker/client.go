@@ -270,7 +270,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 		localChanged := localHash != state.Local
 		remoteChanged := remote.Revision != state.Remote
 		if localChanged && remoteChanged && !bytes.Equal(local, remote.Data) {
-			return fmt.Errorf("sync conflict in %s: local and hosted copies retained; reconcile them before retrying", name)
+			return errors.New("sync conflict: local and hosted copies retained; reconcile them before retrying")
 		}
 		if localChanged && !bytes.Equal(local, remote.Data) {
 			if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
