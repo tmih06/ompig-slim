@@ -2,6 +2,8 @@ package selfupdate
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,6 +59,38 @@ func TestBannerMatchesTheStartupMark(t *testing.T) {
 				t.Fatalf("mark = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// TestMarkColorModeSkipsTheTmuxProbe pins the reason markColorMode does not call
+// tui.GetTerminalColorMode directly: that path shells out to `tmux` to ask about
+// OSC 8 hyperlinks, which cannot change the answer inside tmux because COLORTERM
+// decides it either way. The probe is a fork and a round trip before the user
+// sees the mark, so an update inside tmux must not pay for it.
+func TestMarkColorModeSkipsTheTmuxProbe(t *testing.T) {
+	// A tmux script on PATH that answers the probe and records that it ran.
+	// Testing the error case would not distinguish anything: that function
+	// reports false when the probe fails, so the mode would still come out
+	// 256-color and only the marker would differ.
+	t.Setenv("TMUX", "/tmp/tmux-0/default,1,0")
+	t.Setenv("TERM", "screen-256color")
+	// No truecolor hint from the environment, so 256-color is the expected answer.
+	t.Setenv("COLORTERM", "")
+	t.Setenv("PI_TRUE_COLOR", "")
+
+	marker := filepath.Join(t.TempDir(), "probe-ran")
+	dir := t.TempDir()
+	script := "#!/bin/sh\ntouch '" + marker + "'\nprintf 'hyperlinks\\n'\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := markColorMode(); got != tui.TerminalColorMode256 {
+		t.Fatalf("markColorMode = %q, want %q on a terminal with no truecolor hint", got, tui.TerminalColorMode256)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("markColorMode ran the tmux hyperlink probe")
 	}
 }
 

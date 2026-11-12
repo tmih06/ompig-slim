@@ -63,13 +63,24 @@ func printBanner(w io.Writer) {
 	color := isTerminal(w)
 	mode := tui.TerminalColorMode256
 	if color {
-		mode = tui.GetTerminalColorMode()
+		mode = markColorMode()
 	}
 	top, bottom := coding.StartupMark(mode)
 	if !color {
 		top, bottom = widthx.StripAnsi(top), widthx.StripAnsi(bottom)
 	}
 	_, _ = io.WriteString(w, "\n"+top+"\n"+bottom+"\n\n")
+}
+
+// markColorMode is the color depth the header would render the mark in.
+//
+// It is tui.GetTerminalColorMode() without the tmux probe. That probe shells out to `tmux display-message` to ask
+// whether the pane forwards OSC 8 hyperlinks, which has no bearing on color depth — inside tmux the answer comes from
+// COLORTERM either way — but it costs a fork and round trip (measured: 28ms to 116ms for a whole update against a
+// 40ms probe) before the user sees the mark. Passing capabilities explicitly is that function's documented way to
+// skip detection, and DetectCapabilities still applies PI_TRUE_COLOR, so the mode matches the header's.
+func markColorMode() tui.TerminalColorMode {
+	return tui.GetTerminalColorMode(tui.DetectCapabilities(func() bool { return false }))
 }
 
 // progress renders a single-line meter that updates in place on a terminal and
