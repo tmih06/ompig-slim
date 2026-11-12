@@ -48,8 +48,8 @@ type UsageServiceOptions struct {
 	AccountRouter *ai.AccountRouter
 	// GetAuth resolves request auth, refreshing one account's OAuth token when
 	// it is near expiry. Account scope travels in the overrides so an explicit
-	// identity-less account is distinguishable from "the selected account". It
-	// must never change credential lifecycle.
+	// identity-less account is distinguishable from "the selected account".
+	// The resolver owns lifecycle changes, including retirement of dead imports.
 	GetAuth func(ctx context.Context, providerID string, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error)
 	// BaseURLFor reports a configured provider base URL.
 	BaseURLFor func(providerID string) string
@@ -473,7 +473,7 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 		return usageProbeResult{reason: err.Error()}, nil
 	}
 	if credential == nil {
-		return usageProbeResult{reason: "credential is no longer stored"}, nil
+		return usageProbeResult{reason: NoConfiguredCredential}, nil
 	}
 	target := usageProbeTarget{
 		provider:   probe.provider,
@@ -491,13 +491,22 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 	}
 	if credential.Type == ai.CredentialOAuth && credential.HasExpires() &&
 		service.now().Add(usageOAuthRefreshSkew).UnixMilli() >= credential.Expires {
-		// Advisory: a failed refresh keeps the current token in play, and this
-		// path never mutates credential lifecycle. Scope is the exact account.
+		// A transient refresh failure keeps the stored token in play. The auth
+		// resolver may retire a dead import; never probe its stale local copy.
+		// Scope is the exact account, so a sibling cannot replace it.
 		if service.options.GetAuth != nil {
 			_, _ = service.options.GetAuth(ctx, probe.provider, accountOverrides(account.AccountKey))
-			if refreshed, readErr := service.readCredentialFor(ctx, probe.provider, account.AccountKey); readErr == nil && refreshed != nil {
-				credential = refreshed
+			refreshed, readErr := service.readCredentialFor(ctx, probe.provider, account.AccountKey)
+			if readErr != nil {
+				if ctx.Err() != nil {
+					return usageProbeResult{}, context.Cause(ctx)
+				}
+				return usageProbeResult{reason: readErr.Error()}, nil
 			}
+			if refreshed == nil {
+				return usageProbeResult{reason: NoConfiguredCredential}, nil
+			}
+			credential = refreshed
 		}
 	}
 	target.credential = ai.UsageCredentialFromStored(credential)
