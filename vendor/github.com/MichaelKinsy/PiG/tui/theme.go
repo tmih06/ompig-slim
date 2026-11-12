@@ -714,16 +714,9 @@ func SetThemeSettingPresence(themeSetting *string) {
 	SetThemeByName(DefaultThemeName(GetTerminalTheme()))
 }
 
-// The default theme for each terminal appearance, matching oh-my-pi's
-// `theme.dark`/`theme.light` defaults (packages/coding-agent/src/modes/settings.ts).
-// They name bundled palettes rather than SystemThemeName on purpose: the system
-// theme is generated from the terminal's own reported colors, and a terminal
-// that answers none of the color queries has colors this engine cannot invent,
-// so it renders most tokens in the terminal default foreground. That is correct
-// for a theme called "system" and wrong as the out-of-the-box look, which read
-// as an unstyled TUI on those terminals.
+// Default themes provide readable colors without installing optional palettes.
 const (
-	DefaultDarkTheme  = "titanium"
+	DefaultDarkTheme  = "dark"
 	DefaultLightTheme = "light"
 )
 
@@ -763,9 +756,7 @@ type ThemeRegistry struct {
 	paths map[string]string
 }
 
-// NewThemeRegistry creates a registry holding the system theme, the built-in dark and light themes, and the bundled
-// palettes (BuiltinPaletteNames). The palette names are listed here because the registry is the theme picker's source and
-// /theme enumerates them, but a palette is only resolved into ANSI sequences when something asks for it: see Get.
+// NewThemeRegistry offers only system, dark and light until callers load custom themes.
 func NewThemeRegistry() *ThemeRegistry {
 	r := &ThemeRegistry{
 		themes: make(map[string]*Theme),
@@ -773,7 +764,6 @@ func NewThemeRegistry() *ThemeRegistry {
 	r.themes["dark"] = builtinDarkTheme()
 	r.themes["light"] = builtinLightTheme()
 	r.names = []string{SystemThemeName, "dark", "light"}
-	r.names = append(r.names, BuiltinPaletteNames()...)
 	return r
 }
 
@@ -813,29 +803,14 @@ func (r *ThemeRegistry) AddFile(t *Theme, path string) {
 	r.paths[t.Name] = path
 }
 
-// Get returns a theme by name, or nil. A bundled palette is resolved here on
-// first use, so listing a hundred palettes costs one JSON decode rather than a
-// hundred theme constructions.
+// Get returns a registered theme, or nil; system follows terminal colors.
 func (r *ThemeRegistry) Get(name string) *Theme {
 	if name == SystemThemeName {
 		return createSystemTheme(currentColorMode())
 	}
 	r.mu.RLock()
-	theme, ok := r.themes[name]
-	r.mu.RUnlock()
-	if ok {
-		return theme
-	}
-	theme = paletteTheme(name)
-	if theme == nil {
-		return nil
-	}
-	// The name was listed by NewThemeRegistry or added by a caller; store the
-	// resolved theme so a second Get is a map read.
-	r.mu.Lock()
-	r.themes[name] = theme
-	r.mu.Unlock()
-	return theme
+	defer r.mu.RUnlock()
+	return r.themes[name]
 }
 
 // PathOf returns the file a theme was loaded from, or "" for built-ins.

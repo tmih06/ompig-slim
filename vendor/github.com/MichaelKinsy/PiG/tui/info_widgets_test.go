@@ -240,7 +240,7 @@ func TestInfoWidgetEmptyAndTiny(t *testing.T) {
 // to get subtly wrong — titanium's border is #2a3038, so a title drawn in border
 // would nearly vanish on a dark terminal while every width assertion still held.
 func TestInfoWidgetPaletteTokens(t *testing.T) {
-	theme := paletteTheme("titanium")
+	theme := optionalPalette(t, "titanium")
 	if theme == nil {
 		t.Skip("titanium palette unavailable")
 	}
