@@ -187,11 +187,24 @@ coalescing, cancellation durability, migration, CAS and direct inference.
 
 ## Feature behavior notes
 
+### Slash-command submission
+
+Interactive submission rejects unknown leading slash commands before history,
+model delivery, or compaction/follow-up queueing, and restores the draft with an
+error. Built-ins, aliases, extension commands, loaded prompt templates, and
+loaded skills remain valid. Path-shaped leading tokens (another slash, a dot,
+or a backslash), `/` itself, and existing root-level paths stay ordinary prompt
+text, including paths that do not yet exist. An ambiguous nonexistent `/name`
+is treated as a command typo; use `/name/` or quote the path to make path intent
+explicit. Unknown `/skill:name` invocations are rejected even for nested skill
+names. Inline slash text is unchanged. This intentionally differs from Pi's
+unknown-command fallthrough and does not change print/RPC prompt semantics.
+
 ### Skill calls in the composer
 
 The composer offers skill completion after whitespace anywhere in a normal prompt; built-in commands keep the leading-only position. A skill selection leaves the draft open, so one prompt can carry several skills. Registered `/skill:<name>` tokens draw as compact badges instead of raw slash syntax, while the buffer keeps the slash form so history, undo, external editing and submission are unaffected. Cursor navigation and deletion treat a recognized token as one unit, and wrapping and mouse columns are measured in badge cells rather than source cells.
 
-`tui/skill_tokens.go` owns token boundaries and the literal-input exclusions, and `internal/codingagent/skills.go` shares them (D252), so the editor and the expander cannot disagree about what counts as an invocation. On submission every known token is loaded once, in first-appearance order, ahead of the original prompt text. Retaining the source tokens preserves their inline positions and repetitions in persisted transcripts. Already-expanded messages are not expanded again when interactive preflight hands them to Session. Pending queue rows and Alt+Up restoration strip the leading model-only blocks with `ParseExpandedSkillMessage`, retaining the source tokens and prose so editing and resubmitting reloads skills without exposing their bodies. The transcript parses all leading expansion blocks and renders one user bubble, with the same compact badges as the composer in their original positions. The global expand key discloses the loaded bodies within that bubble, not as separate calls. Older messages without retained tokens show their badges before the trailing prose. Badge decoration follows extension Markdown transforms and precedes wrapping, so transforms receive source text and layout measures badge cells. A completed leading skill leaves automatic completion in prose mode; explicit subsequent slash and attachment triggers still work. An unknown token stays literal; a read or parse failure expands nothing at all rather than submitting a partial load. Command arguments and local-execution input remain literal throughout. The expansion is shared by interactive, Session, print and RPC paths, so it is a runtime behavior, not an editor feature.
+`tui/skill_tokens.go` owns token boundaries and the literal-input exclusions, and `internal/codingagent/skills.go` shares them (D252), so the editor and the expander cannot disagree about what counts as an invocation. On submission every known token is loaded once, in first-appearance order, ahead of the original prompt text. Retaining the source tokens preserves their inline positions and repetitions in persisted transcripts. Already-expanded messages are not expanded again when interactive preflight hands them to Session. Pending queue rows and Alt+Up restoration strip the leading model-only blocks with `ParseExpandedSkillMessage`, retaining the source tokens and prose so editing and resubmitting reloads skills without exposing their bodies. The transcript parses all leading expansion blocks and renders one user bubble, with the same compact badges as the composer in their original positions. The global expand key discloses the loaded bodies within that bubble, not as separate calls. Older messages without retained tokens show their badges before the trailing prose. Badge decoration follows extension Markdown transforms and precedes wrapping, so transforms receive source text and layout measures badge cells. A completed leading skill leaves automatic completion in prose mode; explicit subsequent slash and attachment triggers still work. An unknown inline token stays literal (interactive submission rejects an unknown leading skill command); a read or parse failure expands nothing at all rather than submitting a partial load. Command arguments and local-execution input remain literal throughout. The expansion is shared by interactive, Session, print and RPC paths, so it is a runtime behavior, not an editor feature.
 
 ### `@path` and `@url` mentions in a prompt
 

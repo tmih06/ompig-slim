@@ -35,6 +35,9 @@ func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt str
 		m.editor.SetText("")
 		return
 	}
+	if m.rejectUnknownSlashCommand(prompt) {
+		return
+	}
 	if m.handleAgentMention(prompt) {
 		return
 	}
@@ -120,8 +123,8 @@ func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt str
 // then skill commands and prompt templates expand (unless expand is false, as for
 // an extension's sendUserMessage); then the text queues into the active run
 // as a steering message, or as a follow-up with followUp, or starts a new
-// turn when no run is active. An unresolved `/foo` is ordinary user text:
-// upstream forwards it to the model rather than reporting an unknown command.
+// turn when no run is active. Interactive submission rejects unknown leading
+// slash commands before reaching this lower-level prompt delivery seam.
 //
 // The handlers run off the owner loop when an extension has an `input` handler,
 // because a handler that blocks on the user would otherwise block the loop that

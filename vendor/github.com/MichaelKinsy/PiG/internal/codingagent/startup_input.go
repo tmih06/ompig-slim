@@ -43,7 +43,7 @@ var flushPendingBashComponents = (*InteractiveMode).flushPendingBashBlocks
 func (m *InteractiveMode) setupEditorSubmitHandler(ctx context.Context) {
 	m.editor.OnSubmit = func(text string) {
 		text = widthx.JSTrim(text)
-		if text == "" {
+		if text == "" || m.rejectUnknownSlashCommand(text) {
 			return
 		}
 		if m.slashRegistry != nil && m.resolvableSlashCommand(text) && !m.isExtensionCommand(text) {
