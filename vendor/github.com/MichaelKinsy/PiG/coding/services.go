@@ -25,6 +25,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/internal/resolvepath"
+	"github.com/MichaelKinsy/PiG/tui"
 )
 
 // Settings is the merged user-settings view. Global settings are overlaid by
@@ -369,6 +370,16 @@ func DefaultAgentDir() string {
 // settings, credentials, and session state. It is exported so a small
 // pre-start command can prepare embedded assets without entering the full CLI.
 func ConfigRoot() string { return icodingagent.ConfigRoot() }
+
+// StartupMark returns the two lines of the product mark the startup header draws: "OM" plus Pi's mark and the cyan
+// "in GO", closed by the "-slim" tag. mode selects the color depth, so a caller renders in the same mode the header
+// will use (tui.GetTerminalColorMode) and a caller writing to a pipe strips the escapes for its plain form.
+//
+// It exists for renderers outside the runtime that must spell the brand — `ompig-slim update` prints the mark before
+// replacing the executable — so the art has one owner instead of a copy that drifts.
+func StartupMark(mode tui.TerminalColorMode) (top, bottom string) {
+	return icodingagent.StartupMark(mode)
+}
 
 // ErrNoServices is returned by APIs that require a Services instance
 // when the caller passed nil.

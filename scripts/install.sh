@@ -92,11 +92,13 @@ if [[ -z "$install_dir" ]]; then
 fi
 
 # --- Presentation -----------------------------------------------------------
-# The installer shows the same mark and the same progress meter as
-# `ompig-slim update`, so installing and updating read as one product. Both
-# halves are duplicated on purpose: this script must run with no Go toolchain,
-# and the updater must run with no shell. Keep the art, the bar glyphs, and the
-# bar width in step with internal/selfupdate/ui.go.
+# The installer shows the startup header's product mark and the same progress
+# meter as `ompig-slim update`, so installing and updating read as one product.
+# The meter is duplicated on purpose: this script must run with no Go toolchain,
+# and the updater must run with no shell. The mark is not: its art and colors
+# belong to vendor/.../codingagent/startup_logo.go, and the values below are a
+# transcription of what that file emits. Keep them in step with it; the Go tests
+# check that the two agree.
 
 # bar_width matches internal/selfupdate/ui.go's barWidth.
 bar_width=32
@@ -106,24 +108,87 @@ bar_width=32
 interactive=0
 if [[ -t 1 ]]; then interactive=1; fi
 
-# Colors from assets/ompig-banner.svg. Empty when not interactive, so the same
-# printf calls emit plain text without a second code path.
+# mark_color_mode prints "truecolor" or "256color" for the startup mark.
+#
+# The startup header renders the mark in tui.GetTerminalColorMode(), so a
+# different answer here prints different SGR codes than the TUI: the same art in
+# another palette. This transcribes detectCapabilitiesFromEnvironment in
+# tui/terminal_image.go — whose branch order decides the answer — and then the
+# PI_TRUE_COLOR override DetectCapabilities applies on top. The installer runs
+# only on Linux and macOS, so that function's Windows-console branch has no
+# counterpart here. scripts/test-install.py pins the sequences this decides.
+mark_color_mode() {
+    local term term_program emulator hint=256color sessions
+    term="$(printf '%s' "${TERM:-}" | tr '[:upper:]' '[:lower:]')"
+    term_program="$(printf '%s' "${TERM_PROGRAM:-}" | tr '[:upper:]' '[:lower:]')"
+    emulator="$(printf '%s' "${TERMINAL_EMULATOR:-}" | tr '[:upper:]' '[:lower:]')"
+    # hasTrueColorHint: the terminal advertises 24-bit color for itself.
+    case "$(printf '%s' "${COLORTERM:-}" | tr '[:upper:]' '[:lower:]')" in
+        truecolor|24bit) hint=truecolor ;;
+    esac
+    case "$term" in *-direct) hint=truecolor ;; esac
+    case "${PI_TRUE_COLOR:-}" in
+        1) printf 'truecolor'; return ;;
+        0) printf '256color'; return ;;
+    esac
+    # tmux and screen pass on only the outer terminal's advertisement.
+    if [[ -n "${TMUX:-}" || "$term" == tmux* || "$term" == screen* ]]; then printf '%s' "$hint"; return; fi
+    # Herdr forwards an outer terminal's image hints only behind its own graphics
+    # signal, and names just the generic color hint otherwise.
+    if [[ "${HERDR_ENV:-}" == 1 && "${HERDR_KITTY_GRAPHICS:-}" == 1 ]]; then printf 'truecolor'; return; fi
+    if [[ "$term_program" == herdr ]]; then printf '%s' "$hint"; return; fi
+    if [[ "${HERDR_ENV:-}" == 1 ]]; then printf '%s' "$hint"; return; fi
+    # Orca names a protocol rather than a color depth, so it counts only when
+    # that name is present; every other terminal below renders 24-bit color
+    # without advertising it.
+    if [[ "$term_program" == orca ]]; then
+        if [[ "${ORCA_IMAGE_PROTOCOL:-}" == kitty ]]; then printf 'truecolor'; else printf '%s' "$hint"; fi
+        return
+    fi
+    case "$term_program" in
+        kitty|ghostty|wezterm|warpterminal|iterm.app|alacritty|vscode|zed|rex)
+            printf 'truecolor'; return ;;
+    esac
+    if [[ "$emulator" == jetbrains-jediterm || "$term" == *ghostty* ]]; then printf 'truecolor'; return; fi
+    # Terminals that announce themselves through a session variable only.
+    sessions="${KITTY_WINDOW_ID:-}${GHOSTTY_RESOURCES_DIR:-}${WEZTERM_PANE:-}${WARP_SESSION_ID:-}"
+    sessions+="${WARP_TERMINAL_SESSION_UUID:-}${ITERM_SESSION_ID:-}${WT_SESSION:-}"
+    if [[ -n "$sessions" ]]; then printf 'truecolor'; return; fi
+    printf '%s' "$hint"
+}
+
+# Colors of the startup mark, in the sequences the TUI emits for the selected
+# mode. Empty when not interactive, so the same printf calls emit plain text
+# without a second code path.
 if [[ "$interactive" == 1 ]]; then
-    c_reset=$'\033[0m' c_bold=$'\033[1m' c_dim=$'\033[2m'
-    c_white=$'\033[97m' c_coral=$'\033[91m' c_blue=$'\033[94m' c_blue_bg=$'\033[104m'
-    c_yellow=$'\033[93m' c_purple=$'\033[95m' c_cyan=$'\033[96m'
+    c_reset=$'\033[0m' c_bold=$'\033[1m' c_dim=$'\033[2m' c_cyan=$'\033[96m'
+    if [[ "$(mark_color_mode)" == truecolor ]]; then
+        c_white=$'\033[38;2;236;236;236m' c_blue=$'\033[38;2;79;142;179m'
+        c_blue_bg=$'\033[48;2;79;142;179m' c_coral=$'\033[38;2;228;138;122m'
+        c_go=$'\033[38;2;0;173;216m' c_yellow=$'\033[38;2;234;182;93m'
+        c_purple=$'\033[38;2;198;160;246m'
+    else
+        c_white=$'\033[38;5;255m' c_blue=$'\033[38;5;67m'
+        c_blue_bg=$'\033[48;5;67m' c_coral=$'\033[38;5;174m'
+        c_go=$'\033[38;5;38m' c_yellow=$'\033[38;5;179m'
+        c_purple=$'\033[38;5;183m'
+    fi
 else
-    c_reset='' c_bold='' c_dim=''
-    c_white='' c_coral='' c_blue='' c_blue_bg='' c_yellow='' c_purple='' c_cyan=''
+    c_reset='' c_bold='' c_dim='' c_cyan='' c_white='' c_blue='' c_blue_bg=''
+    c_coral='' c_go='' c_yellow='' c_purple=''
 fi
 
-# print_banner writes the same two-line half-block mark as the startup TUI.
+# print_banner writes the two-line half-block mark the startup header draws:
+# white "OM", Pi's coral-on-blue top cell, the cyan "GO", and the light-purple
+# "-slim" tag. The blank line above and below it match the dialog's spacing.
 print_banner() {
     printf '\n'
-    printf '%s███ █▄ ▄█%s %s%s▀%s%s▀█%s     %s███ ███%s %s-slim%s\n' \
-        "$c_white" "$c_reset" "$c_blue_bg" "$c_coral" "$c_reset" "$c_coral" "$c_reset" "$c_cyan" "$c_reset" "$c_purple" "$c_reset"
-    printf '%s█▄█ █▀ ▀█%s %s█▀%s %s█%s%s in %s%s█▀█ █▄█%s\n\n' \
-        "$c_white" "$c_reset" "$c_blue" "$c_reset" "$c_yellow" "$c_reset" "$c_white" "$c_reset" "$c_cyan" "$c_reset"
+    printf '%s█▀█ █▄ ▄█%s %s%s▀%s%s▀█%s     %s█▀▀ █▀█%s %s-slim%s\n' \
+        "$c_white" "$c_reset" "$c_coral" "$c_blue_bg" "$c_reset" "$c_coral" "$c_reset" \
+        "$c_go" "$c_reset" "$c_purple" "$c_reset"
+    printf '%s█▄█ █ ▀ █%s %s█▀%s %s█%s %sin %s%s█▄█ █▄█%s\n\n' \
+        "$c_white" "$c_reset" "$c_blue" "$c_reset" "$c_yellow" "$c_reset" \
+        "$c_white" "$c_reset" "$c_go" "$c_reset"
 }
 
 # human_bytes sets REPLY to a byte count formatted the way

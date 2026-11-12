@@ -7,6 +7,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // Ports packages/coding-agent/src/modes/interactive/interactive-mode.ts
@@ -97,6 +98,8 @@ func showLoginProviderSelector(sc *SlashContext, authType, initialSearch string)
 	return startProviderLogin(sc, picked, func() error { return showLoginProviderSelector(sc, authType, initialSearch) })
 }
 
+// handleLogoutCommand selects a provider, then exactly one live stored account.
+// Cancellation is a no-op; extension-owned credentials retain their own logout path.
 func handleLogoutCommand(sc *SlashContext) error {
 	providers, err := sc.LogoutProviders()
 	if err != nil {
@@ -108,6 +111,29 @@ func handleLogoutCommand(sc *SlashContext) error {
 	}
 	provider, ok := sc.SelectAuthProvider("logout", providers, "")
 	if !ok {
+		return nil
+	}
+	accounts, err := sc.LogoutAccounts(provider.ID)
+	if err != nil {
+		return fmt.Errorf("Could not read stored accounts: %w", err)
+	}
+	if len(accounts) > 0 {
+		account, ok := sc.SelectLogoutAccount(provider, accounts)
+		if !ok {
+			return nil
+		}
+		removed, err := sc.LogoutAccount(account)
+		if err != nil {
+			if _, ok := errors.AsType[*CredentialSynchronizationError](err); ok {
+				return fmt.Errorf("Account removed for %s, but local model state could not be synchronized: %w", provider.Name, err)
+			}
+			return fmt.Errorf("Logout failed: %w", err)
+		}
+		if !removed {
+			showStatusOrAppend(sc, "That stored account was already removed. No other accounts were changed.")
+			return nil
+		}
+		showStatusOrAppend(sc, "Removed one stored account for "+widthx.ReplaceControlCharacters(provider.Name)+". Other accounts, environment variables and models.json config are unchanged.")
 		return nil
 	}
 	if err := sc.Logout(provider.ID); err != nil {

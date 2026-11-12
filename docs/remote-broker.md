@@ -213,7 +213,7 @@ restart, then update clients.
 | Route | Contract |
 | --- | --- |
 | `GET /v1/snapshot` | Live enabled accounts with access credentials; OAuth refresh replaced by `__OMPIG_REMOTE_REFRESH__` |
-| `POST /v1/credential` | `operation`: `save`, `modify`, `import`, `select`, `delete-account`, `delete`, `blocked`, `block`, `clear-blocks` |
+| `POST /v1/credential` | `operation`: `save`, `modify`, `import`, `select`, `delete-account`, `delete`, `blocked`, `block`, `clear-blocks`. `delete-account` accepts a null/omitted `accountKey` to remove only the identity-less row; `select` requires a string key. |
 | `POST /v1/credential/refresh` | Exact provider/account and observed credential; host refreshes and returns redacted result |
 | `GET/PUT /v1/items/{name}` | Allowlisted preferences; writes require `If-Match` |
 

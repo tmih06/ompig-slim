@@ -117,12 +117,12 @@ a Herdr server restart.
 
 | Area | Detail |
 |---|---|
-| Tools | `read` (files, dirs, URLs, GitHub `issue://` and `pr://` references), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
+| Tools | `read` (files, dirs, URLs, GitHub issue/PR links and `issue://N` / `pr://N` with automatic repository detection), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
 | Prompt | `/skill:` badges compose several skills in one prompt; `@path` and `@url` mentions are read up front |
 | Loop guard | Steers the primary agent away from identical tool calls after five consecutive turns |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
-| Accounts | Multiple accounts per provider, quota-aware routing, imported credentials, rate-limit resets |
+| Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub |
 | TUI | omp-style tool cards, task/quota widget, todo reminder, Mermaid diagrams |
 | Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |
