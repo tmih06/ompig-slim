@@ -176,6 +176,10 @@ jobs:
           pi_pid=$!
           wait "$omp_pid"
           wait "$pi_pid"
+      - name: Reject vulnerable benchmark dependency trees
+        run: |
+          npm audit --prefix benchmarks/omp
+          npm audit --prefix benchmarks/pi
       - name: Benchmark the existing artifact against installed upstream CLIs
         run: >-
           python3 scripts/benchmark.py --slim archives/ompig-slim/ompig-slim
