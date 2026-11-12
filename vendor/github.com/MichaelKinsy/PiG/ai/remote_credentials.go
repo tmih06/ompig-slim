@@ -50,11 +50,12 @@ type RemoteOAuthCredentialStore interface {
 	RefreshOAuth(context.Context, string, *string, bool, Credential) (*Credential, error)
 }
 
-// remoteOAuthStore unwraps runtime API-key overlays without making a local store
-// claim remote refresh support. Runtime keys never reach the stored OAuth path.
+// remoteOAuthStore follows runtime and registry views to the credential owner
+// without making local stores claim remote refresh support. Views must return
+// their current backing store, never themselves; runtime keys bypass OAuth.
 func remoteOAuthStore(store CredentialStore) (RemoteOAuthCredentialStore, bool) {
-	if overlay, ok := store.(*RuntimeCredentials); ok {
-		return remoteOAuthStore(overlay.store)
+	if view, ok := store.(interface{ UnwrapCredentialStore() CredentialStore }); ok {
+		return remoteOAuthStore(view.UnwrapCredentialStore())
 	}
 	remote, ok := store.(RemoteOAuthCredentialStore)
 	return remote, ok

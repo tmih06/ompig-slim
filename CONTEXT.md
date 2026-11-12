@@ -116,8 +116,10 @@ window still exists between exchange and database commit.
 Vendored `ai.CredentialStoreFactory` is installed once before runtimes open and
 selects `remoteStore` for exactly the configured profile. It returns the
 application-owned account-store interface rather than assuming local SQLite.
-Runtime credential overlays are unwrapped only to find remote OAuth refresh
-support; the local provider callback must never see a refresh sentinel. No
+Runtime credential overlays and the registry's live credential view are unwrapped
+only to find remote OAuth refresh support; the local provider callback must never
+see a refresh sentinel. Capability discovery follows the current backing store,
+so replacing a registry store cannot retain the previous owner's refresh path. No
 credential snapshot is cached on disk and no local credential database is opened
 for a broker profile. A down, refusing or invalidly configured broker leaves the
 CLI repair commands usable but never silently falls back to a local vault.
@@ -146,6 +148,10 @@ constant-time compared, not SQLite-backed. TLS is operator-owned.
 
 Preferences retain their separate startup/five-second/normal-exit reconciliation,
 allowlist, private first-adoption backups and CAS/common-ancestor conflict rules.
+A document failure does not stop other documents; startup preference/network
+failures retain the configured client for background retry and exit flush.
+Invalid bootstrap configuration still requires repair and restart. File sync does
+not hot-apply every runtime setting; session reload/restart remains necessary.
 Sessions, project config and arbitrary SQLite tables never synchronize.
 Embedded preference API keys remain trusted plaintext. The broker needs outbound
 OAuth connectivity and host-specific refresh configuration; client-only custom

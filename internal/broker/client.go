@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,6 +40,8 @@ type fileState struct {
 // Connect opts the existing local profile into hosted storage. First connection
 // adopts existing remote preferences (backing up local differences), or seeds an
 // empty host. Provider configuration is copied unchanged: inference stays local.
+// A preference failure returns the configured client alongside the error so its
+// owner can retry; invalid connection configuration returns no client.
 func Connect(ctx context.Context, dir string) (*Client, error) {
 	saved, err := loadConnection(dir)
 	if err != nil {
@@ -59,10 +62,7 @@ func Connect(ctx context.Context, dir string) (*Client, error) {
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	if err = c.SyncFiles(ctx); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return c, c.SyncFiles(ctx)
 }
 
 const snapshotCacheTTL = time.Second
@@ -212,85 +212,94 @@ func readLocal(path string) ([]byte, error) {
 }
 
 // SyncFiles reconciles independent documents with CAS. Concurrent edits of the
-// same file fail explicitly and leave both copies intact; unrelated files merge.
-// Deletions are synchronized once a common ancestor has been recorded.
+// same file fail explicitly and leave both copies intact; unrelated files still
+// reconcile. Deletions synchronize once a common ancestor has been recorded.
+// All document failures are returned together after releasing the profile lock.
 func (c *Client) SyncFiles(ctx context.Context) error {
 	return c.locked(ctx, func() error {
+		var failures []error
 		for _, name := range SharedFiles {
-			local, err := readLocal(filepath.Join(c.dir, name))
-			if err != nil {
-				return err
-			}
-			state, known, err := c.loadState(name)
-			if err != nil {
-				return err
-			}
-			var remote Item
-			if err = c.request(ctx, "GET", "/v1/items/"+name, "", nil, &remote); err != nil {
-				return err
-			}
-			localHash := hashData(local)
-			// The loaded ancestor is already durable; an idle poll must not
-			// replace and fsync it again when neither side has changed.
-			if known && localHash == state.Local && remote.Revision == state.Remote {
-				continue
-			}
-			if !known {
-				if remote.Data != nil && !bytes.Equal(local, remote.Data) {
-					if local != nil {
-						if err = replaceFile(c.statePath(name+".backup"), local); err != nil {
-							return err
-						}
-					}
-					if err = replaceFile(filepath.Join(c.dir, name), remote.Data); err != nil {
-						return err
-					}
-					local = remote.Data
-				} else if remote.Data == nil && local != nil {
-					if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
-						return err
-					}
-					remote.Data = local
-					remote.Revision = localHash
-				}
-			} else {
-				localChanged := localHash != state.Local
-				remoteChanged := remote.Revision != state.Remote
-				if localChanged && remoteChanged && !bytes.Equal(local, remote.Data) {
-					return fmt.Errorf("sync conflict in %s: local and hosted copies retained; reconcile them before retrying", name)
-				}
-				if localChanged && !bytes.Equal(local, remote.Data) {
-					if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
-						return err
-					}
-					remote.Data = local
-					remote.Revision = localHash
-				} else if remoteChanged {
-					if remote.Data == nil {
-						err = os.Remove(filepath.Join(c.dir, name))
-						if os.IsNotExist(err) {
-							err = nil
-						}
-					} else {
-						err = replaceFile(filepath.Join(c.dir, name), remote.Data)
-					}
-					if err != nil {
-						return err
-					}
-					local = remote.Data
-				}
-			}
-			if err = c.saveState(name, fileState{Remote: remote.Revision, Local: hashData(local)}); err != nil {
-				return err
+			if err := c.syncFile(ctx, name); err != nil {
+				failures = append(failures, fmt.Errorf("%s: %w", name, err))
 			}
 		}
-		return nil
+		return errors.Join(failures...)
 	})
+}
+
+// syncFile reconciles one allowlisted document and persists its ancestry only
+// after successful data writes. The caller holds the cross-process profile lock.
+func (c *Client) syncFile(ctx context.Context, name string) error {
+	local, err := readLocal(filepath.Join(c.dir, name))
+	if err != nil {
+		return err
+	}
+	state, known, err := c.loadState(name)
+	if err != nil {
+		return err
+	}
+	var remote Item
+	if err = c.request(ctx, "GET", "/v1/items/"+name, "", nil, &remote); err != nil {
+		return err
+	}
+	localHash := hashData(local)
+	// The loaded ancestor is already durable; an idle poll must not
+	// replace and fsync it again when neither side has changed.
+	if known && localHash == state.Local && remote.Revision == state.Remote {
+		return nil
+	}
+	if !known {
+		if remote.Data != nil && !bytes.Equal(local, remote.Data) {
+			if local != nil {
+				if err = replaceFile(c.statePath(name+".backup"), local); err != nil {
+					return err
+				}
+			}
+			if err = replaceFile(filepath.Join(c.dir, name), remote.Data); err != nil {
+				return err
+			}
+			local = remote.Data
+		} else if remote.Data == nil && local != nil {
+			if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
+				return err
+			}
+			remote.Data = local
+			remote.Revision = localHash
+		}
+	} else {
+		localChanged := localHash != state.Local
+		remoteChanged := remote.Revision != state.Remote
+		if localChanged && remoteChanged && !bytes.Equal(local, remote.Data) {
+			return fmt.Errorf("sync conflict in %s: local and hosted copies retained; reconcile them before retrying", name)
+		}
+		if localChanged && !bytes.Equal(local, remote.Data) {
+			if err = c.request(ctx, "PUT", "/v1/items/"+name, remote.Revision, Item{Data: local}, nil); err != nil {
+				return err
+			}
+			remote.Data = local
+			remote.Revision = localHash
+		} else if remoteChanged {
+			if remote.Data == nil {
+				err = os.Remove(filepath.Join(c.dir, name))
+				if os.IsNotExist(err) {
+					err = nil
+				}
+			} else {
+				err = replaceFile(filepath.Join(c.dir, name), remote.Data)
+			}
+			if err != nil {
+				return err
+			}
+			local = remote.Data
+		}
+	}
+	return c.saveState(name, fileState{Remote: remote.Revision, Local: hashData(local)})
 }
 
 // RunSync periodically reconciles preferences between local
 // requests. Runtime settings/catalog reload behavior remains PiG's own; a new
-// session/startup always sees the synchronized files. Report receives no secrets.
+// session/startup always sees the synchronized files. Report receives each poll's
+// result (nil on success), without secrets, and is never called after return.
 func (c *Client) RunSync(ctx context.Context, report func(error)) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -299,10 +308,7 @@ func (c *Client) RunSync(ctx context.Context, report func(error)) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := c.SyncFiles(ctx); err != nil {
-				report(err)
-				continue
-			}
+			report(c.SyncFiles(ctx))
 		}
 	}
 }
@@ -310,23 +316,36 @@ func (c *Client) RunSync(ctx context.Context, report func(error)) {
 // Start wires preference reconciliation and an idempotent exit flush into the
 // CLI. A configured but unavailable broker leaves credential access remote-only:
 // the CLI can repair the connection, but must not silently use a local vault.
+// Recoverable preference/network failures keep retrying until shutdown; invalid
+// bootstrap configuration has no usable client and requires repair and restart.
 func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, error) {
 	startup, cancel := context.WithTimeout(ctx, 45*time.Second)
 	client, err := Connect(startup, dir)
 	cancel()
 	if err != nil {
-		fmt.Fprintln(stderr, "profile sync inactive:", err)
-		return nil, nil
+		if client == nil {
+			fmt.Fprintln(stderr, "profile sync inactive:", err)
+		} else {
+			fmt.Fprintln(stderr, "profile sync pending (will retry):", err)
+		}
 	}
 	if client == nil {
 		return nil, nil
 	}
+	// Only the worker writes synced. The exit flush reads it after joining the
+	// worker, preserving repair-command exit status until initial sync succeeds.
+	synced := err == nil
 	background, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		last := ""
 		client.RunSync(background, func(err error) {
+			if err == nil {
+				synced = true
+				last = ""
+				return
+			}
 			if text := err.Error(); text != last {
 				fmt.Fprintln(stderr, "profile sync:", text)
 				last = text
@@ -341,7 +360,9 @@ func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, err
 			<-done
 			flush, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			finalErr = client.SyncFiles(flush)
+			if err := client.SyncFiles(flush); synced {
+				finalErr = err
+			}
 		})
 		return finalErr
 	}, nil
