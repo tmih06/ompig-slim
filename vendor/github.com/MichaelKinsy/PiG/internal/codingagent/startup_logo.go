@@ -105,6 +105,15 @@ func piWordmark(mode tui.TerminalColorMode) string {
 		tui.ForegroundAnsi(logoYellow, mode) + "i" + logoReset
 }
 
+// StartupMark returns the two lines logoMark draws for mode. It is the public seam for a renderer outside this
+// package that must show the same product mark, so that surface cannot drift from the header: `ompig-slim update`
+// prints it before replacing the executable.
+//
+// Each line carries this package's own escapes, including the coral-on-blue half block at the top of Pi's mark. A
+// caller writing to a pipe strips them with tui/widthx.StripAnsi, which keeps the exact geometry because every run
+// is a plain span of printable cells.
+func StartupMark(mode tui.TerminalColorMode) (top, bottom string) { return logoMark(mode) }
+
 // logoMark is the mark's two lines: the OM + Pi prefix and the cyan "in GO", with the product tag closing the first
 // line. The built-in header and the first-time setup dialog both draw it, so the brand is spelled once.
 func logoMark(mode tui.TerminalColorMode) (string, string) {
