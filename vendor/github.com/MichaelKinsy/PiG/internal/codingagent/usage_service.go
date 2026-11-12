@@ -46,9 +46,9 @@ type UsageServiceOptions struct {
 	// AccountRouter owns request-local backoffs; a confirmed reset heals the
 	// same scopes there as in the persisted store. Nil keeps local blocks intact.
 	AccountRouter *ai.AccountRouter
-	// GetAuth resolves request auth, refreshing one account's OAuth token when
-	// it is near expiry. Account scope travels in the overrides so an explicit
-	// identity-less account is distinguishable from "the selected account".
+	// GetAuth resolves request auth, refreshing one account's OAuth token near
+	// expiry or after a Codex JSON usage 401. Overrides carry the account scope,
+	// distinguishing an explicit identity-less account from the selected one.
 	// The resolver owns lifecycle changes, including retirement of dead imports.
 	GetAuth func(ctx context.Context, providerID string, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error)
 	// BaseURLFor reports a configured provider base URL.
@@ -466,7 +466,8 @@ func (service *UsageService) readCredentialFor(ctx context.Context, providerID s
 }
 
 // fetchAccount probes one stored account, refreshing only that account's OAuth
-// token when it is close to expiry.
+// token near expiry or once after a Codex JSON usage 401. Retirement is owned
+// by auth resolution; permission failures alone never remove credentials.
 func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProviderProbe, account ai.CredentialAccountInfo, force bool) (usageProbeResult, error) {
 	credential, err := service.readCredentialFor(ctx, probe.provider, account.AccountKey)
 	if err != nil {
@@ -540,6 +541,7 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 // refreshUsageAccount delegates lifecycle changes to scoped auth resolution and
 // rereads authoritative storage even on refresh failure. Transient failures keep
 // credentials available; a retired import returns nil, never its old bearer.
+// The caller must supply GetAuth and handle storage errors and cancellation.
 func (service *UsageService) refreshUsageAccount(ctx context.Context, provider string, key *string, force bool) (*ai.Credential, error) {
 	overrides := accountOverrides(key)
 	overrides.ForceOAuthRefresh = force
