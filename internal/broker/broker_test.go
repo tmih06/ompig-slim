@@ -250,10 +250,15 @@ func TestStartKeepsCredentialsRemote(t *testing.T) {
 	t.Setenv("OMPIG_BROKER_TOKEN", "")
 	var report strings.Builder
 	finish, err := Start(context.Background(), dir, &report)
-	if err != nil || finish != nil {
-		t.Fatalf("unreachable broker blocked startup: %v", err)
+	if err != nil || finish == nil {
+		t.Fatalf("unreachable broker must leave startup usable and sync retrying: %v", err)
 	}
-	if !strings.Contains(report.String(), "profile sync inactive") {
+	defer func() {
+		if err := finish(); err != nil {
+			t.Error("never-connected broker failed repair-command exit", err)
+		}
+	}()
+	if !strings.Contains(report.String(), "profile sync pending (will retry)") {
 		t.Fatal("degradation was silent")
 	}
 	if !strings.Contains(report.String(), "127.0.0.1:1") {
