@@ -104,6 +104,9 @@ type usageProbeResult struct {
 	// unsupported marks a fetcher that declined the credential shape, so an
 	// ambient probe is not reported as a failed account.
 	unsupported bool
+	// authRejected preserves a 401 through the probe/cache boundary so stored
+	// imports can recover through auth resolution, not usage-owned deletion.
+	authRejected bool
 }
 
 // usageSharedProbe is one in-flight upstream probe shared by every caller.
@@ -495,8 +498,7 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 		// resolver may retire a dead import; never probe its stale local copy.
 		// Scope is the exact account, so a sibling cannot replace it.
 		if service.options.GetAuth != nil {
-			_, _ = service.options.GetAuth(ctx, probe.provider, accountOverrides(account.AccountKey))
-			refreshed, readErr := service.readCredentialFor(ctx, probe.provider, account.AccountKey)
+			refreshed, readErr := service.refreshUsageAccount(ctx, probe.provider, account.AccountKey, false)
 			if readErr != nil {
 				if ctx.Err() != nil {
 					return usageProbeResult{}, context.Cause(ctx)
@@ -512,7 +514,37 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 	target.credential = ai.UsageCredentialFromStored(credential)
 	key = usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
 	result, err := service.fetchCached(ctx, key, target, force)
+	if err == nil && result.authRejected && probe.provider == "codex-json" && credential.Type == ai.CredentialOAuth && service.options.GetAuth != nil {
+		// Revocation can precede the imported expiry. Let the resolver rotate or
+		// retire this exact account under its lease; a usage 401 alone is not
+		// proof that the refresh token is dead. Retry only a changed bearer once.
+		refreshed, readErr := service.refreshUsageAccount(ctx, probe.provider, account.AccountKey, true)
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return usageProbeResult{}, context.Cause(ctx)
+			}
+			return usageProbeResult{reason: readErr.Error()}, nil
+		}
+		if refreshed == nil {
+			return usageProbeResult{reason: NoConfiguredCredential}, nil
+		}
+		if refreshed.Access != credential.Access {
+			target.credential = ai.UsageCredentialFromStored(refreshed)
+			key = usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential))
+			result, err = service.fetchCached(ctx, key, target, true)
+		}
+	}
 	return usageAccountResult(result, account.AccountKey), err
+}
+
+// refreshUsageAccount delegates lifecycle changes to scoped auth resolution and
+// rereads authoritative storage even on refresh failure. Transient failures keep
+// credentials available; a retired import returns nil, never its old bearer.
+func (service *UsageService) refreshUsageAccount(ctx context.Context, provider string, key *string, force bool) (*ai.Credential, error) {
+	overrides := accountOverrides(key)
+	overrides.ForceOAuthRefresh = force
+	_, _ = service.options.GetAuth(ctx, provider, overrides)
+	return service.readCredentialFor(ctx, provider, key)
 }
 
 func usageAccountResult(result usageProbeResult, accountKey *string) usageProbeResult {
@@ -709,9 +741,9 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 		if errors.As(err, &httpErr) && (httpErr.Status == 401 || httpErr.Status == 403) {
 			// A rejected credential must not keep rendering stale quota as
 			// healthy. Purging the cache says nothing about the credential's
-			// lifecycle: the account stays stored and selected.
+			// lifecycle: only the auth resolver may retire the account.
 			service.purge(key)
-			return usageProbeResult{reason: reason}
+			return usageProbeResult{reason: reason, authRejected: httpErr.Status == 401}
 		}
 	} else if report == nil {
 		reason = "no usage reported"
