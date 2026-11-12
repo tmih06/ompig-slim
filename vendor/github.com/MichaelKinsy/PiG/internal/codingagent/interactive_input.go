@@ -1115,6 +1115,9 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
 		if text == "" {
 			break
 		}
+		if m.rejectUnknownSlashCommand(text) {
+			break
+		}
 		if !m.isCompacting && !m.runStreaming() && m.editor.OnSubmit != nil {
 			m.editor.Clear()
 			m.editor.OnSubmit(text)
@@ -1278,15 +1281,54 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
 // dispatches that run immediately even during compaction, mirroring upstream
 // where the builtin command if-chain and the isExtensionCommand branch both
 // precede the isCompacting queue. Prompt templates, skill commands, and
-// unresolved slashes are not resolvable here: they expand into model prompts
-// and stay queued during compaction.
+// unresolved slashes are not resolvable here. Templates and skills expand into
+// model prompts and stay queued during compaction; unknown commands are rejected
+// separately at submission.
 func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
-	if !strings.HasPrefix(prompt, "/") {
+	if m.slashRegistry == nil || !strings.HasPrefix(prompt, "/") {
 		return false
 	}
 	m.syncExtensionSlashCommands()
 	_, ok := m.slashRegistry.Match(prompt)
 	return ok
+}
+
+// rejectUnknownSlashCommand validates leading slash input before history or
+// queue mutation. Known local commands, templates and skills remain valid.
+// Path-shaped tokens (another slash or a dot) and existing root-level paths
+// remain ordinary prompts; a bare unknown /name is treated as a command typo.
+// Rejection reports an error and restores the draft for correction. Inline
+// slash tokens are not commands and are intentionally left alone.
+func (m *InteractiveMode) rejectUnknownSlashCommand(text string) bool {
+	text = widthx.JSTrim(text)
+	if !strings.HasPrefix(text, "/") || m.resolvableSlashCommand(text) {
+		return false
+	}
+	name := strings.Fields(text)[0][1:]
+	for _, template := range m.promptTemplates {
+		if template.Name == name {
+			return false
+		}
+	}
+	if strings.HasPrefix(name, "skill:") {
+		for _, skill := range m.opts.Skills {
+			if skill.Name == strings.TrimPrefix(name, "skill:") {
+				return false
+			}
+		}
+	} else {
+		// Syntax, not existence, preserves references to paths the user wants
+		// created. Stat only disambiguates single-component paths like /tmp.
+		if name == "" || strings.ContainsAny(name, "/.\\") {
+			return false
+		}
+		if _, err := os.Stat("/" + name); err == nil {
+			return false
+		}
+	}
+	m.showError("Unknown slash command: /" + name)
+	m.editor.SetText(text)
+	return true
 }
 
 // restoreQueuedMessagesToEditor moves every queued message (the agent's
