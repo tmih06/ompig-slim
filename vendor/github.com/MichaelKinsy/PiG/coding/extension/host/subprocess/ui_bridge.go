@@ -118,12 +118,6 @@ type UIBridge struct {
 	footerView, headerView               *viewSurface
 	footerViewConn, headerViewConn       *Conn
 	pendingLogin                         *extension.LoginDefinition
-	// sprites are the sprites each extension registered, in registration order. They are kept across UI bindings and
-	// handed to every UI that keeps sprites (extension.SpriteRegistrar), and dropped with their extension. spritesMu
-	// guards them and orders their registrations with the UI's; it is taken before mu.
-	spritesMu sync.Mutex
-	sprites   map[string][]extension.ValidatedSpriteDefinition
-
 	// actions holds agent-loop callbacks (sendMessage, setModel, etc.).
 	// Set via [SetActions] after the agent session is created.
 	actions *HostCallbacks
@@ -835,8 +829,6 @@ func (b *UIBridge) SetUIContext(ctx extension.UIContext) {
 	defer b.headerMu.Unlock()
 	b.footerMu.Lock()
 	defer b.footerMu.Unlock()
-	b.spritesMu.Lock()
-	defer b.spritesMu.Unlock()
 	b.mu.Lock()
 	if ctx == nil {
 		ctx = extension.NoopUIContext
@@ -860,7 +852,6 @@ func (b *UIBridge) SetUIContext(ctx extension.UIContext) {
 		header = nil
 	}
 	pendingLogin := cloneLoginDefinition(b.pendingLogin)
-	sprites := b.sprites
 	conns := make([]*Conn, 0, len(b.extConns))
 	for _, conn := range b.extConns {
 		conns = append(conns, conn)
@@ -875,14 +866,6 @@ func (b *UIBridge) SetUIContext(ctx extension.UIContext) {
 		}
 		if footerSet {
 			ctx.SetFooter(footer)
-		}
-		if registrar, ok := ctx.(extension.SpriteRegistrar); ok {
-			for _, owner := range slices.Sorted(maps.Keys(sprites)) {
-				for _, definition := range sprites[owner] {
-					// A sprite the new UI rejects (its ID taken there) stays out of that UI's catalogue.
-					_ = registrar.RegisterSprite(owner, definition)
-				}
-			}
 		}
 		if pendingLogin != nil {
 			if err := ctx.SetLogin(*pendingLogin); err == nil {
@@ -1425,9 +1408,6 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn, 
 		return b.handleSetHeader(extName, owner, call.Args)
 	case CallUISetLogin:
 		return b.handleSetLogin(extName, owner, call.Args)
-	// pig divergence (D2): an extension adds a sprite to /sprite; Pi has no sprites.
-	case CallUIRegisterSprite:
-		return b.handleRegisterSprite(extName, call.Args)
 	case "ui.setTitle":
 		return b.handleSetTitle(ui, call.Args)
 	case "ui.setEditorComponent":
@@ -1791,9 +1771,6 @@ func (b *UIBridge) clearExtension(extName string, owner *Conn, ownerOnly bool) {
 		delete(b.extConns, extName)
 	}
 	b.mu.Unlock()
-	if ownerGone {
-		b.dropSprites(extName)
-	}
 	for _, proxy := range widgets {
 		proxy.Clear()
 	}
@@ -3325,51 +3302,6 @@ func (b *UIBridge) handleSetLogin(extName string, conn *Conn, args json.RawMessa
 	}
 	b.mu.Unlock()
 	return &CallResultPayload{}, nil
-}
-
-// pig divergence (D2): register an extension's sprite with the UI's sprite catalogue. The bridge keeps it, so a UI bound
-// later receives it, and drops it with its extension.
-func (b *UIBridge) handleRegisterSprite(extName string, args json.RawMessage) (*CallResultPayload, error) {
-	definition, err := extension.DecodeSpriteDefinitionJSON(args)
-	if err != nil {
-		return &CallResultPayload{Error: &ErrorInfo{Code: "invalid_sprite", Message: err.Error()}}, nil
-	}
-	b.spritesMu.Lock()
-	defer b.spritesMu.Unlock()
-	b.mu.RLock()
-	ui, ready := b.uiCtx, b.uiReady
-	b.mu.RUnlock()
-	if registrar, ok := ui.(extension.SpriteRegistrar); ok && ready {
-		if err := registrar.RegisterSprite(extName, definition); err != nil {
-			return &CallResultPayload{Error: &ErrorInfo{Code: "ui_error", Message: "register sprite: " + err.Error()}}, nil
-		}
-	}
-	if b.sprites == nil {
-		b.sprites = map[string][]extension.ValidatedSpriteDefinition{}
-	}
-	owned := b.sprites[extName]
-	if i := slices.IndexFunc(owned, func(d extension.ValidatedSpriteDefinition) bool { return d.ID() == definition.ID() }); i >= 0 {
-		owned[i] = definition
-	} else {
-		b.sprites[extName] = append(owned, definition)
-	}
-	return &CallResultPayload{}, nil
-}
-
-// dropSprites forgets the sprites extName registered and takes them out of the UI's catalogue.
-func (b *UIBridge) dropSprites(extName string) {
-	b.spritesMu.Lock()
-	defer b.spritesMu.Unlock()
-	if _, ok := b.sprites[extName]; !ok {
-		return
-	}
-	delete(b.sprites, extName)
-	b.mu.RLock()
-	ui := b.uiCtx
-	b.mu.RUnlock()
-	if registrar, ok := ui.(extension.SpriteRegistrar); ok {
-		registrar.UnregisterSprites(extName)
-	}
 }
 
 func cloneLoginDefinition(definition *extension.LoginDefinition) *extension.LoginDefinition {

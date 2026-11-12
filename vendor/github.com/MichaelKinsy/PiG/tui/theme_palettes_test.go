@@ -2,87 +2,70 @@ package tui
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// TestBuiltinPalettesLoad covers the bundled oh-my-pi palettes: every one parses
-// and resolves, carries an ANSI palette (so colorful Markdown has hues to paint
-// from), and names itself.
-func TestBuiltinPalettesLoad(t *testing.T) {
-	data, err := builtinThemes.ReadFile("theme_palettes.json")
+// optionalThemePath resolves repository assets through the canonical test GOPATH
+// symlink, so optional palettes are tested without embedding them in the binary.
+func optionalThemePath(t *testing.T, name string) string {
+	t.Helper()
+	_, source, _, _ := runtime.Caller(0)
+	source, err := filepath.EvalSymlinks(source)
 	if err != nil {
-		t.Fatalf("read bundle: %v", err)
+		t.Fatal(err)
 	}
-	var documents map[string]json.RawMessage
-	if err := json.Unmarshal(data, &documents); err != nil {
-		t.Fatalf("decode bundle: %v", err)
+	return filepath.Join(filepath.Dir(source), "../../../../../themes", name+".json")
+}
+
+// optionalPalette loads a user-installable palette through the normal file API.
+func optionalPalette(t *testing.T, name string) *Theme {
+	t.Helper()
+	theme, err := LoadThemeFromPath(optionalThemePath(t, name), TerminalColorModeTrueColor)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(documents) == 0 {
-		t.Fatal("bundle is empty")
+	return theme
+}
+
+// TestOptionalPalettesLoad ensures every optional palette resolves every UI token.
+func TestOptionalPalettesLoad(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join(filepath.Dir(optionalThemePath(t, "titanium")), "*.json"))
+	if err != nil || len(paths) != 100 {
+		t.Fatalf("palettes=%d, err=%v", len(paths), err)
 	}
-	names := BuiltinPaletteNames()
-	if len(names) != len(documents) {
-		t.Fatalf("BuiltinPaletteNames has %d names for %d documents", len(names), len(documents))
-	}
-	for _, name := range names {
-		theme := paletteTheme(name)
-		if theme == nil {
-			t.Fatalf("%s: not resolved", name)
-		}
-		if theme.Name != name {
-			t.Fatalf("%s: theme names itself %q", name, theme.Name)
-		}
+	for _, path := range paths {
+		theme := optionalPalette(t, strings.TrimSuffix(filepath.Base(path), ".json"))
 		if !theme.HasANSIPalette() {
-			t.Fatalf("%s: no ANSI palette", name)
+			t.Fatalf("%s has no ANSI palette", theme.Name)
 		}
-		// Every token a component draws with must resolve; a missing one panics in
-		// Fg, so a palette that loads but lacks one crashes the first render. The
-		// table lists both foreground and background tokens, so the background
-		// half goes through Bg.
 		for _, token := range ThemeColorTokens() {
 			if themeBackgroundTokens[token.Name] {
 				theme.Bg(token.Name, "x")
-				continue
+			} else {
+				theme.Fg(token.Name, "x")
 			}
-			theme.Fg(token.Name, "x")
 		}
 	}
 }
 
-// TestBuiltinPalettesAreRegistered covers that a fresh registry offers the
-// palettes to the theme picker and that selecting one by name works.
-func TestBuiltinPalettesAreRegistered(t *testing.T) {
-	previousRegistry := ActiveThemeRegistry()
-	previous := ActiveTheme()
-	t.Cleanup(func() {
-		SetThemeRegistry(previousRegistry)
-		SetThemeInstance(previous)
-	})
+// TestOnlyCoreThemesAreBuiltin keeps optional palettes out of the default picker
+// while proving users can register one from disk without a special installer.
+func TestOnlyCoreThemesAreBuiltin(t *testing.T) {
 	registry := NewThemeRegistry()
-	SetThemeRegistry(registry)
-
-	registered := registry.Names()
-	for _, want := range []string{SystemThemeName, "dark", "light", "titanium", "dark-dracula"} {
-		found := false
-		for _, name := range registered {
-			if name == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("%q is not registered among %d themes", want, len(registered))
-		}
+	if got := registry.Names(); !slices.Equal(got, []string{"system", "dark", "light"}) {
+		t.Fatalf("built-in themes: %v", got)
 	}
-	if len(registered) < 90 {
-		t.Fatalf("only %d themes registered; the palette bundle did not load", len(registered))
+	if registry.Get("titanium") != nil {
+		t.Fatal("optional palette is built in")
 	}
-	if err := SetThemeByNameChecked("titanium"); err != nil {
-		t.Fatalf("select titanium: %v", err)
-	}
-	if ActiveTheme().Name != "titanium" {
-		t.Fatalf("active theme is %q after selecting titanium", ActiveTheme().Name)
+	theme := optionalPalette(t, "titanium")
+	registry.AddFile(theme, theme.SourcePath)
+	if registry.Get("titanium") != theme {
+		t.Fatal("custom theme was not registered")
 	}
 }
 
@@ -273,18 +256,16 @@ func TestDefaultThemeIsAPalette(t *testing.T) {
 	SetTerminalColorScheme("")
 }
 
-// TestDefaultThemeResolvesThroughTheBundle covers a registry that lists no
-// palettes: the default still resolves, because a bundled palette is resolved by
-// name whether or not the registry enumerated it. A name the bundle does not have
-// resolves to nothing and the selection falls back to the system theme.
-func TestDefaultThemeResolvesThroughTheBundle(t *testing.T) {
+// TestDefaultThemeResolvesThroughCoreRegistry covers default selection and
+// the system fallback for a theme the user has not installed.
+func TestDefaultThemeResolvesThroughCoreRegistry(t *testing.T) {
 	previousRegistry := ActiveThemeRegistry()
 	previous := ActiveTheme()
 	t.Cleanup(func() {
 		SetThemeRegistry(previousRegistry)
 		SetThemeInstance(previous)
 	})
-	bare := &ThemeRegistry{themes: map[string]*Theme{}, names: []string{SystemThemeName}}
+	bare := NewThemeRegistry()
 	SetThemeRegistry(bare)
 
 	SetThemeSettingPresence(nil)
@@ -308,7 +289,7 @@ func TestDefaultThemeResolvesThroughTheBundle(t *testing.T) {
 // missing, or headings would lose their hues on exactly the terminals that need
 // the tree to be readable.
 func TestANSIPaletteSurvivesColorMode(t *testing.T) {
-	theme := paletteTheme("titanium")
+	theme := optionalPalette(t, "titanium")
 	if theme == nil {
 		t.Fatal("titanium did not resolve")
 	}
@@ -349,7 +330,7 @@ func paletteSlotAnsi(theme *Theme, slot int) string {
 // loader adopts it, so those call sites draw a real color.
 func TestPaletteForegroundIsAdopted(t *testing.T) {
 	for _, name := range []string{"titanium", "dark-dracula", "light-solarized", "dark-github"} {
-		theme := paletteTheme(name)
+		theme := optionalPalette(t, name)
 		if theme == nil {
 			t.Fatalf("%s did not resolve", name)
 		}

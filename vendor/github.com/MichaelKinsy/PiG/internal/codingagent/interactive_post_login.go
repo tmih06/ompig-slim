@@ -114,8 +114,6 @@ func postLoginModel(providerID, actionLabel, defaultID string, models []tui.Mode
 	providerModels := slices.DeleteFunc(slices.Clone(models), func(model tui.ModelSelectorItem) bool { return model.Provider != providerID })
 	hasDefault := defaultID != ""
 	switch {
-	case providerID == "llama.cpp":
-		return "", llamaCppPostLoginGuidance(actionLabel, len(providerModels))
 	case !hasDefault:
 		return "", fmt.Sprintf(`%s, but no default model is configured for provider "%s". Use /model to select a model.`, actionLabel, providerID)
 	case len(providerModels) == 0:
@@ -256,12 +254,4 @@ func (m *InteractiveMode) finishProviderAuthentication(providerID, actionLabel s
 			finish(model, err)
 		})
 	})
-}
-
-// llamaCppPostLoginGuidance mirrors interactive-mode.ts llamaCppPostLoginGuidance.
-func llamaCppPostLoginGuidance(actionLabel string, loadedModelCount int) string {
-	if loadedModelCount == 0 {
-		return actionLabel + ". No llama.cpp models are loaded. Use /llama to load a model, then /model to select it."
-	}
-	return actionLabel + ". Use /model to select a loaded llama.cpp model, or /llama to manage models."
 }

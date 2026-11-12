@@ -268,7 +268,6 @@ func runPigPreSessionCommand(args []string) int {
 		return code
 	}
 	for _, run := range []func([]string, io.Writer, io.Writer) int{
-		runDocsCommand,
 		pigsdk.RunCommand,
 		piglet.RunCommand,
 	} {
@@ -751,7 +750,6 @@ func Main(args []string, options *MainOptions) {
 	stopMetrics := profiling.Start()
 	// pig additive (D22): the session's documentation lease lives until exit; give it back before the exit record counts the process's descriptors.
 	stopProfiles = func() {
-		releaseDocsLeases()
 		stopMetrics()
 	}
 	// Pi's process 'exit' handler also runs when Node exits on an uncaught exception or the event loop drains (tui.ts exitRestoreHandler, 9df819de, #11170).
@@ -913,17 +911,6 @@ func Main(args []string, options *MainOptions) {
 	// extension-contributed providers appear in the catalog, matching upstream
 	// which lists against the extension-populated modelRuntime.
 
-	// --export: export session file to HTML and exit.
-	// Mirrors upstream main.ts:459-466.
-	if flags.Export != "" {
-		outputPath := ""
-		if len(flags.Messages) > 0 {
-			outputPath = flags.Messages[0]
-		}
-		// pig additive (D92): HTML export is a shim a Piglet Binary can compile out.
-		runExportFlag(flags.Export, outputPath)
-	}
-
 	runMode := processAppMode(flags)
 	if runMode == appModePrint || runMode == appModeJSON || runMode == appModeRPC {
 		// pig additive (D175): print, json and rpc runs collect at GOGC 400 unless the environment sets GOGC, and at 100 again past 64 MiB live.
@@ -1007,7 +994,6 @@ func Main(args []string, options *MainOptions) {
 	activePiglet, activePigletBaked = resolvePiglet(flags.UnknownFlags, flags.ProjectTrustOverride)
 	exportActivePigletSource(activePiglet, activePigletBaked)
 	// pig additive (D23): an active Piglet adds the Piglets topic to the docs section of the system prompt.
-	prompts.SetPigletDocsTopic(activePiglet != nil)
 	// pig additive (D202): a Piglet Binary that is not built closed takes --system-prompt as stock pig does, so the flag replaces the
 	// Piglet's own prompt; a closed Piglet Binary keeps its baseline.
 	activePigletOpen := activePigletBaked && runningPigletBinary().OverlayBase() != nil
@@ -1063,10 +1049,6 @@ func Main(args []string, options *MainOptions) {
 		defer codingagent.EndSessionMarker()
 	}
 
-	// pig divergence (D88): first-time setup runs on an interactive start when settings.json does not exist yet; observed
-	// before anything this run writes creates it.
-	firstTimeSetup := shouldRunFirstTimeSetup(processAppMode(flags), codingagent.AgentDirConfigured(), agentDir)
-
 	// Run one-shot config migrations before loading services/resources so
 	// renamed directories (e.g. commands/ → prompts/) are visible on the
 	// current startup path. Mirrors upstream startup ordering.
@@ -1088,15 +1070,6 @@ func Main(args []string, options *MainOptions) {
 	if err != nil {
 		printCLIError("%v", err)
 		exitProcess(1)
-	}
-	// Pi runs first-time setup on its own screen before any runtime service, then applies --theme over the saved settings
-	// (main.ts:672-680).
-	if firstTimeSetup && !flags.Help && flags.ListModels == "" && !flags.ListModelsAll {
-		_, setupErr := codingagent.ShowFirstTimeSetup(startupSettingsManager, startupUIOptions(flags, false, initialCWD, agentDir, startupSettingsManager))
-		if setupErr != nil {
-			printCLIError("first-time setup: %v", setupErr)
-		}
-		timings.Time("firstTimeSetup")
 	}
 	startupUIOpts := startupUIOptions(flags, processAppMode(flags) == appModeInteractive, initialCWD, agentDir, startupSettingsManager)
 	// Pi createSessionManager selects in-memory modes before considering the resume picker.
@@ -1228,12 +1201,6 @@ func Main(args []string, options *MainOptions) {
 	stopStartupExtensions = startupExtensions.close
 	defer startupExtensions.close()
 	defer stopAutomaticExtensionCacheGC()
-	// pig additive (D92): the docs bundle is a shim a Piglet Binary can compile out.
-	prepareDocsBundle()
-	if mode := processAppMode(flags); mode == appModeInteractive || mode == appModeRPC {
-		// A user's `!` command and an RPC client's bash command read files with no tool call before them.
-		writeDocsBundle()
-	}
 	buildInput := cliBuildInput{CWD: cwd, Startup: true, StartupExtensions: startupExtensions}
 	build, err := builder.buildResources(ctx, buildInput)
 	if err != nil {

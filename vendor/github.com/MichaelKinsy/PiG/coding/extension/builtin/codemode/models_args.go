@@ -146,7 +146,7 @@ const classifierContextShape = `{ state: { ... }, images?: [{ type: "image", dat
 // upstream: execute.ts checkClassifierContext
 func checkClassifierContext(context json.RawMessage) error {
 	fail := func(problem string) error {
-		return fmt.Errorf("models.classify() %s. Expected context: %s.%s", problem, classifierContextShape, docsCitation(" See \"Classify\" in %s."))
+		return fmt.Errorf("models.classify() %s. Expected context: %s.", problem, classifierContextShape)
 	}
 	if !isRecord(context) {
 		return fail("expects a context object as its second argument, got " + describeValue(context))
@@ -208,7 +208,7 @@ func checkClassifierContext(context json.RawMessage) error {
 // upstream: execute.ts checkImagesContext
 func checkImagesContext(context json.RawMessage) error {
 	fail := func(problem string) error {
-		return fmt.Errorf("models.generateImages() %s. Expected context: { input: [{ type: \"text\", text: <prompt> }, ...optional { type: \"image\", data: <base64>, mimeType } references] }.%s", problem, docsCitation(" See \"Generate images\" in %s."))
+		return fmt.Errorf("models.generateImages() %s. Expected context: { input: [{ type: \"text\", text: <prompt> }, ...optional { type: \"image\", data: <base64>, mimeType } references] }.", problem)
 	}
 	if !isRecord(context) {
 		return fail("expects a context object as its second argument, got " + describeValue(context))

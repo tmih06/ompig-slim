@@ -1350,25 +1350,6 @@ commandLoop:
 		case RPCCommandGetSessionStats:
 			writeRPC(rpcSuccess(env.ID, "get_session_stats", sess().GetSessionStats()))
 
-		case RPCCommandExportHtml:
-			cmd, err := decodeRPCCommand[RPCExportHTMLCommand](env)
-			if err != nil {
-				writeRPC(rpcError(env.ID, "export_html", err.Error()))
-				continue
-			}
-			// upstream rpc-mode.ts:601 session.exportToHtml(outputPath).
-			// exportToHtml is async: its response follows a later command of the same input batch.
-			currentSession, commandID := sess(), env.ID
-			rpcAwaitWork(admission, false, func() (string, error) {
-				return currentSession.ExportToHTML(cmd.OutputPath)
-			}).then(func(outputPath string, err error) {
-				if err != nil {
-					writeRPC(rpcError(commandID, "export_html", err.Error()))
-					return
-				}
-				writeRPC(rpcSuccess(commandID, "export_html", map[string]string{"path": outputPath}))
-			})
-
 		case RPCCommandSwitchSession:
 			cmd, err := decodeRPCCommand[RPCSwitchSessionCommand](env)
 			if err != nil {

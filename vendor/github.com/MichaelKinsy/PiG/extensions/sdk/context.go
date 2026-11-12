@@ -1901,15 +1901,6 @@ func (c Context) SetLogin(definition LoginDefinition) error {
 	return callResultError(result, err)
 }
 
-// RegisterSprite adds a sprite to /sprite, where the user can choose and save
-// it. The host validates the definition; registering the same ID again replaces
-// this extension's sprite, and the sprite leaves /sprite when the extension
-// unloads.
-func (c Context) RegisterSprite(definition SpriteDefinition) error {
-	result, err := c.ext.conn.call("ui.registerSprite", definition)
-	return callResultError(result, err)
-}
-
 // SetHeader replaces the default header with pre-rendered lines when lines
 // is a non-empty []string, or clears a previously set header when lines is nil.
 // Component factories (non-string values) cannot be serialized across the

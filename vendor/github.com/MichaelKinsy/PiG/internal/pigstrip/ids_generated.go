@@ -54,9 +54,6 @@ var knownIDs = map[string][]string{
 		"mistral-conversations",
 	},
 	ListFeatures: {
-		"changelog",
-		"docs",
-		"export-html",
 		"extension-sdk-go",
 		"extension-sdk-lisp",
 		"extension-sdk-python",

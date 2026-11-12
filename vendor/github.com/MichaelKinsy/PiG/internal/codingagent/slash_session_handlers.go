@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding/extension"
 	jsjson "github.com/MichaelKinsy/PiG/extensions/sdk/json"
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
@@ -507,17 +506,6 @@ func showWarningOrAppend(sc *SlashContext, msg string) {
 	sc.Append("Warning: " + msg)
 }
 
-// changelogHandler shows the full inline changelog, independently of the startup collapse setting.
-func changelogHandler(sc *SlashContext) error {
-	if sc.ShowChangelog != nil {
-		sc.ShowChangelog()
-		return nil
-	}
-	entries := ParseChangelog(bundledChangelog())
-	sc.Append(FormatChangelogForChat(entries))
-	return nil
-}
-
 // compactHandler delegates every /compact request to the Session, including empty or small Sessions. Completion and errors arrive through compaction events.
 func compactHandler(sc *SlashContext) error {
 	if sc.CompactSession == nil {
@@ -539,8 +527,7 @@ func compactHandler(sc *SlashContext) error {
 // ─── /settings handler ───────────────────────────────────────────
 
 // settingStripped reports whether the /settings row id configures a built-in
-// this process strips: skills, Mermaid, the changelog (whose detected updates
-// also send the install telemetry ping) and /tree; the double-escape row goes
+// this process strips: skills, Mermaid and /tree; the double-escape row goes
 // when only "none" is left.
 // pig additive (D92): the row of a stripped built-in is not offered.
 func settingStripped(id string) bool {
@@ -549,8 +536,6 @@ func settingStripped(id string) bool {
 		return pigstrip.Has(pigstrip.ListFeatures, pigstrip.Skills)
 	case "mermaid-rendering":
 		return pigstrip.Has(pigstrip.ListFeatures, pigstrip.Mermaid)
-	case "collapse-changelog", "install-telemetry":
-		return pigstrip.Has(pigstrip.ListFeatures, pigstrip.Changelog)
 	case "double-escape-action":
 		return len(doubleEscapeActions()) <= 1
 	case "tree-filter-mode":
@@ -670,8 +655,6 @@ func settingsConfig(sc *SlashContext) (SettingsConfig, error) {
 		HideThinkingBlock:          sm.GetHideThinkingBlock(),
 		MermaidRenderingMode:       sm.GetMermaidRenderingMode(),
 		ShowCacheMissNotices:       sm.GetShowCacheMissNotices(),
-		CollapseChangelog:          sm.GetCollapseChangelog(),
-		EnableInstallTelemetry:     sm.GetEnableInstallTelemetry(),
 		DoubleEscapeAction:         sm.GetDoubleEscapeAction(),
 		TreeFilterMode:             sm.GetTreeFilterMode(),
 		ShowHardwareCursor:         sm.GetShowHardwareCursor(),
@@ -802,12 +785,6 @@ func settingsHandlerTUI(sc *SlashContext, config SettingsConfig) error {
 			},
 			OnShowCacheMissNoticesChange: func(shown bool) {
 				applied("cache-miss-notices", boolSettingValue(shown), sm.SetShowCacheMissNotices(shown))
-			},
-			OnCollapseChangelogChange: func(collapsed bool) {
-				applied("collapse-changelog", boolSettingValue(collapsed), sm.SetCollapseChangelog(collapsed))
-			},
-			OnEnableInstallTelemetryChange: func(enabled bool) {
-				applied("install-telemetry", boolSettingValue(enabled), sm.SetEnableInstallTelemetry(enabled))
 			},
 			OnQuietStartupChange: func(quiet QuietStartup) {
 				applied("quiet-startup", quiet.String(), sm.SetQuietStartup(quiet))
@@ -991,44 +968,23 @@ func shortHash(hash, fallback string) string {
 	return h
 }
 
-// exportHandler implements /export [path]. The first argument, which may be
-// quoted, selects the output: a .jsonl path writes the current branch
-// (upstream session.exportToJsonl), and any other path, or none, writes HTML
-// (upstream session.exportToHtml). A failure returns upstream's "Failed to
-// export session" error. Mirrors upstream handleExportCommand.
+// exportHandler writes the current branch as JSONL. Other suffixes are rejected
+// rather than silently writing JSON to an HTML filename.
 func exportHandler(sc *SlashContext) error {
-	if sc.CurrentSession == nil {
-		sc.Append("Session unavailable in this build.")
-		return nil
-	}
-	s := sc.CurrentSession()
-	if s == nil {
+	if sc.CurrentSession == nil || sc.CurrentSession() == nil {
 		sc.Append("No active session.")
 		return nil
 	}
 	outputPath := pathCommandArgument(sc.Args)
+	if outputPath != "" && !strings.HasSuffix(outputPath, ".jsonl") {
+		return errors.New("Usage: /export [path.jsonl]; HTML export has been removed")
+	}
 	var filePath string
 	var err error
-	if strings.HasSuffix(outputPath, ".jsonl") {
-		if sc.ExportToJsonl != nil {
-			filePath, err = sc.ExportToJsonl(outputPath)
-		} else {
-			filePath, err = ExportSessionToJsonl(s, outputPath, nil)
-		}
+	if sc.ExportToJsonl != nil {
+		filePath, err = sc.ExportToJsonl(outputPath)
 	} else {
-		var tools func(name string) *extension.ToolRenderers
-		if sc.ToolRenderers != nil {
-			tools = sc.ToolRenderers()
-		}
-		var state ShareState
-		if sc.ShareState != nil {
-			state = sc.ShareState()
-		}
-		var settingsTheme string
-		if sc.SettingsManager != nil {
-			settingsTheme = sc.SettingsManager.GetTheme()
-		}
-		filePath, err = ExportSessionToHTML(s.Path(), outputPath, tools, s.CWD(), state, ExportThemeName(settingsTheme))
+		filePath, err = ExportSessionToJsonl(sc.CurrentSession(), outputPath, nil)
 	}
 	if err != nil {
 		return fmt.Errorf("Failed to export session: %w", err)
@@ -1110,45 +1066,6 @@ func confirmSlash(sc *SlashContext, title, message string) bool {
 	}
 	choice, ok := sc.ShowExtensionSelector(title+"\n"+message, []string{"Yes", "No"})
 	return ok && choice == "Yes"
-}
-
-// shareHandler implements /share: export the active branch with the pi.share
-// presentation entry and upload it to PiG's share gateway. The command itself
-// is the explicit opt-in; shareSession displays the privacy notice before it
-// starts the upload.
-func shareHandler(sc *SlashContext) error {
-	if sc.CurrentSession == nil {
-		sc.Append("Session unavailable.")
-		return nil
-	}
-	session := sc.CurrentSession()
-	if session == nil {
-		sc.Append("No active session.")
-		return nil
-	}
-	if sc.ShareSession == nil {
-		return errors.New("Session sharing is not available in this context.")
-	}
-	state := ShareState{}
-	if sc.ShareState != nil {
-		state = sc.ShareState()
-	}
-	status, err := sc.ShareSession(session, state, func(message string) { showStatusOrAppend(sc, message) })
-	if errors.Is(err, errShareCancelled) {
-		showStatusOrAppend(sc, "Share cancelled")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	// Keep the pre-upload privacy status readable. Consecutive ShowStatus calls
-	// coalesce, so the terminal result is appended as a distinct transcript row.
-	if sc.AppendText != nil {
-		sc.AppendText(status)
-	} else if sc.Append != nil {
-		sc.Append(status)
-	}
-	return nil
 }
 
 // modelThinkingClearOverrideValue is the sentinel select-item value that

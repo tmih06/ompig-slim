@@ -3,10 +3,10 @@
 // Package prompts builds the default coding-agent system prompt.
 //
 // It mirrors upstream core/system-prompt.js as of Pi 0.87.1: an untagged
-// preamble, then tagged sections in upstream order (tools, rules, docs,
+// preamble, then tagged sections in upstream order (tools, rules,
 // addendum, project_context, skills, cwd). The model receives this text, so it
 // matches upstream byte for byte apart from the product name and the
-// documentation location (divergence D22). BuildDefaultPrompt's callers pass the
+// omission of bundled self-documentation. BuildDefaultPrompt's callers pass the
 // same inputs upstream's agent session collects: selected tools, their prompt
 // snippets and guidelines, context files, and skills.
 package prompts
@@ -55,24 +55,15 @@ type Options struct {
 	AppendSystemPrompt string
 	// ContextFiles are the loaded AGENTS.md and CLAUDE.md files.
 	ContextFiles []struct{ Path, Content string }
-	// PigDocsPath is the local documentation bundle synced by pigdocs. Empty
-	// uses the standard config-root location.
-	PigDocsPath string
-	// PigReadmePath is the README of that bundle; empty is README.md inside PigDocsPath.
-	// upstream: system-prompt.ts:163 getReadmePath()
-	PigReadmePath string
-	// PigExamplesPath is where the examples live; empty is [PigExamplesLocation].
-	// upstream: system-prompt.ts:165 getExamplesPath()
-	PigExamplesPath string
 	// AppendMode is "append" (default: CustomPrompt becomes the addendum
 	// section) or "replace" (CustomPrompt replaces the preamble, and the tools,
-	// rules, and docs sections are omitted, as upstream does for a custom
+	// rules sections are omitted, as upstream does for a custom
 	// system prompt).
 	AppendMode string
 }
 
 // Preamble is the base system prompt text: the paragraph that opens the prompt,
-// before the tagged tool, rules, docs, project-context, and skills sections.
+// before the tagged tool, rules, project-context, and skills sections.
 //
 // It is a variable so an embedding program can supply its own prose, which is
 // how ompig-slim ships a prompt maintained as a Markdown file rather than Go
@@ -81,7 +72,7 @@ type Options struct {
 // builds its prompt; a session that is already running keeps the text it read.
 //
 // The composition around it is unchanged: a program that sets Preamble still
-// gets the tool, rules, docs, project-context, and skills sections.
+// gets the tool, rules, project-context, and skills sections.
 //
 // An empty value falls back to the default, so clearing the variable cannot
 // produce a prompt with no opening sentence.
@@ -144,8 +135,6 @@ func BuildSystemPromptSections(o Options) ai.OrderedSections {
 			section{"tools", list + "\n\nAdditional tools may be available."},
 			section{"rules", renderRules(declared, o.ToolGuidelines, o.PromptGuidelines)},
 		)
-		// pig additive (D92): the docs section is absent when docs are stripped; see docs_section.go.
-		sections = append(sections, docsSections(o.PigDocsPath, o.PigReadmePath, o.PigExamplesPath)...)
 		if addendum := strings.TrimSpace(o.CustomPrompt); addendum != "" {
 			sections = append(sections, section{"addendum", addendum})
 		}

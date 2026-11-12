@@ -21,7 +21,6 @@ func (m *InteractiveMode) rebuildChatFromSession() {
 
 // rebuildChat clears and repaints the transcript; populateHistory is renderSessionEntries' option of the same name.
 func (m *InteractiveMode) rebuildChat(populateHistory bool) {
-	m.disposeArminComponents()
 	m.chatContainer.Clear()
 	m.tuiInst.ForceFullRender()
 	m.renderSessionEntriesWithHistory(populateHistory)

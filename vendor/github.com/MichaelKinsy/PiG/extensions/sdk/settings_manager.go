@@ -177,15 +177,6 @@ func (s SettingsManager) Flush() error {
 	return err
 }
 
-func (s SettingsManager) GetLastChangelogVersion() (*string, error) {
-	return graphMethodCall[*string](s.object, "getLastChangelogVersion")
-}
-
-func (s SettingsManager) SetLastChangelogVersion(version string) error {
-	_, err := graphMethodCall[graphDone](s.object, "setLastChangelogVersion", version)
-	return err
-}
-
 func (s SettingsManager) GetSessionDir() (*string, error) {
 	return graphMethodCall[*string](s.object, "getSessionDir")
 }
@@ -277,15 +268,6 @@ func (s SettingsManager) GetTransport() (string, error) {
 
 func (s SettingsManager) SetTransport(transport string) error {
 	_, err := graphMethodCall[graphDone](s.object, "setTransport", transport)
-	return err
-}
-
-func (s SettingsManager) GetSessionShareDestination() (string, error) {
-	return graphMethodCall[string](s.object, "getSessionShareDestination")
-}
-
-func (s SettingsManager) SetSessionShareDestination(destination string) error {
-	_, err := graphMethodCall[graphDone](s.object, "setSessionShareDestination", destination)
 	return err
 }
 
@@ -421,37 +403,6 @@ func (s SettingsManager) GetNpmCommand() ([]string, error) {
 
 func (s SettingsManager) SetNpmCommand(command []string) error {
 	_, err := graphMethodCall[graphDone](s.object, "setNpmCommand", command)
-	return err
-}
-
-func (s SettingsManager) GetCollapseChangelog() (bool, error) {
-	return graphMethodCall[bool](s.object, "getCollapseChangelog")
-}
-
-func (s SettingsManager) SetCollapseChangelog(collapse bool) error {
-	_, err := graphMethodCall[graphDone](s.object, "setCollapseChangelog", collapse)
-	return err
-}
-
-func (s SettingsManager) GetEnableInstallTelemetry() (bool, error) {
-	return graphMethodCall[bool](s.object, "getEnableInstallTelemetry")
-}
-
-func (s SettingsManager) SetEnableInstallTelemetry(enabled bool) error {
-	_, err := graphMethodCall[graphDone](s.object, "setEnableInstallTelemetry", enabled)
-	return err
-}
-
-func (s SettingsManager) GetEnableAnalytics() (bool, error) {
-	return graphMethodCall[bool](s.object, "getEnableAnalytics")
-}
-
-func (s SettingsManager) GetTrackingID() (*string, error) {
-	return graphMethodCall[*string](s.object, "getTrackingId")
-}
-
-func (s SettingsManager) SetEnableAnalytics(enabled bool) error {
-	_, err := graphMethodCall[graphDone](s.object, "setEnableAnalytics", enabled)
 	return err
 }
 

@@ -865,9 +865,7 @@ const (
 	// pig additive (D60): typed native login crosses the subprocess boundary.
 	CallUISetLogin = "ui.setLogin"
 	// CallUIBell rings the terminal bell of the interactive terminal; it does nothing without one.
-	CallUIBell = "ui.bell"
-	// pig divergence (D2): an extension's sprite joins /sprite.
-	CallUIRegisterSprite = "ui.registerSprite"
+	CallUIBell           = "ui.bell"
 	NotifyUICustomInput  = "ui.custom.input"
 	NotifyUICustomRender = "ui.custom.render"
 	NotifyUICustomClose  = "ui.custom.close"

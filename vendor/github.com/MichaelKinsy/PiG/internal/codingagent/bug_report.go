@@ -187,8 +187,7 @@ func redactBugReportSettings(settings Settings) (any, error) {
 		return nil, err
 	}
 	if object, ok := redacted.(map[string]any); ok {
-		// Upstream bug-report.ts:62 drops trackingId and deviceId.
-		delete(object, "trackingId")
+		// Upstream bug-report.ts:62 drops deviceId.
 		delete(object, "deviceId")
 	}
 	return redacted, nil

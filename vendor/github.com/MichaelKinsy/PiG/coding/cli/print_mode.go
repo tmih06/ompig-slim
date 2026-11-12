@@ -429,10 +429,6 @@ func runPrintModeIn(ctx context.Context, rt *coding.Runtime, opts printModeOptio
 				return commandsVersion.Version(catalog, catalog.slashCatalog().Runner)
 			})
 		}
-		if !reloading {
-			// The system prompt names the docs bundle, and a tool call is how the model reads it.
-			session.Agent().AddBeforeToolCallHook(writeDocsBundleBeforeToolCall)
-		}
 		// Drive the extension session lifecycle so extensions that initialize on
 		// session_start (and clean up on session_shutdown) run in print mode too,
 		// not only interactive. The Session emits session_start, extends its resource loader with what resources_discover returns and rebuilds its system prompt from the loader (agent-session.ts bindExtensions).

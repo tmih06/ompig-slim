@@ -26,7 +26,7 @@ var retiredModelScopeAPI = regexp.MustCompile(`\b(?:ScopedModel|ScopedModels|sco
 // implementations in the Go, Python or Rust SDKs an installed binary ships.
 func TestBundledSDKsAreRoleOnly(t *testing.T) {
 	for _, bundle := range []struct {
-		name string
+		name  string
 		files fs.FS
 	}{{"go", sdk.Source}, {"python", pysdk.Source}, {"rust", rssdk.Source}} {
 		t.Run(bundle.name, func(t *testing.T) {

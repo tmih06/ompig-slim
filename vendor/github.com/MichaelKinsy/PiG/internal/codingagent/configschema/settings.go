@@ -6,7 +6,7 @@ import "github.com/MichaelKinsy/PiG/ai"
 
 // settingsDefaults is SETTINGS_DEFAULTS, the defaults the published JSON Schema carries.
 var settingsDefaults = struct {
-	transport, sessionShareDestination, steeringMode, followUpMode                        string
+	transport, steeringMode, followUpMode                                               string
 	compactionEnabled                                                                     bool
 	compactionReserveTokens, compactionKeepRecentTokens                                   int
 	branchSummaryReserveTokens                                                            int
@@ -15,7 +15,7 @@ var settingsDefaults = struct {
 	retryMaxRetries, retryBaseDelayMs, retryMaxAgentDelayMs, retryProviderMaxRetryDelayMs int
 	hideThinkingBlock, showCacheMissNotices, quietStartup                                 bool
 	defaultProjectTrust                                                                   string
-	collapseChangelog, enableInstallTelemetry, enableAnalytics, enableSkillCommands       bool
+	enableSkillCommands                                                                 bool
 	terminalShowImages                                                                    bool
 	terminalImageWidthCells                                                               int
 	terminalClearOnShrink, terminalShowTerminalProgress                                   bool
@@ -30,12 +30,12 @@ var settingsDefaults = struct {
 	fullscreenCopyOnSelect                                                                bool
 	fullscreenWheelScrollLines                                                            string
 }{
-	transport: "auto", sessionShareDestination: "auto", steeringMode: "one-at-a-time", followUpMode: "one-at-a-time",
+	transport: "auto", steeringMode: "one-at-a-time", followUpMode: "one-at-a-time",
 	showCacheMissNotices: true,
 	compactionEnabled:    true, compactionReserveTokens: 16384, compactionKeepRecentTokens: 20000,
 	branchSummaryReserveTokens: 16384,
 	retryEnabled:               true, retryMaxRetries: 10, retryBaseDelayMs: 500, retryMaxAgentDelayMs: ai.DefaultMaxAgentRetryDelayMs, retryProviderMaxRetryDelayMs: 60000,
-	defaultProjectTrust: "ask", enableInstallTelemetry: true, enableSkillCommands: true,
+	defaultProjectTrust: "ask", enableSkillCommands: true,
 	terminalShowImages: true, terminalImageWidthCells: 60,
 	imagesAutoResize:   true,
 	doubleEscapeAction: "tree", treeFilterMode: "default",
@@ -142,8 +142,6 @@ func settingsSchema() *Schema {
 	}, D("Local skill file paths or directories."))
 	return Object([]Prop{
 		Optional("$schema", String(D("JSON Schema reference."))),
-		Optional("lastChangelogVersion", String()),
-		Optional("extensionChangelogVersions", Record(String(), D("Last seen changelog version per extension package."))),
 		Optional("defaultProvider", String()),
 		Optional("defaultModel", String()),
 		Optional("modelRoles", Record(String(), D("Model selectors by built-in or custom role."))),
@@ -156,7 +154,6 @@ func settingsSchema() *Schema {
 		Optional("defaultThinkingLevel", ModelThinkingLevelSchema()),
 		Optional("modelThinkingLevels", Record(ModelThinkingLevelSchema(), D(`Per-model default thinking level overrides keyed by "provider/modelId".`))),
 		Optional("transport", Union(literals("auto", "sse", "websocket", "websocket-cached"), Default(d.transport))),
-		Optional("sessionShareDestination", Union(literals("auto", "gist", "radius"), D(`Destination used by /share. "auto" uses Radius when authenticated and otherwise creates a GitHub gist.`), Default(d.sessionShareDestination))),
 		Optional("steeringMode", Union(literals("all", "one-at-a-time"), Default(d.steeringMode))),
 		Optional("followUpMode", Union(literals("all", "one-at-a-time"), Default(d.followUpMode))),
 		Optional("theme", String()),
@@ -172,10 +169,6 @@ func settingsSchema() *Schema {
 		Optional("shellCommandPrefix", String(D("Prefix prepended to every bash command, for example to enable shell aliases."))),
 		Optional("npmCommand", stringArray(D(`Command used for npm package lookup and installation, in argv form such as ["mise", "exec", "node@20", "--", "npm"].`))),
 		Optional("selfUpdateCommand", Array(String(), Opt{"minItems", 1}, D("Command `pi update` runs to update Pi itself, in argv form such as [\"mise\", \"use\", \"-g\", \"npm:{packageName}@{version}\"]. Placeholders: {packageName}, {version}, {installSpec}. PI_SELF_UPDATE_COMMAND takes precedence. Global setting only."))),
-		Optional("collapseChangelog", Boolean(D("Show the condensed changelog after update; use /changelog for the full changelog."), Default(d.collapseChangelog))),
-		Optional("enableInstallTelemetry", Boolean(D("Send an anonymous version and update ping after changelog-detected updates."), Default(d.enableInstallTelemetry))),
-		Optional("enableAnalytics", Boolean(D("Opt in to analytics data sharing."), Default(d.enableAnalytics))),
-		Optional("trackingId", String(D("Analytics tracking identifier, generated when analytics is enabled."))),
 		Optional("packages", Array(packageSource, D("npm or git package sources, as strings or objects with resource filtering."))),
 		Optional("extensions", stringArray(D("Local extension file paths or directories."))),
 		Optional("deviceId", String(D("Stable installation UUID, generated when authentication first needs it. Global only."))),

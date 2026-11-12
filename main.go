@@ -49,7 +49,7 @@ func main() {
 	// Claim the archive-install self-update before PiG parses arguments:
 	// PiG has no `upgrade` spelling, so it would read that word as a prompt and
 	// fail on the missing model instead of updating. Everything this package
-	// does not own is delegated unchanged, so the complete CLI is preserved.
+	// does not own is delegated to the trimmed coding runtime.
 	if delegated, handled, code := selfupdate.Handle(args, coding.Version, os.Stdout, os.Stderr); handled {
 		os.Exit(code)
 	} else if delegated != nil {
@@ -78,7 +78,7 @@ func main() {
 		}
 	}
 	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
-	// The vendored personal runtime supplies the defaults; keep the complete CLI.
+	// The vendored personal runtime owns the slim feature set and defaults.
 	//
 	// The todo feature is native: coding/extension/builtin/todo registers the tool
 	// with the built-in registry and the stop-time reminder with the native

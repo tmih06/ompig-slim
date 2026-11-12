@@ -22,102 +22,20 @@ package tui
 import (
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/MichaelKinsy/PiG/internal/jsonparse"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
 	"github.com/MichaelKinsy/PiG/internal/text"
 )
 
-//go:embed theme_dark.json theme_light.json theme_palettes.json
+//go:embed theme_dark.json theme_light.json
 var builtinThemes embed.FS
-
-// paletteDocuments once decodes the bundled palette bundle (theme_palettes.json):
-// oh-my-pi's built-in themes, keyed by name, still as their JSON documents.
-//
-// The bundle is copied from oh-my-pi's packages/tui/src/theme/defaults.json
-// (MIT, see NOTICE) so a user gets the same palettes in both tools rather than a
-// single hand-tuned pair. Only the documents are decoded up front; a palette is
-// resolved into ANSI sequences when it is selected, because resolving all 100
-// costs about 35ms of the first frame's startup budget and a run uses one.
-var paletteDocuments = sync.OnceValue(func() map[string]json.RawMessage {
-	data, err := builtinThemes.ReadFile("theme_palettes.json")
-	if err != nil {
-		return nil
-	}
-	var documents map[string]json.RawMessage
-	if err := json.Unmarshal(data, &documents); err != nil {
-		return nil
-	}
-	return documents
-})
-
-// paletteResolved caches each bundled palette after its first use. Reading a
-// palette's document in one entry skips re-parsing the rest of the bundle.
-var paletteResolved sync.Map // name -> *Theme
-
-// paletteTheme returns the bundled palette with the name, resolved on first use.
-// A palette that fails to parse resolves to nil and stays nil: one broken entry
-// must not take the theme picker down with it, and retrying it on every render
-// would.
-func paletteTheme(name string) *Theme {
-	if cached, ok := paletteResolved.Load(name); ok {
-		return cached.(*Theme)
-	}
-	raw, ok := paletteDocuments()[name]
-	if !ok {
-		return nil
-	}
-	var theme *Theme
-	var tj ThemeJSON
-	if err := json.Unmarshal(raw, &tj); err == nil && tj.Name != "" {
-		if err := extractPaletteColorKeyOrder(raw, &tj); err == nil {
-			if resolved, resolveErr := resolveThemeWithMode(&tj, TerminalColorModeTrueColor); resolveErr == nil {
-				theme = resolved
-			}
-		}
-	}
-	paletteResolved.Store(name, theme)
-	return theme
-}
-
-// extractPaletteColorKeyOrder fills tj.colorKeys from a palette document's raw
-// bytes, so a bundled palette keeps its own "colors" order as a file-loaded one
-// does.
-func extractPaletteColorKeyOrder(raw []byte, tj *ThemeJSON) error {
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return err
-	}
-	colors, ok := document["colors"]
-	if !ok {
-		return errors.New("palette has no colors")
-	}
-	tj.colorKeys = rawObjectKeys(colors)
-	return nil
-}
-
-// BuiltinPaletteNames returns the names of the bundled palettes in sorted order.
-// They are themes a user can select, not the dark/light pair this engine owns.
-// A name is listed whether or not its palette parses: the registry resolves it
-// on selection, and a palette that fails then is reported as a load failure
-// rather than silently missing from the picker.
-func BuiltinPaletteNames() []string {
-	documents := paletteDocuments()
-	names := make([]string, 0, len(documents))
-	for name := range documents {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
-}
 
 // LoadBuiltinTheme returns a built-in theme by name ("dark" or "light") in the terminal's color mode.
 func LoadBuiltinTheme(name string) (*Theme, error) {
