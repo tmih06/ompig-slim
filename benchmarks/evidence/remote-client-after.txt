@@ -1,0 +1,29 @@
+goos: linux
+goarch: arm64
+pkg: ompig-slim/internal/broker
+BenchmarkRemoteLatency/RTT=0s/startup-4 	       5	   8658990 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/idle-sync-4         	       5	   1155082 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/push-4              	       5	   8222018 ns/op	         6.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/pull-4              	       5	   8443716 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/ready-4             	       5	  15313410 ns/op	         7.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/auth-quota-4        	       5	   2015842 ns/op	         3.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/select-4            	       5	   4143333 ns/op	         1.000 requests/op
+BenchmarkRemoteLatency/RTT=0s/logout-4            	       5	   4210494 ns/op	         1.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/startup-4         	       5	  60757053 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/idle-sync-4       	       5	  51961358 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/push-4            	       5	 109826865 ns/op	         6.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/pull-4            	       5	  60935143 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/ready-4           	       5	 169345083 ns/op	         7.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/auth-quota-4      	       5	 154005392 ns/op	         3.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/select-4          	       5	  55383109 ns/op	         1.000 requests/op
+BenchmarkRemoteLatency/RTT=50ms/logout-4          	       5	  55375789 ns/op	         1.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/startup-4        	       5	 162024937 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/idle-sync-4      	       5	 153941567 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/push-4           	       5	 311757010 ns/op	         6.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/pull-4           	       5	 160982479 ns/op	         5.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/ready-4          	       5	 468563900 ns/op	         7.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/auth-quota-4     	       5	 453120984 ns/op	         3.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/select-4         	       5	 155078698 ns/op	         1.000 requests/op
+BenchmarkRemoteLatency/RTT=150ms/logout-4         	       5	 155701784 ns/op	         1.000 requests/op
+PASS
+ok  	ompig-slim/internal/broker	23.867s
