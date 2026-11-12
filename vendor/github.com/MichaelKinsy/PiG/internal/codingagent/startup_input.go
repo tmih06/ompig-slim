@@ -46,7 +46,7 @@ func (m *InteractiveMode) setupEditorSubmitHandler(ctx context.Context) {
 		if text == "" || m.rejectUnknownSlashCommand(text) {
 			return
 		}
-		if m.slashRegistry != nil && m.resolvableSlashCommand(text) && !m.isExtensionCommand(text) {
+		if m.resolvableSlashCommand(text) && !m.isExtensionCommand(text) {
 			m.handleSubmit(ctx, text)
 			return
 		}
