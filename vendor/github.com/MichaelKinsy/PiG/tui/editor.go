@@ -226,9 +226,11 @@ type textChunk struct {
 }
 
 type layoutLine struct {
-	text      string
-	hasCursor bool
-	cursorPos int
+	text        string
+	hasCursor   bool
+	cursorPos   int
+	sourceLine  int // logical source row, before wrapping
+	sourceStart int // UTF-16 offset of this chunk in that row
 }
 
 func NewEditor(options ...EditorOption) *Editor {
@@ -772,7 +774,7 @@ func (e *Editor) layoutText(contentWidth int) []layoutLine {
 					}
 				}
 			}
-			layoutLines = append(layoutLines, layoutLine{text: chunk.text, hasCursor: hasCursorInChunk, cursorPos: adjustedCursorPos})
+			layoutLines = append(layoutLines, layoutLine{text: chunk.text, hasCursor: hasCursorInChunk, cursorPos: adjustedCursorPos, sourceLine: i, sourceStart: chunk.startIndex})
 		}
 	}
 
@@ -797,6 +799,7 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
 			}
 			out = append(out, e.renderCursorAt(line.text, line.cursorPos, emitCursorMarker))
 		}
+		e.colorCommandLines(out, lines)
 		return out
 	}
 	for _, line := range lines {
@@ -816,6 +819,7 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
 		}
 		out = append(out, e.skillDisplay(line.text, line.cursorPos, emitCursorMarker))
 	}
+	e.colorCommandLines(out, lines)
 	return out
 }
 

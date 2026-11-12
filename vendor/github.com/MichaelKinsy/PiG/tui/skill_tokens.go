@@ -11,9 +11,15 @@ type SkillToken struct {
 	Name       string
 }
 
-// AllowsSkillTokens excludes command arguments and local execution, which consume literal text.
+// AllowsSkillTokens excludes literal command arguments and local execution.
+// Goal arguments are prompts: the goal handler submits them through the normal
+// resource-expansion path, so their skills must also complete and render here.
 func AllowsSkillTokens(text string) bool {
 	text = strings.TrimSpace(text)
+	goalArgs, isGoal := strings.CutPrefix(text, "/goal")
+	if isGoal && strings.IndexFunc(goalArgs, unicode.IsSpace) == 0 {
+		return true
+	}
 	if strings.HasPrefix(text, "/skill:") {
 		return true
 	}
