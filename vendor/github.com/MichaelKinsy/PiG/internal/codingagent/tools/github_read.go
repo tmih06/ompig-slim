@@ -24,10 +24,22 @@ type githubReference struct {
 
 var githubReferencePattern = regexp.MustCompile(`^(issue|pr)://(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:#|/))?([1-9][0-9]*)$`)
 
-// parseGitHubReference recognizes the compact issue:// and pr:// references.
-// A repository may be omitted when the current directory's origin identifies it.
+// parseGitHubReference recognizes compact references and github.com issue/PR URLs.
+// URL query strings and fragments identify the same item; other URL paths and
+// read's :raw/:line-range suffixes remain with the ordinary URL reader.
 func parseGitHubReference(value string) (githubReference, bool) {
-	match := githubReferencePattern.FindStringSubmatch(strings.TrimSpace(value))
+	value = strings.TrimSpace(value)
+	if parsed, err := url.Parse(value); err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && strings.EqualFold(parsed.Host, "github.com") {
+		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(parts) == 4 && (parts[2] == "issues" || parts[2] == "pull") {
+			kind := "issue"
+			if parts[2] == "pull" {
+				kind = "pr"
+			}
+			value = kind + "://" + parts[0] + "/" + parts[1] + "/" + parts[3]
+		}
+	}
+	match := githubReferencePattern.FindStringSubmatch(value)
 	if len(match) == 0 {
 		return githubReference{}, false
 	}
@@ -57,10 +69,14 @@ func (t *ReadTool) readGitHub(ctx context.Context, path string) (agent.AgentTool
 		return agent.AgentToolResult{}, false
 	}
 	if ref.Repository == "" {
-		ref.Repository = githubRepository(t.CWD)
+		cwd, err := toolCWD(ctx, t.CWD)
+		if err != nil {
+			return githubReadError(err.Error()), true
+		}
+		ref.Repository = githubRepository(cwd)
 	}
 	if !githubRepositoryPattern.MatchString(ref.Repository) {
-		return githubReadError("GitHub reference needs owner/repo (set GITHUB_REPOSITORY or use issue://owner/repo#123)"), true
+		return githubReadError("Cannot detect a GitHub repository: run inside a checkout with a GitHub origin, provide a GitHub issue/PR URL, or set GITHUB_REPOSITORY"), true
 	}
 	base := strings.TrimRight(os.Getenv("GITHUB_API_URL"), "/")
 	if base == "" {
@@ -156,25 +172,56 @@ func stringValue(object map[string]any, key string) string {
 	return value
 }
 
+// githubRepository uses the environment override, then the nearest checkout's
+// origin. Git indirection and commondir support worktrees and submodules without
+// requiring git on PATH. Never borrow a parent repository's identity.
 func githubRepository(cwd string) string {
-	if repository := os.Getenv("GITHUB_REPOSITORY"); repository != "" {
-		return strings.TrimSuffix(strings.TrimSpace(repository), ".git")
+	if repository := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY")); repository != "" {
+		return strings.TrimSuffix(repository, ".git")
 	}
-	for directory := cwd; directory != ""; directory = filepath.Dir(directory) {
-		data, err := os.ReadFile(filepath.Join(directory, ".git", "config"))
-		if err == nil {
-			if repository := repositoryFromGitConfig(string(data)); repository != "" {
-				return repository
+	directory, err := filepath.Abs(cwd)
+	if err != nil {
+		return ""
+	}
+	for {
+		gitDir := filepath.Join(directory, ".git")
+		if info, err := os.Stat(gitDir); err == nil {
+			if !info.IsDir() {
+				data, err := os.ReadFile(gitDir)
+				if err != nil {
+					return ""
+				}
+				target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+				if !ok {
+					return ""
+				}
+				gitDir = githubGitPath(directory, target)
 			}
+			if common, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+				gitDir = githubGitPath(gitDir, string(common))
+			}
+			data, _ := os.ReadFile(filepath.Join(gitDir, "config"))
+			return repositoryFromGitConfig(string(data))
 		}
 		next := filepath.Dir(directory)
 		if next == directory {
-			break
+			return ""
 		}
+		directory = next
 	}
-	return ""
 }
 
+// githubGitPath resolves Git metadata paths relative to the file's directory.
+func githubGitPath(base, target string) string {
+	target = strings.TrimSpace(target)
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target)
+	}
+	return filepath.Join(base, target)
+}
+
+// repositoryFromGitConfig extracts a GitHub origin from standard HTTPS/SSH URLs.
+// It returns empty for missing or non-GitHub origins rather than guessing.
 func repositoryFromGitConfig(config string) string {
 	section := false
 	for _, line := range strings.Split(config, "\n") {
@@ -183,9 +230,10 @@ func repositoryFromGitConfig(config string) string {
 			section = strings.EqualFold(trimmed, "[remote \"origin\"]")
 			continue
 		}
-		if section && strings.HasPrefix(trimmed, "url =") {
-			remote := strings.TrimSpace(strings.TrimPrefix(trimmed, "url ="))
-			if parsed, err := url.Parse(remote); err == nil && parsed.Host == "github.com" {
+		key, value, hasValue := strings.Cut(trimmed, "=")
+		if section && hasValue && strings.EqualFold(strings.TrimSpace(key), "url") {
+			remote := strings.Trim(strings.TrimSpace(value), "\"")
+			if parsed, err := url.Parse(remote); err == nil && strings.EqualFold(parsed.Hostname(), "github.com") {
 				return strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/")
 			}
 			if strings.HasPrefix(remote, "git@github.com:") {
