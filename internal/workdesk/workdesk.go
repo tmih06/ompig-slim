@@ -166,7 +166,7 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 	h, err := harness.OpenHarness(ctx, storage, harness.HarnessOptions{
 		Models: models, Registry: registry,
 		Identity: &ai.ClientIdentity{AttributionNull: true},
-		Env: func(_ context.Context, target harness.EnvTarget) (env.ExecutionEnv, error) {
+		Env: func(_ context.Context, _ harness.EnvTarget) (env.ExecutionEnv, error) {
 			return envnode.NewNodeExecutionEnv(envnode.NodeExecutionEnvOptions{Cwd: job.CWD}), nil
 		},
 	})
@@ -314,20 +314,21 @@ func receipt(ctx context.Context, storage durable.Storage, record durable.Submis
 	if record.Reason != nil {
 		result.Reason = *record.Reason
 	}
-	if record.Answer != nil {
-		entry, err := storage.Entry(ctx, *record.Answer)
-		if err != nil {
-			return result, err
+	if record.Answer == nil {
+		return result, nil
+	}
+	entry, err := storage.Entry(ctx, *record.Answer)
+	if err != nil || entry == nil {
+		return result, err
+	}
+	for _, message := range entry.Entry.Model {
+		assistant, ok := message.(ai.AssistantMessage)
+		if !ok {
+			continue
 		}
-		if entry != nil {
-			for _, message := range entry.Entry.Model {
-				if m, ok := message.(ai.AssistantMessage); ok {
-					for _, block := range m.Content {
-						if text, ok := block.(ai.TextContent); ok {
-							result.Answer += text.Text
-						}
-					}
-				}
+		for _, block := range assistant.Content {
+			if text, ok := block.(ai.TextContent); ok {
+				result.Answer += text.Text
 			}
 		}
 	}
