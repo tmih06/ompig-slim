@@ -23,11 +23,17 @@ const (
 	// googleCCAClientID is the Gemini CLI's published OAuth client (base64 in OMP's auth rules).
 	googleCCAClientID     = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 	googleCCAClientSecret = "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"
-	googleCCAAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleCCATokenURL     = "https://oauth2.googleapis.com/token"
-	googleCCAUserInfoURL  = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
-	googleCCACallbackPort = 8085
-	googleCCACallbackPath = "/oauth2callback"
+	// Antigravity grants are bound to its own published desktop OAuth client,
+	// not Gemini CLI's. Using the latter rejects imported grants with
+	// unauthorized_client. Keep login and refresh on the same issuing client.
+	// Source: OMP's utils/oauth/google-antigravity.ts public desktop client.
+	googleAntigravityClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+	googleAntigravityClientSecret = "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"
+	googleCCAAuthorizeURL         = "https://accounts.google.com/o/oauth2/v2/auth"
+	googleCCATokenURL             = "https://oauth2.googleapis.com/token"
+	googleCCAUserInfoURL          = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
+	googleCCACallbackPort         = 8085
+	googleCCACallbackPath         = "/oauth2callback"
 )
 
 // googleCCAScopes are the scopes the Cloud Code Assist sign-in requests.
@@ -57,7 +63,7 @@ const (
 )
 
 // googleOAuthFlow is one provider's Google sign-in: both share the authorization-code shape and differ in
-// the provider id, display name and project binding.
+// the issuing desktop client, provider id, display name and project binding.
 type googleOAuthFlow struct {
 	providerID   string
 	displayName  string
@@ -75,8 +81,8 @@ var (
 	googleAntigravityFlow = googleOAuthFlow{
 		providerID:   GoogleAntigravityProviderID,
 		displayName:  "Google Antigravity",
-		clientID:     googleCCAClientID,
-		clientSecret: googleCCAClientSecret,
+		clientID:     googleAntigravityClientID,
+		clientSecret: googleAntigravityClientSecret,
 	}
 )
 
