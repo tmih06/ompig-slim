@@ -303,14 +303,57 @@ class InstallTests(unittest.TestCase):
 
     def test_banner_matches_the_startup_mark_without_color(self):
         # The installer uses the same two-line half-block mark as the startup
-        # TUI. Redirected output drops color escapes but preserves its geometry.
+        # TUI, so the covered halves of the M and the G stay visible as half
+        # blocks instead of the solid letters an earlier copy drew. Redirected
+        # output drops color escapes but preserves the geometry.
         stage(self.fixture, "latest")
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("███ █▄ ▄█ ▀▀█     ███ ███ -slim", result.stdout)
-        self.assertIn("█▄█ █▀ ▀█ █▀ █ in █▀█ █▄█", result.stdout)
+        self.assertIn("█▀█ █▄ ▄█ ▀▀█     █▀▀ █▀█ -slim", result.stdout)
+        self.assertIn("█▄█ █ ▀ █ █▀ █ in █▄█ █▄█", result.stdout)
         self.assertNotIn("in Go · slim harness", result.stdout)
         self.assertNotIn("\x1b", result.stdout)
+
+    def test_banner_colors_match_the_startup_mark(self):
+        # The mark's colors are the startup header's brand fills, not the 16-color
+        # ANSI palette an earlier copy used, and they follow the same truecolor
+        # and 256-color decision the TUI makes. The expected sequences were
+        # captured from `ompig-slim -ne` drawing its header in a pty, which is
+        # the value internal/selfupdate/ui_test.go pins as its golden; the two
+        # suites therefore reject the same drift from either surface.
+        #
+        # Extract the installer's own functions so this cannot pass against a
+        # copy that has drifted from the script it ships.
+        script = pathlib.Path(INSTALLER).read_text()
+        start = script.index("bar_width=32")
+        end = script.index("# human_bytes sets REPLY")
+        body = script[start:end].replace(
+            'interactive=0\nif [[ -t 1 ]]; then interactive=1; fi', "interactive=1")
+        source = pathlib.Path(self.root / "mark.sh")
+        source.write_text(body)
+        cases = {
+            # COLORTERM advertises 24-bit color for the terminal.
+            "TERM=xterm-256color COLORTERM=truecolor": (
+                "\x1b[38;2;236;236;236m█▀█ █▄ ▄█\x1b[0m \x1b[38;2;228;138;122m\x1b[48;2;79;142;179m▀\x1b[0m"
+                "\x1b[38;2;228;138;122m▀█\x1b[0m     \x1b[38;2;0;173;216m█▀▀ █▀█\x1b[0m \x1b[38;2;198;160;246m-slim\x1b[0m"),
+            # No hint: downsample to the 256-color palette, as the TUI does.
+            "TERM=xterm-256color": (
+                "\x1b[38;5;255m█▀█ █▄ ▄█\x1b[0m \x1b[38;5;174m\x1b[48;5;67m▀\x1b[0m"
+                "\x1b[38;5;174m▀█\x1b[0m     \x1b[38;5;38m█▀▀ █▀█\x1b[0m \x1b[38;5;183m-slim\x1b[0m"),
+            # PI_TRUE_COLOR overrides detection in both directions.
+            "TERM=xterm-256color COLORTERM=truecolor PI_TRUE_COLOR=0": (
+                "\x1b[38;5;255m█▀█ █▄ ▄█\x1b[0m \x1b[38;5;174m\x1b[48;5;67m▀\x1b[0m"
+                "\x1b[38;5;174m▀█\x1b[0m     \x1b[38;5;38m█▀▀ █▀█\x1b[0m \x1b[38;5;183m-slim\x1b[0m"),
+        }
+        for environment, top in cases.items():
+            with self.subTest(environment=environment):
+                result = subprocess.run(
+                    ["bash", "-c", f"set -euo pipefail; . '{source}'; print_banner"],
+                    env=dict({"PATH": "/usr/local/bin:/usr/bin:/bin"},
+                             **dict(pair.split("=", 1) for pair in environment.split())),
+                    text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(top, result.stdout)
 
     def test_a_refused_platform_prints_no_banner(self):
         # The mark announces an install that is about to happen, so a refusal
@@ -319,13 +362,13 @@ class InstallTests(unittest.TestCase):
         self.use_platform("FreeBSD", "x86_64")
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("in Go", result.stdout)
+        self.assertNotIn("in █▄█", result.stdout)
         self.assertNotIn("\u2588", result.stdout)
 
     def test_usage_help_stays_free_of_the_mark(self):
         result = self.run_installer("--help")
         self.assertIn("Usage: install.sh", result.stdout)
-        self.assertNotIn("in Go", result.stdout)
+        self.assertNotIn("in █▄█", result.stdout)
 
     def test_byte_count_formatting_matches_the_go_meter(self):
         # The installer formats progress itself (it cannot call Go), so the two

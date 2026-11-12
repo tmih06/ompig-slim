@@ -5,13 +5,16 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-// The visual language shared with scripts/install.sh. Both surfaces print the
-// same logo and the same progress meter so an install and an update read as one
-// product. Keep the two files in step: the block art, the bar glyphs, the bar
-// width, and the tagline are duplicated by design, because the installer must
-// run with no Go toolchain and the updater must run with no shell.
+// The progress meter is this package's own rendering: the installer and the
+// updater share it so an install and an update read as one product, and
+// scripts/install.sh duplicates it because the installer must run with no Go
+// toolchain. The mark above it is not duplicated — coding.StartupMark owns it.
 const (
 	// barWidth is the number of cells in a full progress bar. It fits an
 	// 80-column terminal beside the label and the percentage.
@@ -23,20 +26,13 @@ const (
 	barEmpty  = "─"
 )
 
-// The SGR codes used by the mark and the meter. The colors are the fills in
-// assets/ompig-banner.svg: white for "OM", coral and blue for Pi, cyan for
-// "GO", and purple for the "-slim" product tag.
+// The SGR codes used by the progress meter. The mark itself carries its own brand colors, which come from
+// coding.StartupMark so an update cannot drift from the startup header.
 const (
-	ansiReset  = "\x1b[0m"
-	ansiBold   = "\x1b[1m"
-	ansiDim    = "\x1b[2m"
-	ansiWhite  = "\x1b[97m"
-	ansiCoral  = "\x1b[91m"
-	ansiBlue   = "\x1b[94m"
-	ansiBlueBG = "\x1b[104m"
-	ansiYellow = "\x1b[93m"
-	ansiPurple = "\x1b[95m"
-	ansiCyan   = "\x1b[96m"
+	ansiReset = "\x1b[0m"
+	ansiBold  = "\x1b[1m"
+	ansiDim   = "\x1b[2m"
+	ansiCyan  = "\x1b[96m"
 )
 
 // isTerminal reports whether w is a character device, so the caller can choose
@@ -55,40 +51,36 @@ func isTerminal(w io.Writer) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// logoRun is one color run of the mark. Splitting the art into runs lets a plain
-// render drop the escapes and keep the exact same geometry.
-type logoRun struct {
-	text  string
-	color string
+// printBanner writes the startup TUI's two-line mark, then a blank line.
+//
+// The art is not restated here: coding.StartupMark renders the same rows the startup header draws, so a change to the
+// mark reaches every surface at once. On a terminal the rows keep the header's own escapes, in the color depth the
+// header would pick. In a pipe or a log the escapes are stripped instead of omitted, which preserves the geometry
+// because every run is a plain span of printable cells.
+func printBanner(w io.Writer) {
+	// A pipe gets the downsampled mark: nothing will read the escapes, and the plain form prints the same cells
+	// either way.
+	color := isTerminal(w)
+	mode := tui.TerminalColorMode256
+	if color {
+		mode = markColorMode()
+	}
+	top, bottom := coding.StartupMark(mode)
+	if !color {
+		top, bottom = widthx.StripAnsi(top), widthx.StripAnsi(bottom)
+	}
+	_, _ = io.WriteString(w, "\n"+top+"\n"+bottom+"\n\n")
 }
 
-// printBanner writes the same two-line half-block mark as the startup TUI.
+// markColorMode is the color depth the header would render the mark in.
 //
-// In a pipe or a log the same text is printed without escapes, so the art keeps
-// its geometry. The installer duplicates this rendering because it cannot call
-// Go; update both surfaces when the startup mark changes.
-func printBanner(w io.Writer) {
-	color := isTerminal(w)
-	paint := func(run logoRun) string {
-		if !color || run.color == "" {
-			return run.text
-		}
-		return run.color + run.text + ansiReset
-	}
-	rows := [][]logoRun{
-		{{"███ █▄ ▄█ ", ansiWhite}, {"▀", ansiBlueBG + ansiCoral}, {"▀█     ", ansiCoral}, {"███ ███ ", ansiCyan}, {"-slim", ansiPurple}},
-		{{"█▄█ █▀ ▀█ ", ansiWhite}, {"█▀ ", ansiBlue}, {"█", ansiYellow}, {" in ", ansiWhite}, {"█▀█ █▄█", ansiCyan}},
-	}
-	var out strings.Builder
-	out.WriteString("\n")
-	for _, row := range rows {
-		for _, run := range row {
-			out.WriteString(paint(run))
-		}
-		out.WriteString("\n")
-	}
-	out.WriteString("\n")
-	_, _ = io.WriteString(w, out.String())
+// It is tui.GetTerminalColorMode() without the tmux probe. That probe shells out to `tmux display-message` to ask
+// whether the pane forwards OSC 8 hyperlinks, which has no bearing on color depth — inside tmux the answer comes from
+// COLORTERM either way — but it costs a fork and round trip (measured: 28ms to 116ms for a whole update against a
+// 40ms probe) before the user sees the mark. Passing capabilities explicitly is that function's documented way to
+// skip detection, and DetectCapabilities still applies PI_TRUE_COLOR, so the mode matches the header's.
+func markColorMode() tui.TerminalColorMode {
+	return tui.GetTerminalColorMode(tui.DetectCapabilities(func() bool { return false }))
 }
 
 // progress renders a single-line meter that updates in place on a terminal and
