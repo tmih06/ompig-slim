@@ -8,11 +8,13 @@ The Linux `benchmark` job waits for `release`, `check`, and `hygiene`, downloads
 The benchmark job does not install Go or invoke a build command.
 Compiling test binaries in `check` remains necessary; those are not additional release executable builds.
 
-The runner installs original upstream Pi (`@mariozechner/pi-coding-agent` 0.73.1), OMP (`@oh-my-pi/pi-coding-agent` 18.18.0), Node 24.18.0, and Bun 1.4.4 through `actions/setup-node` and `oven-sh/setup-bun`.
+The runner installs upstream Pi (`@earendil-works/pi-coding-agent` 1.5.2), OMP (`@oh-my-pi/pi-coding-agent` 18.18.0), Node 24.18.0, and Bun 1.4.4 through `actions/setup-node` and `oven-sh/setup-bun`.
 Pi here means the original Node CLI, not the Go PiG port.
 OMP and Pi have separate npm manifests and integrity-checked lockfiles under `benchmarks/`.
 Separate dependency trees make installed-footprint comparisons meaningful and avoid sharing one baseline's dependencies with another.
 No globally installed CLI is used.
+
+Pi uses its maintained package scope because the deprecated `@mariozechner` package has no security-fixed release. OMP retains its CLI pin with a `puppeteer-core` 25.17.0 override: this upgrades Chromium BiDi to a version that supports patched Zod 4 instead of forcing Zod 4 into a Zod 3 consumer. Both dependency trees must pass `npm audit`. The historical measurements below retain their original versions and are not measurements of these updated baselines.
 
 ## Workload and assertions
 

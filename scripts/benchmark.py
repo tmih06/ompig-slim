@@ -423,7 +423,7 @@ def main():
     base = pathlib.Path(args.baselines).resolve()
     commands = {"ompig-slim": [str(pathlib.Path(args.slim).resolve())],
                 "omp": [shutil.which("bun"), str(base / "omp/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js")],
-                "pi": [shutil.which("node"), str(base / "pi/node_modules/@mariozechner/pi-coding-agent/dist/cli.js")]}
+                "pi": [shutil.which("node"), str(base / "pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js")]}
     for name in args.only:
         command = commands[name]
         if not command[0] or not pathlib.Path(command[-1]).is_file():
