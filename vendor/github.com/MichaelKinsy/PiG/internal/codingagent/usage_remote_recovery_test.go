@@ -24,15 +24,14 @@ type remoteQuotaTransport struct {
 // RoundTrip serves real quota shapes; entitlement probes are irrelevant here.
 func (transport *remoteQuotaTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	status, body := http.StatusOK, `{}`
+	token := request.Header.Get("Authorization")
 	if strings.HasSuffix(request.URL.Path, "verified_access") || transport.legacy && strings.HasSuffix(request.URL.Path, "retrieveUserQuotaSummary") {
 		status = http.StatusNotFound
-	} else if request.Header.Get("Authorization") == "Bearer obsolete" {
+	} else if token == "Bearer obsolete" {
 		status = transport.status
 	} else {
 		transport.fresh.Add(1)
-		if request.Header.Get("Authorization") != "Bearer fresh-one" && request.Header.Get("Authorization") != "Bearer fresh-two" {
-			status = http.StatusUnauthorized
-		} else if transport.rejectFresh {
+		if transport.rejectFresh || token != "Bearer fresh-one" && token != "Bearer fresh-two" {
 			status = http.StatusUnauthorized
 		} else if strings.HasSuffix(request.URL.Path, "wham/usage") {
 			body = `{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000}}}`
@@ -62,6 +61,9 @@ func TestRemoteUsageRecoversRejectedBearer(t *testing.T) {
 			{"forbidden", http.StatusForbidden, false, false},
 			{"server-error", http.StatusInternalServerError, false, false},
 		} {
+			if scenario.legacy && providerID != ai.GoogleAntigravityProviderID {
+				continue
+			}
 			t.Run(providerID+"/"+scenario.name, func(t *testing.T) {
 				store := &usageRemoteStore{newUsageTestStore()}
 				for _, key := range []string{"one", "two"} {
@@ -69,7 +71,7 @@ func TestRemoteUsageRecoversRejectedBearer(t *testing.T) {
 				}
 				registry := NewModelRegistryWithModelsPath("")
 				registry.SetCredentialStore(store)
-				transport := &remoteQuotaTransport{status: scenario.status, rejectFresh: scenario.rejectFresh, legacy: scenario.legacy && providerID == ai.GoogleAntigravityProviderID}
+				transport := &remoteQuotaTransport{status: scenario.status, rejectFresh: scenario.rejectFresh, legacy: scenario.legacy}
 				var refreshes atomic.Int32
 				service := NewUsageService(UsageServiceOptions{Credentials: store, Accounts: store, HTTPClient: &http.Client{Transport: transport}, GetAuth: func(ctx context.Context, id string, overrides ai.AuthResolutionOverrides) (*ai.AuthResult, error) {
 					if !overrides.ForceOAuthRefresh || !overrides.AccountKeySet {
