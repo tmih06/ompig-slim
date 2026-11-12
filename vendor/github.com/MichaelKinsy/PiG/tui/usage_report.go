@@ -507,6 +507,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 			label       string
 			windowLabel string
 			accounts    []usageAccountColumn
+			amountText  string
 		}
 		limitGroups := make([]*limitGroup, 0, 8)
 		groupByKey := map[string]*limitGroup{}
@@ -568,6 +569,19 @@ func RenderUsageReports(options UsageReportOptions) string {
 		for column, position := range accountOrder {
 			columnByPosition[position] = column
 		}
+
+		// Every window shares one layout budget, including space for the widest
+		// aggregate. Per-window totals must not shift columns or wrap accounts.
+		maxAmountWidth := 0
+		for _, bucket := range limitGroups {
+			limits := make([]ai.UsageLimit, 0, len(bucket.accounts))
+			for _, account := range bucket.accounts {
+				limits = append(limits, account.limit)
+			}
+			bucket.amountText = formatUsageAggregateAmount(limits)
+			maxAmountWidth = max(maxAmountWidth, widthx.VisibleWidth(bucket.amountText))
+		}
+		blocks := layoutUsageAccountBlocks(len(accountOrder), availableWidth, maxAmountWidth)
 
 		lines = append(lines, theme.Bold(theme.Fg(string(ThemeColorAccent), group.Name)))
 		var activeReport *ai.UsageReport
@@ -676,7 +690,7 @@ func RenderUsageReports(options UsageReportOptions) string {
 				sortedLimits = append(sortedLimits, account.limit)
 				accountColumns[columnByPosition[account.position]] = account
 			}
-			amountText := formatUsageAggregateAmount(sortedLimits)
+			amountText := limitGroupEntry.amountText
 			status := resolveUsageAggregateStatus(sortedLimits)
 			windowSuffix := formatUsageWindowSuffix(theme, limitGroupEntry.label, limitGroupEntry.windowLabel)
 			header := usageStatusIcon(theme, status) + " " + theme.Bold(limitGroupEntry.label)
@@ -684,7 +698,6 @@ func RenderUsageReports(options UsageReportOptions) string {
 				header += " " + windowSuffix
 			}
 			lines = append(lines, strings.TrimRight(header, " "))
-			blocks := layoutUsageAccountBlocks(len(accountColumns), availableWidth, widthx.VisibleWidth(amountText))
 			wrapped := len(blocks) > 1 || (len(blocks) == 1 && blocks[0].stacked)
 			for blockIndex, block := range blocks {
 				blockAccounts := accountColumns[min(block.start, len(accountColumns)):min(block.end, len(accountColumns))]
