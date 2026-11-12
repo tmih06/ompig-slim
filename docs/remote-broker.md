@@ -119,11 +119,15 @@ be HTTP(S) origins without credentials, paths, query strings or fragments.
 ## Credentials and migration
 
 A configured broker **replaces** the profile's local credential store. Client
-reads fetch live redacted snapshots; they create no local credential database or
-disk snapshot cache. Account selection, logout and quota blocks persist on the
-broker and are visible to every client. Login still runs the browser/device flow
-on the client, then uploads the result to the broker before returning. Subsequent
-refreshes run only on the broker.
+reads fetch redacted snapshots with a shared, one-second in-memory view; they
+create no local credential database or disk snapshot cache. Successful local
+mutations invalidate that view immediately; another client's credential changes
+become visible on the next fetch after expiry. Failed fetches never serve an
+expired view. Account metadata and quota reads remain live, and read-only quota
+checks do not discard unchanged credentials. Account selection, logout and quota
+blocks persist on the broker and are visible to every client. Login still runs
+the browser/device flow on the client, then uploads the result to the broker
+before returning. Subsequent refreshes run only on the broker.
 
 Local credentials are not uploaded implicitly. Transfer them explicitly:
 
@@ -202,7 +206,13 @@ not a fallback to stored local secrets.
 | Sessions, project `.pi`, tools, workspaces, logs | Local, never uploaded |
 | Skills, themes, extensions, MCP state, other files | Not synchronized |
 
-Preferences reconcile at startup, every five seconds and on normal exit. First
+Preferences reconcile at startup, every five seconds and on normal exit. The
+five allowlisted documents reconcile concurrently under one cross-process profile
+lock, with per-document CAS and ancestry unchanged. Each poll waits for every
+document and reports failures in allowlist order. This overlaps network latency
+without increasing polling frequency or introducing a new protocol/cache. See
+[remote latency measurements](benchmarks.md#remote-client-round-trip-latency)
+for the delayed-network comparison and reproduction command. First
 connection adopts hosted files and privately backs up differing local files as
 `.broker-sync-<host-hash>-<filename>.backup`; absent hosted files are seeded from
 local copies. Later edits and deletion tombstones use per-document CAS.

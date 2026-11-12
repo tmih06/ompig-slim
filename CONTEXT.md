@@ -135,8 +135,13 @@ parity.
 
 Credential reads and writes use the broker's account store directly. Benchmarks
 in `internal/broker/credential_benchmark_test.go` cover live reads and account
-pool scaling. Live snapshot timing remained within noise; its credential codec/SQL
-work is deliberately unchanged.
+pool scaling. Live snapshot codec/SQL work is deliberately unchanged. Remote
+lifecycle benchmarks in `internal/broker/remote_latency_test.go` inject 0/50/150 ms RTT
+per real HTTP exchange and compare startup, service readiness, preference sync,
+auth/quota, selection and logout. Independent preference files overlap under the
+existing profile lock; read-only quota checks retain the one-second in-memory
+credential view while still querying live quota. Measurements and limitations
+are in [docs/benchmarks.md](docs/benchmarks.md#remote-client-round-trip-latency).
 
 `main.go` starts discovery before PiG reads preferences when a saved
 `remote-broker.json` or `OMPIG_BROKER_URL` is configured. Native `/login`

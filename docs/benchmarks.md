@@ -198,6 +198,86 @@ Turn latency was unchanged within noise across repeated runs, so this is a memor
 The FIPS DRBG scratch buffer is untouched, so the executable is byte-identical in size at 72,614,151 bytes.
 Regular heap growth with history remains: the session keeps every message, the conversion memo retains provider copies above 64 messages, and the append-only transcript is never truncated within a session.
 
+## Remote client round-trip latency
+
+`internal/broker/remote_latency_test.go` exercises real authenticated HTTP and
+SQLite through a loopback handler that adds one cancellable delay per request.
+A 50 ms delay models 50 ms total RTT, not 50 ms in each direction. Independent
+requests overlap. Fixtures use temporary profiles and fake API keys; no paid
+provider or real credential is needed.
+
+The comparison below ran on Linux arm64, Go 1.27.3, four reported CPUs. Each
+entry is the benchmark mean of five operations, not a percentile or confidence
+interval. Before uses broker client sources identical to `33e540a`; after applies this branch's
+preference concurrency and quota-read invalidation fixes. Both use the same test
+harness and invocation. Raw output is retained in
+`benchmarks/evidence/remote-client-{before,after}.txt`.
+
+| Path | 50 ms RTT before → after (ms) | 150 ms RTT before → after (ms) | Requests/op before → after |
+| --- | ---: | ---: | ---: |
+| Empty-profile preference startup | 284.2 → 60.8 | 781.1 → 162.0 | 5 → 5 |
+| Idle preference sync / exit-flush path | 264.1 → 52.0 | 753.8 → 153.9 | 5 → 5 |
+| Push one changed preference | 319.7 → 109.8 | 912.5 → 311.8 | 6 → 6 |
+| Pull one changed preference | 264.2 → 60.9 | 760.7 → 161.0 | 5 → 5 |
+| Service readiness | 385.0 → 169.3 | 1077.0 → 468.6 | 7 → 7 |
+| Two auth/quota passes | 204.1 → 154.0 | 604.9 → 453.1 | 4 → 3 |
+| Select an account | 55.1 → 55.4 | 154.7 → 155.1 | 1 → 1 |
+| Log out one account | 54.4 → 55.4 | 155.2 → 155.7 | 1 → 1 |
+
+At zero injected RTT, startup measured 19.8 → 8.7 ms and service readiness
+45.0 → 15.3 ms; these small samples include filesystem/scheduler noise. WAN
+results are the target, with the critical path and request counts explaining
+why the latency moves:
+
+- `Client.SyncFiles`: five serial document GETs → five concurrent GETs, under
+  the same local/process lock. Startup and idle polling pay roughly one RTT,
+  not five; a push still requires GET then CAS PUT. Cost: up to five concurrent
+  HTTP exchanges/goroutines and simultaneous document buffers, bounded by the
+  fixed allowlist and existing per-response limits. No ordering between different
+  documents was transactional before or after this change.
+- `remoteStore.GetAccountBlockedUntil`: mutation helper → direct read-only
+  request. Each quota read stays live but no longer evicts unchanged credentials;
+  two auth/quota passes fetch one snapshot instead of two. Cost: none beyond the
+  existing one-second credential freshness bound. Successful mutations still
+  invalidate the view, expired views never mask fetch failures, and metadata is
+  not cached.
+
+Readiness includes preference sync, session-service/registry construction,
+OpenAI model availability and credential resolution. It does **not** measure a
+rendered terminal, extensions, model first-token latency, DNS/TLS handshakes,
+packet loss, bandwidth limits or actual OAuth-provider latency. Startup here
+means the broker preference stage on an empty profile, not executable spawn.
+Selection/logout deliberately retain one live durable round trip: no speedup
+is claimed. All credential samples start cold; the two-pass auth/quota path then
+uses the existing TTL. The same idle sync code runs on exit, but process shutdown
+itself is not timed.
+
+Regression tests assert overlapping requests and snapshot counts rather than
+fragile wall-clock thresholds. Delayed safety cases also cover sibling block/
+clear visibility, selection/logout invalidation, TTL expiry, unavailable-host
+refusal, adoption backups, conflicts, independent progress, deletion and canceled
+sync recovery. The overlap and snapshot regressions were run red against the
+pre-fix sources and green after restoring the fix.
+
+Run the comparison workload and regressions:
+
+```sh
+go test -mod=vendor ./internal/broker -run '^TestRemoteLatency' -v
+go test -mod=vendor ./internal/broker -run '^$' \
+  -bench '^BenchmarkRemoteLatency$' -benchtime=5x -count=1
+```
+
+For a new before/after comparison, run the same benchmark test file in both
+checkouts, using the same host, Go version and command. The test file is
+self-contained apart from existing broker test fixtures and works against the
+pre-fix sources. Prefer larger/repeated samples for small loopback differences.
+
+Not applied: batching live routing metadata/quota into a new request is a
+*hypothesis* for reducing the remaining readiness/auth round trips; it needs an
+explicit request-scoped consistency design. Longer-lived credential or quota
+caching was not applied because it would weaken sibling logout/block visibility.
+The landing review found no additional measured optimization worth that tradeoff.
+
 ## Measured CPU optimization
 
 Local evidence is retained under `benchmarks/evidence/`.
