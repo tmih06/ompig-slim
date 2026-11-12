@@ -236,8 +236,8 @@ func repositoryFromGitConfig(config string) string {
 			if parsed, err := url.Parse(remote); err == nil && strings.EqualFold(parsed.Hostname(), "github.com") {
 				return strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/")
 			}
-			if strings.HasPrefix(remote, "git@github.com:") {
-				return strings.Trim(strings.TrimSuffix(strings.TrimPrefix(remote, "git@github.com:"), ".git"), "/")
+			if path, ok := strings.CutPrefix(remote, "git@github.com:"); ok {
+				return strings.Trim(strings.TrimSuffix(path, ".git"), "/")
 			}
 		}
 	}
