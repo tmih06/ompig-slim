@@ -6,3 +6,12 @@ node_modules/
 /benchmark-results/
 __pycache__/
 *.test
+
+# Only the patched PiG runtime and the dependency manifest belong in Git.
+/vendor/*
+!/vendor/modules.txt
+!/vendor/github.com/
+/vendor/github.com/*
+!/vendor/github.com/MichaelKinsy/
+/vendor/github.com/MichaelKinsy/*
+!/vendor/github.com/MichaelKinsy/PiG/

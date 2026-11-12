@@ -8,6 +8,7 @@ ARG TARGETARCH
 ARG VERSION=dev
 WORKDIR /src
 COPY . .
+RUN bash scripts/bootstrap-vendor.sh
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/ompig-slim-broker ./cmd/ompig-slim-broker

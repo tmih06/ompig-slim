@@ -27,6 +27,7 @@ if [[ -n "$platform" ]]; then
         *) printf 'Unsupported platform: %s\n' "$platform" >&2; exit 2 ;;
     esac
 fi
+bash scripts/bootstrap-vendor.sh
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 stage="$(mktemp -d)"

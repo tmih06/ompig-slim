@@ -52,7 +52,9 @@ ompig-slim update --all     # packages first, then the binary
 ompig-slim update --models  # refresh model catalogs
 ```
 
-From source with Go 1.27+ (dependencies are vendored): `make build && ./bin/ompig-slim`, or `make install`.
+From source with Go 1.27+: `make build && ./bin/ompig-slim`, or `make install`.
+The first build downloads pinned dependencies; later builds can use the local cache.
+For a smaller source checkout, use `git clone --depth=1 https://github.com/tmih06/ompig-slim.git`.
 
 ## Usage
 
@@ -177,8 +179,8 @@ make build-workspace-image   # build the lightweight agent workspace image
 make release           # build the four platform archives
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the vendored PiG tree carries project-specific patches that
-`go mod vendor` would drop. Architecture and maintenance rulings live in [CONTEXT.md](CONTEXT.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the tracked PiG tree carries project-specific patches.
+Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance rulings live in [CONTEXT.md](CONTEXT.md).
 
 Independent personal project, not an official PiG, Pi, or omp release. MIT — see [LICENSE](LICENSE) and
 [NOTICE](NOTICE) for attribution.

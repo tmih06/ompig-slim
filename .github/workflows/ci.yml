@@ -116,7 +116,9 @@ jobs:
           mv bin/ompig-slim-executable bin/ompig-slim
       - name: Check script compatibility with the platform Bash
         if: matrix.suite == 'update'
-        run: python3 scripts/test-check-go.py
+        run: |
+          python3 scripts/test-check-go.py
+          python3 scripts/test-bootstrap-vendor.py
       - name: Test the curl installer against a loopback release server
         if: matrix.suite == 'update'
         run: python3 scripts/test-install.py -v
@@ -457,6 +459,11 @@ jobs:
           name: native-archives
           path: assets
       # Recheck downloaded files: these are the checksums the installer trusts.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - run: make deps
       - run: python3 scripts/verify-releases.py assets
       - name: Create the release and attach archives
         env:
