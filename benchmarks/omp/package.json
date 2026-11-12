@@ -3,5 +3,8 @@
   "private": true,
   "dependencies": {
     "@oh-my-pi/pi-coding-agent": "18.18.0"
+  },
+  "overrides": {
+    "puppeteer-core": "25.17.0"
   }
 }

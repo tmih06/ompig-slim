@@ -2,6 +2,6 @@
   "name": "ompig-benchmark-pi",
   "private": true,
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "0.73.1"
+    "@earendil-works/pi-coding-agent": "1.5.2"
   }
 }
