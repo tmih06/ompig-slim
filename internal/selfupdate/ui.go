@@ -53,25 +53,23 @@ func isTerminal(w io.Writer) bool {
 
 // printBanner writes the startup TUI's two-line mark, then a blank line.
 //
-// The art is not restated here: coding.StartupMark renders the same rows the startup header draws, in the color depth
-// the terminal supports, so a change to the mark reaches every surface at once. In a pipe or a log the escapes are
-// stripped instead of omitted, which keeps the geometry because every run is a plain span of printable cells.
+// The art is not restated here: coding.StartupMark renders the same rows the startup header draws, so a change to the
+// mark reaches every surface at once. On a terminal the rows keep the header's own escapes, in the color depth the
+// header would pick. In a pipe or a log the escapes are stripped instead of omitted, which preserves the geometry
+// because every run is a plain span of printable cells.
 func printBanner(w io.Writer) {
-	top, bottom := coding.StartupMark(codingMarkSurface(w))
-	if !isTerminal(w) {
+	// A pipe gets the downsampled mark: nothing will read the escapes, and the plain form prints the same cells
+	// either way.
+	color := isTerminal(w)
+	mode := tui.TerminalColorMode256
+	if color {
+		mode = tui.GetTerminalColorMode()
+	}
+	top, bottom := coding.StartupMark(mode)
+	if !color {
 		top, bottom = widthx.StripAnsi(top), widthx.StripAnsi(bottom)
 	}
 	_, _ = io.WriteString(w, "\n"+top+"\n"+bottom+"\n\n")
-}
-
-// codingMarkSurface is the color depth the mark renders in: the one the startup header would pick, decided by terminal
-// capabilities (COLORTERM, TERM_PROGRAM, an explicit PI_TRUE_COLOR). A pipe gets 256-color because nothing will read
-// the escapes anyway; the plain form prints the same cells.
-func codingMarkSurface(w io.Writer) tui.TerminalColorMode {
-	if !isTerminal(w) {
-		return tui.TerminalColorMode256
-	}
-	return tui.GetTerminalColorMode()
 }
 
 // progress renders a single-line meter that updates in place on a terminal and

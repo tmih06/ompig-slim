@@ -111,52 +111,49 @@ if [[ -t 1 ]]; then interactive=1; fi
 # mark_color_mode prints "truecolor" or "256color" for the startup mark.
 #
 # The startup header renders the mark in tui.GetTerminalColorMode(), so a
-# different answer here prints different SGR codes than the TUI — the same mark
-# in another palette. This mirrors that decision: the
-# detectCapabilitiesFromEnvironment branch order in tui/terminal_image.go, then
-# the PI_TRUE_COLOR override DetectCapabilities applies on top. Branch order is
-# load-bearing (herdr, orca and the generic hints all fall through differently),
-# so keep it in step with that function rather than tidying it.
-#
-# The installer only runs on Linux and macOS, so the Windows-console branch of
-# that function has no counterpart here.
+# different answer here prints different SGR codes than the TUI: the same art in
+# another palette. This transcribes detectCapabilitiesFromEnvironment in
+# tui/terminal_image.go — whose branch order decides the answer — and then the
+# PI_TRUE_COLOR override DetectCapabilities applies on top. The installer runs
+# only on Linux and macOS, so that function's Windows-console branch has no
+# counterpart here. scripts/test-install.py pins the sequences this decides.
 mark_color_mode() {
-    local term term_program emulator color_term hint=256color
+    local term term_program emulator hint=256color sessions
     term="$(printf '%s' "${TERM:-}" | tr '[:upper:]' '[:lower:]')"
     term_program="$(printf '%s' "${TERM_PROGRAM:-}" | tr '[:upper:]' '[:lower:]')"
     emulator="$(printf '%s' "${TERMINAL_EMULATOR:-}" | tr '[:upper:]' '[:lower:]')"
-    color_term="$(printf '%s' "${COLORTERM:-}" | tr '[:upper:]' '[:lower:]')"
     # hasTrueColorHint: the terminal advertises 24-bit color for itself.
-    case "$color_term" in truecolor|24bit) hint=truecolor ;; esac
+    case "$(printf '%s' "${COLORTERM:-}" | tr '[:upper:]' '[:lower:]')" in
+        truecolor|24bit) hint=truecolor ;;
+    esac
     case "$term" in *-direct) hint=truecolor ;; esac
-    # PI_TRUE_COLOR overrides detection outright, as the TUI lets it.
     case "${PI_TRUE_COLOR:-}" in
         1) printf 'truecolor'; return ;;
         0) printf '256color'; return ;;
     esac
-    # Multiplexers: the outer terminal's advertise is the only color they pass on.
-    if [[ -n "${TMUX:-}" || "$term" == tmux* || "$term" == screen* ]]; then
-        printf '%s' "$hint"; return
-    fi
-    # Herdr forwards outer-terminal image hints only behind its own positive
-    # signal, and otherwise reports just the generic color hint.
+    # tmux and screen pass on only the outer terminal's advertisement.
+    if [[ -n "${TMUX:-}" || "$term" == tmux* || "$term" == screen* ]]; then printf '%s' "$hint"; return; fi
+    # Herdr forwards an outer terminal's image hints only behind its own graphics
+    # signal, and names just the generic color hint otherwise.
     if [[ "${HERDR_ENV:-}" == 1 && "${HERDR_KITTY_GRAPHICS:-}" == 1 ]]; then printf 'truecolor'; return; fi
     if [[ "$term_program" == herdr ]]; then printf '%s' "$hint"; return; fi
     if [[ "${HERDR_ENV:-}" == 1 ]]; then printf '%s' "$hint"; return; fi
-    # Terminals that support 24-bit color without advertising it. Orca is the one
-    # that names a protocol, and it falls through when that name is absent.
-    if [[ "$term_program" == orca && "${ORCA_IMAGE_PROTOCOL:-}" == kitty ]]; then printf 'truecolor'; return; fi
-    if [[ -n "${KITTY_WINDOW_ID:-}" || "$term_program" == kitty ]] \
-        || [[ "$term_program" == ghostty || "$term" == *ghostty* || -n "${GHOSTTY_RESOURCES_DIR:-}" ]] \
-        || [[ -n "${WEZTERM_PANE:-}" || "$term_program" == wezterm ]] \
-        || [[ "$term_program" == warpterminal || -n "${WARP_SESSION_ID:-}" || -n "${WARP_TERMINAL_SESSION_UUID:-}" ]] \
-        || [[ -n "${ITERM_SESSION_ID:-}" || "$term_program" == iterm.app ]] \
-        || [[ -n "${WT_SESSION:-}" ]] \
-        || [[ "$term_program" == alacritty || "$term_program" == vscode || "$term_program" == zed ]] \
-        || [[ "$term_program" == rex ]] \
-        || [[ "$emulator" == jetbrains-jediterm ]]; then
-        printf 'truecolor'; return
+    # Orca names a protocol rather than a color depth, so it counts only when
+    # that name is present; every other terminal below renders 24-bit color
+    # without advertising it.
+    if [[ "$term_program" == orca ]]; then
+        if [[ "${ORCA_IMAGE_PROTOCOL:-}" == kitty ]]; then printf 'truecolor'; else printf '%s' "$hint"; fi
+        return
     fi
+    case "$term_program" in
+        kitty|ghostty|wezterm|warpterminal|iterm.app|alacritty|vscode|zed|rex)
+            printf 'truecolor'; return ;;
+    esac
+    if [[ "$emulator" == jetbrains-jediterm || "$term" == *ghostty* ]]; then printf 'truecolor'; return; fi
+    # Terminals that announce themselves through a session variable only.
+    sessions="${KITTY_WINDOW_ID:-}${GHOSTTY_RESOURCES_DIR:-}${WEZTERM_PANE:-}${WARP_SESSION_ID:-}"
+    sessions+="${WARP_TERMINAL_SESSION_UUID:-}${ITERM_SESSION_ID:-}${WT_SESSION:-}"
+    if [[ -n "$sessions" ]]; then printf 'truecolor'; return; fi
     printf '%s' "$hint"
 }
 
