@@ -21,7 +21,9 @@ make build
 
 The checks include the patched PiG library and the executable entry point. `make test` uses a stable GOPATH symlink to enable Go’s native test-result cache for vendored packages; Go does not cache those results when testing `./vendor/...` in module mode. `make vet`, production builds, and releases use `-mod=vendor`. `make race` checks the same packages with the race detector. Go validates source, dependencies, flags, and observed test inputs before reusing results; a cache hit never skips a check command. Set `OMPIG_CHECK_CACHE` to choose the isolated test workspace.
 
-Dependencies are pinned in `go.mod`, verified by `go.sum`, and checked in under `vendor/`. The PiG sources under `vendor/github.com/MichaelKinsy/PiG` contain the personal feature ports. A blind `go mod vendor` overwrites those ports; preserve and reapply them deliberately when upgrading the library. Keep generated upstream files unchanged and use dedicated native port modules where possible.
+Dependencies are pinned in `go.mod` and verified by `go.sum`. Only `vendor/modules.txt` and the maintained PiG sources under `vendor/github.com/MichaelKinsy/PiG` are checked in; the latter contain personal feature ports. `make deps` restores the other dependencies (including their license notices), and build/test targets call it automatically. The first restore needs network access or a populated Go module cache. Before running Go commands directly, run `make deps`. The bootstrap uses a scratch module and never regenerates PiG. A blind `go mod vendor` in this checkout still overwrites the personal ports; preserve and reapply them deliberately when upgrading the library. Keep generated upstream files unchanged and use dedicated native port modules where possible.
+
+Untracked dependency directories are disposable: the bootstrap replaces them when `vendor/modules.txt` changes. Keep maintained changes in PiG, not in those directories. To force restoration after local deletion or corruption, remove `vendor/.bootstrap-modules.txt` and run `make deps`. Do not run concurrent dependency restores in the same checkout.
 
 ## Change rules
 

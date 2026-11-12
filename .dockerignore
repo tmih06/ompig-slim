@@ -8,3 +8,10 @@ broker-data
 **/agent.db-*
 benchmarks/node_modules
 **/node_modules
+# Restore generated dependencies inside the builder, not in the build context.
+vendor/**
+!vendor/modules.txt
+!vendor/github.com
+!vendor/github.com/MichaelKinsy
+!vendor/github.com/MichaelKinsy/PiG
+!vendor/github.com/MichaelKinsy/PiG/**

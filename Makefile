@@ -2,10 +2,16 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
+.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
+
+# Unmodified dependencies are restored locally; the patched PiG tree stays tracked.
+deps:
+	GO="$(GO)" bash scripts/bootstrap-vendor.sh
+
+build build-broker run install check test race vet: | deps
 
 build-broker:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker ./cmd/ompig-slim-broker

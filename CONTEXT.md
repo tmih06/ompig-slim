@@ -8,7 +8,8 @@ Technical orientation and maintenance rulings for coding agents working in this 
 - `main.go` registers PiG providers and the Lisp extension builder, registers the SQLite driver, then delegates arguments and runtime ownership to `github.com/MichaelKinsy/PiG/coding/cli.Main`.
 - PiG v0.7.0 is a library dependency, vendored at `vendor/github.com/MichaelKinsy/PiG`. This is not a subprocess wrapper around an installed `pig` binary.
 - Project-specific runtime changes live in the vendored PiG tree. Source provenance and the upstream baseline are recorded in `README.md`'s history; check current git history and diffs before relying on a commit reference.
-- Build and test commands use `-mod=vendor`. The dependency lock is `go.mod`/`go.sum`; do not run `go mod vendor` without preserving and deliberately reapplying the personal runtime patches. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- Build and test commands use `-mod=vendor`. Only patched PiG and `vendor/modules.txt` are tracked; `make deps` restores unmodified packages through Go’s checksum-verified module downloads in a scratch module. It retains all manifest packages across platforms and their embed assets/license notices, then replaces generated namespaces without touching PiG. A manifest completion marker avoids repeated restores. Builds/tests, release builds, and Docker builds bootstrap automatically; direct Go commands require `make deps` first. The dependency lock is `go.mod`/`go.sum`; do not run `go mod vendor` in the checkout without preserving and deliberately reapplying the personal runtime patches. See [CONTRIBUTING.md](CONTRIBUTING.md).
+- Removing generated dependencies reduces the current source snapshot, not existing Git history. Full clones still fetch old dependency blobs until maintainers coordinate a history rewrite; shallow clones avoid that history. Never rewrite or force-push shared history as part of an ordinary cleanup.
 
 ### Repeated tool-call guard
 
