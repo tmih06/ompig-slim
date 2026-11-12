@@ -36,6 +36,14 @@ func (store registryCredentials) current() *ai.RuntimeCredentials {
 	defer store.registry.mu.Unlock()
 	return store.registry.runtimeCredentialsLocked()
 }
+
+// UnwrapCredentialStore preserves credential-owner capabilities through the
+// registry's live view. Resolving on each call follows SetCredentialStore without
+// falsely advertising remote refresh for local profiles.
+func (store registryCredentials) UnwrapCredentialStore() ai.CredentialStore {
+	return store.current()
+}
+
 func (store registryCredentials) Read(ctx context.Context, id string) (*ai.Credential, error) {
 	return store.current().Read(ctx, id)
 }

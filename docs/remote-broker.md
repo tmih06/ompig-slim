@@ -166,7 +166,9 @@ prevent other accounts refreshing. HTTP errors never echo provider error bodies
 or credential material.
 
 A down/refusing broker leaves the CLI repair/version commands usable and reports
-`profile sync inactive: …`, but **never falls back to local credentials**.
+`profile sync pending (will retry): …`. Preference reconciliation keeps retrying
+without a restart. Invalid bootstrap configuration reports `profile sync inactive: …`
+and requires repair and restart. Neither case **falls back to local credentials**.
 Credential access fails until connectivity/configuration is repaired. Runtime or
 environment API-key overrides retain their existing explicit semantics; these are
 not a fallback to stored local secrets.
@@ -187,9 +189,14 @@ connection adopts hosted files and privately backs up differing local files as
 `.broker-sync-<host-hash>-<filename>.backup`; absent hosted files are seeded from
 local copies. Later edits and deletion tombstones use per-document CAS.
 Conflicting edits preserve both copies and report an error; reconcile to the
-same desired content before retrying. Do not delete ancestry files to suppress
-conflicts. A failed active-session preference flush can fail CLI exit.
+same desired content before retrying. A failed document does not stop unrelated
+documents from synchronizing. Do not delete ancestry files to suppress conflicts.
+Startup failures keep the five-second retry loop and normal-exit flush active;
+a failed active-session preference flush can fail CLI exit. Until initial sync
+succeeds, an unavailable broker does not fail otherwise usable CLI repair commands.
 
+Synchronization updates files, not every live runtime setting. Reload the session
+or restart the client to apply received settings, models and keybindings.
 UI/settings/catalog reload behavior stays unchanged. Client paths/environment
 references are not rewritten, so referenced resources must exist on each client.
 Shared settings may run commands or load packages: trust the broker as fully as

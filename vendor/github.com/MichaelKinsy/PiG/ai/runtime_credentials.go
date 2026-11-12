@@ -27,6 +27,10 @@ func NewRuntimeCredentials(store CredentialStore) *RuntimeCredentials {
 	return &RuntimeCredentials{store: store, overrides: map[string]string{}}
 }
 
+// UnwrapCredentialStore exposes the backing store for credential-owner capability
+// discovery. It does not change runtime API-key precedence on credential reads.
+func (c *RuntimeCredentials) UnwrapCredentialStore() CredentialStore { return c.store }
+
 // SetRuntimeAPIKey installs a non-persistent API key for providerID.
 func (c *RuntimeCredentials) SetRuntimeAPIKey(providerID, apiKey string) {
 	c.mu.Lock()
