@@ -51,14 +51,74 @@ func TestBuiltinArgumentSuggestions(t *testing.T) {
 // TestLeadingAbsolutePathIsOrdinaryPrompt ensures filesystem paths are sent as
 // ordinary prompts instead of being rejected as unknown commands.
 func TestLeadingAbsolutePathIsOrdinaryPrompt(t *testing.T) {
-	m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry()}
-	m.setupEditorSubmitHandler(context.Background())
-	var submitted string
-	m.onInputCallback = func(text string) { submitted = text }
-	m.editor.SetText("/tmp/project/file")
-	m.editor.HandleInput("\r")
-	if submitted != "/tmp/project/file" {
-		t.Fatalf("absolute path was not submitted as ordinary prompt: %q", submitted)
+	for _, text := range []string{"/tmp/project/file", "/tmp/project/file explain this", "/new/file.go", "/file.txt explain this", "/tmp", "/", "./file.go explain this", "~/file.go", "C:\\project\\file.go", "explain /not-a-command"} {
+		m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry()}
+		m.setupEditorSubmitHandler(context.Background())
+		var submitted string
+		m.onInputCallback = func(text string) { submitted = text }
+		m.editor.SetText(text)
+		m.editor.HandleInput("\r")
+		if submitted != text {
+			t.Fatalf("path or ordinary text %q was not submitted: %q", text, submitted)
+		}
+	}
+}
+
+// TestUnknownSlashSubmissionStaysLocal exercises Enter and direct submission
+// during compaction, before either can hand an unknown command to the model.
+func TestUnknownSlashSubmissionStaysLocal(t *testing.T) {
+	for _, text := range []string{"/does-not-exist", "/does-not-exist args", "/skill:missing", "/skill:team/missing"} {
+		for _, direct := range []bool{false, true} {
+			m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry(), isCompacting: direct}
+			m.setupEditorSubmitHandler(context.Background())
+			submitted := false
+			m.onInputCallback = func(string) { submitted = true }
+			m.editor.SetText(text)
+			if direct {
+				m.handleSubmit(context.Background(), text)
+			} else {
+				m.editor.HandleInput("\r")
+			}
+			if submitted || len(m.pendingUserInputs) != 0 || len(m.compactionQueue) != 0 {
+				t.Errorf("direct=%t: unknown command %q escaped submission validation", direct, text)
+			}
+			if m.editor.Text() != text {
+				t.Errorf("direct=%t: rejected draft lost: %q", direct, m.editor.Text())
+			}
+		}
+	}
+}
+
+// TestUnknownSlashFollowUpStaysLocal covers the active follow-up key's separate
+// queue path; rejection must leave the draft and compaction queue untouched.
+func TestUnknownSlashFollowUpStaysLocal(t *testing.T) {
+	m := resetWiringTest(t, nil)
+	m.slashRegistry = NewSlashRegistry()
+	m.isCompacting = true
+	m.editor.SetText("/does-not-exist")
+	if err := m.handleEditorAction(context.Background(), actionFollowUp, "\x11"); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.compactionQueue) != 0 || m.editor.Text() != "/does-not-exist" {
+		t.Fatal("unknown follow-up was queued or lost its draft")
+	}
+}
+
+// TestKnownModelBoundSlashSubmission preserves templates and skills, including
+// namespaced skills, without loading their contents during submission checks.
+func TestKnownModelBoundSlashSubmission(t *testing.T) {
+	for _, text := range []string{"/review args", "/skill:review args", "/skill:team/review args"} {
+		m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry()}
+		m.promptTemplates = []PromptTemplate{{Name: "review"}}
+		m.opts.Skills = []*SkillDef{{Name: "review"}, {Name: "team/review"}}
+		m.setupEditorSubmitHandler(context.Background())
+		var submitted string
+		m.onInputCallback = func(text string) { submitted = text }
+		m.editor.SetText(text)
+		m.editor.HandleInput("\r")
+		if submitted != text {
+			t.Fatalf("known command %q was not submitted: %q", text, submitted)
+		}
 	}
 }
 
