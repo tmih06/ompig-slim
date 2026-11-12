@@ -729,22 +729,10 @@ func (m *InteractiveMode) runLoginGitHubCopilotDialog(loginCtx context.Context) 
 	return loginDialogOutcome(dlg, &failed, buildAuthProviderName("github-copilot"))
 }
 
-// runOAuthLogout removes stored OAuth credentials for a provider.
-// Mirrors upstream showOAuthSelector logout branch (interactive-mode.ts:4296-4308).
+// runOAuthLogout removes extension-owned credentials only. Core vault accounts
+// use runAccountLogout; a concurrent login must never become a bulk logout.
 func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) error {
-	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
-	if err != nil {
-		return fmt.Errorf("auth storage: %w", err)
-	}
-	defer func() { _ = auth.Close() }()
-
 	deleted := false
-	if credential, readErr := auth.Read(ctx, provider); readErr == nil && credential != nil {
-		if err := auth.Delete(ctx, provider); err != nil {
-			return fmt.Errorf("logout: %w", err)
-		}
-		deleted = true
-	}
 	// Upstream logout deletes through RuntimeCredentials, which also drops
 	// the provider's --api-key runtime key.
 	if m.opts.ModelRegistry != nil {

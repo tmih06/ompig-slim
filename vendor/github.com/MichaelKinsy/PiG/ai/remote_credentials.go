@@ -13,6 +13,8 @@ import (
 type ApplicationCredentialStore interface {
 	AccountCredentialStore
 	AccountBlockClearer
+	// DeleteAccountIdentity removes exactly this identity; nil names the NULL row, not the active account.
+	DeleteAccountIdentity(context.Context, string, *string) (bool, error)
 	Close() error
 	GetRaw(string) (Credential, bool, error)
 	HasProvider(context.Context, string) (bool, error)

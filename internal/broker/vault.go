@@ -152,16 +152,14 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 				result, err = redact(*updated)
 			}
 		}
-	case "select", "delete-account":
+	case "select":
 		if request.AccountKey == nil {
 			http.Error(w, "account key required", 400)
 			return
 		}
-		if request.Operation == "select" {
-			result, err = s.vault.SelectAccount(ctx, request.Provider, *request.AccountKey)
-		} else {
-			result, err = s.vault.DeleteAccount(ctx, request.Provider, *request.AccountKey)
-		}
+		result, err = s.vault.SelectAccount(ctx, request.Provider, *request.AccountKey)
+	case "delete-account":
+		result, err = s.vault.DeleteAccountIdentity(ctx, request.Provider, request.AccountKey)
 	case "delete":
 		err = s.vault.Delete(ctx, request.Provider)
 	case "blocked":
