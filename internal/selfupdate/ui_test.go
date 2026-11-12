@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/MichaelKinsy/PiG/tui"
 )
 
 func TestHumanBytes(t *testing.T) {
@@ -23,6 +26,40 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
+// startupMarkGolden is the startup header's mark as `ompig-slim -ne` drew it in
+// a 130-column pty. It is captured from the running TUI rather than derived from
+// StartupMark, so this test fails when the printed mark stops matching the one a
+// user sees a moment later: a solid block letter or a 16-color code is exactly
+// the drift it guards against.
+//
+// truecolor is COLORTERM=truecolor; 256color is PI_TRUE_COLOR=0, which forces the
+// downsampled palette on a TERM=xterm-256color terminal. Regenerate both by
+// running the binary in a pty and reading header rows 2 and 3.
+var startupMarkGolden = map[string][2]string{
+	"truecolor": {
+		"\x1b[38;2;236;236;236m█▀█ █▄ ▄█\x1b[0m \x1b[38;2;228;138;122m\x1b[48;2;79;142;179m▀\x1b[0m\x1b[38;2;228;138;122m▀█\x1b[0m     \x1b[38;2;0;173;216m█▀▀ █▀█\x1b[0m \x1b[38;2;198;160;246m-slim\x1b[0m",
+		"\x1b[38;2;236;236;236m█▄█ █ ▀ █\x1b[0m \x1b[38;2;79;142;179m█▀\x1b[0m \x1b[38;2;234;182;93m█\x1b[0m \x1b[38;2;236;236;236min \x1b[0m\x1b[38;2;0;173;216m█▄█ █▄█\x1b[0m",
+	},
+	"256color": {
+		"\x1b[38;5;255m█▀█ █▄ ▄█\x1b[0m \x1b[38;5;174m\x1b[48;5;67m▀\x1b[0m\x1b[38;5;174m▀█\x1b[0m     \x1b[38;5;38m█▀▀ █▀█\x1b[0m \x1b[38;5;183m-slim\x1b[0m",
+		"\x1b[38;5;255m█▄█ █ ▀ █\x1b[0m \x1b[38;5;67m█▀\x1b[0m \x1b[38;5;179m█\x1b[0m \x1b[38;5;255min \x1b[0m\x1b[38;5;38m█▄█ █▄█\x1b[0m",
+	},
+}
+
+// TestBannerMatchesTheStartupMark pins the printed mark to the golden capture in
+// both color depths. A pipe gets the plain cells, so it also checks that
+// stripping the escapes leaves the art intact.
+func TestBannerMatchesTheStartupMark(t *testing.T) {
+	for mode, want := range startupMarkGolden {
+		t.Run(mode, func(t *testing.T) {
+			top, bottom := coding.StartupMark(tui.TerminalColorMode(mode))
+			if got := [2]string{top, bottom}; got != want {
+				t.Fatalf("mark = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestBannerMatchesStartupMarkWithoutColor(t *testing.T) {
 	var out bytes.Buffer
 	// A bytes.Buffer is never a terminal, so this exercises the plain path.
@@ -31,10 +68,12 @@ func TestBannerMatchesStartupMarkWithoutColor(t *testing.T) {
 	if strings.Contains(text, "\x1b") {
 		t.Fatalf("plain banner contains an escape sequence: %q", text)
 	}
-	if !strings.Contains(text, "███ █▄ ▄█ ▀▀█     ███ ███ -slim") {
+	// The rows are the startup header's, with its escapes stripped: the covered
+	// half of the M and the G stay visible as half blocks, not solid cells.
+	if !strings.Contains(text, "█▀█ █▄ ▄█ ▀▀█     █▀▀ █▀█ -slim") {
 		t.Fatalf("banner is missing the startup top row: %q", text)
 	}
-	if !strings.Contains(text, "█▄█ █▀ ▀█ █▀ █ in █▀█ █▄█") {
+	if !strings.Contains(text, "█▄█ █ ▀ █ █▀ █ in █▄█ █▄█") {
 		t.Fatalf("banner is missing the startup bottom row: %q", text)
 	}
 }

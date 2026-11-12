@@ -175,8 +175,9 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Updated ompig-slim 1.0.0 → 2.0.0") {
 		t.Fatalf("stdout did not report the update: %q", stdout.String())
 	}
-	// The mark is printed once per run, before the progress.
-	if !strings.Contains(stdout.String(), "███ █▄ ▄█ ▀▀█     ███ ███ -slim") {
+	// The mark is printed once per run, before the progress, in the same cells
+	// the startup header draws.
+	if !strings.Contains(stdout.String(), "█▀█ █▄ ▄█ ▀▀█     █▀▀ █▀█ -slim") {
 		t.Fatalf("stdout did not print the banner: %q", stdout.String())
 	}
 	// No staging file may survive beside the executable, which is on PATH.
@@ -211,7 +212,7 @@ func TestUpdateIsANoOpWhenCurrent(t *testing.T) {
 		t.Fatalf("stdout = %q, want an up-to-date line", stdout.String())
 	}
 	// No banner for a run that changes nothing: it is not an update.
-	if strings.Contains(stdout.String(), "in Go") {
+	if strings.Contains(stdout.String(), "in █▄█") {
 		t.Fatalf("an up-to-date run printed the banner: %q", stdout.String())
 	}
 	after, err := os.ReadFile(executable)
