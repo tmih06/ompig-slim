@@ -558,6 +558,10 @@ func (p *CombinedProvider) fdFileSuggestionsCtx(ctx context.Context, rawQuery st
 	return items
 }
 
+// walkDirectoryWithFd returns matching paths relative to baseDir, retaining
+// directory separators but removing fd's optional ./ prefix (used to protect
+// leading-dash names). A positive maxDepth limits the search to direct children;
+// cancellation or a failed search returns no entries.
 func (p *CombinedProvider) walkDirectoryWithFd(ctx context.Context, baseDir, query string, maxDepth int) []fdSearchEntry {
 	if ctx.Err() != nil {
 		return nil
@@ -599,7 +603,7 @@ func (p *CombinedProvider) walkDirectoryWithFd(ctx context.Context, baseDir, que
 		if line == "" {
 			continue
 		}
-		display := toDisplayPath(line)
+		display := strings.TrimPrefix(toDisplayPath(line), "./")
 		hasTrailingSlash := strings.HasSuffix(display, "/")
 		normalized := strings.TrimSuffix(display, "/")
 		if normalized == ".git" || strings.HasPrefix(normalized, ".git/") || strings.Contains(normalized, "/.git/") {
