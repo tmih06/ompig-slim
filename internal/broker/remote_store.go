@@ -109,8 +109,13 @@ func (s *remoteStore) SelectAccount(ctx context.Context, provider, key string) (
 
 // DeleteAccount retires the exact named account on the host.
 func (s *remoteStore) DeleteAccount(ctx context.Context, provider, key string) (bool, error) {
+	return s.DeleteAccountIdentity(ctx, provider, &key)
+}
+
+// DeleteAccountIdentity retires one identity on the host; nil names its NULL row.
+func (s *remoteStore) DeleteAccountIdentity(ctx context.Context, provider string, key *string) (bool, error) {
 	var result bool
-	err := s.operation(ctx, vaultRequest{Operation: "delete-account", Provider: provider, AccountKey: &key}, &result)
+	err := s.operation(ctx, vaultRequest{Operation: "delete-account", Provider: provider, AccountKey: key}, &result)
 	return result, err
 }
 

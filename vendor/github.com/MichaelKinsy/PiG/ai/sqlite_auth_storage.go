@@ -886,6 +886,12 @@ func (s *SQLiteAuthStorage) SelectAccount(ctx context.Context, providerID, accou
 // The identity tombstone prevents a later login from silently reviving logout, while
 // clearing data removes the no-longer-usable access and refresh credentials.
 func (s *SQLiteAuthStorage) DeleteAccount(ctx context.Context, providerID, accountKey string) (bool, error) {
+	return s.DeleteAccountIdentity(ctx, providerID, &accountKey)
+}
+
+// DeleteAccountIdentity scrubs and tombstones exactly one identity, including
+// NULL (nil). It never resolves the active account or removes sibling identities.
+func (s *SQLiteAuthStorage) DeleteAccountIdentity(ctx context.Context, providerID string, accountKey *string) (bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
