@@ -95,6 +95,7 @@ class ReleaseServer:
         # platform names the archive, e.g. "linux-x64".
         self.platform = platform
         self.latest_tag = ""
+        self.documents = {}
         self.instance = None
 
     def publish(self, tag, archive, make_latest=False, checksum="correct"):
@@ -111,6 +112,7 @@ class ReleaseServer:
         The two broken forms fail at different points, so a suite that needs one
         must not silently get the other.
         """
+        self.documents[tag] = {"tag_name": tag, "prerelease": "-beta." in tag, "draft": False}
         directory = self.releases / "download" / tag
         directory.mkdir(parents=True, exist_ok=True)
         name = f"ompig-slim-{self.platform}.tar.gz"
@@ -143,6 +145,14 @@ class ReleaseServer:
                 # follows the latest/download alias, which the tree serves.
                 if self.path.endswith("/releases/latest"):
                     body = json.dumps({"tag_name": server.latest_tag}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if self.path.split("?", 1)[0].endswith("/releases"):
+                    body = json.dumps(list(server.documents.values())).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(body)))

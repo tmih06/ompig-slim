@@ -76,17 +76,19 @@ import (
 // UpstreamPackageVersion the version that build's package.json files report.
 // The literals live in internal/coding/pigversion/pigversion.go, generated
 // from .upstream/pin;
-// coding/upstream.go aliases it, so the parity runner (and this constant)
+// coding/upstream.go aliases it, so the parity runner and CLI
 // can import it without depending on package main.
 const (
 	PigVersion      = coding.PigVersion
 	UpstreamVersion = coding.UpstreamVersion
 	// UpstreamPackageVersion is what Pi's own `--version` and user agent report.
 	UpstreamPackageVersion = coding.UpstreamPackageVersion
-	Version                = coding.Version
 
 	startupSDKLockTimeout = 2 * time.Second
 )
+
+// Version reports the harness release, including its build-time beta identity.
+var Version = coding.Version
 
 // Build is the git commit/tag, set via -ldflags at build time.
 var Build = "dev"

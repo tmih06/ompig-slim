@@ -47,10 +47,16 @@ Installs to `~/.local/bin/ompig-slim` (Linux and macOS, x64 or arm64), verifies 
 needs no Go or `sudo`. Pass `--version v0.1.5` to pin a release or `--dir` to install elsewhere. Then:
 
 ```sh
-ompig-slim update           # replace the installed binary
-ompig-slim update --all     # packages first, then the binary
-ompig-slim update --models  # refresh model catalogs
+ompig-slim update                   # update using the saved channel (initially stable)
+ompig-slim update --channel beta    # switch to beta and remember it
+ompig-slim update --channel stable  # switch back to stable and remember it
+ompig-slim update --all             # packages first, then the binary
+ompig-slim update --models          # refresh model catalogs
 ```
+
+Each successful CI run after a merge to `main` publishes a numbered beta with prebuilt binaries
+for the same four platforms. `upgrade` also accepts `--channel stable|beta`. Switching channels
+can install an older version; failed updates leave your saved channel unchanged.
 
 From source with Go 1.27+: `make build && ./bin/ompig-slim`, or `make install`.
 The first build downloads pinned dependencies; later builds can use the local cache.

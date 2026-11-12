@@ -33,6 +33,17 @@ out="$(cd "$out" && pwd)"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
+# The same linked version reaches --version, the header, and self-update.
+ldflags='-s -w'
+if [[ -n "${VERSION:-}" ]]; then
+    version="${VERSION#v}"
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+        printf 'Invalid release VERSION: %s\n' "$VERSION" >&2
+        exit 2
+    fi
+    ldflags+=" -X github.com/MichaelKinsy/PiG/internal/coding/pigversion.HarnessVersion=$version"
+fi
+
 for platform in "${platforms[@]}"; do
     os="${platform%-*}"
     arch="${platform##*-}"
@@ -40,7 +51,7 @@ for platform in "${platforms[@]}"; do
     package="$stage/$platform/ompig-slim"
     mkdir -p "$package"
     printf 'Building %s\n' "$platform"
-    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags='-s -w' -o "$package/ompig-slim" .
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags="$ldflags" -o "$package/ompig-slim" .
     cp README.md "$package/README.md"
     cp LICENSE NOTICE "$package/"
     while IFS= read -r -d '' license; do

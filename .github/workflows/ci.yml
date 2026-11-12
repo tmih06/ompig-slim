@@ -4,10 +4,7 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
-    # No Actions status checks are required by the repository ruleset. If one
-    # becomes required, replace workflow filtering with an always-running gate
-    # before requiring it; a path-skipped workflow never reports that check.
-    paths-ignore: ['README.md', 'CONTEXT.md', 'docs/**']
+    # Every main push (including documentation-only merges) gets a beta.
   pull_request:
     paths-ignore: ['README.md', 'CONTEXT.md', 'docs/**']
   workflow_dispatch:
@@ -26,6 +23,34 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
+  version:
+    name: Allocate the archive version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve stable tags or a unique beta for main
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          NUMBER: ${{ github.run_number }}
+        run: |
+          version=""
+          if [[ "$EVENT" == push && "$REF" == refs/heads/main ]]; then
+            stable="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+            version="$(python3 scripts/release-version.py "$stable" "$NUMBER")"
+          elif [[ "$EVENT" == push && "$REF" == refs/tags/v* ]]; then
+            version="$REF_NAME"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   check:
     name: Go ${{ matrix.mode }} (${{ matrix.os }})
     strategy:
@@ -240,6 +265,8 @@ jobs:
           PY
       - name: Test benchmark fixtures, accounting and reporting
         run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
+      - name: Test beta numbering and release policy
+        run: python3 -m unittest discover -s scripts -p 'test_release_version.py'
       - name: Test smoke shard coverage
         run: python3 -m unittest discover -s scripts -p 'test_ci_smoke.py'
       - name: Scan every commit, including nested archives
@@ -247,6 +274,9 @@ jobs:
 
   release:
     name: Build and verify four native archives
+    needs: version
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -444,6 +474,37 @@ jobs:
             echo "docker run --rm -it -v \"$PWD:/workspace\" ghcr.io/${{ github.repository_owner }}/ompig-slim-workspace:${{ github.ref_name }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-beta:
+    name: Publish the verified main build as a beta
+    needs: [version, release, check, smoke, hygiene, benchmark, container]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-archives
+          path: assets
+      - name: Recheck the downloaded checksums
+        run: |
+          cd assets
+          for checksum in *.sha256; do sha256sum --check "$checksum"; done
+      - name: Create a prerelease without moving latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          # A successful rerun must not republish or mutate an existing beta.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exit 0
+          fi
+          gh release create "$TAG" assets/*.tar.gz assets/*.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$COMMIT" \
+            --title "$TAG" --prerelease --latest=false --generate-notes
 
   publish:
     name: Attach verified archives to the release
