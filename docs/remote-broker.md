@@ -159,6 +159,16 @@ Shutdown drains HTTP handlers and waits for the background sweep before closing
 SQLite. A process crash between provider rotation and SQLite commit can still
 require signing in again; no transaction spans the external OAuth provider.
 
+Quota probes still contact providers from the client. If a broker-owned OAuth
+access token returns HTTP 401 before its recorded expiry, the client resolves
+that exact account through the broker and retries once only if the bearer
+changes. This recovers Antigravity usage and Codex plan metadata without exposing
+refresh tokens or changing account selection. HTTP 403 and transient provider
+failures do not trigger this recovery; a quota failure alone never logs out an
+account. Antigravity authentication errors are surfaced rather than reported as
+an empty quota response. This recovery is client-side and uses the existing
+broker refresh API; it does not require a new broker endpoint.
+
 Transient failures retain credentials for retry. Existing provider-specific
 permanent-failure handling remains in force (notably Codex JSON retirement);
 unclassified errors are not guessed to mean logout. One failing account does not
