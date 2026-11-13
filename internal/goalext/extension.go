@@ -81,7 +81,11 @@ func Extension(api extension.API) error {
 				_ = tracker.Drop()
 				return fmt.Errorf("goal command context is unavailable")
 			}
-			if err := commandContext.SendUserMessage(objective, nil); err != nil {
+			// A goal objective is a prompt, not literal text: it reaches the same
+			// skill and prompt-template expansion a typed prompt gets, and the same
+			// `@path` auto-read. sendUserMessage defaults expansion off for
+			// extension-originated messages, so the request is explicit here.
+			if err := commandContext.SendUserMessage(objective, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)}); err != nil {
 				_ = tracker.Drop()
 				return err
 			}

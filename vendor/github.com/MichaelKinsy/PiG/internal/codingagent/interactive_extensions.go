@@ -25,7 +25,22 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-func (m *InteractiveMode) deliverUserMessage(content any, deliverAs extension.DeliverAs) error {
+// deliverUserMessage delivers an extension's user-authored prompt. options
+// carries the request's delivery and expansion choices; a nil options is Pi's
+// sendUserMessage default, which expands nothing.
+//
+// Expansion is the caller's decision, not this function's: a message an agent
+// writes for itself is literal, while a message an extension forwards on the
+// user's behalf (a goal objective, a replayed prompt) asks for the same skill
+// and template expansion a typed prompt gets. This port previously dropped
+// ExpandPromptTemplates here, so asking for it had no effect.
+func (m *InteractiveMode) deliverUserMessage(content any, options *extension.SendUserMessageOptions) error {
+	deliverAs := extension.DeliverAs("")
+	expand := false
+	if options != nil {
+		deliverAs = options.DeliverAs
+		expand = options.ExpandPromptTemplates != nil && *options.ExpandPromptTemplates
+	}
 	parsed, err := subprocessUserContent(content)
 	if err != nil {
 		return fmt.Errorf("sendUserMessage: %w", err)
@@ -74,10 +89,12 @@ func (m *InteractiveMode) deliverUserMessage(content any, deliverAs extension.De
 			return
 		}
 		// Upstream sendUserMessage is prompt() with source "extension" and
-		// no command dispatch or template expansion. A run that started
-		// after the check above receives an unspecified delivery as a
-		// follow-up.
-		m.promptUserInput(m.runCtx, text, images, deliverAs != extension.DeliverAsSteer, extension.InputSourceExtension, false)
+		// no command dispatch. Template and skill expansion follow the
+		// caller's ExpandPromptTemplates request, so a forwarded user
+		// objective loads its skills like a typed prompt while agent-authored
+		// text stays literal. A run that started after the check above
+		// receives an unspecified delivery as a follow-up.
+		m.promptUserInput(m.runCtx, text, images, deliverAs != extension.DeliverAsSteer, extension.InputSourceExtension, expand)
 	})
 }
 
@@ -263,11 +280,7 @@ func (m *InteractiveMode) wireInprocContextActions() {
 				return m.opts.SettingsManager.ExtensionSettings()
 			},
 			SendUserMessage: func(content any, opts *extension.SendUserMessageOptions) error {
-				var deliverAs extension.DeliverAs
-				if opts != nil {
-					deliverAs = opts.DeliverAs
-				}
-				return m.deliverUserMessage(content, deliverAs)
+				return m.deliverUserMessage(content, opts)
 			},
 			// upstream: agent-session.ts:3416-3426 (_bindExtensionCore sendMessage). The routing is the one the wire sendMessage action runs.
 			SendMessage: func(msg extension.CustomMessageRef, opts *extension.SendMessageOptions) error {
@@ -699,11 +712,15 @@ func (m *InteractiveMode) wireSubprocessHostCallbacks() func() {
 		return m.sendExtensionMessage(msg, extension.SendMessageOptions{TriggerTurn: opts.TriggerTurn, DeliverAs: extension.DeliverAs(opts.DeliverAs)})
 	})
 	b.SetHostAction("sendUserMessage", func(content any, opts subprocess.SendUserMessageOptions) error {
-		deliver := func() { _ = m.deliverUserMessage(content, extension.DeliverAs(opts.DeliverAs)) }
+		// The wire type carries only deliverAs, and the SDK's sendUserMessage
+		// helper sends only that, so a subprocess message stays literal like an
+		// agent-authored one. Expansion is a request the in-process path takes.
+		options := &extension.SendUserMessageOptions{DeliverAs: extension.DeliverAs(opts.DeliverAs)}
+		deliver := func() { _ = m.deliverUserMessage(content, options) }
 		if m.deferSettledAction(deliver) {
 			return nil
 		}
-		return m.deliverUserMessage(content, extension.DeliverAs(opts.DeliverAs))
+		return m.deliverUserMessage(content, options)
 	})
 	BindAppendEntryAction(b, func() (*Session, error) {
 		if m.currentSession() == nil {
