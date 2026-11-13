@@ -75,14 +75,29 @@ func main() {
 	// discovery. Inference stays local; OAuth refresh belongs to the broker.
 	// Commands that cannot use credentials must not pay for broker startup or its
 	// exit flush; --offline also has to remain offline before PiG parses flags.
+	//
+	// syncedDocuments is handed to the interactive session below: a poll that
+	// rewrites settings.json locally must reach a session that already loaded it,
+	// or a model role assigned on another machine waits for a restart.
 	var finishSync func() error
+	var syncedDocuments <-chan struct{}
 	if brokerStartupNeeded(args) {
+		// One buffered slot coalesces signals: the receiver re-reads every document
+		// from disk, so a second signal for the same files says nothing new, and a
+		// full slot must never stall the worker holding the profile lock.
+		documents := make(chan struct{}, 1)
 		var err error
-		finishSync, err = broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr)
+		finishSync, err = broker.StartNotifying(context.Background(), coding.DefaultAgentDir(), os.Stderr, func() {
+			select {
+			case documents <- struct{}{}:
+			default:
+			}
+		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		syncedDocuments = documents
 	}
 	if len(args) > 0 && args[0] == "durable" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -125,6 +140,7 @@ func main() {
 	// never means a new binary.
 	cli.Main(args, &cli.MainOptions{
 		SystemPromptPreamble: prompts.System(),
+		SyncedDocuments:      syncedDocuments,
 		ExtensionFactories: []extension.InlineExtension{
 			// Hidden program machinery, like agent-state: always active even with
 			// --no-extensions, without adding a user-managed resource or tool.

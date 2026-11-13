@@ -227,29 +227,50 @@ func readLocal(path string) ([]byte, error) {
 // allowlist. Discovery failures do not prevent fixed documents from syncing.
 // All failures are returned in file order after every document completes.
 func (c *Client) SyncFiles(ctx context.Context) error {
-	return c.locked(ctx, func() error {
+	_, err := c.SyncFilesChanged(ctx)
+	return err
+}
+
+// SyncFilesChanged is SyncFiles reporting which profile documents this call
+// rewrote on disk, so a running session can re-read the configuration it
+// already loaded. A name counts only when the file's bytes changed: an idle poll
+// and a document this client just uploaded are both absent, which keeps a
+// watcher from re-applying settings on every tick or echoing its own write.
+func (c *Client) SyncFilesChanged(ctx context.Context) ([]string, error) {
+	var changed []string
+	err := c.locked(ctx, func() error {
 		themes, themeErr := c.themeFiles(ctx)
 		names := append(append([]string(nil), SharedFiles...), themes...)
 		failures := make([]error, len(names)+1)
 		if themeErr != nil {
 			failures[len(names)] = fmt.Errorf("themes: %w", themeErr)
 		}
+		wrote := make([]bool, len(names))
 		var workers sync.WaitGroup
 		for i, name := range names {
 			workers.Go(func() {
-				if err := c.syncFile(ctx, name); err != nil {
+				if err := c.syncFile(ctx, name, &wrote[i]); err != nil {
 					failures[i] = fmt.Errorf("%s: %w", name, err)
 				}
 			})
 		}
 		workers.Wait()
+		for i, name := range names {
+			if wrote[i] {
+				changed = append(changed, name)
+			}
+		}
 		return errors.Join(failures...)
 	})
+	return changed, err
 }
 
 // syncFile reconciles one allowlisted document and persists its ancestry only
-// after successful data writes. The caller holds the cross-process profile lock.
-func (c *Client) syncFile(ctx context.Context, name string) error {
+// after successful data writes. changed reports that the hosted document replaced
+// the local file, which a running session must re-read; an upload or an idle
+// reconcile leaves it false because the bytes on disk are already what this client
+// wrote. The caller holds the cross-process profile lock.
+func (c *Client) syncFile(ctx context.Context, name string, changed *bool) error {
 	local, err := readLocal(filepath.Join(c.dir, name))
 	if err != nil {
 		return err
@@ -278,6 +299,7 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 			if err = publishDocument(c.dir, name, remote.Data); err != nil {
 				return err
 			}
+			*changed = true
 			local = remote.Data
 		} else if remote.Data == nil && local != nil {
 			if err = c.request(ctx, "PUT", "/v1/items/"+url.PathEscape(name), remote.Revision, Item{Data: local}, nil); err != nil {
@@ -310,17 +332,24 @@ func (c *Client) syncFile(ctx context.Context, name string) error {
 			if err != nil {
 				return err
 			}
+			*changed = true
 			local = remote.Data
 		}
 	}
 	return c.saveState(name, fileState{Remote: remote.Revision, Local: hashData(local)})
 }
 
-// RunSync periodically reconciles preferences between local
-// requests. Runtime settings/catalog reload behavior remains PiG's own; a new
-// session/startup always sees the synchronized files. Report receives each poll's
-// result (nil on success), without secrets, and is never called after return.
-func (c *Client) RunSync(ctx context.Context, report func(error)) {
+// RunSyncChanged periodically reconciles preferences between local requests,
+// reporting a poll that replaced documents on disk to notify before report sees
+// that poll's error. Only a poll that rewrote a local file notifies: an idle tick
+// and this client's own upload leave the bytes already what they were, and
+// notifying on every tick would re-apply settings five seconds at a time.
+//
+// Report receives each poll's result (nil on success), without secrets, and is
+// never called after return. Runtime settings/catalog reload behavior remains
+// PiG's own: a new session/startup always sees the synchronized files, and a
+// running session re-reads them through the notification.
+func (c *Client) RunSyncChanged(ctx context.Context, report func(error), notify func()) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -328,7 +357,11 @@ func (c *Client) RunSync(ctx context.Context, report func(error)) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			report(c.SyncFiles(ctx))
+			changed, err := c.SyncFilesChanged(ctx)
+			if notify != nil && len(changed) > 0 {
+				notify()
+			}
+			report(err)
 		}
 	}
 }
@@ -339,6 +372,21 @@ func (c *Client) RunSync(ctx context.Context, report func(error)) {
 // Recoverable preference/network failures keep retrying until shutdown; invalid
 // bootstrap configuration has no usable client and requires repair and restart.
 func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, error) {
+	finish, err := StartNotifying(ctx, dir, stderr, nil)
+	return finish, err
+}
+
+// StartNotifying is Start reporting that a poll replaced profile documents on
+// disk, so the caller can have a running session re-read its configuration.
+//
+// notify runs on the synchronization worker, never after the returned finish
+// completed, and only for a poll that actually rewrote a local file. It is a
+// signal, not a payload: the receiver re-reads the documents from disk, so a
+// coalesced or repeated signal costs one redundant read and never a lost change.
+// It must not block for long, because the poll that produced it is still holding
+// the profile lock. Nil leaves the worker with nothing to report, which is what a
+// non-interactive command wants.
+func StartNotifying(ctx context.Context, dir string, stderr io.Writer, notify func()) (func() error, error) {
 	startup, cancel := context.WithTimeout(ctx, 45*time.Second)
 	client, err := Connect(startup, dir)
 	cancel()
@@ -360,7 +408,7 @@ func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, err
 	go func() {
 		defer close(done)
 		last := ""
-		client.RunSync(background, func(err error) {
+		client.RunSyncChanged(background, func(err error) {
 			if err == nil {
 				synced = true
 				last = ""
@@ -370,7 +418,7 @@ func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, err
 				fmt.Fprintln(stderr, "profile sync:", text)
 				last = text
 			}
-		})
+		}, notify)
 	}()
 	var once sync.Once
 	var finalErr error

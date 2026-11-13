@@ -707,6 +707,11 @@ type MainOptions struct {
 	BeforeExit func() error
 	// ProfileLogin adds an embedder-owned storage setup entry to /login.
 	ProfileLogin *ProfileLoginOption
+	// SyncedDocuments is signalled when an embedder's synchronization worker
+	// rewrote profile documents after startup, so the interactive session re-reads
+	// its configuration instead of keeping the copy it loaded at launch. See
+	// codingagent.SyncedDocuments for the delivery contract.
+	SyncedDocuments <-chan struct{}
 }
 
 // ProfileLoginOption configures a local-only profile-storage login dialog.
@@ -720,9 +725,11 @@ var processCwd = nodepath.Cwd
 func Main(args []string, options *MainOptions) {
 	profileSyncBeforeExit = nil
 	codingagent.ProfileLogin = nil
+	codingagent.SyncedDocuments = nil
 	if options != nil {
 		profileSyncBeforeExit = options.BeforeExit
 		codingagent.ProfileLogin = options.ProfileLogin
+		codingagent.SyncedDocuments = options.SyncedDocuments
 	}
 	defer func() {
 		if code := flushProfileSync(0); code != 0 {
