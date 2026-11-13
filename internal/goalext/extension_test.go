@@ -7,7 +7,31 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
+
+	"ompig-slim/internal/goal"
 )
+
+// TestActiveGoalRequestsContinuationBeforeSettlement pins the boundary contract:
+// an unmet goal keeps the run working instead of first reporting idle.
+func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
+	tracker := goal.New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	var sent extension.SendMessagePayload
+	result := continueActiveGoal(tracker, func(payload extension.SendMessagePayload, options *extension.SendMessageOptions) {
+		sent = payload
+		if options == nil || options.DeliverAs != extension.DeliverAsNextTurn {
+			t.Fatalf("continuation options = %+v, want nextTurn", options)
+		}
+	})
+	if result.Continue == nil || !*result.Continue {
+		t.Fatal("an unmet active goal must continue before agent_settled")
+	}
+	if sent.CustomType != "goal-continuation" {
+		t.Fatalf("custom message type = %q, want goal-continuation", sent.CustomType)
+	}
+}
 
 // TestGoalSubmitsSkillObjective exercises the real command runner. Goal must
 // forward slash skill syntax to the host's normal prompt/resource expansion.
