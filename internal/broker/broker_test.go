@@ -249,7 +249,7 @@ func TestStartKeepsCredentialsRemote(t *testing.T) {
 	t.Setenv("OMPIG_BROKER_URL", "")
 	t.Setenv("OMPIG_BROKER_TOKEN", "")
 	var report strings.Builder
-	finish, err := Start(context.Background(), dir, &report)
+	finish, err := Start(context.Background(), dir, &report, nil)
 	if err != nil || finish == nil {
 		t.Fatalf("unreachable broker must leave startup usable and sync retrying: %v", err)
 	}

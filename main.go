@@ -87,7 +87,7 @@ func main() {
 		// full slot must never stall the worker holding the profile lock.
 		documents := make(chan struct{}, 1)
 		var err error
-		finishSync, err = broker.StartNotifying(context.Background(), coding.DefaultAgentDir(), os.Stderr, func() {
+		finishSync, err = broker.Start(context.Background(), coding.DefaultAgentDir(), os.Stderr, func() {
 			select {
 			case documents <- struct{}{}:
 			default:

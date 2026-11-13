@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -231,20 +232,23 @@ func (c *Client) SyncFiles(ctx context.Context) error {
 	return err
 }
 
-// SyncFilesChanged is SyncFiles reporting which profile documents this call
-// rewrote on disk, so a running session can re-read the configuration it
-// already loaded. A name counts only when the file's bytes changed: an idle poll
-// and a document this client just uploaded are both absent, which keeps a
-// watcher from re-applying settings on every tick or echoing its own write.
-func (c *Client) SyncFilesChanged(ctx context.Context) ([]string, error) {
-	var changed []string
-	err := c.locked(ctx, func() error {
+// SyncFilesChanged is SyncFiles reporting whether this call replaced any local
+// document, so a running session can re-read the configuration it already loaded.
+// An idle poll and a document this client just uploaded both report false, which
+// keeps a watcher from re-applying settings on every tick or echoing its own write.
+//
+// The documents are not named: a receiver re-reads every file it cares about from
+// disk, so carrying names would only invite a caller to trust a stale list.
+func (c *Client) SyncFilesChanged(ctx context.Context) (changed bool, err error) {
+	err = c.locked(ctx, func() error {
 		themes, themeErr := c.themeFiles(ctx)
 		names := append(append([]string(nil), SharedFiles...), themes...)
 		failures := make([]error, len(names)+1)
 		if themeErr != nil {
 			failures[len(names)] = fmt.Errorf("themes: %w", themeErr)
 		}
+		// Per-document flags: the workers own distinct indexes and the OR runs
+		// after they are joined, so no flag is read while it is written.
 		wrote := make([]bool, len(names))
 		var workers sync.WaitGroup
 		for i, name := range names {
@@ -255,11 +259,7 @@ func (c *Client) SyncFilesChanged(ctx context.Context) ([]string, error) {
 			})
 		}
 		workers.Wait()
-		for i, name := range names {
-			if wrote[i] {
-				changed = append(changed, name)
-			}
-		}
+		changed = slices.Contains(wrote, true)
 		return errors.Join(failures...)
 	})
 	return changed, err
@@ -358,7 +358,7 @@ func (c *Client) RunSyncChanged(ctx context.Context, report func(error), notify 
 			return
 		case <-ticker.C:
 			changed, err := c.SyncFilesChanged(ctx)
-			if notify != nil && len(changed) > 0 {
+			if notify != nil && changed {
 				notify()
 			}
 			report(err)
@@ -371,22 +371,16 @@ func (c *Client) RunSyncChanged(ctx context.Context, report func(error), notify 
 // the CLI can repair the connection, but must not silently use a local vault.
 // Recoverable preference/network failures keep retrying until shutdown; invalid
 // bootstrap configuration has no usable client and requires repair and restart.
-func Start(ctx context.Context, dir string, stderr io.Writer) (func() error, error) {
-	finish, err := StartNotifying(ctx, dir, stderr, nil)
-	return finish, err
-}
-
-// StartNotifying is Start reporting that a poll replaced profile documents on
-// disk, so the caller can have a running session re-read its configuration.
 //
-// notify runs on the synchronization worker, never after the returned finish
-// completed, and only for a poll that actually rewrote a local file. It is a
-// signal, not a payload: the receiver re-reads the documents from disk, so a
-// coalesced or repeated signal costs one redundant read and never a lost change.
-// It must not block for long, because the poll that produced it is still holding
-// the profile lock. Nil leaves the worker with nothing to report, which is what a
-// non-interactive command wants.
-func StartNotifying(ctx context.Context, dir string, stderr io.Writer, notify func()) (func() error, error) {
+// notify reports a poll that replaced profile documents on disk, so the caller
+// can have a running session re-read its configuration; without it a model role
+// assigned on another machine is on disk and invisible to the session that
+// loaded the old copy. It runs on the synchronization worker, never after the
+// returned finish completed, and is a signal rather than a payload: the receiver
+// re-reads from disk, so a coalesced signal costs one redundant read and never a
+// lost change. It must not block for long, because the poll that produced it is
+// still holding the profile lock. Nil leaves the worker with nothing to report.
+func Start(ctx context.Context, dir string, stderr io.Writer, notify func()) (finish func() error, err error) {
 	startup, cancel := context.WithTimeout(ctx, 45*time.Second)
 	client, err := Connect(startup, dir)
 	cancel()

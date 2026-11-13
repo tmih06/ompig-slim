@@ -67,18 +67,19 @@ func (m *InteractiveMode) applySyncedDocuments() {
 	}
 	if m.opts.SettingsManager != nil {
 		// The Session reloads the settings it shares so tools added to
-		// defaultTools activate on the next refresh, matching /reload; a mode
-		// without a Session handle still refreshes the manager.
+		// defaultTools activate on the next refresh, matching /reload. A handle
+		// without that method, and a mode with no handle at all, still re-read
+		// the manager because that is what every reader of m.opts.Settings sees.
 		if session, ok := m.opts.SessionHandle.(interface{ ReloadSettings() }); ok {
 			session.ReloadSettings()
-		} else if m.opts.SessionHandle == nil {
+		} else {
 			m.opts.SettingsManager.Reload()
 		}
 		m.opts.Settings = m.opts.SettingsManager.Get()
 		m.refreshSettingsDerivedState()
 	}
-	// The keybindings file is reloaded unconditionally: a poll that reported a
-	// change does not say which document it was, and re-reading one small file is
+	// The keybindings file is re-read on every signal because a poll reports that
+	// some document changed, not which one, and re-reading one small file is
 	// cheaper than tracking that state across the synchronization worker.
 	if m.keybindings != nil {
 		m.keybindings.Reload()
