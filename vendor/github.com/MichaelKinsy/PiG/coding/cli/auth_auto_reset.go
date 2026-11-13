@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/codingagent"
@@ -52,7 +51,7 @@ func runAuthAutoReset(args []string, env authRunEnv) int {
 		return credential, nil
 	})
 	if err != nil {
-		env.printError("Could not update account \"" + strings.TrimSpace(widthx.ReplaceControlCharacters(args[1])) + "\": " + err.Error())
+		env.printError("Could not update account \"" + widthx.ReplaceControlCharacters(args[1]) + "\": " + err.Error())
 		return 1
 	}
 	state := "disabled"
