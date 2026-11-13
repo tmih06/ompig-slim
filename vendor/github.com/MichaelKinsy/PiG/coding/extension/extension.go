@@ -166,6 +166,9 @@ type registeredEventHandler struct {
 	handler HandlerFn
 	// jsonOnly reports that the handler reads its event only through the event's JSON encoding.
 	jsonOnly bool
+	// boundarySummary omits the projected history for a turn handler that only
+	// needs the completed turn and prior drafts.
+	boundarySummary bool
 }
 
 type eventHandlerState struct {
@@ -196,6 +199,31 @@ func (e *Extension) AddEventHandler(event string, id int, handler HandlerFn) {
 // AddJSONEventHandler is AddEventHandler for a handler that reads its event only through the event's JSON encoding, as a subprocess extension's handler does. A dispatcher may hand such a handler an event whose Go values are not all materialized when its encoding is complete.
 func (e *Extension) AddJSONEventHandler(event string, id int, handler HandlerFn) {
 	e.addEventHandler(event, registeredEventHandler{id: id, handler: handler, jsonOnly: true})
+}
+
+// AddTurnSummaryHandler registers an awaited turn_end handler without a context
+// preview. It preserves normal registration order, draft validation and errors;
+// the handler must not need the projected session history.
+func (e *Extension) AddTurnSummaryHandler(id int, handler HandlerFn) {
+	e.addEventHandler("turn_end", registeredEventHandler{id: id, handler: handler, boundarySummary: true})
+}
+
+// BoundarySummaryHandlers returns a stable handler snapshot and the matching
+// summary flags. Legacy and JSON handlers retain their full-context contract.
+func (e *Extension) BoundarySummaryHandlers(event string) ([]HandlerFn, []bool, []bool) {
+	if e.handlerState == nil {
+		handlers := e.EventHandlers(event)
+		return handlers, make([]bool, len(handlers)), make([]bool, len(handlers))
+	}
+	e.handlerState.mu.RLock()
+	defer e.handlerState.mu.RUnlock()
+	registered := e.handlerState.handlers[event]
+	handlers := make([]HandlerFn, len(registered))
+	jsonOnly, summary := make([]bool, len(registered)), make([]bool, len(registered))
+	for i, handler := range registered {
+		handlers[i], jsonOnly[i], summary[i] = handler.handler, handler.jsonOnly, handler.boundarySummary
+	}
+	return handlers, jsonOnly, summary
 }
 
 func (e *Extension) addEventHandler(event string, registered registeredEventHandler) {

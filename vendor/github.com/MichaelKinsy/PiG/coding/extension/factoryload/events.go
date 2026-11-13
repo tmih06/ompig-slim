@@ -211,6 +211,26 @@ func (a *api) OnTurnEnd(handler func(ctx context.Context, evt extension.TurnEndE
 	return onResult(a, "turn_end", handler)
 }
 
+// OnTurnEndSummary is the native summary path used by the loop guard. Unlike a
+// full turn_end handler it cannot read or mutate the projected session history.
+// Unsubscribe removes exactly this registration, including during dispatch.
+func (a *api) OnTurnEndSummary(handler func(context.Context, extension.TurnEndEvent) (extension.TurnEndEventResult, error)) func() {
+	a.assertActive()
+	a.mu.Lock()
+	a.nextHandler++
+	id := a.nextHandler
+	a.mu.Unlock()
+	a.ext.AddTurnSummaryHandler(id, func(args ...any) (any, error) {
+		event, ctx, _, err := handlerEvent[extension.TurnEndEvent]("turn_end", args)
+		if err != nil {
+			return nil, err
+		}
+		result, err := handler(ctx, event)
+		return resultOrNil(result), err
+	})
+	return func() { a.ext.RemoveEventHandler("turn_end", id) }
+}
+
 func (a *api) OnMessageStart(handler extension.ExtensionHandlerNoResult[extension.MessageStartEvent]) func() {
 	return onEvent(a, "message_start", handler)
 }

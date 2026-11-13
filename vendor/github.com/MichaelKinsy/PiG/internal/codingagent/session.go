@@ -1383,12 +1383,21 @@ func (s *Session) BuildContextEntries() []SessionEntry {
 // API. buildSessionProjection, getSessionContextSettings, prepareCompaction, the newest assistant usage and the newest compaction or model
 // selection read the same from it as from GetBranch, without reading history the context no longer holds. Nil when there is no leaf.
 func (s *Session) GetContextBranch() []SessionEntry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.leafID == nil {
 		return nil
 	}
-	return s.contextPathToLocked(*s.leafID)
+	indexes := s.contextIndexesLocked(*s.leafID)
+	entries := s.entriesAtLocked(indexes)
+	// This is a full active-context read, just like BuildSessionProjection.
+	// Retain its decoded entries so resumed prompts do not reparse the cold
+	// prefix on every selection/usage check. Leaf moves and compaction still
+	// apply retainLocked's eviction policy; unrelated branches stay file-backed.
+	if s.branchLeaf >= 0 && s.slots[s.branchLeaf].id == *s.leafID && s.slotOrZero(*s.leafID) == s.branchLeaf {
+		s.retainReadLocked(indexes, entries)
+	}
+	return entries
 }
 
 // contextPathToLocked returns the entries of contextPathIn for the path ending at leafID. The caller holds s.mu.

@@ -21,6 +21,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/configvalue"
@@ -54,7 +55,9 @@ type RuntimeProvider struct {
 	Name string
 	Auth ai.ProviderAuth
 
-	models []RuntimeModel
+	// Auth/header construction needs no model rows. Decode the immutable
+	// composed catalog once, only when a caller actually lists this provider.
+	models func() []RuntimeModel
 }
 
 // RequestAuthRuntimeOptions mirrors the CreateModelRuntimeOptions this
@@ -197,9 +200,13 @@ func (r *RequestAuthRuntime) composeProvider(providerID string) *RuntimeProvider
 	base, baseErr := ai.BuiltinProviderAuth(providerID)
 	hasBase := baseErr == nil
 	baseName := ai.ProviderDisplayName(providerID)
-	baseModels := builtinRuntimeModels(providerID)
+	baseModels := sync.OnceValue(func() []RuntimeModel { return builtinRuntimeModels(providerID) })
 	if radius := r.radius[providerID]; radius != nil {
-		base, hasBase, baseModels = radius.Auth(), true, radiusRuntimeModels(radius)
+		base, hasBase = radius.Auth(), true
+		// Radius catalogs are mutable: capture this composition's snapshot,
+		// rather than consulting a later refresh on the first model read.
+		models := radiusRuntimeModels(radius)
+		baseModels = func() []RuntimeModel { return models }
 		baseName = radius.Name()
 	}
 	config, hasConfig := r.configProvider(providerID)
@@ -230,7 +237,7 @@ func (r *RequestAuthRuntime) composeProvider(providerID string) *RuntimeProvider
 	if name == "" {
 		name = baseName
 	}
-	return &RuntimeProvider{ID: providerID, Name: name, Auth: auth, models: applyModelsJSONToRuntimeModels(providerID, baseModels, config)}
+	return &RuntimeProvider{ID: providerID, Name: name, Auth: auth, models: sync.OnceValue(func() []RuntimeModel { return applyModelsJSONToRuntimeModels(providerID, baseModels(), config) })}
 }
 
 func builtinRuntimeModels(providerID string) []RuntimeModel {
@@ -594,13 +601,13 @@ func (r *RequestAuthRuntime) GetProvider(providerID string) *RuntimeProvider {
 func (r *RequestAuthRuntime) GetModels(providerID string) []RuntimeModel {
 	if providerID != "" {
 		if provider := r.providerByID[providerID]; provider != nil {
-			return slices.Clone(provider.models)
+			return slices.Clone(provider.models())
 		}
 		return nil
 	}
 	var models []RuntimeModel
 	for _, provider := range r.providers {
-		models = append(models, provider.models...)
+		models = append(models, provider.models()...)
 	}
 	return models
 }

@@ -51,7 +51,9 @@ func Extension(api extension.API) error {
 		state = guard{}
 		return nil
 	})
-	api.OnTurnEnd(func(_ context.Context, event extension.TurnEndEvent) (extension.TurnEndEventResult, error) {
+	// Detection reads only the completed turn, never the projected transcript.
+	// A summary subscription avoids decoding all historical entries per turn.
+	extension.OnTurnEndSummary(api, func(_ context.Context, event extension.TurnEndEvent) (extension.TurnEndEventResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if event.Outcome != extension.AgentActivityCompleted {
