@@ -117,7 +117,7 @@ func (s *AutoResetSelectorComponent) rebuild() {
 		case row.tier != "":
 			items = append(items, SelectItem{Value: row.provider + "\x00" + row.tier, Label: "  " + checkbox(s.tierEnabled(row.provider, row.tier)) + " " + row.tier, Description: s.tierDescription(row.provider, row.tier)})
 		default:
-			items = append(items, SelectItem{Value: row.provider, Label: checkbox(s.providerLocked(row.provider)) + " " + s.providerLabel(row.provider), Description: s.providerDescription(row.provider)})
+			items = append(items, SelectItem{Value: row.provider, Label: providerLabel(s.providerLocked(row.provider), s.providerLabel(row.provider)), Description: s.providerDescription(row.provider)})
 		}
 	}
 	list := NewSelectList(items, 10, s.themeList)
@@ -198,7 +198,7 @@ func (s *AutoResetSelectorComponent) tierDescription(provider, tier string) stri
 }
 
 func (s *AutoResetSelectorComponent) footer() string {
-	return ActiveTheme().Fg("dim", ActionKeyDisplayText(KBSelectUp)+"/"+ActionKeyDisplayText(KBSelectDown)+" select · "+ActionKeyDisplayText(KBSelectConfirm)+" toggle · "+ActionKeyDisplayText(KBSelectCancel)+" close")
+	return ActiveTheme().Fg("dim", ActionKeyDisplayText(KBSelectUp)+"/"+ActionKeyDisplayText(KBSelectDown)+" select · "+ActionKeyDisplayText(KBSelectConfirm)+"/space toggle · l lock provider · "+ActionKeyDisplayText(KBSelectCancel)+" close")
 }
 
 // HandleInput handles navigation, toggles, and close without requiring a
@@ -295,6 +295,13 @@ func checkbox(enabled bool) string {
 		return "☑"
 	}
 	return "☐"
+}
+
+func providerLabel(locked bool, label string) string {
+	if locked {
+		return "🔒 " + label
+	}
+	return checkbox(false) + " " + label
 }
 
 func autoResetAccountDescription(account AutoResetAccount) string {
