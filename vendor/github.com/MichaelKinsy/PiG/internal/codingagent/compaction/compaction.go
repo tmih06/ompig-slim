@@ -211,17 +211,18 @@ func GetLastAssistantUsage(entries []codingagent.SessionEntry) *ai.Usage {
 	return nil
 }
 
-// ShouldCompact reports whether compaction should trigger.
-// Mirrors upstream shouldCompact (compaction.ts).
+// ShouldCompact reports whether compaction should trigger. The default trigger
+// is 80% of the active model's context window; an explicit TriggerTokens value
+// remains an override for model-specific policy.
 func ShouldCompact(contextTokens, contextWindow int, s CompactionSettings) bool {
 	if !s.Enabled {
 		return false
 	}
-	threshold := contextWindow - s.ReserveTokens
+	threshold := contextWindow * 80 / 100
 	if s.TriggerTokens > 0 {
 		threshold = s.TriggerTokens
 	}
-	return contextTokens > threshold
+	return contextTokens >= threshold
 }
 
 // ─── Cut Point Detection ──────────────────────────────────────────────────────

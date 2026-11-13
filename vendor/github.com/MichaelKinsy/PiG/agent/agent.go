@@ -589,6 +589,8 @@ func (timingEvent) agentEvent() {}
 // Mirrors upstream compaction_start event (agent-session.ts).
 type CompactionStartEvent struct {
 	Reason string // "manual" | "threshold" | "overflow"
+	// Model is the display name of the model producing the summary.
+	Model string
 }
 
 // CompactionEndEvent fires when compaction completes, aborts, or errors.
@@ -672,6 +674,8 @@ type SummarizationRetryScheduledEvent struct {
 type SummarizationRetryAttemptStartEvent struct {
 	Source string
 	Reason string
+	// Model is the display name of the model being retried, when applicable.
+	Model string
 }
 
 // SummarizationRetryFinishedEvent fires once when a retried summarization loop

@@ -35,7 +35,7 @@ func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.Comp
 	if err != nil {
 		return compaction.CompactionResult{}, err
 	}
-	retry, retryCallbacks := s.summarizationRetryOptions("compaction", reason)
+	retry, retryCallbacks := s.summarizationRetryOptions("compaction", reason, compactionModelLabel(request.model))
 	// upstream compact(preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, this.agent.streamFunction, env, retry, callbacks, sessionId): request.completer holds the Agent's stream function.
 	streamFn := request.streamFn
 	if streamFn == nil {
@@ -56,6 +56,19 @@ func (s *Session) compactionModel(fallback *ai.Model) (*ai.Model, error) {
 		return nil, err
 	}
 	return BuildModel(selector, s.services)
+}
+
+// compactionModelLabel identifies the concrete model used for a summary in the
+// interactive status line. DisplayName is the user-facing catalog name; ID is
+// the stable fallback for custom models without one.
+func compactionModelLabel(model *ai.Model) string {
+	if model == nil {
+		return ""
+	}
+	if model.DisplayName != "" {
+		return model.DisplayName
+	}
+	return model.ID
 }
 
 // withoutDeletedHeaders drops the headers an auth result deletes; summary requests take only header values.

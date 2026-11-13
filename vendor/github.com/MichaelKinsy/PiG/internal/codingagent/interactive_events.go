@@ -483,7 +483,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 			setTerminalProgress(true)
 		}
 		m.isCompacting = true
-		m.showCompactionStatusIndicator(e.Reason)
+		m.showCompactionStatusIndicator(e.Reason, e.Model)
 		m.tuiInst.Render()
 
 	case agent.CompactionEndEvent:
@@ -562,7 +562,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		if e.Source == "branchSummary" {
 			m.showBranchSummaryStatusIndicator()
 		} else {
-			m.showCompactionStatusIndicator(e.Reason)
+			m.showCompactionStatusIndicator(e.Reason, e.Model)
 		}
 		m.tuiInst.Render()
 

@@ -23,7 +23,7 @@ func (s *Session) SummarizeForBugReport(ctx context.Context, hint string) (strin
 	if err != nil {
 		return "", err
 	}
-	retry, _ := s.summarizationRetryOptions("bug-report", "manual")
+	retry, _ := s.summarizationRetryOptions("bug-report", "manual", compactionModelLabel(request.model))
 	return compaction.GenerateBugReportSummary(ctx, compaction.GenerateBugReportSummaryOptions{
 		Messages:      s.Messages(),
 		Hint:          hint,
