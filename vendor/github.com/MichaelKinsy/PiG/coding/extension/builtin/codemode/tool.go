@@ -296,7 +296,10 @@ func prepareLoadout(loadout extension.ToolLoadout, options Options) *extension.T
 		for _, tool := range loadout.Declared {
 			declared[tool.Name] = true
 		}
-		for _, tool := range callable {
+		// Use the complete callable set here, not the filtered script catalog. Tools
+		// excluded from scripts, such as transcript-stateful todo, are still direct
+		// declarations and must be hidden in mode-only operation.
+		for _, tool := range loadout.Callable {
 			if isDirect(tool) && declared[tool.Name] {
 				hidden = append(hidden, tool.Name)
 			}
