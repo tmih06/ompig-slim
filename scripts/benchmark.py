@@ -413,11 +413,15 @@ def main():
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--sample-interval", type=float, default=0.02)
     parser.add_argument("--output", default="benchmark-results")
+    parser.add_argument("--profile", nargs="+", choices=["cpu", "heap", "allocs", "metrics"],
+                        help="opt-in Go profiles for --only ompig-slim; profiling adds measurement overhead")
     args = parser.parse_args()
     if platform.system() != "Linux":
         parser.error("process-tree measurements require Linux /proc")
     if min(args.runs, args.turns, args.resume_turns, args.answer_bytes) < 1 or args.warmups < 0 or min(args.timeout, args.sample_interval) <= 0:
         parser.error("counts and intervals must be positive; warmups may be zero")
+    if args.profile and args.only != ["ompig-slim"]:
+        parser.error("--profile requires --only ompig-slim; do not compare instrumented and uninstrumented CLIs")
     output = pathlib.Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     base = pathlib.Path(args.baselines).resolve()
@@ -479,6 +483,12 @@ def main():
                     result, path = {}, None
                     for phase, count, start in [("long", args.turns, 0),
                                                 ("resume", args.resume_turns, args.turns)]:
+                        if args.profile:
+                            # Profiles survive the temporary HOME and are separate per process;
+                            # inherited profiling settings still never enter ordinary runs.
+                            profile_dir = output / "profiles" / f"{repetition}-{phase}"
+                            profile_dir.mkdir(parents=True, exist_ok=True)
+                            env.update(PIG_PROFILE=",".join(args.profile), PIG_PROFILE_DIR=str(profile_dir))
                         result[phase], path = run_session(name, commands[name], root, agent, env, count,
                             start, args.timeout, args.sample_interval, logs / f"{name}-{repetition}-{phase}.stderr",
                             path)

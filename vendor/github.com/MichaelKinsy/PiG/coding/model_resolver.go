@@ -53,6 +53,14 @@ func (r cliResolverRuntime) HasConfiguredAuth(providerID string) bool {
 // authenticated rows, so --api-key works for first-time setup. A thinking suffix
 // is returned separately and never mutates the shared catalog model.
 func ResolveCliModel(options ResolveCliModelOptions) ResolveCliModelResult {
+	// An exact provider/id needs no cross-provider ambiguity or fuzzy search.
+	// GetModel preserves configured overlays and virtual models; a miss (including
+	// thinking suffixes) still uses the full resolver and its diagnostics.
+	if options.ModelRuntime != nil && options.CliProvider != "" && options.CliModel != "" {
+		if model := options.ModelRuntime.GetModel(options.CliProvider, options.CliModel); model != nil {
+			return ResolveCliModelResult{Model: model}
+		}
+	}
 	resolved := icodingagent.ResolveCliModel(options.CliProvider, options.CliModel, string(options.CliThinking), options.InlineApiKey, cliResolverRuntime{options.ModelRuntime})
 	result := ResolveCliModelResult{ThinkingLevel: resolved.ThinkingLevel, Warning: resolved.Warning, Error: resolved.Error}
 	if resolved.Model != nil {

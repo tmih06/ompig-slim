@@ -23,6 +23,7 @@ import (
 type startupModelRuntime struct {
 	loaded  []codingagent.RuntimeModel
 	load    func() []codingagent.RuntimeModel
+	lookup  func(providerID, modelID string) *ai.Model
 	hasAuth func(providerID string) bool
 	auth    map[string]bool
 }
@@ -31,10 +32,11 @@ func newStartupModelRuntime(models []codingagent.RuntimeModel, hasAuth func(prov
 	return &startupModelRuntime{loaded: models, hasAuth: hasAuth, auth: map[string]bool{}}
 }
 
-// newLazyStartupModelRuntime is newStartupModelRuntime over the models load lists when a selection first reads them: an explicit --model
-// resolves through ModelRuntime and reads none (main.ts:803-819 reads modelRuntime only where a step needs it).
-func newLazyStartupModelRuntime(load func() []codingagent.RuntimeModel, hasAuth func(providerID string) bool) *startupModelRuntime {
-	return &startupModelRuntime{load: load, hasAuth: hasAuth, auth: map[string]bool{}}
+// newLazyStartupModelRuntime resolves exact references through the runtime and
+// lists the catalog only for availability/fuzzy selection. Authentication still
+// reads the same configured snapshot; no credentials are cached here.
+func newLazyStartupModelRuntime(runtime *coding.ModelRuntime) *startupModelRuntime {
+	return &startupModelRuntime{load: runtime.RuntimeModels, lookup: runtime.GetModel, hasAuth: runtime.HasConfiguredAuth, auth: map[string]bool{}}
 }
 
 // models returns the composed models, loading them on the first read.
@@ -71,6 +73,14 @@ func (rt *startupModelRuntime) HasConfiguredAuth(providerID string) bool {
 
 // getModel mirrors upstream ModelRuntime.getModel: an exact composed model.
 func (rt *startupModelRuntime) getModel(providerID, modelID string) *codingagent.RuntimeModel {
+	// Saved defaults, roles and restored selections already name an exact model.
+	// Resolve through the canonical runtime without loading unrelated catalogs.
+	if rt.lookup != nil {
+		if model := rt.lookup(providerID, modelID); model != nil {
+			return runtimeModelOf(model)
+		}
+		return nil
+	}
 	models := rt.models()
 	index := slices.IndexFunc(models, func(model codingagent.RuntimeModel) bool {
 		return model.Provider == providerID && model.ID == modelID
@@ -140,7 +150,7 @@ type startupModel struct {
 func selectStartupModel(ctx context.Context, options startupModelOptions, settings codingagent.Settings, services *coding.AgentSessionServices) (startupModel, error) {
 	// upstream: main.ts:803-819 resolves against modelRuntime, whose catalog and auth include the virtual models the services registered (agent-session-services.ts:182-193).
 	modelRuntime := services.ModelRuntime()
-	rt := newLazyStartupModelRuntime(modelRuntime.RuntimeModels, modelRuntime.HasConfiguredAuth)
+	rt := newLazyStartupModelRuntime(modelRuntime)
 	var result startupModel
 	result.Role, _ = modelroles.Role(options.CLIModel)
 	selected, err := selectSessionOptionModel(rt, modelRuntime, options, settings, &result)

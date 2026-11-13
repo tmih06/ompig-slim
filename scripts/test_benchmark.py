@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import queue
+import subprocess
 import sys
 import tempfile
 import threading
@@ -24,14 +25,26 @@ class BenchmarkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "secret", "OMP_AUTH_BROKER_TOKEN": "secret",
-                                             "PI_HOME": "/real", "PI_PACKAGE_DIR": "/real/package"}):
+                                             "PI_HOME": "/real", "PI_PACKAGE_DIR": "/real/package",
+                                             "OMPIG_BROKER_URL": "http://127.0.0.1:1",
+                                             "OMPIG_BROKER_TOKEN": "real-broker-secret"}):
                 env = benchmark.isolated_env(root, root / "agent")
             self.assertNotIn("OPENAI_API_KEY", env)
             self.assertNotIn("OMP_AUTH_BROKER_TOKEN", env)
             self.assertNotIn("PI_PACKAGE_DIR", env)
+            self.assertNotIn("OMPIG_BROKER_URL", env)
+            self.assertNotIn("OMPIG_BROKER_TOKEN", env)
             self.assertEqual(env["PI_HOME"], str(root))
             for key in ("PI_CODING_AGENT_DIR", "PIG_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR"):
                 self.assertEqual(env[key], str(root / "agent"))
+
+    def test_profiling_rejects_mixed_implementations(self):
+        """Instrumented native timings must never look like a fair CLI comparison."""
+        result = subprocess.run([sys.executable, str(pathlib.Path(benchmark.__file__)),
+                                 "--slim", "unused", "--profile", "metrics"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--profile requires --only ompig-slim", result.stderr)
 
     def test_fixture_tools_history_and_sse(self):
         """The mock validates real tool output and prior history instead of trusting exit 0."""

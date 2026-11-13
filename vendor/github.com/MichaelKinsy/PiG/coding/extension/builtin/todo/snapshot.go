@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	"github.com/MichaelKinsy/PiG/internal/sessionentry"
 )
 
 // phasesOf decodes one session entry into a todo snapshot, reporting whether the
@@ -20,6 +21,14 @@ import (
 func phasesOf(entry extension.SessionEntry) ([]Phase, bool) {
 	if entry == nil {
 		return nil, false
+	}
+	// The branch already holds decoded messages. Reject ordinary turns before
+	// serializing their source records; scanning a no-todo session must not
+	// JSON-round-trip every historical assistant answer at every settle.
+	if message, ok, err := sessionentry.AsMessage(entry); err == nil && ok {
+		if result := message.Message.ToolResult; result == nil || result.ToolName != ToolName || result.IsError {
+			return nil, false
+		}
 	}
 	raw := entry.Raw()
 	if len(raw) == 0 {

@@ -48,10 +48,16 @@ func builtinClassifierModelsOf(providerID string) []*ai.ClassifierModel {
 
 // builtinTypedBase assembles a built-in provider with its chat, image and classifier models. It returns nil when the provider has no built-in model of any type.
 func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsProvider {
-	chat := builtinChatCatalog(id)
+	// OMP ownership is known from the embedded filenames. Do not decode a
+	// provider merely to install its lazy GetModels callback. Legacy providers
+	// still need the filtered catalog check to honor stripped APIs.
+	hasChat := ai.HasOMPCatalog(id)
+	if !hasChat {
+		hasChat = len(builtinChatCatalog(id)) > 0
+	}
 	images := builtinImageModelsOf(id)
 	classifiers := builtinClassifierModelsOf(id)
-	if len(chat) == 0 && len(images) == 0 && len(classifiers) == 0 && !ai.HasOMPCatalog(id) {
+	if !hasChat && len(images) == 0 && len(classifiers) == 0 {
 		return nil
 	}
 	auth, _ := ai.BuiltinProviderAuth(id)

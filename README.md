@@ -22,19 +22,19 @@
 | | **ompig-slim** | [omp](https://github.com/can1357/oh-my-pi) | [pi](https://github.com/earendil-works/pi) |
 |---|:--|:--|:--|
 | Runtime | one Go binary | Bun + JS + native addon | Node + JS |
-| Startup, median | **121 ms** | 2,176 ms | 1,129 ms |
-| Turn, median | **21 ms** | 44 ms | 36 ms |
-| Peak RSS | **179 MiB** | 499 MiB | 446 MiB |
-| Installed | **73 MB** | 419 MB | 271 MB |
+| Startup, median | **121 ms** | 2,056 ms | 1,135 ms |
+| Turn, median | **21 ms** | 41 ms | 36 ms |
+| Peak RSS | **178 MiB** | 502 MiB | 439 MiB |
+| Installed | **75 MB** | 422 MB | 238 MB |
 | Config | `~/.pi/agent`, `.pi` | `~/.omp/agent`, `.omp` | `~/.pi/agent`, `.pi` |
 | Extensions | TS, Go, Rust, Python, Lisp | TypeScript | TypeScript |
 | `todo`, `web_search` | built in | built in | — |
 | Subagents, Agent Hub | opt-in | built in | — |
 | LSP, debugger | — | built in | — |
 
-<sub>Five 120-turn sessions plus five 12-turn resumes, Linux arm64, 4 vCPUs, synthetic loopback model.
+<sub>Five 120-turn sessions plus five 12-turn resumes, isolated local mode (no remote broker), Linux arm64, 4 vCPUs, synthetic loopback model.
 Startup/turn/RSS are long-session medians; "installed" adds entrypoint, dependencies, and interpreter.
-Baselines: omp 18.18.0, pi 0.73.1. Measures harness overhead, not model quality; feature rows describe
+Baselines: omp 18.18.0, pi 1.5.2. Measures harness overhead, not model quality; feature rows describe
 shipped code, not defaults. Details: [benchmarks/COMPARISON.md](benchmarks/COMPARISON.md).</sub>
 
 ## Install

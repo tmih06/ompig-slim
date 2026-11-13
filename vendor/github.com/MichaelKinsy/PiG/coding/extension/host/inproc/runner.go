@@ -1452,8 +1452,10 @@ type BoundaryDispatchResult struct {
 }
 
 // EmitBoundary awaits boundary handlers in extension and registration order.
-// Each handler observes the previous proposal and a freshly projected preview;
-// invalid drafts are reported and may be repaired by a later handler.
+// Each full handler observes the previous proposal and a freshly projected
+// preview; summary handlers explicitly receive no context. A summary-only
+// no-draft dispatch returns an empty Context without projecting history. Invalid
+// drafts are reported and may be repaired by a later handler.
 func (r *Runner) EmitBoundary(
 	ctx context.Context,
 	baseEvent extension.BoundaryBaseEvent,
@@ -1467,20 +1469,50 @@ func (r *Runner) EmitBoundary(
 	}
 	entries := []extension.SessionBoundaryDraft{}
 	shouldContinue := false
-	preview, err := buildContext(entries)
-	if err != nil {
-		return BoundaryDispatchResult{}, err
-	}
+	var preview extension.BoundaryContextPreview
+	hasPreview := false
 	valid := true
 	dispatchCtx := r.dispatchContext(ctx)
 	wire := boundarywire.FromContext(ctx)
-	for _, snapshot := range snapshotJSONEventHandlers(r.extensions, eventType) {
+	// Snapshot every extension before dispatch, as for ordinary handlers. The
+	// summary flag is explicit: never infer what a Go callback might read.
+	type boundarySnapshot struct {
+		ext               *extension.Extension
+		handlers          []extension.HandlerFn
+		jsonOnly, summary []bool
+	}
+	var snapshots []boundarySnapshot
+	for i := range r.extensions {
+		ext := &r.extensions[i]
+		handlers, jsonOnly, summary := ext.BoundarySummaryHandlers(eventType)
+		if len(handlers) > 0 {
+			snapshots = append(snapshots, boundarySnapshot{ext, handlers, jsonOnly, summary})
+		}
+	}
+	if len(snapshots) == 0 {
+		preview, err := buildContext(entries)
+		return BoundaryDispatchResult{Entries: entries, Context: preview, Valid: err == nil}, err
+	}
+	for _, snapshot := range snapshots {
 		ext := snapshot.ext
 		for i, handler := range snapshot.handlers {
-			event, state := withBoundaryState(baseEvent, extension.BoundaryState{Entries: entries, Continue: shouldContinue, Context: preview, Outcome: outcome})
+			summary := snapshot.summary[i]
+			hadDrafts := len(entries) > 0
+			if !summary && !hasPreview {
+				preview, err = buildContext(entries)
+				if err != nil {
+					return BoundaryDispatchResult{}, err
+				}
+				hasPreview = true
+			}
+			given := preview
+			if summary {
+				given = extension.BoundaryContextPreview{}
+			}
+			event, state := withBoundaryState(baseEvent, extension.BoundaryState{Entries: entries, Continue: shouldContinue, Context: given, Outcome: outcome})
 			var handlerResult any
 			var handlerErr error
-			if wire != nil && !snapshot.jsonOnly[i] {
+			if wire != nil && !summary && !snapshot.jsonOnly[i] {
 				handlerErr = wire.Deliver(preview)
 			}
 			if handlerErr == nil {
@@ -1507,6 +1539,15 @@ func (r *Runner) EmitBoundary(
 					}
 				}
 			}
+			// A summary handler with no drafts cannot change the projection.
+			// Skip the entire history pass, not merely its JSON decoding. Nonempty
+			// drafts still take the ordinary validation/repair path below.
+			if summary && !hadDrafts && len(entries) == 0 && valid {
+				// Context actions may still move the session. A following full
+				// handler must project again rather than receive an older preview.
+				hasPreview = false
+				continue
+			}
 			projected, projectErr := buildContext(entries)
 			if projectErr != nil {
 				valid = false
@@ -1518,6 +1559,7 @@ func (r *Runner) EmitBoundary(
 				continue
 			}
 			preview = projected
+			hasPreview = true
 			valid = true
 		}
 	}

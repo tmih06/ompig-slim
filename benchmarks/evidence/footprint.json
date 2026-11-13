@@ -1,55 +1,62 @@
 {
-  "measured": "2026-11-07",
+  "measured": "2026-11-12",
   "host": "Linux arm64, 4 CPUs; Node 24.18.0; Bun 1.4.4; Go 1.27.3",
-  "method": "python3 scripts/benchmark.py --slim bin/ompig-slim --runs 1 --warmups 0 --turns 3 --resume-turns 3 --answer-bytes 256",
-  "note": "Raw bytes are summed over regular files, skipping symlinks and deduplicating resolved paths. gzip is one stream at level 6 over sorted paths. Runtime is the interpreter executable (bun or node). Shared system libraries are excluded.",
+  "method": "python3 scripts/benchmark.py --slim bin/ompig-slim --runs 5 --warmups 1 --turns 120 --resume-turns 12",
+  "note": "Raw bytes are summed over regular files, skipping symlinks and deduplicating resolved paths. gzip is one stream at level 6 over sorted paths. Runtime is the interpreter executable (bun or node). Shared system libraries are excluded. ompig-slim entry is the 0.1.5 development build in this checkout, not a release archive.",
   "footprint": {
     "ompig-slim": {
-      "entry_bytes": 72614151,
-      "entry_gzip_bytes": 32292361,
+      "entry_bytes": 74776839,
+      "entry_gzip_bytes": 32553561,
       "installed_raw": 0,
       "installed_gzip": 0,
       "runtime_bytes": 0,
       "runtime_gzip_bytes": 0,
-      "total_bytes": 72614151,
-      "total_gzip_bytes": 32292361
+      "total_bytes": 74776839,
+      "total_gzip_bytes": 32553561
     },
     "omp": {
       "entry_bytes": 18601469,
       "entry_gzip_bytes": 6404768,
-      "installed_raw": 293001827,
-      "installed_gzip": 84622789,
+      "installed_raw": 296266075,
+      "installed_gzip": 85467211,
       "runtime_bytes": 107339768,
-      "runtime_gzip_bytes": 51651341,
-      "total_bytes": 418943064,
-      "total_gzip_bytes": 142671840
+      "runtime_gzip_bytes": 51644283,
+      "total_bytes": 422207312,
+      "total_gzip_bytes": 143516262
     },
     "pi": {
-      "entry_bytes": 870,
-      "entry_gzip_bytes": 561,
-      "installed_raw": 149604645,
-      "installed_gzip": 31644723,
+      "entry_bytes": 169,
+      "entry_gzip_bytes": 148,
+      "installed_raw": 115934602,
+      "installed_gzip": 24435944,
       "runtime_bytes": 121723800,
-      "runtime_gzip_bytes": 43894882,
-      "total_bytes": 271329315,
-      "total_gzip_bytes": 75490930
+      "runtime_gzip_bytes": 43845646,
+      "total_bytes": 237658571,
+      "total_gzip_bytes": 68281738
     }
   },
   "native_release": {
     "archive": "ompig-slim-linux-x64.tar.gz",
-    "archive_bytes": 34725899,
-    "binary_bytes": 77697184,
-    "payload_bytes_with_licenses": 78037320,
-    "note": "Cross-compiled linux/amd64 archive produced locally by scripts/build-binaries.sh; the arm64 development build above is 72614151 bytes."
+    "archive_bytes": 35092196,
+    "binary_bytes": 80150688,
+    "payload_bytes_with_licenses": 80490824,
+    "note": "Cross-compiled linux/amd64 archive produced locally by VERSION=0.1.5 bash scripts/build-binaries.sh --platform linux-x64; the arm64 development build above is 74645767 bytes. Historical pre-optimization artifact; not rebuilt for this local-mode optimization."
   },
   "stripped_binary_sections": {
-    "unstripped_bytes": 97487846,
-    "stripped_bytes": 72614151,
-    "text": 25411860,
-    "gopclntab": 20054054,
-    "rodata": 16279225,
-    "go_type": 5517000,
-    "noptrdata": 3924961,
-    "data": 1270338
+    "unstripped_bytes": 100969552,
+    "stripped_bytes": 74645767,
+    "text": 26860660,
+    "gopclntab": 21178557,
+    "rodata": 16041945,
+    "go_type": 6055888,
+    "noptrdata": 3027905,
+    "data": 1406210,
+    "note": "Historical pre-optimization sections; distribution sizes above describe the optimized build."
+  },
+  "compression_alternatives": {
+    "xz_9_bytes": 24690828,
+    "zstd_19_bytes": 27396204,
+    "external_strip_recovered_bytes": 17111,
+    "note": "Historical pre-optimization compression experiment."
   }
 }

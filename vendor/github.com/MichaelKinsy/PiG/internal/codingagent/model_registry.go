@@ -1489,7 +1489,7 @@ func (r *ModelRegistry) GetAvailableModelData() []*ai.Model {
 	for _, provider := range data {
 		if provider.isPlain {
 			// A provider that has no catalog or no auth lists no model, so its list (OpenRouter's routing variants, D199, are derived with it) is not read.
-			if len(builtinChatCatalog(provider.id)) == 0 || !r.providerAvailable(configured, filters, provider.id) {
+			if !r.providerAvailable(configured, filters, provider.id) || len(builtinChatCatalog(provider.id)) == 0 {
 				continue
 			}
 			plain := ai.OfferedGeneratedModels(builtinChatCatalog(provider.id))
