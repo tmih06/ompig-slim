@@ -2,6 +2,16 @@ package tui
 
 import "testing"
 
+func TestAutoResetSelectorLocksProviderForFutureAccounts(t *testing.T) {
+	selector := NewAutoResetSelectorComponent([]AutoResetAccount{
+		{ProviderID: "codex-json", ProviderLabel: "Codex JSON", Label: "a", TargetRef: "a"},
+	}, nil, nil)
+	selector.HandleInput("l")
+	if !selector.Accounts()[0].ProviderLocked || !selector.Accounts()[0].Enabled {
+		t.Fatalf("provider lock = %+v", selector.Accounts()[0])
+	}
+}
+
 func TestAutoResetSelectorTogglesAccountAndProviderRows(t *testing.T) {
 	selector := NewAutoResetSelectorComponent([]AutoResetAccount{
 		{ProviderID: "anthropic", ProviderLabel: "Claude", Label: "a", TargetRef: "a", Enabled: false},

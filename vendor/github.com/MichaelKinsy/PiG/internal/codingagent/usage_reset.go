@@ -78,6 +78,8 @@ type UsageResetQuotaService interface {
 // UsageAutoResetService persists the account-local automatic reset preference.
 type UsageAutoResetService interface {
 	SetAutoReset(ctx context.Context, providerID string, accountKey *string, enabled bool) error
+	SetAutoResetProvider(ctx context.Context, providerID string, enabled bool) error
+	ProviderAutoResetDefault(providerID string) bool
 }
 
 // redeemInFlight is one account's redemption attempt. Manual and automatic
@@ -144,7 +146,7 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 	if settings := ai.AccountCredentialSettings(*credential); settings != nil {
 		entry.Tier = settings.OrgName
 	}
-	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential)
+	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential) || service.providerAutoResetDefault(account.ProviderID)
 	probeCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
 	defer cancel()
 	fctx := ai.UsageFetchContext{HTTPClient: service.options.HTTPClient, Logger: service.options.Logger}
@@ -168,6 +170,23 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		entry.Err = "provider does not bank saved resets"
 	}
 	return entry
+}
+
+// ProviderAutoResetDefault reports whether newly added accounts inherit auto-reset.
+func (service *UsageService) ProviderAutoResetDefault(providerID string) bool {
+	return service.providerAutoResetDefault(providerID)
+}
+
+func (service *UsageService) providerAutoResetDefault(providerID string) bool {
+	return service.options.AutoResetProviderDefault != nil && service.options.AutoResetProviderDefault(providerID)
+}
+
+// SetAutoResetProvider persists the provider default used by newly added accounts.
+func (service *UsageService) SetAutoResetProvider(ctx context.Context, providerID string, enabled bool) error {
+	if service.options.SetAutoResetProviderDefault == nil {
+		return context.Canceled
+	}
+	return service.options.SetAutoResetProviderDefault(providerID, enabled)
 }
 
 // SetAutoReset persists one account's automatic reset preference without changing

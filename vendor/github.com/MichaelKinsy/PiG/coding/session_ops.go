@@ -520,6 +520,12 @@ func (s *Session) resetQuotaService() icodingagent.UsageResetQuotaService {
 				return s.ModelRuntime().GetAuth(ctx, providerID, overrides)
 			},
 			BaseURLFor: s.providerBaseURL,
+			AutoResetProviderDefault: func(providerID string) bool {
+				return s.services.SettingsManager().GetAutoResetProvider(providerID)
+			},
+			SetAutoResetProviderDefault: func(providerID string, enabled bool) error {
+				return s.services.SettingsManager().SetAutoResetProvider(providerID, enabled)
+			},
 		})
 	})
 	return s.resetQuota

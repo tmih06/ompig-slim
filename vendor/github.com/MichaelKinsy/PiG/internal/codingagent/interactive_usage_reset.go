@@ -60,7 +60,9 @@ func (m *InteractiveMode) showAutoResetSelector() {
 		accounts = append(accounts, tui.AutoResetAccount{
 			ProviderID: entry.ProviderID, ProviderLabel: resetProviderLabel(entry.ProviderID), Tier: entry.Tier,
 			Label: tui.SanitizeDisplayLine(entry.Label), TargetRef: usageAccountKeyText(entry.AccountKey),
-			Active: entry.Active, Enabled: entry.AutoReset, Err: tui.SanitizeDisplayLine(entry.Err),
+			Active: entry.Active, Enabled: entry.AutoReset,
+			ProviderLocked: auto.ProviderAutoResetDefault(entry.ProviderID),
+			Err:            tui.SanitizeDisplayLine(entry.Err),
 		})
 	}
 	if len(accounts) == 0 {
@@ -78,6 +80,17 @@ func (m *InteractiveMode) showAutoResetSelector() {
 		}
 		m.showStatus("Automatic saved-reset redemption " + state + " for " + account.Label + ".")
 	}, nil)
+	selector.SetProviderToggleHandler(func(provider string, enabled bool) {
+		if err := auto.SetAutoResetProvider(ctx, provider, enabled); err != nil {
+			m.showError("Could not lock " + provider + ": " + tui.SanitizeDisplayLine(err.Error()))
+			return
+		}
+		state := "unlocked"
+		if enabled {
+			state = "locked"
+		}
+		m.showStatus("Auto-reset " + state + " for new " + provider + " accounts.")
+	})
 	m.runEditorSlotComponent(selector, selector.HandleInput, selector.Done)
 	m.requestRender()
 }

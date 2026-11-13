@@ -63,6 +63,10 @@ type UsageServiceOptions struct {
 	Now func() time.Time
 	// Random returns a float in [0,1) for cache jitter; nil means math/rand.
 	Random func() float64
+	// AutoResetProviderDefault reads the persisted provider default for new accounts.
+	AutoResetProviderDefault func(providerID string) bool
+	// SetAutoResetProviderDefault persists the provider default for new accounts.
+	SetAutoResetProviderDefault func(providerID string, enabled bool) error
 }
 
 // UsageService is the per-runtime quota service behind a usage dashboard.

@@ -8,14 +8,15 @@ import (
 
 // AutoResetAccount is one stored account in the automatic-reset settings view.
 type AutoResetAccount struct {
-	ProviderID    string
-	ProviderLabel string
-	Tier          string
-	Label         string
-	TargetRef     string
-	Active        bool
-	Enabled       bool
-	Err           string
+	ProviderID     string
+	ProviderLabel  string
+	Tier           string
+	Label          string
+	TargetRef      string
+	Active         bool
+	Enabled        bool
+	ProviderLocked bool
+	Err            string
 }
 
 type autoResetRow struct {
@@ -29,17 +30,17 @@ type autoResetRow struct {
 // and account rows toggle only themselves.
 type AutoResetSelectorComponent struct {
 	*Container
-	accounts      []AutoResetAccount
-	rows          []autoResetRow
-	selected      int
-	status        string
-	listContainer *Container
-	footerText    *Text
-	onToggle      func(AutoResetAccount, bool)
-	onCancel      func()
-	done          bool
-	cancelled     bool
-	themeList     SelectListTheme
+	accounts         []AutoResetAccount
+	rows             []autoResetRow
+	selected         int
+	listContainer    *Container
+	footerText       *Text
+	onToggle         func(AutoResetAccount, bool)
+	onProviderToggle func(provider string, enabled bool)
+	onCancel         func()
+	done             bool
+	cancelled        bool
+	themeList        SelectListTheme
 }
 
 // NewAutoResetSelectorComponent builds a nested provider/tier checkbox list.
@@ -93,6 +94,11 @@ func NewAutoResetSelectorComponent(accounts []AutoResetAccount, onToggle func(Au
 	return selector
 }
 
+// SetProviderToggleHandler sets the persistence callback for provider lock changes.
+func (s *AutoResetSelectorComponent) SetProviderToggleHandler(handler func(provider string, enabled bool)) {
+	s.onProviderToggle = handler
+}
+
 // Done reports whether the settings view has been cancelled or closed.
 func (s *AutoResetSelectorComponent) Done() bool { return s.done }
 
@@ -111,7 +117,7 @@ func (s *AutoResetSelectorComponent) rebuild() {
 		case row.tier != "":
 			items = append(items, SelectItem{Value: row.provider + "\x00" + row.tier, Label: "  " + checkbox(s.tierEnabled(row.provider, row.tier)) + " " + row.tier, Description: s.tierDescription(row.provider, row.tier)})
 		default:
-			items = append(items, SelectItem{Value: row.provider, Label: checkbox(s.providerEnabled(row.provider)) + " " + s.providerLabel(row.provider), Description: s.providerDescription(row.provider)})
+			items = append(items, SelectItem{Value: row.provider, Label: checkbox(s.providerLocked(row.provider)) + " " + s.providerLabel(row.provider), Description: s.providerDescription(row.provider)})
 		}
 	}
 	list := NewSelectList(items, 10, s.themeList)
@@ -128,6 +134,15 @@ func (s *AutoResetSelectorComponent) providerLabel(provider string) string {
 		}
 	}
 	return provider
+}
+
+func (s *AutoResetSelectorComponent) providerLocked(provider string) bool {
+	for _, account := range s.accounts {
+		if account.ProviderID == provider {
+			return account.ProviderLocked
+		}
+	}
+	return false
 }
 
 func (s *AutoResetSelectorComponent) providerEnabled(provider string) bool {
@@ -183,9 +198,6 @@ func (s *AutoResetSelectorComponent) tierDescription(provider, tier string) stri
 }
 
 func (s *AutoResetSelectorComponent) footer() string {
-	if s.status != "" {
-		return ActiveTheme().Fg("warning", s.status)
-	}
 	return ActiveTheme().Fg("dim", ActionKeyDisplayText(KBSelectUp)+"/"+ActionKeyDisplayText(KBSelectDown)+" select · "+ActionKeyDisplayText(KBSelectConfirm)+" toggle · "+ActionKeyDisplayText(KBSelectCancel)+" close")
 }
 
@@ -207,8 +219,10 @@ func (s *AutoResetSelectorComponent) HandleInput(data string) {
 		s.move(-10)
 	case kb.Matches(data, KBSelectPageDown):
 		s.move(10)
-	case kb.Matches(data, KBSelectConfirm) || data == "\n":
+	case kb.Matches(data, KBSelectConfirm) || data == "\n" || data == " ":
 		s.toggle()
+	case data == "l":
+		s.lockProvider()
 	}
 }
 
@@ -217,7 +231,6 @@ func (s *AutoResetSelectorComponent) move(delta int) {
 		return
 	}
 	s.selected = max(0, min(s.selected+delta, len(s.rows)-1))
-	s.status = ""
 	s.rebuild()
 }
 
@@ -233,8 +246,29 @@ func (s *AutoResetSelectorComponent) toggle() {
 	} else {
 		s.setAccounts(row.provider, "", "", !s.providerEnabled(row.provider))
 	}
-	s.status = ""
 	s.rebuild()
+}
+
+func (s *AutoResetSelectorComponent) lockProvider() {
+	if s.selected < 0 || s.selected >= len(s.rows) {
+		return
+	}
+	provider := s.rows[s.selected].provider
+	enabled := !s.providerLocked(provider)
+	s.setProviderLocked(provider, enabled)
+	s.setAccounts(provider, "", "", enabled)
+	if s.onProviderToggle != nil {
+		s.onProviderToggle(provider, enabled)
+	}
+	s.rebuild()
+}
+
+func (s *AutoResetSelectorComponent) setProviderLocked(provider string, locked bool) {
+	for index := range s.accounts {
+		if s.accounts[index].ProviderID == provider {
+			s.accounts[index].ProviderLocked = locked
+		}
+	}
 }
 
 func (s *AutoResetSelectorComponent) setAccounts(provider, tier, target string, enabled bool) {

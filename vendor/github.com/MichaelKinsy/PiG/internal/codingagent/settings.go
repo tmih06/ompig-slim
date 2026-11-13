@@ -561,6 +561,8 @@ type Settings struct {
 	// ModelThinkingLevels holds per-model default thinking levels keyed by
 	// "provider/modelId".
 	ModelThinkingLevels map[string]string `json:"modelThinkingLevels,omitempty"`
+	// AutoResetProviders enables automatic reset for newly added accounts by provider.
+	AutoResetProviders map[string]bool `json:"autoResetProviders,omitempty"`
 
 	// httpIdleTimeoutInvalid holds a present httpIdleTimeoutMs value that
 	// does not parse; GetHttpIdleTimeoutMs reports it as an error.
@@ -2767,6 +2769,29 @@ func (sm *SettingsManager) GetAllModelThinkingLevels() map[string]ai.ThinkingLev
 			levels[key] = ai.ThinkingLevel(level)
 		}
 		return levels
+	})
+}
+
+// GetAutoResetProvider reports the global auto-reset default for one provider.
+func (sm *SettingsManager) GetAutoResetProvider(provider string) bool {
+	if sm == nil {
+		return false
+	}
+	settings := sm.Get()
+	return settings.AutoResetProviders[provider]
+}
+
+// SetAutoResetProvider persists the global auto-reset default for one provider.
+func (sm *SettingsManager) SetAutoResetProvider(provider string, enabled bool) error {
+	return sm.UpdateGlobal(func(settings *Settings) {
+		if settings.AutoResetProviders == nil {
+			settings.AutoResetProviders = map[string]bool{}
+		}
+		if enabled {
+			settings.AutoResetProviders[provider] = true
+		} else {
+			delete(settings.AutoResetProviders, provider)
+		}
 	})
 }
 
