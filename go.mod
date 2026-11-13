@@ -2,7 +2,7 @@ module ompig-slim
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 // Match PiG's Windows junction behavior; dependency godebug directives do not propagate.
 godebug winsymlink=0

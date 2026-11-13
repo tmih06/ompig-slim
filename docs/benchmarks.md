@@ -166,6 +166,19 @@ Largest embedded payloads are the codemode/QuickJS runtime, syntax-highlighting 
 
 `benchmarks/evidence/footprint.json` records these numbers with the command that produced them.
 The distribution columns and the 120-turn timing numbers above come from one build measured on 2026-11-12.
+
+## Go 1.27.4 rebenchmark
+
+The project now builds with Go 1.27.4, the newest stable Go toolchain at the
+latest retest. Paired five-run local workload measurements built the same source
+with Go 1.27.3 and Go 1.27.4. The results showed no meaningful patch-level gain:
+long-session turn median was 21.3 → 21.3 ms, peak RSS 176.9 → 173.8 MiB, and
+CPU 1.51 → 1.52 s. The canonical JSON microbenchmark was 223.1 → 223.9 ns for
+a short frame, 4,866 → 4,858 ns for a source file, and 674,186 → 670,097 ns
+for large history. These are noisy same-host observations, not evidence of a
+regression in Go itself. Full provenance and commands are in
+[`go1.27.4-rebenchmark.md`](../benchmarks/evidence/go1.27.4-rebenchmark.md).
+
 ## Model catalog and browser paths
 
 [Model catalog performance](../benchmarks/MODEL-CATALOG.md) records the
