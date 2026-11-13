@@ -120,8 +120,14 @@ func TestLegacySkillSubmissionRemainsOneBubble(t *testing.T) {
 		text := "<skill name=\"review\" location=\"/removed/review.md\">\nOLD BODY\n</skill>" + prose
 		mode.addUserMessageToChat(agent.AgentMessage{}, text, messageMeta{})
 		got := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(80), "\n"))
-		if len(mode.chatContainer.Children()) != 1 || !strings.Contains(got, "◆ review") || strings.Contains(got, "OLD BODY") {
-			t.Fatalf("old expansion did not stay in one collapsed bubble: %q", got)
+		// The bubble plus the Read row for the load it records: a skill invoked
+		// in a prompt is read at submission, so its entry draws the same tree an
+		// `@path` mention does. The body itself stays hidden either way.
+		if len(mode.chatContainer.Children()) != 2 || !strings.Contains(got, "◆ review") || strings.Contains(got, "OLD BODY") {
+			t.Fatalf("old expansion did not stay collapsed behind its badge and Read row: %q", got)
+		}
+		if !strings.Contains(got, "└─ Read /removed/review.md") {
+			t.Fatalf("old expansion lost its Read row: %q", got)
 		}
 		if prose != "" && !strings.Contains(got, "fix this") {
 			t.Fatal("old expansion lost its trailing prompt")
@@ -152,8 +158,12 @@ func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 		Content: ai.UserContentBlocks{ai.TextContent{Text: expanded}},
 	}}, expanded, messageMeta{})
 	transcript := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(90), "\n"))
-	if children := mode.chatContainer.Children(); len(children) != 1 {
+	// The submitted bubble plus the Read tree for the two skills it loaded.
+	if children := mode.chatContainer.Children(); len(children) != 2 {
 		t.Fatalf("one submission split into %d transcript components", len(children))
+	}
+	if n := strings.Count(transcript, "├─ Read ") + strings.Count(transcript, "└─ Read "); n != 2 {
+		t.Fatalf("expected one Read row per loaded skill, got %d: %q", n, transcript)
 	}
 	if want := "please  ◆ review  fix  ◆ test  now"; !strings.Contains(transcript, want) {
 		t.Fatalf("transcript missing %q: %q", want, transcript)
@@ -176,7 +186,7 @@ func TestSkillExpansionRendersBadgesOnly(t *testing.T) {
 	mode.chatContainer.Clear() // rebuildChat clears before replaying entries.
 	mode.renderSessionEntryList(entries, false)
 	resumed := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(90), "\n"))
-	if resumed != transcript || len(mode.chatContainer.Children()) != 1 {
+	if resumed != transcript || len(mode.chatContainer.Children()) != 2 {
 		t.Fatalf("resume changed the submitted bubble: %q; live %q", resumed, transcript)
 	}
 	for _, unwanted := range []string{"SECRET review BODY", "SECRET test BODY", "<skill name=", "</skill>"} {

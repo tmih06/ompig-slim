@@ -190,6 +190,13 @@ func (m *InteractiveMode) addUserMessageToChat(msg agent.AgentMessage, text stri
 	block.SetExpanded(m.toolsExpanded)
 	block.SetImages(userMessageImages(msg))
 	m.chatContainer.Add(block)
+	// A skill invoked in the prompt was read at submission, so its load is
+	// reported the same way an `@path` auto-read is: one Read tree directly
+	// under the prompt. The bodies stay behind the badges above; this row is the
+	// receipt for the read that produced them.
+	if rows := skillReadRows(blocks, m.opts.CWD); len(rows) > 0 {
+		m.chatContainer.Add(&fileMentionCard{mentions: rows, outputPad: m.outputPad})
+	}
 }
 
 func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bool) {

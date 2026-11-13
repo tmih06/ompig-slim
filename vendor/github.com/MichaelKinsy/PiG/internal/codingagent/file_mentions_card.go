@@ -70,6 +70,30 @@ func (c *fileMentionCard) SetOutputPad(outputPad int) {
 // container draws it fresh each frame and a theme change needs no rebuilding.
 func (c *fileMentionCard) Invalidate() {}
 
+// skillReadRows turns the skill blocks of one submitted prompt into the same
+// rows an `@path` auto-read draws. A skill invoked in a prompt is read at
+// submission, so the transcript reports that read under the prompt rather than
+// only inlining the body behind a badge.
+//
+// The row is built from the block's own location, not from the current skill
+// registry: a resumed transcript must render the entry the same way without
+// reloading resources. A block with no location (an inline Piglet skill, whose
+// invocation names its defining manifest rather than a SKILL.md) has no read to
+// report and yields no row.
+func skillReadRows(blocks []ParsedSkillBlockFromText, cwd string) []FileMention {
+	rows := make([]FileMention, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Location == "" {
+			continue
+		}
+		rows = append(rows, FileMention{
+			Path:      FormatPathRelativeToCwdOrAbsolute(block.Location, cwd),
+			LineCount: strings.Count(block.Content, "\n") + 1,
+		})
+	}
+	return rows
+}
+
 // fileMentionDetail is the parenthesised row detail: the line count for a file,
 // the entry count for a directory, or why the mention was not read.
 func fileMentionDetail(mention FileMention) string {
