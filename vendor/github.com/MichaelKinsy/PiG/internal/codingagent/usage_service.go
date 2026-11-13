@@ -705,7 +705,7 @@ func (service *UsageService) sharedProbe(key string, target usageProbeTarget, ca
 // reports an exhausted quota. It is intentionally synchronous with the usage
 // probe so the exhausted report is never cached after a successful redemption.
 func (service *UsageService) maybeAutoReset(ctx context.Context, target usageProbeTarget, report *ai.UsageReport) bool {
-	if report == nil || !target.credential.AutoReset {
+	if report == nil || (!target.credential.AutoReset && !service.providerAutoResetDefault(target.provider)) {
 		return false
 	}
 	exhausted := false
