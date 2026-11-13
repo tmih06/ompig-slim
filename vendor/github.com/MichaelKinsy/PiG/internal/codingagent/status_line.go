@@ -719,9 +719,6 @@ const footerMaxPathSegments = 3
 // It is separate from footerCwd so the working directory reported to frontends keeps
 // naming the directory in full; only the footer row is shortened.
 func shortenFooterPath(path string) string {
-	if path == "" {
-		return path
-	}
 	separator := string(filepath.Separator)
 	segments := strings.Split(path, separator)
 	if len(segments) <= footerMaxPathSegments {
@@ -765,13 +762,15 @@ func compactFooterPath(path string, budget int, allowLeafCut bool) (string, bool
 	// candidates keep the marker and drop leading tail segments, never inserting a
 	// second marker, which would draw "…/…/c".
 	marked := head == footerPathEllipsis
+	// A marked path carries its own ellipsis, so a candidate must not insert a
+	// second one; this is the only form that differs between the two.
+	middle := footerPathEllipsis + separator
+	if marked {
+		middle = ""
+	}
 	// The ellipsis marks the segments it replaces, so it only appears while one is
 	// actually dropped: "~/…/c", never "~/…/" for a path that always had two parts.
 	for drop := 1; drop <= last-1; drop++ {
-		middle := footerPathEllipsis + separator
-		if marked {
-			middle = ""
-		}
 		candidate := head + separator + middle + strings.Join(segments[1+drop:], separator)
 		if widthx.VisibleWidth(candidate) <= budget {
 			return candidate, true

@@ -239,15 +239,6 @@ func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
 	return status
 }
 
-// absInt is the magnitude of a divergence count, which git signs with the side
-// it belongs to. The field the count is stored in carries that side instead.
-func absInt(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
 // parseGitStatusPorcelainV2 summarizes `git status --porcelain=v2 --branch`.
 //
 // Every line is classified by its first byte: "#" is a header, "1" a changed
@@ -282,13 +273,13 @@ func parseGitStatusPorcelainV2(output string) gitStatusCounts {
 			if !ok {
 				continue
 			}
-			// git writes the counts as signed: "+1" for this side, "-1" for the
-			// upstream's. Each field already says which side it counts, so only the
-			// magnitude is kept.
-			ahead, aheadErr := strconv.Atoi(aheadText)
-			behind, behindErr := strconv.Atoi(behindText)
+			// The format documents the signs: "+" on ahead, "-" on behind. Each
+			// field already says which side it counts, so the sign is stripped and
+			// only the magnitude kept.
+			ahead, aheadErr := strconv.Atoi(strings.TrimPrefix(aheadText, "+"))
+			behind, behindErr := strconv.Atoi(strings.TrimPrefix(behindText, "-"))
 			if aheadErr == nil && behindErr == nil {
-				status.ahead, status.behind = absInt(ahead), absInt(behind)
+				status.ahead, status.behind = ahead, behind
 			}
 		case '?':
 			status.untracked++
