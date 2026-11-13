@@ -337,8 +337,13 @@ func Extension() *sdk.Extension {
 		session.start(ctx)
 		return nil, nil
 	})
-	ext.OnSessionShutdown(func(ctx sdk.Context, _ map[string]any) (any, error) {
-		session.stop(ctx)
+	ext.OnSessionShutdown(func(ctx sdk.Context, event map[string]any) (any, error) {
+		// Session replacement (for example /clear or /reload) ends only the
+		// current session. Only "quit" means the process and pane owner are
+		// actually finished; reporting idle for every shutdown makes Herdr mark
+		// a live agent as done while its replacement session is starting.
+		reason, _ := event["reason"].(string)
+		session.stop(ctx, reason == "quit")
 		return nil, nil
 	})
 	return ext
@@ -379,23 +384,28 @@ func (s *session) start(ctx sdk.Context) {
 	go s.watch(watchCtx, s.sessionID, s.reporter)
 }
 
-// stop ends the poller and reports the terminal state, so a consumer stops
-// waiting instead of trusting the last `working` forever.
-func (s *session) stop(_ sdk.Context) {
+// stop ends the poller. Only a terminal process shutdown reports idle; a
+// session-scoped replacement must leave Herdr following the live pane.
+func (s *session) stop(_ sdk.Context, terminal bool) {
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
 		return
 	}
-	s.stopped = true
+	if terminal {
+		s.stopped = true
+	}
 	stopPolling := s.cancel
+	s.cancel = nil
 	s.mu.Unlock()
 	if stopPolling != nil {
 		stopPolling()
 	}
-	// Report idle rather than exiting: a Herdr pane whose agent quit is back at
-	// its shell prompt, and Herdr clears the pane on its own from there.
-	s.reporter.finish(reported{state: "idle"})
+	if terminal {
+		// Report idle rather than exiting: a Herdr pane whose agent quit is back
+		// at its shell prompt, and Herdr clears the pane on its own from there.
+		s.reporter.finish(reported{state: "idle"})
+	}
 }
 
 // watch polls this session's document until ctx ends, forwarding each change.

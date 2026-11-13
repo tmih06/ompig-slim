@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/tmih06/ompig-slim/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.1.6-blue?style=flat-square"></a>
+  <a href="https://github.com/tmih06/ompig-slim/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.1.7-blue?style=flat-square"></a>
   <a href="go.mod"><img alt="Go 1.27" src="https://img.shields.io/github/go-mod/go-version/tmih06/ompig-slim?style=flat-square&logo=go&logoColor=white"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS-2ea44f?style=flat-square">
   <a href="https://github.com/MichaelKinsy/PiG"><img alt="PiG pin" src="https://img.shields.io/badge/PiG-v0.7.0-8A2BE2?style=flat-square"></a>
@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/inst
 ```
 
 Installs to `~/.local/bin/ompig-slim` (Linux and macOS, x64 or arm64), verifies the published SHA-256, and
-needs no Go or `sudo`. Pass `--version v0.1.6` to pin a release or `--dir` to install elsewhere. Then:
+needs no Go or `sudo`. Pass `--version v0.1.7` to pin a release or `--dir` to install elsewhere. Then:
 
 ```sh
 ompig-slim update                   # update using the saved channel (initially stable)

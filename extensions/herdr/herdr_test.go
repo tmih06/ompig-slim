@@ -417,7 +417,7 @@ func TestSessionForwardsPublishedStateToHerdr(t *testing.T) {
 		t.Fatalf("state = %q, want blocked", got)
 	}
 
-	session.stop(sdk.Context{})
+	session.stop(sdk.Context{}, true)
 	if got := flagValue(t, rec.waitFor(t), "--state"); got != "idle" {
 		t.Fatalf("final state = %q, want idle", got)
 	}
@@ -442,10 +442,45 @@ func TestStoppingTwiceReportsOnce(t *testing.T) {
 	session := newSession(enabledEnv(), func() (string, bool) { return root, true }, rec.run)
 
 	startWatching(t, session, root, "session-1")
-	session.stop(sdk.Context{})
-	session.stop(sdk.Context{})
+	session.stop(sdk.Context{}, true)
+	session.stop(sdk.Context{}, true)
 	if got := rec.count(); got != 1 {
 		t.Fatalf("sent %d reports for two stops", got)
+	}
+}
+
+// TestSessionReplacementDoesNotReportFinished ensures session_shutdown for a
+// live process does not make Herdr report the agent as finished.
+func TestSessionReplacementDoesNotReportFinished(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "4242")
+	rec := &recorder{}
+	session := newSession(enabledEnv(), func() (string, bool) { return root, true }, rec.run)
+
+	startWatching(t, session, root, "session-1")
+	writeState(t, dir, map[string]any{"state": "working", "session_id": "session-1"})
+	if got := flagValue(t, rec.waitFor(t), "--state"); got != "working" {
+		t.Fatalf("state = %q, want working", got)
+	}
+
+	// /clear, /reload, resume, and fork replace a session without ending the
+	// process. The adapter must not report idle during that handoff.
+	session.stop(sdk.Context{}, false)
+	if got := rec.count(); got != 1 {
+		t.Fatalf("replacement shutdown sent %d reports, want no extra report", got)
+	}
+
+	startWatching(t, session, root, "session-2")
+	writeState(t, dir, map[string]any{"state": "blocked", "session_id": "session-2"})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if rec.count() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := flagValue(t, rec.waitFor(t), "--state"); got != "blocked" {
+		t.Fatalf("replacement state = %q, want blocked", got)
 	}
 }
 
