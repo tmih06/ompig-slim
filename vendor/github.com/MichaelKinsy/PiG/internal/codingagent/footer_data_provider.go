@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,8 +15,8 @@ import (
 )
 
 // FooterDataProvider is data a footer reads about its surroundings (footer-data-provider.ts FooterDataProvider): the working directory and
-// git branch of the repository bound to it, working-tree and GitHub pull-request summaries, extension statuses, available providers, and
-// branch-change subscribers. A footer built with NewFooterComponentForSession shares one provider with the host that feeds it.
+// git branch of the repository bound to it, working-tree, upstream-divergence and GitHub pull-request summaries, extension statuses, available
+// providers, and branch-change subscribers. A footer built with NewFooterComponentForSession shares one provider with the host that feeds it.
 //
 // Ports packages/coding-agent/src/core/footer-data-provider.ts (FooterDataProvider).
 type FooterDataProvider struct {
@@ -174,9 +175,16 @@ func (d *FooterDataProvider) snapshot() (cwd, gitBranch string, providerCount in
 	return cwd, gitBranch, providerCount, extensionStatuses, d.currentGitStatus(), d.currentPullRequest()
 }
 
-// gitStatusCounts is the compact working-tree summary shown beside the branch.
+// gitStatusCounts is the compact branch summary shown beside the branch: the
+// working-tree counts, and how far the branch has diverged from its upstream.
 type gitStatusCounts struct {
 	staged, unstaged, untracked int
+	// ahead and behind count the commits this branch has that its upstream does
+	// not, and the reverse. Both are what the remote-tracking ref last reported:
+	// nothing here fetches, so another clone's push stays invisible until this
+	// workspace fetches too. Both are zero when the branch has no upstream, or
+	// when its upstream's remote-tracking ref is gone.
+	ahead, behind int
 }
 
 // pullRequestStatus is the compact GitHub pull-request and check summary shown beside the branch.
@@ -199,6 +207,9 @@ type ghCheck struct {
 
 // currentGitStatus refreshes at most once per second so a footer repaint never
 // launches git for every spinner frame, while edits become visible promptly.
+// The one command answers both halves of the summary: --porcelain=v2 is the
+// format git documents for machines, and --branch is what makes the upstream
+// divergence available at all, which is why an unpushed commit is visible here.
 func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
 	now := time.Now()
 	d.mu.RLock()
@@ -217,28 +228,84 @@ func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
 	}
 
 	status := gitStatusCounts{}
-	command := exec.Command("git", "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal")
+	command := exec.Command("git", "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
 	command.Dir = paths.repoDir
 	if output, err := command.Output(); err == nil {
-		for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
-			if len(line) < 2 {
-				continue
-			}
-			if strings.HasPrefix(line, "??") {
-				status.untracked++
-				continue
-			}
-			if line[0] != ' ' {
-				status.staged++
-			}
-			if line[1] != ' ' {
-				status.unstaged++
-			}
-		}
+		status = parseGitStatusPorcelainV2(string(output))
 	}
 	d.mu.Lock()
 	d.gitStatus, d.gitStatusAt = status, now
 	d.mu.Unlock()
+	return status
+}
+
+// absInt is the magnitude of a divergence count, which git signs with the side
+// it belongs to. The field the count is stored in carries that side instead.
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// parseGitStatusPorcelainV2 summarizes `git status --porcelain=v2 --branch`.
+//
+// Every line is classified by its first byte: "#" is a header, "1" a changed
+// entry, "2" a rename or copy, "u" an unmerged entry, and "?" an untracked
+// file. The header carries the divergence, which no entry line reports:
+// "# branch.ab +<ahead> -<behind>", printed only while the upstream's
+// remote-tracking ref exists. A branch with no upstream, and one whose upstream
+// was deleted, therefore report no divergence rather than zero divergence, and
+// both read as no markers — the footer cannot tell them apart, and inventing a
+// marker for a state it cannot see would be worse than silence.
+//
+// On the entry lines the second field is "XY": X is the index's state and Y the
+// working tree's, with "." meaning unchanged, so a file staged and edited again
+// counts once in each. An unmerged entry carries conflict codes in both columns
+// and counts as both, as it must: the conflict is in the index and in the tree.
+func parseGitStatusPorcelainV2(output string) gitStatusCounts {
+	status := gitStatusCounts{}
+	for _, line := range strings.Split(strings.TrimSuffix(output, "\n"), "\n") {
+		if len(line) < 2 {
+			continue
+		}
+		switch line[0] {
+		case '#':
+			// "# branch.ab" is the only header this summary reads; branch.oid,
+			// branch.head and branch.upstream describe a branch the footer already
+			// names from its own watcher.
+			counts, ok := strings.CutPrefix(line, "# branch.ab ")
+			if !ok {
+				continue
+			}
+			aheadText, behindText, ok := strings.Cut(counts, " ")
+			if !ok {
+				continue
+			}
+			// git writes the counts as signed: "+1" for this side, "-1" for the
+			// upstream's. Each field already says which side it counts, so only the
+			// magnitude is kept.
+			ahead, aheadErr := strconv.Atoi(aheadText)
+			behind, behindErr := strconv.Atoi(behindText)
+			if aheadErr == nil && behindErr == nil {
+				status.ahead, status.behind = absInt(ahead), absInt(behind)
+			}
+		case '?':
+			status.untracked++
+		case '1', '2', 'u':
+			// "<kind> <XY> …": the two status columns sit at offsets 2 and 3,
+			// so a line cut short of them counts for nothing.
+			if len(line) < 4 {
+				continue
+			}
+			if line[2] != '.' {
+				status.staged++
+			}
+			if line[3] != '.' {
+				status.unstaged++
+			}
+		}
+	}
 	return status
 }
 

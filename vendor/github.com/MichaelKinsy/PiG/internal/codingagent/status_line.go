@@ -552,7 +552,7 @@ func renderFooter(d footerData, width int) []string {
 func footerLines(d footerData, width int) (string, string) {
 	stats := footerStats(d)
 	withProvider, plain := footerModelSide(d)
-	path := footerCwd(d.cwd)
+	path := shortenFooterPath(footerCwd(d.cwd))
 	branch, name := footerProjectDecorations(d)
 	minPad := 2
 	// Prefer the provider-qualified model; a narrower terminal keeps the model and
@@ -630,8 +630,17 @@ func footerProjectDecorations(d footerData) (branch, name string) {
 	// resolves only the branch name, so coloring it clean or dirty would claim a
 	// working-tree state it never read. OMP reads staged, modified and untracked
 	// counts on its status line, and that is where those two colors belong.
+	//
+	// The segments run from the branch outwards: its divergence from the upstream,
+	// then the working tree's counts, then the connected pull request. Each is a
+	// different distance from HEAD — commits not pushed, edits not committed, and a
+	// review of a commit that may be neither — so reading left to right follows the
+	// path a change takes out of this checkout.
 	if d.gitBranch != "" {
 		branchText := footerToken(tui.ThemeColorStatusLineContext, d.gitBranch)
+		if divergence := footerDivergence(d.gitStatus); divergence != "" {
+			branchText += " " + divergence
+		}
 		if d.gitStatus.unstaged > 0 {
 			branchText += " " + footerToken(tui.ThemeColorStatusLineGitDirty, "*"+strconv.Itoa(d.gitStatus.unstaged))
 		}
@@ -652,6 +661,28 @@ func footerProjectDecorations(d footerData) (branch, name string) {
 	return branch, name
 }
 
+// footerDivergence renders the branch's distance from its upstream: commits the
+// upstream does not have, then commits this checkout does not have. Either side
+// is omitted at zero, so a branch in sync draws nothing at all.
+//
+// The arrows are starship's ⇡/⇣ rather than ↑/↓, which line 2 already uses for the
+// input and output token counters: the same glyph on the row under the prompt would
+// read as another usage stat. Only ⇡ earns a warning color, because that is the
+// count that costs work if this checkout is lost — nothing on the remote holds it.
+// ⇣ only says the remote moved on, so it stays as quiet as the branch name beside
+// it. statusLineDirty is the token for that warning; the staged/unstaged counters
+// use statusLineStaged and statusLineGitDirty, which leaves this one to divergence.
+func footerDivergence(status gitStatusCounts) string {
+	var parts []string
+	if status.ahead > 0 {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineDirty, "⇡"+strconv.Itoa(status.ahead)))
+	}
+	if status.behind > 0 {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineContext, "⇣"+strconv.Itoa(status.behind)))
+	}
+	return strings.Join(parts, " ")
+}
+
 // footerPullRequest renders a connected PR as an icon, number, and only the non-zero CI buckets.
 // Green, red, and pending counts use the same compact symbols used by tool cards.
 func footerPullRequest(pr pullRequestStatus) string {
@@ -668,17 +699,49 @@ func footerPullRequest(pr pullRequestStatus) string {
 	return strings.Join(parts, " ")
 }
 
+// footerPathEllipsis marks the leading segments a shortened path no longer shows.
+const footerPathEllipsis = "…"
+
+// footerMaxPathSegments is how many trailing segments of the working directory the
+// footer shows. The cwd is there to say which project the session is in, and the
+// last segments are the ones that name it; the leading ones name the parent
+// directories a reader already knows, and each of them costs columns the branch and
+// the model need. A deeper checkout therefore reads "…/worktrees/ompig-slim/feature",
+// which is the part of the path that distinguishes it from any other checkout.
+const footerMaxPathSegments = 3
+
+// shortenFooterPath caps path at footerMaxPathSegments trailing segments, marked by
+// a leading ellipsis. It applies at every width, not only when line 1 is full: the
+// cap says how much of the path is worth a reader's attention, and the width-based
+// compaction in compactFooterPath stays for the narrower terminal that cannot show
+// even that.
+//
+// It is separate from footerCwd so the working directory reported to frontends keeps
+// naming the directory in full; only the footer row is shortened.
+func shortenFooterPath(path string) string {
+	if path == "" {
+		return path
+	}
+	separator := string(filepath.Separator)
+	segments := strings.Split(path, separator)
+	if len(segments) <= footerMaxPathSegments {
+		return path
+	}
+	return footerPathEllipsis + separator + strings.Join(segments[len(segments)-footerMaxPathSegments:], separator)
+}
+
 // compactFooterPath fits path into budget columns by eliding its middle. The first
 // segment is the anchor a reader needs (the home marker, the root, or a Windows
 // drive) and the last segments are the part that names the project, so the
 // segments in between are what go. Candidates drop as few of them as possible
 // first, so the result degrades from "~/…/a/b/c" through "~/…/c" to "~/c", and the
-// shortest form that still names the project wins.
+// shortest form that still names the project wins. A path shortenFooterPath already
+// capped opens with the marker instead of an anchor, and the same degradation drops
+// into its tail: "…/a/b/c" through "…/c" to "c".
 //
-// allowLeafCut decides whether the last segment may be truncated once the anchor and
-// the leaf no longer fit together. It is false for the first attempts, so a project
-// name is only ever cut after the caller has given up the decorations that shared
-// its row.
+// allowLeafCut decides whether the last segment may be truncated once the anchor's
+// form no longer fits. It is false for the first attempts, so a project name is only
+// ever cut after the caller has given up the decorations that shared its row.
 //
 // It reports false when the path cannot be shown within budget on these terms; the
 // caller then either widens the budget or allows the cut.
@@ -698,18 +761,29 @@ func compactFooterPath(path string, budget int, allowLeafCut bool) (string, bool
 		return cutLeaf(path, budget, allowLeafCut)
 	}
 	head, leaf := segments[0], segments[last]
+	// An already-capped path opens with the marker, so its middle is gone: the
+	// candidates keep the marker and drop leading tail segments, never inserting a
+	// second marker, which would draw "…/…/c".
+	marked := head == footerPathEllipsis
 	// The ellipsis marks the segments it replaces, so it only appears while one is
 	// actually dropped: "~/…/c", never "~/…/" for a path that always had two parts.
 	for drop := 1; drop <= last-1; drop++ {
-		candidate := head + separator + "…" + separator + strings.Join(segments[1+drop:], separator)
+		middle := footerPathEllipsis + separator
+		if marked {
+			middle = ""
+		}
+		candidate := head + separator + middle + strings.Join(segments[1+drop:], separator)
 		if widthx.VisibleWidth(candidate) <= budget {
 			return candidate, true
 		}
 	}
 	// The anchor and the leaf with nothing elided between them is shorter than the
-	// narrowest elided form, and still says the project sits under the anchor.
-	if candidate := head + separator + leaf; widthx.VisibleWidth(candidate) <= budget {
-		return candidate, true
+	// narrowest elided form, and still says the project sits under the anchor. A
+	// capped path has no anchor to spend columns on, so it skips this form.
+	if !marked {
+		if candidate := head + separator + leaf; widthx.VisibleWidth(candidate) <= budget {
+			return candidate, true
+		}
 	}
 	if widthx.VisibleWidth(leaf) <= budget {
 		return leaf, true
