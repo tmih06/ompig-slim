@@ -9,6 +9,7 @@ package codingagent
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -31,9 +32,10 @@ type UsageResetCreditAccount struct {
 	// account, which is a real account and not the provider's selection.
 	AccountKey *string
 	// Label is the account identity shown beside the provider.
-	Label   string
-	Active  bool
-	Credits *ai.UsageResetCredits
+	Label     string
+	Active    bool
+	AutoReset bool
+	Credits   *ai.UsageResetCredits
 	// Err reports why this account's inventory could not be read.
 	Err string
 }
@@ -70,6 +72,11 @@ type UsageResetQuotaService interface {
 	ListResetCredits(ctx context.Context) ([]UsageResetCreditAccount, error)
 	// RedeemResetCredit spends one saved reset for one stored account.
 	RedeemResetCredit(ctx context.Context, target UsageResetTarget) (UsageResetOutcome, error)
+}
+
+// UsageAutoResetService persists the account-local automatic reset preference.
+type UsageAutoResetService interface {
+	SetAutoReset(ctx context.Context, providerID string, accountKey *string, enabled bool) error
 }
 
 // redeemInFlight is one account's redemption attempt. Manual and automatic
@@ -133,6 +140,7 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		return entry
 	}
 	usageCredential := ai.UsageCredentialFromStored(credential)
+	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential)
 	probeCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
 	defer cancel()
 	fctx := ai.UsageFetchContext{HTTPClient: service.options.HTTPClient, Logger: service.options.Logger}
@@ -156,6 +164,22 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		entry.Err = "provider does not bank saved resets"
 	}
 	return entry
+}
+
+// SetAutoReset persists one account's automatic reset preference without changing
+// provider selection or any credential secret.
+func (service *UsageService) SetAutoReset(ctx context.Context, providerID string, accountKey *string, enabled bool) error {
+	if service.options.Accounts == nil {
+		return context.Canceled
+	}
+	_, err := service.options.Accounts.ModifyAccount(ctx, providerID, accountKey, func(credential *ai.Credential) (*ai.Credential, error) {
+		if credential == nil {
+			return nil, fmt.Errorf("account is not stored")
+		}
+		ai.SetCredentialAutoReset(credential, enabled)
+		return credential, nil
+	})
+	return err
 }
 
 // resetAccounts lists the stored accounts of every reset provider, in provider

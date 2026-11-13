@@ -247,7 +247,7 @@ func (m *InteractiveMode) currentTuiMode() string {
 }
 
 // usageHandler runs /usage: bare or `show` opens the quota board, `reset` spends
-// a saved rate-limit reset, and anything else is a usage error, as upstream's
+// a saved rate-limit reset, `auto-reset` opens account settings, and anything else is a usage error, as upstream's
 // submit handler does.
 func usageHandler(sc *SlashContext) error {
 	verb, rest := parseUsageSubcommand(sc.Args)
@@ -255,6 +255,22 @@ func usageHandler(sc *SlashContext) error {
 	case verb == "" || (verb == "show" && rest == ""):
 		if sc.ShowUsage != nil {
 			sc.ShowUsage()
+		}
+		return nil
+	case verb == "auto-reset":
+		if rest != "" {
+			message := "Usage: /usage auto-reset"
+			if sc.ShowError != nil {
+				sc.ShowError(message)
+			} else if sc.AppendText != nil {
+				sc.AppendText(message)
+			}
+			return nil
+		}
+		if sc.ShowAutoResetSelector != nil {
+			sc.ShowAutoResetSelector()
+		} else if sc.AppendText != nil {
+			sc.AppendText("Automatic saved-reset settings are unavailable in this session.")
 		}
 		return nil
 	case verb == "reset":
@@ -269,7 +285,7 @@ func usageHandler(sc *SlashContext) error {
 		}
 		return nil
 	}
-	message := "Usage: /usage [show|reset [provider/credential|provider/active]]"
+	message := "Usage: /usage [show|reset [provider/credential|provider/active]|auto-reset]"
 	if sc.ShowError != nil {
 		sc.ShowError(message)
 	} else if sc.AppendText != nil {

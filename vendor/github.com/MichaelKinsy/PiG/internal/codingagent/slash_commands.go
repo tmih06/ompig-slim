@@ -170,6 +170,8 @@ type SlashContext struct {
 	// ShowResetUsageSelector opens the picker that spends one saved reset. Nil
 	// falls back to the transcript listing plus a typed target.
 	ShowResetUsageSelector func()
+	// ShowAutoResetSelector opens the grouped account/provider auto-reset settings view.
+	ShowAutoResetSelector func()
 	// RedeemResetCredit spends the reset `resetTarget` names, where the argument
 	// is the typed `<provider>/<account>` form of /usage reset.
 	RedeemResetCredit func(ctx context.Context, resetTarget string) (UsageResetOutcome, error)
@@ -691,9 +693,10 @@ func defaultBuiltins() []BuiltinSlashCommand {
 		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},
 		// /usage opens the quota board; `show` is the explicit form and `reset`
 		// spends a saved rate-limit reset, matching upstream's submit handler.
-		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]]", ArgumentOptions: []tui.AutocompleteItem{
+		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]|auto-reset]", ArgumentOptions: []tui.AutocompleteItem{
 			{Value: "show", Label: "show", Description: "Show provider quotas and usage activity"},
 			{Value: "reset", Label: "reset", Description: "Choose a saved rate-limit reset to redeem"},
+			{Value: "auto-reset", Label: "auto-reset", Description: "Configure automatic saved-reset redemption by account"},
 		}, TakesArguments: true, Handler: usageHandler},
 		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
 		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},

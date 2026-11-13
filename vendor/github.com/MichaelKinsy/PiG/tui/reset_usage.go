@@ -28,6 +28,7 @@ type ResetUsageAccount struct {
 	// used by the listing and by headless output.
 	TargetRef string
 	Active    bool
+	AutoReset bool
 	// Err reports an account whose inventory could not be read.
 	Err string
 	// UnavailableReason explains a banked inventory that cannot be spent now.

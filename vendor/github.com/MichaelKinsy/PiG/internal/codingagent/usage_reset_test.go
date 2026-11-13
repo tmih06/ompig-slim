@@ -429,6 +429,19 @@ func TestUsageHandlerListsResetsWithoutAPicker(t *testing.T) {
 	}
 }
 
+func TestUsageHandlerOpensAutoResetSettings(t *testing.T) {
+	opened := 0
+	sc := resetSlashContext(new([]string))
+	sc.Args = "auto-reset"
+	sc.ShowAutoResetSelector = func() { opened++ }
+	if err := usageHandler(sc); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if opened != 1 {
+		t.Fatalf("auto-reset picker opened %d times", opened)
+	}
+}
+
 func TestUsageHandlerOpensThePickerWhenTheHostHasOne(t *testing.T) {
 	opened := 0
 	sc := resetSlashContext(new([]string))

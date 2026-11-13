@@ -305,6 +305,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		ShowUsage:              m.showUsageDashboard,
 		ListResetCredits:       m.listResetCredits,
 		ShowResetUsageSelector: m.showResetUsageSelector,
+		ShowAutoResetSelector:  m.showAutoResetSelector,
 		RedeemResetCredit:      m.redeemResetCredit,
 		ResetDispatchContext:   m.backgroundContext,
 
