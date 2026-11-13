@@ -112,6 +112,20 @@ func TestListResetCreditsReportsEveryAccountWithItsSession(t *testing.T) {
 	}
 }
 
+func TestListResetCreditsIncludesCodexJSON(t *testing.T) {
+	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
+		"GET /backend-api/wham/rate-limit-reset-credits": {status: 200, body: `{"credits":[{"id":"credit-json","status":"available"}],"available_count":1}`},
+	}}
+	service := resetTestService(t, transport, "codex-json", resetTestOAuthCredential())
+	entries, err := service.ListResetCredits(context.Background())
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ProviderID != "codex-json" || entries[0].Err != "" || entries[0].Credits == nil || entries[0].Credits.AvailableCount != 1 {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
 func TestListResetCreditsSkipsProvidersWithoutResets(t *testing.T) {
 	store := newUsageTestStore()
 	store.add("openrouter", nil, ai.Credential{Type: ai.CredentialAPIKey, Key: "k"})

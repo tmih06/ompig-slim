@@ -17,7 +17,7 @@ import (
 )
 
 // ResetCreditProviders are the provider ids whose saved resets can be spent.
-var ResetCreditProviders = []string{"openai-codex", "anthropic"}
+var ResetCreditProviders = []string{"openai-codex", "codex-json", "anthropic"}
 
 // UsageResetCreditAccount is one stored account's live saved-reset inventory.
 //
@@ -138,7 +138,7 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 	fctx := ai.UsageFetchContext{HTTPClient: service.options.HTTPClient, Logger: service.options.Logger}
 	baseURL := service.providerBaseURL(account.ProviderID)
 	switch account.ProviderID {
-	case "openai-codex":
+	case "openai-codex", "codex-json":
 		credits, ok := ai.ListCodexResetCredits(probeCtx, fctx, usageCredential, baseURL)
 		if !ok {
 			entry.Err = "failed to load saved resets"
@@ -240,7 +240,7 @@ func (service *UsageService) RedeemResetCredit(ctx context.Context, target Usage
 	}
 	outcome := UsageResetOutcome{ProviderID: target.ProviderID, AccountKey: copyAccountKey(target.AccountKey), Label: target.Label}
 	switch target.ProviderID {
-	case "openai-codex", "anthropic":
+	case "openai-codex", "codex-json", "anthropic":
 	default:
 		outcome.Code = "unsupported_provider"
 		return outcome, nil
@@ -404,7 +404,7 @@ func resetBlockScopes(providerID string, cleared []string) []string {
 			scopes = append(scopes, "")
 		}
 		return scopes
-	case "openai-codex":
+	case "openai-codex", "codex-json":
 		return []string{"chat", "shared"}
 	}
 	return nil
@@ -520,7 +520,7 @@ func copyAccountKey(key *string) *string {
 // resetProviderLabel names a reset provider as the UI shows it.
 func resetProviderLabel(providerID string) string {
 	switch providerID {
-	case "openai-codex":
+	case "openai-codex", "codex-json":
 		return "Codex"
 	case "anthropic":
 		return "Claude"
