@@ -75,7 +75,7 @@ func (m *InteractiveMode) statusCancelHint() string {
 	return "(" + key + " to cancel)"
 }
 
-func (m *InteractiveMode) showCompactionStatusIndicator(reason string) {
+func (m *InteractiveMode) showCompactionStatusIndicator(reason, model string) {
 	label := "Auto-compacting... "
 	switch reason {
 	case "manual":
@@ -83,7 +83,10 @@ func (m *InteractiveMode) showCompactionStatusIndicator(reason string) {
 	case "overflow":
 		label = "Context overflow detected, Auto-compacting... "
 	}
-	m.showStatusIndicator(&tui.StatusIndicator{Kind: "compaction", Loader: tui.NewLoader(m.tuiInst, tui.ThemeFg("accent"), tui.ThemeFg("muted"), label+m.statusCancelHint(), nil)})
+	if model != "" {
+		label += "with " + model + " "
+	}
+	m.showStatusIndicator(&tui.StatusIndicator{Kind: "compaction", Loader: tui.NewLoader(m.tuiInst, tui.ThemeFg("accent"), tui.ThemeFg("accent"), label+m.statusCancelHint(), nil)})
 }
 
 func (m *InteractiveMode) showBranchSummaryStatusIndicator() {

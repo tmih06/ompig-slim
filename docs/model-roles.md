@@ -212,8 +212,9 @@ ceiling is `xhigh`; `providers.autoThinkingMaxEffort: "max"` opts into Max.
 The manager's `k` accepts scaled token bases (`100k`), fixed triggers (`f100k`),
 and percentages (`80%`). Empty input resets the
 model override. Extended-window thresholds require a second unchanged submission
-when the registry can resolve an extended window. The preview and auto-compaction
-trigger use the persisted threshold, not just a display preference.
+when the registry can resolve an extended window. When no override is configured, automatic compaction triggers at 80% of the
+active model's context window; an explicit threshold still wins. The preview and
+auto-compaction trigger use the persisted threshold, not just a display preference.
 
 ## Fallback recovery
 

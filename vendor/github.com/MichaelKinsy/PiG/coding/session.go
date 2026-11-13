@@ -2991,8 +2991,12 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 		return nil, err
 	}
 
-	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: "manual"})
 	model := s.Model()
+	compactionModel, modelErr := s.compactionModel(model)
+	if modelErr != nil {
+		return fail(modelErr, false)
+	}
+	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: "manual", Model: compactionModelLabel(compactionModel)})
 	if model == nil {
 		return fail(errors.New(icodingagent.FormatNoModelSelectedMessage()), false)
 	}
@@ -3277,7 +3281,7 @@ func (s *Session) navigateTree(ctx context.Context, targetID string, opts Naviga
 		if authErr != nil {
 			return NavigateTreeResult{}, authErr
 		}
-		retry, retryCallbacks := s.summarizationRetryOptions("branchSummary", "")
+		retry, retryCallbacks := s.summarizationRetryOptions("branchSummary", "", compactionModelLabel(request.model))
 		// PrepareBranchEntries decodes the lazy entries newest first, only as far as the summary's token budget reaches.
 		bsResult := compaction.GenerateBranchSummary(branchCtx, collected.Entries, compaction.GenerateBranchSummaryOptions{
 			Model:               request.model,
@@ -3346,7 +3350,7 @@ func (s *Session) AbortBranchSummary() {
 // retry settings, wiring callbacks to emit summarization_retry_* events. source
 // is "compaction" or "branchSummary"; reason ("manual"|"threshold"|"overflow")
 // applies to compaction. Mirrors upstream _summarizationRetryCallbacks.
-func (s *Session) summarizationRetryOptions(source, reason string) (*ai.RetryPolicy, ai.RetryCallbacks) {
+func (s *Session) summarizationRetryOptions(source, reason, model string) (*ai.RetryPolicy, ai.RetryCallbacks) {
 	cfg := s.SettingsManager().GetRetrySettings()
 	policy := &ai.RetryPolicy{
 		Enabled:         cfg.Enabled,
@@ -3365,7 +3369,7 @@ func (s *Session) summarizationRetryOptions(source, reason string) (*ai.RetryPol
 			return nil
 		},
 		OnRetryAttemptStart: func() error {
-			s.emitEvent(agent.SummarizationRetryAttemptStartEvent{Source: source, Reason: reason})
+			s.emitEvent(agent.SummarizationRetryAttemptStartEvent{Source: source, Reason: reason, Model: model})
 			return nil
 		},
 		OnRetryFinished: func(bool, int, string) error {
@@ -3596,7 +3600,11 @@ func (s *Session) runAutoCompaction(ctx context.Context, reason string, willRetr
 		s.compactMu.Unlock()
 	}()
 
-	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: reason})
+	statusModel := model
+	if selected, selectErr := s.compactionModel(model); selectErr == nil {
+		statusModel = selected
+	}
+	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: reason, Model: compactionModelLabel(statusModel)})
 	if compactCtx.Err() != nil {
 		s.emitOrderedEventSync(agent.CompactionEndEvent{Reason: reason, Aborted: true})
 		s.emitSessionCompactFailed(ctx, extension.SessionCompactFailedEvent{Reason: reason, Aborted: true})
