@@ -30,20 +30,19 @@ func skillPromptFixture(t *testing.T, cwd string) *SkillDef {
 }
 
 // deliveredPrompt runs one extension delivery through the real host entry
-// point while a turn is active and returns the text queued for the model.
+// point and returns the text queued for the model.
 //
-// The delivery is queued (steer) rather than started, which is the one path a
-// fixture without a model can follow; the queued message carries exactly the
-// text the next model call would read.
-func deliveredPrompt(t *testing.T, options *extension.SendUserMessageOptions) string {
+// The delivery steers into an active turn rather than starting one, because a
+// fixture has no model to run: the queued message carries exactly the text the
+// next model call would read.
+func deliveredPrompt(t *testing.T, expand *bool) string {
 	t.Helper()
 	mode := resetWiringTest(t, nil)
 	mode.opts.CWD = t.TempDir()
 	mode.opts.Skills = []*SkillDef{skillPromptFixture(t, mode.opts.CWD)}
-	// No SessionHandle: the delivery then runs the input handlers through the
-	// mode's own runner, and a mode with no runner leaves the text untouched.
-	// A stub session would panic in RunInputHandlers instead of testing
-	// expansion.
+	// No SessionHandle: the delivery runs the input handlers through the mode's
+	// own runner, and a mode with no runner leaves the text untouched. A stub
+	// session would panic in RunInputHandlers instead of testing expansion.
 
 	queued, err := agent.NewAgent(agent.AgentOptions{StreamFn: func(context.Context, *ai.Model, ai.TranscriptContext, ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
 		panic("the delivery must not run a model")
@@ -52,16 +51,16 @@ func deliveredPrompt(t *testing.T, options *extension.SendUserMessageOptions) st
 		t.Fatal(err)
 	}
 	mode.agent = queued
-	// An active turn is what routes the delivery into the steering queue, and
-	// it must be steered: an unspecified delivery during a run is rejected.
+	// A run is active, so the delivery must name a queue behavior; steering is
+	// the one a fixture with nothing to follow up on can use.
 	mode.turnActive.Store(true)
-	options = &extension.SendUserMessageOptions{ExpandPromptTemplates: options.ExpandPromptTemplates, DeliverAs: extension.DeliverAsSteer}
 
+	options := &extension.SendUserMessageOptions{ExpandPromptTemplates: expand, DeliverAs: extension.DeliverAsSteer}
 	if err := mode.deliverUserMessage(ai.UserText("/skill:review fix this"), options); err != nil {
 		t.Fatalf("deliverUserMessage: %v", err)
 	}
-	// The host marshals the delivery onto the owner loop; the loop is what a
-	// real mode drains between frames.
+	// The host marshals the delivery onto the owner loop, which a real mode
+	// drains between frames.
 	drainOwnerLoop(mode)
 
 	steering, followUps := mode.agent.PendingMessages()
@@ -79,7 +78,7 @@ func deliveredPrompt(t *testing.T, options *extension.SendUserMessageOptions) st
 // dropped: an extension that forwards a user objective gets the same skill
 // expansion a typed prompt gets.
 func TestDeliverUserMessageHonorsExpandPromptTemplates(t *testing.T) {
-	got := deliveredPrompt(t, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)})
+	got := deliveredPrompt(t, new(true))
 	if !strings.Contains(got, `<skill name="review"`) || !strings.Contains(got, "REVIEW BODY") {
 		t.Fatalf("the skill was not expanded: %q", got)
 	}
@@ -88,19 +87,16 @@ func TestDeliverUserMessageHonorsExpandPromptTemplates(t *testing.T) {
 	}
 }
 
-// TestDeliverUserMessageKeepsLiteralText covers the default: an agent's own
-// message expands nothing, whether the option is absent or explicitly false.
+// TestDeliverUserMessageKeepsLiteralText covers the default an agent-authored
+// message relies on: no expansion, whether the option is absent or explicitly
+// false.
 func TestDeliverUserMessageKeepsLiteralText(t *testing.T) {
 	for name, expand := range map[string]*bool{
-		"nil options":   nil,
-		"omitted field": nil,
-		"explicit off":  new(false),
+		"omitted":      nil,
+		"explicit off": new(false),
 	} {
 		t.Run(name, func(t *testing.T) {
-			// nil options means the caller passed no options at all, which the
-			// delivery helper normalizes; both shapes reach the same default.
-			got := deliveredPrompt(t, &extension.SendUserMessageOptions{ExpandPromptTemplates: expand})
-			if got != "/skill:review fix this" {
+			if got := deliveredPrompt(t, expand); got != "/skill:review fix this" {
 				t.Fatalf("delivered %q; want the literal text", got)
 			}
 		})

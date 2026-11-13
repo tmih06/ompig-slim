@@ -712,7 +712,10 @@ func (m *InteractiveMode) wireSubprocessHostCallbacks() func() {
 		return m.sendExtensionMessage(msg, extension.SendMessageOptions{TriggerTurn: opts.TriggerTurn, DeliverAs: extension.DeliverAs(opts.DeliverAs)})
 	})
 	b.SetHostAction("sendUserMessage", func(content any, opts subprocess.SendUserMessageOptions) error {
-		options := &extension.SendUserMessageOptions{DeliverAs: extension.DeliverAs(opts.DeliverAs), ExpandPromptTemplates: opts.ExpandPromptTemplates}
+		// The wire type carries only deliverAs, and the SDK's sendUserMessage
+		// helper sends only that, so a subprocess message stays literal like an
+		// agent-authored one. Expansion is a request the in-process path takes.
+		options := &extension.SendUserMessageOptions{DeliverAs: extension.DeliverAs(opts.DeliverAs)}
 		deliver := func() { _ = m.deliverUserMessage(content, options) }
 		if m.deferSettledAction(deliver) {
 			return nil
