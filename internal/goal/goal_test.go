@@ -37,6 +37,19 @@ func TestLifecycleKeepsObjectiveUntilDropped(t *testing.T) {
 	}
 }
 
+func TestPokeCountsGoalContinuations(t *testing.T) {
+	tracker := New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := tracker.Poke(); got != 1 {
+		t.Fatalf("first poke = %d, want 1", got)
+	}
+	if got := tracker.Get().Pokes; got != 1 {
+		t.Fatalf("stored pokes = %d, want 1", got)
+	}
+}
+
 func TestCreateRejectsInvalidGoal(t *testing.T) {
 	tracker := New()
 	if err := tracker.Create(" ", 0); err == nil {

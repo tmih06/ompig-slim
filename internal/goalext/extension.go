@@ -122,26 +122,47 @@ func Extension(api extension.API) error {
 		}
 		return nil
 	}})
-	api.OnAgentBeforeSettle(func(_ context.Context, _ *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
+	api.OnAgentBeforeSettle(func(ctx context.Context, _ *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		return continueActiveGoal(tracker, api.SendMessage), nil
+		return continueActiveGoal(ctx, tracker, api.SendMessage), nil
+	})
+	api.OnAgentSettled(func(ctx context.Context, _ extension.AgentSettledEvent) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if state := tracker.Get(); state == nil || state.Status != goal.StatusActive {
+			setWorkingMessage(ctx, "")
+		}
+		return nil
 	})
 	return nil
+}
+
+// setWorkingMessage exposes the poke count beside the live working indicator in
+// interactive mode. Other modes bind a no-op UI, so the goal lifecycle remains
+// independent of presentation.
+func setWorkingMessage(ctx context.Context, message string) {
+	if extCtx := extension.FromContext(ctx); extCtx != nil {
+		if ui, err := extCtx.UI(); err == nil {
+			ui.SetWorkingMessage(message)
+		}
+	}
 }
 
 // continueActiveGoal queues the next turn at the settlement boundary. Returning
 // continuation rather than triggering a message after settlement keeps observers
 // such as agent-state in working state until the goal is complete or paused.
-func continueActiveGoal(tracker *goal.Tracker, send func(extension.SendMessagePayload, *extension.SendMessageOptions)) extension.AgentBeforeSettleEventResult {
+func continueActiveGoal(ctx context.Context, tracker *goal.Tracker, send func(extension.SendMessagePayload, *extension.SendMessageOptions)) extension.AgentBeforeSettleEventResult {
 	state := tracker.Get()
 	if state == nil || state.Status != goal.StatusActive {
 		return extension.AgentBeforeSettleEventResult{}
 	}
+	pokes := tracker.Poke()
+	setWorkingMessage(ctx, fmt.Sprintf("Working · goal pokes: %d", pokes))
 	send(extension.SendMessagePayload{
 		CustomType: "goal-continuation",
-		Content:    fmt.Sprintf("Continue working toward this goal: %s", state.Objective),
-		Display:    false,
+		Content:    fmt.Sprintf("Goal poke %d: Continue working toward this goal: %s", pokes, state.Objective),
+		Display:    true,
 	}, &extension.SendMessageOptions{DeliverAs: extension.DeliverAsNextTurn})
 	continueTurn := true
 	return extension.AgentBeforeSettleEventResult{Continue: &continueTurn}
@@ -156,5 +177,5 @@ func render(state *goal.State) string {
 	if state.TokenBudget > 0 {
 		budget = fmt.Sprintf("%d", state.TokenBudget)
 	}
-	return fmt.Sprintf("Goal: %s\nStatus: %s\nTokens: %d / %s", state.Objective, state.Status, state.TokensUsed, budget)
+	return fmt.Sprintf("Goal: %s\nStatus: %s\nTokens: %d / %s\nPokes: %d", state.Objective, state.Status, state.TokensUsed, budget, state.Pokes)
 }

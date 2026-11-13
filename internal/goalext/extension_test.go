@@ -19,7 +19,7 @@ func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sent extension.SendMessagePayload
-	result := continueActiveGoal(tracker, func(payload extension.SendMessagePayload, options *extension.SendMessageOptions) {
+	result := continueActiveGoal(context.Background(), tracker, func(payload extension.SendMessagePayload, options *extension.SendMessageOptions) {
 		sent = payload
 		if options == nil || options.DeliverAs != extension.DeliverAsNextTurn {
 			t.Fatalf("continuation options = %+v, want nextTurn", options)
@@ -30,6 +30,15 @@ func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
 	}
 	if sent.CustomType != "goal-continuation" {
 		t.Fatalf("custom message type = %q, want goal-continuation", sent.CustomType)
+	}
+	if !sent.Display {
+		t.Fatal("goal continuation is hidden from the transcript")
+	}
+	if sent.Content != "Goal poke 1: Continue working toward this goal: finish the work" {
+		t.Fatalf("continuation content = %q", sent.Content)
+	}
+	if got := tracker.Get().Pokes; got != 1 {
+		t.Fatalf("goal pokes = %d, want 1", got)
 	}
 }
 
