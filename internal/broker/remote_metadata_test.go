@@ -44,6 +44,27 @@ func TestRemoteMetadataCountsAccountsNotProviders(t *testing.T) {
 
 // TestRemoteCredentialReadsShareAStartupSnapshot guards the startup availability
 // path against fetching the complete credential payload once per provider read.
+func TestRemoteModifyPreservesBrokerOwnedRefreshForMetadata(t *testing.T) {
+	client, _, server := testClients(t)
+	host := server.Config.Handler.(*Store)
+	store := &remoteStore{client: client}
+	ctx := context.Background()
+	key := "account"
+	if _, err := host.vault.SaveAccount(ctx, "fixture", &key, ai.Credential{Type: ai.CredentialOAuth, Access: "access", Refresh: "private-refresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ModifyAccount(ctx, "fixture", &key, func(current *ai.Credential) (*ai.Credential, error) {
+		ai.SetCredentialAutoReset(current, true)
+		return current, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := host.vault.ReadAccount(ctx, "fixture", &key)
+	if err != nil || saved == nil || saved.Refresh != "private-refresh" || !ai.CredentialAutoResetEnabled(*saved) {
+		t.Fatalf("metadata edit lost broker credential: %+v %v", saved, err)
+	}
+}
+
 func TestRemoteCredentialReadsShareAStartupSnapshot(t *testing.T) {
 	var snapshots atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
