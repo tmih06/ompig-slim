@@ -55,6 +55,8 @@ next-request visibility and persistence with extensions disabled.
 - `scripts/`: Go checks, native builds, smoke tests, startup measurement, CLI benchmarking, release verification, and the user-facing curl installer.
 - `benchmarks/`: pinned OMP/Pi npm manifests and lockfiles plus retained local measurement evidence used by CI comparisons.
 - `docs/benchmarks.md`: benchmark build chain, mock workload, metric definitions, limitations, and measured optimization record.
+- `docs/tool-selection.md`: how the declared and codemode-callable tool sets are selected by `defaultTools`, CLI flags, Piglets, and MCP config.
+- `docs/research/`: retained investigation notes, kept for their evidence and dated observations rather than as current contracts.
 - `Makefile`: canonical developer targets.
 - `docs/cost-audit.md`: rationale and findings for subagent cost behavior.
 - `AGENTS.md`: repository-wide change, comment, and commit rules.

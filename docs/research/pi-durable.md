@@ -1,7 +1,7 @@
 # Pi Durable, PiG, and a crash-recoverable software-factory workdesk
 
 > Historical baseline research at the local revision listed below. The subsequent
-> implementation adds an opt-in Durable host; see [the current contract](durable.md).
+> implementation adds an opt-in Durable host; see [the current contract](../durable.md).
 > Statements about what the binary links refer to that pre-integration baseline.
 
 ## Findings
@@ -319,11 +319,11 @@ power-loss tests were run. Only this report is added to the application repo.
 
 Local links refer to the inspected application revision above.
 
-- **L1:** [`main.go`](../main.go), imports and `cli.Main` delegation; [`go.mod`](../go.mod), PiG version.
-- **L2:** [`coding/cli/cli_session_factory.go`](../vendor/github.com/MichaelKinsy/PiG/coding/cli/cli_session_factory.go), `create`, runtime construction and session creation around lines 130–141.
-- **L3:** [`vendor/modules.txt`](../vendor/modules.txt), only `durable/core/jv` listed from Durable; verified with `go list -mod=vendor -deps .`.
-- **L4:** [`internal/jsonstringify/json.go`](../vendor/github.com/MichaelKinsy/PiG/internal/jsonstringify/json.go), [`internal/jsparity/jsparity.go`](../vendor/github.com/MichaelKinsy/PiG/internal/jsparity/jsparity.go), and [`ai/openai_chunk_fast.go`](../vendor/github.com/MichaelKinsy/PiG/ai/openai_chunk_fast.go), JSON-helper use of `jv`.
-- **L5:** [`internal/codingagent/session.go`](../vendor/github.com/MichaelKinsy/PiG/internal/codingagent/session.go), `planRecordWriteLocked` and `appendSessionLine` around lines 469–573; [`session_restore.go`](../vendor/github.com/MichaelKinsy/PiG/internal/codingagent/session_restore.go), `newSessionFromEntries`.
+- **L1:** [`main.go`](../../main.go), imports and `cli.Main` delegation; [`go.mod`](../../go.mod), PiG version.
+- **L2:** [`coding/cli/cli_session_factory.go`](../../vendor/github.com/MichaelKinsy/PiG/coding/cli/cli_session_factory.go), `create`, runtime construction and session creation around lines 130–141.
+- **L3:** [`vendor/modules.txt`](../../vendor/modules.txt), only `durable/core/jv` listed from Durable; verified with `go list -mod=vendor -deps .`.
+- **L4:** [`internal/jsonstringify/json.go`](../../vendor/github.com/MichaelKinsy/PiG/internal/jsonstringify/json.go), [`internal/jsparity/jsparity.go`](../../vendor/github.com/MichaelKinsy/PiG/internal/jsparity/jsparity.go), and [`ai/openai_chunk_fast.go`](../../vendor/github.com/MichaelKinsy/PiG/ai/openai_chunk_fast.go), JSON-helper use of `jv`.
+- **L5:** [`internal/codingagent/session.go`](../../vendor/github.com/MichaelKinsy/PiG/internal/codingagent/session.go), `planRecordWriteLocked` and `appendSessionLine` around lines 469–573; [`session_restore.go`](../../vendor/github.com/MichaelKinsy/PiG/internal/codingagent/session_restore.go), `newSessionFromEntries`.
 
 ### Agent Sandbox
 
