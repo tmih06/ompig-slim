@@ -33,6 +33,7 @@ type UsageResetCreditAccount struct {
 	AccountKey *string
 	// Label is the account identity shown beside the provider.
 	Label     string
+	Tier      string
 	Active    bool
 	AutoReset bool
 	Credits   *ai.UsageResetCredits
@@ -140,6 +141,9 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		return entry
 	}
 	usageCredential := ai.UsageCredentialFromStored(credential)
+	if settings := ai.AccountCredentialSettings(*credential); settings != nil {
+		entry.Tier = settings.OrgName
+	}
 	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential)
 	probeCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
 	defer cancel()
@@ -544,8 +548,10 @@ func copyAccountKey(key *string) *string {
 // resetProviderLabel names a reset provider as the UI shows it.
 func resetProviderLabel(providerID string) string {
 	switch providerID {
-	case "openai-codex", "codex-json":
+	case "openai-codex":
 		return "Codex"
+	case "codex-json":
+		return "Codex JSON"
 	case "anthropic":
 		return "Claude"
 	}

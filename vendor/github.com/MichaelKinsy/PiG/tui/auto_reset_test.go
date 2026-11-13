@@ -14,7 +14,8 @@ func TestAutoResetSelectorTogglesAccountAndProviderRows(t *testing.T) {
 	if !accounts[0].Enabled || !accounts[1].Enabled || accounts[2].Enabled {
 		t.Fatalf("provider toggle = %+v", accounts)
 	}
-	// Move to the first account row and disable only that account.
+	// Move past the provider and tier rows to the first account, then disable only it.
+	selector.HandleInput("\x1b[B")
 	selector.HandleInput("\x1b[B")
 	selector.HandleInput("\n")
 	accounts = selector.Accounts()

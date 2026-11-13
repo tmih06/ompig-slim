@@ -58,7 +58,7 @@ func (m *InteractiveMode) showAutoResetSelector() {
 	accounts := make([]tui.AutoResetAccount, 0, len(entries))
 	for _, entry := range entries {
 		accounts = append(accounts, tui.AutoResetAccount{
-			ProviderID: entry.ProviderID, ProviderLabel: resetProviderLabel(entry.ProviderID),
+			ProviderID: entry.ProviderID, ProviderLabel: resetProviderLabel(entry.ProviderID), Tier: entry.Tier,
 			Label: tui.SanitizeDisplayLine(entry.Label), TargetRef: usageAccountKeyText(entry.AccountKey),
 			Active: entry.Active, Enabled: entry.AutoReset, Err: tui.SanitizeDisplayLine(entry.Err),
 		})

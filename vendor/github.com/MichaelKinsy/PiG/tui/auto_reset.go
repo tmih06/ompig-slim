@@ -10,6 +10,7 @@ import (
 type AutoResetAccount struct {
 	ProviderID    string
 	ProviderLabel string
+	Tier          string
 	Label         string
 	TargetRef     string
 	Active        bool
@@ -19,13 +20,13 @@ type AutoResetAccount struct {
 
 type autoResetRow struct {
 	provider string
+	tier     string
 	account  *AutoResetAccount
 }
 
-// AutoResetSelectorComponent is a grouped provider/account checkbox list. A
-// provider row toggles every account in that provider; an account row toggles
-// only itself. Changes are reported immediately and the view stays open so a
-// user can configure several accounts in one visit.
+// AutoResetSelectorComponent is a grouped provider/tier/account checkbox list.
+// Provider rows toggle every account, tier rows toggle accounts in that tier,
+// and account rows toggle only themselves.
 type AutoResetSelectorComponent struct {
 	*Container
 	accounts      []AutoResetAccount
@@ -41,32 +42,43 @@ type AutoResetSelectorComponent struct {
 	themeList     SelectListTheme
 }
 
-// NewAutoResetSelectorComponent builds a grouped checkbox list from stored
-// accounts. Accounts are grouped by provider and retain store order within each
-// provider; provider groups themselves are sorted by provider id.
+// NewAutoResetSelectorComponent builds a nested provider/tier checkbox list.
+// Accounts retain store order within each tier; providers and tiers are sorted.
 func NewAutoResetSelectorComponent(accounts []AutoResetAccount, onToggle func(AutoResetAccount, bool), onCancel func()) *AutoResetSelectorComponent {
 	copyAccounts := append([]AutoResetAccount(nil), accounts...)
-	providers := map[string][]AutoResetAccount{}
-	for _, account := range copyAccounts {
-		providers[account.ProviderID] = append(providers[account.ProviderID], account)
+	groups := map[string]map[string][]AutoResetAccount{}
+	for index := range copyAccounts {
+		account := &copyAccounts[index]
+		if strings.TrimSpace(account.Tier) == "" {
+			account.Tier = "Unknown"
+		}
+		if groups[account.ProviderID] == nil {
+			groups[account.ProviderID] = map[string][]AutoResetAccount{}
+		}
+		groups[account.ProviderID][account.Tier] = append(groups[account.ProviderID][account.Tier], *account)
 	}
-	ids := make([]string, 0, len(providers))
-	for provider := range providers {
-		ids = append(ids, provider)
+	providers := make([]string, 0, len(groups))
+	for provider := range groups {
+		providers = append(providers, provider)
 	}
-	sort.Strings(ids)
-	rows := make([]autoResetRow, 0, len(copyAccounts)+len(ids))
-	for _, provider := range ids {
+	sort.Strings(providers)
+	rows := make([]autoResetRow, 0, len(copyAccounts)*2+len(providers))
+	for _, provider := range providers {
 		rows = append(rows, autoResetRow{provider: provider})
-		for index := range providers[provider] {
-			account := providers[provider][index]
-			rows = append(rows, autoResetRow{provider: provider, account: &account})
+		tiers := make([]string, 0, len(groups[provider]))
+		for tier := range groups[provider] {
+			tiers = append(tiers, tier)
+		}
+		sort.Strings(tiers)
+		for _, tier := range tiers {
+			rows = append(rows, autoResetRow{provider: provider, tier: tier})
+			for index := range groups[provider][tier] {
+				account := groups[provider][tier][index]
+				rows = append(rows, autoResetRow{provider: provider, tier: tier, account: &account})
+			}
 		}
 	}
-	selector := &AutoResetSelectorComponent{
-		Container: NewContainer(), accounts: copyAccounts, rows: rows,
-		onToggle: onToggle, onCancel: onCancel, themeList: GetSelectListTheme(),
-	}
+	selector := &AutoResetSelectorComponent{Container: NewContainer(), accounts: copyAccounts, rows: rows, onToggle: onToggle, onCancel: onCancel, themeList: GetSelectListTheme()}
 	selector.listContainer = NewContainer()
 	selector.footerText = NewPaddedText("", 0, 0, nil)
 	selector.Add(NewDynamicBorder())
@@ -93,11 +105,14 @@ func (s *AutoResetSelectorComponent) Accounts() []AutoResetAccount { return s.ac
 func (s *AutoResetSelectorComponent) rebuild() {
 	items := make([]SelectItem, 0, len(s.rows))
 	for _, row := range s.rows {
-		if row.account == nil {
+		switch {
+		case row.account != nil:
+			items = append(items, SelectItem{Value: row.account.ProviderID + "\x00" + row.account.TargetRef, Label: "    " + checkbox(row.account.Enabled) + " " + row.account.Label, Description: autoResetAccountDescription(*row.account)})
+		case row.tier != "":
+			items = append(items, SelectItem{Value: row.provider + "\x00" + row.tier, Label: "  " + checkbox(s.tierEnabled(row.provider, row.tier)) + " " + row.tier, Description: s.tierDescription(row.provider, row.tier)})
+		default:
 			items = append(items, SelectItem{Value: row.provider, Label: checkbox(s.providerEnabled(row.provider)) + " " + s.providerLabel(row.provider), Description: s.providerDescription(row.provider)})
-			continue
 		}
-		items = append(items, SelectItem{Value: row.account.ProviderID + "\x00" + row.account.TargetRef, Label: "  " + checkbox(row.account.Enabled) + " " + row.account.Label, Description: autoResetAccountDescription(*row.account)})
 	}
 	list := NewSelectList(items, 10, s.themeList)
 	list.SetSelectedIndex(s.selected)
@@ -138,7 +153,33 @@ func (s *AutoResetSelectorComponent) providerDescription(provider string) string
 			}
 		}
 	}
-	return strings.Join([]string{strconv.Itoa(enabled) + "/" + strconv.Itoa(count) + " accounts enabled", "toggle all"}, " · ")
+	return strconv.Itoa(enabled) + "/" + strconv.Itoa(count) + " accounts enabled · toggle all"
+}
+
+func (s *AutoResetSelectorComponent) tierEnabled(provider, tier string) bool {
+	found := false
+	for _, account := range s.accounts {
+		if account.ProviderID == provider && account.Tier == tier {
+			found = true
+			if !account.Enabled {
+				return false
+			}
+		}
+	}
+	return found
+}
+
+func (s *AutoResetSelectorComponent) tierDescription(provider, tier string) string {
+	count, enabled := 0, 0
+	for _, account := range s.accounts {
+		if account.ProviderID == provider && account.Tier == tier {
+			count++
+			if account.Enabled {
+				enabled++
+			}
+		}
+	}
+	return strconv.Itoa(enabled) + "/" + strconv.Itoa(count) + " accounts enabled · toggle tier"
 }
 
 func (s *AutoResetSelectorComponent) footer() string {
@@ -186,46 +227,32 @@ func (s *AutoResetSelectorComponent) toggle() {
 	}
 	row := s.rows[s.selected]
 	if row.account != nil {
-		s.setAccount(row.account.ProviderID, row.account.TargetRef, !row.account.Enabled)
-		s.status = ""
-		s.rebuild()
-		return
-	}
-	allEnabled := true
-	found := false
-	for _, account := range s.accounts {
-		if account.ProviderID == row.provider {
-			found = true
-			allEnabled = allEnabled && account.Enabled
-		}
-	}
-	if !found {
-		return
-	}
-	for _, account := range s.accounts {
-		if account.ProviderID == row.provider {
-			s.setAccount(account.ProviderID, account.TargetRef, !allEnabled)
-		}
+		s.setAccounts(row.provider, row.tier, row.account.TargetRef, !row.account.Enabled)
+	} else if row.tier != "" {
+		s.setAccounts(row.provider, row.tier, "", !s.tierEnabled(row.provider, row.tier))
+	} else {
+		s.setAccounts(row.provider, "", "", !s.providerEnabled(row.provider))
 	}
 	s.status = ""
 	s.rebuild()
 }
 
-func (s *AutoResetSelectorComponent) setAccount(provider, target string, enabled bool) {
+func (s *AutoResetSelectorComponent) setAccounts(provider, tier, target string, enabled bool) {
 	for index := range s.accounts {
-		if s.accounts[index].ProviderID != provider || s.accounts[index].TargetRef != target {
+		account := &s.accounts[index]
+		if account.ProviderID != provider || (tier != "" && account.Tier != tier) || (target != "" && account.TargetRef != target) {
 			continue
 		}
-		s.accounts[index].Enabled = enabled
+		account.Enabled = enabled
 		for rowIndex := range s.rows {
-			if s.rows[rowIndex].account != nil && s.rows[rowIndex].account.ProviderID == provider && s.rows[rowIndex].account.TargetRef == target {
-				s.rows[rowIndex].account.Enabled = enabled
+			row := &s.rows[rowIndex]
+			if row.account != nil && row.account.ProviderID == provider && row.account.Tier == account.Tier && row.account.TargetRef == account.TargetRef {
+				row.account.Enabled = enabled
 			}
 		}
 		if s.onToggle != nil {
-			s.onToggle(s.accounts[index], enabled)
+			s.onToggle(*account, enabled)
 		}
-		return
 	}
 }
 
@@ -241,7 +268,7 @@ func autoResetAccountDescription(account AutoResetAccount) string {
 		return "unavailable: " + account.Err
 	}
 	if account.Active {
-		return account.ProviderLabel + " · active account"
+		return account.ProviderLabel + " · " + account.Tier + " · active account"
 	}
-	return account.ProviderLabel
+	return account.ProviderLabel + " · " + account.Tier
 }
