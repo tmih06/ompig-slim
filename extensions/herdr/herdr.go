@@ -99,7 +99,7 @@ type reported struct {
 }
 
 // run executes one Herdr CLI call. Tests replace it to observe argv.
-type runFunc func(ctx context.Context, bin string, args []string)
+type runFunc func(ctx context.Context, bin string, args []string) error
 
 // reporter forwards state to one Herdr pane.
 //
@@ -116,7 +116,7 @@ type reporter struct {
 	// rising across agent restarts in the same pane; the wall clock start
 	// guarantees that.
 	seq uint64
-	// last is the state last sent, so an unchanged document sends nothing.
+	// last is the last successfully reported state; failed sends are retried.
 	last *reported
 	// sentExited records that the terminal state was reported, after which
 	// nothing more is sent for this pane.
@@ -127,29 +127,31 @@ func newReporter(env paneEnv, run runFunc) *reporter {
 	return &reporter{env: env, run: run, seq: uint64(time.Now().UnixNano())}
 }
 
-// update sends state if it differs from the last one sent.
+// update sends state if it differs from the last successful report. Failures
+// leave the cache unchanged so the next poll retries the current document.
+// Calls are serialized with finish so an in-flight update cannot undo shutdown.
 func (r *reporter) update(state reported) {
 	if !r.env.enabled() {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.sentExited {
-		r.mu.Unlock()
 		return
 	}
 	if r.last != nil && *r.last == state {
-		r.mu.Unlock()
+		return
+	}
+	r.seq++
+	args := r.argv(state, r.seq)
+
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+	if err := r.run(ctx, r.env.binPath, args); err != nil {
 		return
 	}
 	stored := state
 	r.last = &stored
-	r.seq++
-	args := r.argv(state, r.seq)
-	r.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
-	defer cancel()
-	r.run(ctx, r.env.binPath, args)
 }
 
 // finish reports the terminal state and stops further reporting.
@@ -193,12 +195,13 @@ func (r *reporter) argv(state reported, seq uint64) []string {
 	return args
 }
 
-// runCLI executes one Herdr call. Herdr writes a JSON line and exits non-zero on
-// a rejected report; neither is actionable here, so both streams are discarded.
-func runCLI(ctx context.Context, bin string, args []string) {
+// runCLI executes one Herdr call and returns launch, rejection, or timeout errors
+// so the poller can retry. Both streams stay discarded: reporting must not write
+// into the agent's terminal or interrupt its work.
+func runCLI(ctx context.Context, bin string, args []string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	_ = cmd.Run()
+	return cmd.Run()
 }
 
 // resumeArgs is the command that reopens the session in path, or nil when the

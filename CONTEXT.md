@@ -459,8 +459,12 @@ older toolchain.
 Transport is `"$HERDR_BIN_PATH" pane report-agent …` rather than the socket in `HERDR_SOCKET_PATH`:
 Herdr documents the CLI as the portable form (it reaches the Windows named pipe itself), and the
 socket wire protocol, `resume_argv` framing included, stays out of this repository. A call is bounded
-by a 2s timeout with both streams discarded, and an unchanged state sends nothing, so a session that
-sits idle makes no calls at all.
+by a 2s timeout with both streams discarded. Only successful reports enter the duplicate-suppression
+cache: a failed `working` report must be retried on the next poll, otherwise Herdr keeps showing the
+previous idle/done state throughout a live run. Each retry uses a higher sequence and the current
+document, not a queued obsolete state. An unchanged successfully reported state sends nothing, so a
+session that sits idle makes no calls at all. Updates serialize with shutdown; a final shutdown
+report remains best-effort because polling has ended.
 
 `--seq` starts from `time.Now().UnixNano()` and only increases, because Herdr drops a report whose seq
 is not higher than the last one it accepted from that source and `custom:ompig-slim` keeps that

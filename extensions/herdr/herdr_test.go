@@ -3,6 +3,7 @@ package herdr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,11 +21,12 @@ type recorder struct {
 	bins []string
 }
 
-func (r *recorder) run(_ context.Context, bin string, args []string) {
+func (r *recorder) run(_ context.Context, bin string, args []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.bins = append(r.bins, bin)
 	r.args = append(r.args, args)
+	return nil
 }
 
 func (r *recorder) count() int {
@@ -151,6 +153,44 @@ func TestUnchangedStateSendsNothing(t *testing.T) {
 
 	if got := rec.count(); got != 2 {
 		t.Fatalf("sent %d reports for two distinct states", got)
+	}
+}
+
+// TestFailedWorkingReportRetries pins the false-completion failure: Herdr still
+// holds idle after a failed working report, even though the document is busy.
+func TestFailedWorkingReportRetries(t *testing.T) {
+	rec := &recorder{}
+	failure := errors.New("Herdr unavailable")
+	fail := false
+	reporter := newReporter(enabledEnv(), func(ctx context.Context, bin string, args []string) error {
+		_ = rec.run(ctx, bin, args)
+		if fail {
+			return failure
+		}
+		return nil
+	})
+	reporter.update(reported{state: "idle"})
+	fail = true
+	reporter.update(reported{state: "working"})
+	fail = false
+	reporter.update(reported{state: "working"})
+	reporter.update(reported{state: "working"})
+	if got := rec.count(); got != 3 {
+		t.Fatalf("got %d calls, want idle, failed working, successful working", got)
+	}
+	if got := flagValue(t, rec.waitFor(t), "--state"); got != "working" {
+		t.Fatalf("last state = %q, want working", got)
+	}
+	if first, retry := flagValue(t, rec.args[1], "--seq"), flagValue(t, rec.args[2], "--seq"); first >= retry {
+		t.Fatalf("retry sequence did not advance: %s then %s", first, retry)
+	}
+}
+
+// TestRunCLIReturnsFailure ensures process errors reach retry logic rather than
+// being swallowed at the transport boundary.
+func TestRunCLIReturnsFailure(t *testing.T) {
+	if err := runCLI(context.Background(), filepath.Join(t.TempDir(), "missing-herdr"), nil); err == nil {
+		t.Fatal("a missing Herdr executable must return an error")
 	}
 }
 
