@@ -52,19 +52,22 @@ var errCodexJSONExpired = errors.New("Codex JSON token expired or revoked; impor
 // isCodexAccountProvider identifies providers sharing Codex entitlement and quota semantics.
 func isCodexAccountProvider(id string) bool { return id == "openai-codex" || id == codexJSONProviderID }
 
-// parseCodexJSON imports only request/refresh material and account identity. It
-// never persists the input object, idToken, labels, or subscription metadata.
+// parseCodexJSON imports request/refresh material and non-secret account identity.
+// It never persists the input object, idToken, or subscription metadata; only the
+// email claim needed for account labels is retained.
 // Absolute expiry wins over expiresIn; JWT expiry caps either claimed lifetime.
 // JWT claims are metadata, not signature verification or proof of entitlement.
 func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 	var data struct {
 		Access    string   `json:"accessToken"`
 		Refresh   string   `json:"refreshToken"`
+		IDToken   string   `json:"idToken"`
 		ExpiresAt string   `json:"expiresAt"`
 		ExpiresIn *float64 `json:"expiresIn"`
 		Provider  struct {
 			AccountID string `json:"chatgptAccountId"`
 		} `json:"providerSpecificData"`
+		Email string `json:"email"`
 	}
 	if len(input) > 1<<20 || json.Unmarshal([]byte(input), &data) != nil {
 		return OAuthCredentials{}, errors.New("Codex JSON: expected a JSON object with accessToken and expiry")
@@ -117,7 +120,26 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 	if expiry.IsZero() || !expiry.After(now) {
 		return OAuthCredentials{}, errors.New("Codex JSON: missing or expired token expiry")
 	}
-	return OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}, nil
+	credential := OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}
+	// Keep only the non-secret email claim so account pickers can distinguish
+	// imported accounts without retaining the source JSON or its ID token.
+	email := strings.ToLower(strings.TrimSpace(data.Email))
+	if email == "" {
+		email = strings.ToLower(strings.TrimSpace(codexClaimString(codexJWTProfile(data.Access), codexJWTProfileClaim, "email")))
+	}
+	if email == "" {
+		claims := codexJWTProfile(data.IDToken)
+		email = strings.ToLower(strings.TrimSpace(codexClaimString(claims, codexJWTProfileClaim, "email")))
+		if email == "" {
+			email, _ = claims["email"].(string)
+			email = strings.ToLower(strings.TrimSpace(email))
+		}
+	}
+	if email != "" {
+		credential.Extra = map[string]json.RawMessage{}
+		credential.Extra["email"], _ = json.Marshal(email)
+	}
+	return credential, nil
 }
 
 // codexJSONOAuthProvider participates in the same login/storage lifecycle as the
@@ -242,6 +264,12 @@ func init() {
 	}
 	GeneratedProviders = append(GeneratedProviders, codexJSONProviderID)
 	slices.Sort(GeneratedProviders)
+}
+
+// CodexAccountEmail returns the normalized email claim in a Codex access token.
+// It is used to label legacy imports that predate persisted email metadata.
+func CodexAccountEmail(accessToken string) string {
+	return strings.ToLower(strings.TrimSpace(codexClaimString(codexJWTProfile(accessToken), codexJWTProfileClaim, "email")))
 }
 
 // codexJSONToAuth supplies the required account header even for opaque access

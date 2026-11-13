@@ -23,6 +23,11 @@ func codexJSONTestJWT(account string, expiry time.Time) string {
 	return "e30." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".fixture"
 }
 
+func codexJSONTestIDToken(email string, expiry time.Time) string {
+	payload := fmt.Sprintf(`{"exp":%d,"email":%q}`, expiry.Unix(), email)
+	return "e30." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".fixture"
+}
+
 // TestCodexJSONImport verifies the external input boundary and expiry precedence.
 func TestCodexJSONImport(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -37,16 +42,16 @@ func TestCodexJSONImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.Access != token || credential.Refresh != "fixture-refresh" || credential.AccountID != "acct" || credential.Expires != now.Add(2*time.Hour).UnixMilli() || len(credential.Extra) != 0 {
-		t.Fatalf("incorrect minimal credential: %+v", credential)
+	if credential.Access != token || credential.Refresh != "fixture-refresh" || credential.AccountID != "acct" || credential.Expires != now.Add(2*time.Hour).UnixMilli() || credentialClaim(Credential{Extra: credential.Extra}, "email") != "discard@example.invalid" {
+		t.Fatalf("incorrect imported credential: %+v", credential)
 	}
 	stored, err := credentialFromOAuth(credential)
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded, err := json.Marshal(stored)
-	if err != nil || strings.Contains(string(encoded), "discard") || strings.Contains(string(encoded), "idToken") {
-		t.Fatalf("unneeded fields persisted: %s (%v)", encoded, err)
+	if err != nil || !strings.Contains(string(encoded), "discard@example.invalid") || strings.Contains(string(encoded), "idToken") {
+		t.Fatalf("email or token metadata was persisted incorrectly: %s (%v)", encoded, err)
 	}
 	for _, bad := range []string{
 		`null`, `[]`, `{`, `{"accessToken":3}`,
@@ -67,6 +72,20 @@ func TestCodexJSONImport(t *testing.T) {
 		if _, err := parseCodexJSON(input, now); err != nil {
 			t.Fatalf("valid minimal import failed: %v", err)
 		}
+	}
+}
+
+func TestCodexJSONImportKeepsEmailForAccountLabels(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	credential, err := parseCodexJSON(fmt.Sprintf(`{"accessToken":%q,"idToken":%q,"expiresIn":3600,"providerSpecificData":{"chatgptAccountId":"acct"}}`, codexJSONTestJWT("acct", now.Add(time.Hour)), codexJSONTestIDToken("User@Example.com", now.Add(time.Hour))), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := credentialClaim(Credential{Extra: credential.Extra}, "email"); got != "user@example.com" {
+		t.Fatalf("email = %q, want user@example.com", got)
+	}
+	if label := accountLabel(Credential{Type: CredentialOAuth, AccountID: credential.AccountID, Extra: credential.Extra}); label != "user@example.com" {
+		t.Fatalf("account label = %q, want user@example.com", label)
 	}
 }
 

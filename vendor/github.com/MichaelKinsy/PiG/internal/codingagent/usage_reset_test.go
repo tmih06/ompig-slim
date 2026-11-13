@@ -2,6 +2,7 @@ package codingagent
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"strings"
@@ -91,7 +92,6 @@ func TestAutoResetRedeemsAnAvailableCreditForAnExhaustedAccount(t *testing.T) {
 		"POST /backend-api/wham/rate-limit-reset-credits/consume": {status: 200, body: `{"code":"reset"}`},
 	}}
 	credential := resetTestOAuthCredential()
-	ai.SetCredentialAutoReset(&credential, true)
 	store := newUsageTestStore()
 	store.add("openai-codex", nil, credential)
 	used := 1.0
@@ -101,7 +101,8 @@ func TestAutoResetRedeemsAnAvailableCreditForAnExhaustedAccount(t *testing.T) {
 		Providers: []*ai.UsageProvider{{ID: "openai-codex", FetchUsage: func(context.Context, ai.UsageFetchParams, ai.UsageFetchContext) (*ai.UsageReport, error) {
 			return &ai.UsageReport{Provider: "openai-codex", Limits: []ai.UsageLimit{{Status: ai.UsageStatusExhausted, Amount: ai.UsageAmount{UsedFraction: &used}}}}, nil
 		}}},
-		HTTPClient: &http.Client{Transport: transport},
+		HTTPClient:               &http.Client{Transport: transport},
+		AutoResetProviderDefault: func(providerID string) bool { return providerID == "openai-codex" },
 	})
 	if _, err := service.FetchSnapshot(context.Background(), true); err != nil {
 		t.Fatal(err)
@@ -149,6 +150,23 @@ func TestListResetCreditsIncludesCodexJSON(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].ProviderID != "codex-json" || entries[0].Err != "" || entries[0].Credits == nil || entries[0].Credits.AvailableCount != 1 {
 		t.Fatalf("entries = %+v", entries)
+	}
+}
+
+func TestListResetCreditsLabelsLegacyCodexJSONByEmail(t *testing.T) {
+	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
+		"GET /backend-api/wham/rate-limit-reset-credits": {status: 200, body: `{"credits":[{"id":"credit-json","status":"available"}],"available_count":1}`},
+	}}
+	payload := `{"https://api.openai.com/profile":{"email":"Legacy@Example.com"}}`
+	credential := resetTestOAuthCredential()
+	credential.Access = "e30." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".fixture"
+	service := resetTestService(t, transport, "codex-json", credential)
+	entries, err := service.ListResetCredits(context.Background())
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Label != "legacy@example.com" {
+		t.Fatalf("label = %q, want legacy@example.com", entries[0].Label)
 	}
 }
 

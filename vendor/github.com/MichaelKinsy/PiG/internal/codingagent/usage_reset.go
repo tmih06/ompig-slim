@@ -126,7 +126,7 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 	entry := UsageResetCreditAccount{
 		ProviderID: account.ProviderID,
 		AccountKey: copyAccountKey(account.AccountKey),
-		Label:      service.unavailableLabel(account.ProviderID, &account),
+		Label:      account.Label,
 		Active:     account.Active,
 	}
 	credential, err := service.resetCredential(ctx, account)
@@ -144,7 +144,18 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 	}
 	usageCredential := ai.UsageCredentialFromStored(credential)
 	if settings := ai.AccountCredentialSettings(*credential); settings != nil {
+		if settings.Email != "" {
+			entry.Label = settings.Email
+		}
 		entry.Tier = settings.OrgName
+	}
+	if account.ProviderID == "openai-codex" || account.ProviderID == "codex-json" {
+		if email := ai.CodexAccountEmail(credential.Access); email != "" {
+			entry.Label = email
+		}
+	}
+	if entry.Label == "" {
+		entry.Label = service.unavailableLabel(account.ProviderID, &account)
 	}
 	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential) || service.providerAutoResetDefault(account.ProviderID)
 	probeCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
