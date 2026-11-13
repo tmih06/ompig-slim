@@ -185,8 +185,11 @@ symlink files/directories, project/package themes and external paths do not.
 Theme ancestry paths are hashed to remain flat and bounded. The `themes`
 directory is created only by a write, never by listing, discovery or reading a
 missing theme: the broker volume contract allows only synchronized state, so an
-empty directory from a poll would be untracked state nobody wrote. File sync does
-not hot-apply every runtime setting; session reload/restart remains necessary.
+empty directory from a poll would be untracked state nobody wrote. A poll that
+replaces a local document signals the running session, which re-reads settings and
+keybindings on its owner loop through the steps `/reload` uses for them; it never
+rebuilds resources, extensions or the running model, so a received assignment
+applies from the next selection rather than interrupting a streamed turn.
 Sessions, project config and arbitrary SQLite tables never synchronize.
 Embedded preference API keys remain trusted plaintext. The broker needs outbound
 OAuth connectivity and host-specific refresh configuration; client-only custom

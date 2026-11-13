@@ -155,7 +155,7 @@ func TestStartRecoversAfterBrokerOutage(t *testing.T) {
 	t.Setenv(EnvURL, proxy.URL)
 	t.Setenv(EnvToken, b.token)
 	var report strings.Builder
-	finish, err := Start(context.Background(), b.dir, &report)
+	finish, err := Start(context.Background(), b.dir, &report, nil)
 	if err != nil || finish == nil {
 		t.Fatalf("startup outage disabled retries: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestStartRetriesPreferenceFailure(t *testing.T) {
 	}
 	t.Setenv("OMPIG_BROKER_URL", b.base)
 	t.Setenv("OMPIG_BROKER_TOKEN", b.token)
-	finish, err := Start(ctx, b.dir, io.Discard)
+	finish, err := Start(ctx, b.dir, io.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

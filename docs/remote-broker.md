@@ -235,10 +235,20 @@ Startup failures keep the five-second retry loop and normal-exit flush active;
 a failed active-session preference flush can fail CLI exit. Until initial sync
 succeeds, an unavailable broker does not fail otherwise usable CLI repair commands.
 
-Synchronization updates files, not every live runtime setting. Reload the session
-or restart the client to apply received settings, models and keybindings.
-UI/settings/catalog reload behavior stays unchanged. Client paths/environment
-references are not rewritten, so referenced resources must exist on each client.
+A poll that replaces a local document reaches the running session, so an edit
+made on one machine applies on the others without a restart. The session re-reads
+its settings and keybindings on the owner loop, using the same steps `/reload`
+uses for them and none of its resource, extension or catalog rebuild. Only a poll
+that actually rewrote a file signals: an idle tick and this client's own upload
+stay silent, so settings are not re-applied every five seconds.
+
+The active model is left alone. A pull can repoint a role while a turn streams,
+and switching mid-run would replay a request after streamed output; the received
+assignment resolves on the next selection. Settings that only affect newly created
+state (prompt templates, skills, extension packages) still need `/reload` or a new
+session, and a catalog change still needs `F5` in the manager. Client
+paths/environment references are not rewritten, so referenced resources must
+exist on each client.
 Shared settings may run commands or load packages: trust the broker as fully as
 your profile. Disconnecting does not export hosted credentials back to local
 SQLite; only pre-existing local credentials remain after `broker clear`.

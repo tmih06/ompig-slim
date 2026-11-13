@@ -24,6 +24,8 @@ import sys
 import tempfile
 import time
 
+import broker_cluster_terminal
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 BROKER_IMAGE = "ompig-slim-cluster-broker:test"
 CLIENT_IMAGE = "ompig-slim-cluster-client:test"
@@ -551,6 +553,79 @@ def check_host_vault():
     expect("the broker serves no inference route", probe.stdout.strip() == "404", probe.stdout.strip())
 
 
+def first_listed_model(container):
+    """Return one `provider/model` the client's catalog offers.
+
+    Deriving the ID keeps this check independent of any single catalog entry: the
+    role only has to resolve to something the client can list, and no provider is
+    called, so no credential is needed.
+    """
+    listing = run_client(container, "--list-models").stdout.splitlines()
+    for line in listing[1:]:
+        fields = line.split()
+        if len(fields) >= 2:
+            return f"{fields[0]}/{fields[1]}"
+    raise CheckFailed(f"{container} lists no model to assign a role")
+
+
+def check_live_session_follows_synchronized_settings():
+    """A running session shows a model role another machine assigned.
+
+    This is the regression guard for a live session keeping the settings it read
+    at startup. Every other check in this suite runs the client one command at a
+    time, so a fresh process re-reads settings.json and passes whether or not a
+    running session follows the document; only a session that stays open across
+    the synchronization can tell the two apart.
+
+    Client A publishes the role through its normal synchronization path while
+    client B is already running, so B has to apply a document it never wrote.
+    """
+    role = "clusterlive"
+    model = first_listed_model(CLIENT_B)
+    current = read_json(CLIENT_B, "/profile/agent/settings.json") or {}
+    current.setdefault("modelRoles", {})["default"] = model
+    current["tuiMode"] = "regular"
+    current["quietStartup"] = True
+    write_settings(CLIENT_B, current)
+    sync(CLIENT_B)
+    sync(CLIENT_A)
+
+    live = broker_cluster_terminal.InteractiveClient(CLIENT_B, model=model)
+    try:
+        live.read_until(lambda data: b"interactive-ready" in data, "B interactive session")
+        expect("a client reaches an interactive session against the broker", True)
+        before = broker_cluster_terminal.open_role_manager(live, "before")
+        expect(f"the live Roles pane does not yet list @{role}",
+               role not in broker_cluster_terminal.visible(before))
+        broker_cluster_terminal.close_role_manager(live, "before")
+
+        # Client A assigns the role and publishes it, exactly as /model -> Roles ->
+        # Enter does on the other machine.
+        published = read_json(CLIENT_A, "/profile/agent/settings.json") or {}
+        published.setdefault("modelRoles", {})[role] = model
+        write_settings(CLIENT_A, published)
+        sync(CLIENT_A)
+
+        # B's own five-second poll applies it; the session must follow.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            roles = (read_json(CLIENT_B, "/profile/agent/settings.json") or {}).get("modelRoles", {})
+            if role in roles:
+                break
+            time.sleep(0.5)
+        else:
+            raise CheckFailed("the running client never pulled the published settings.json")
+        expect("the running client pulled the published document", True)
+
+        after = broker_cluster_terminal.open_role_manager(live, "after")
+        expect(f"a running session lists @{role} without a restart",
+               role in broker_cluster_terminal.visible(after),
+               broker_cluster_terminal.visible(after)[-700:])
+        broker_cluster_terminal.close_role_manager(live, "after")
+    finally:
+        live.close()
+
+
 def cluster(binary, keep):
     """Run the whole cluster suite against freshly built images."""
     if docker("info", check=False, timeout=60).returncode != 0:
@@ -577,6 +652,9 @@ def cluster(binary, keep):
         check_late_joiner()
         check_configured_client()
         check_degraded_client()
+        # Last: it keeps a client's session interactive and republishes settings,
+        # so it must not disturb the one-shot checks that assert on those files.
+        check_live_session_follows_synchronized_settings()
     except CheckFailed:
         log = docker("logs", HOST, check=False)
         print("--- broker log ---\n" + (log.stdout + log.stderr)[-4000:], file=sys.stderr)

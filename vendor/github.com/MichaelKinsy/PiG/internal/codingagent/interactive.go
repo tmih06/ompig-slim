@@ -1598,6 +1598,10 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.installRenderDispatcher()
 	themeWatcher := m.startThemeWatcher(ctx)
 	m.onStop(func() error { themeWatcher.Close(); return nil })
+	// An embedder's synchronization worker writes settings behind this session's
+	// back; a notification re-reads them instead of waiting for a restart.
+	stopSyncedDocuments := m.startSyncedDocumentWatcher(ctx)
+	m.onStop(func() error { stopSyncedDocuments(); return nil })
 	m.tuiInst.SetOverlayCommandDispatcher(func(command func()) {
 		m.runOnMain(m.runCtx, command)
 	})
