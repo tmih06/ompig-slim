@@ -30,6 +30,7 @@ type State struct {
 	TokenBudget     int    `json:"tokenBudget,omitempty"`
 	TokensUsed      int    `json:"tokensUsed"`
 	TimeUsedSeconds int64  `json:"timeUsedSeconds"`
+	Pokes           int    `json:"pokes"`
 	CreatedAt       int64  `json:"createdAt"`
 	UpdatedAt       int64  `json:"updatedAt"`
 }
@@ -70,6 +71,20 @@ func (t *Tracker) Create(objective string, tokenBudget int) error {
 	now := time.Now().UnixMilli()
 	t.state = &State{ID: fmt.Sprintf("goal-%d", nextID.Add(1)), Objective: objective, Status: StatusActive, TokenBudget: tokenBudget, CreatedAt: now, UpdatedAt: now}
 	return nil
+}
+
+// Poke records one automatic continuation sent to the agent and returns the
+// new total. Only the goal extension calls this for an active goal, so a poke
+// is never counted for a user-started turn or a paused goal.
+func (t *Tracker) Poke() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == nil || t.state.Status != StatusActive {
+		return 0
+	}
+	t.state.Pokes++
+	t.state.UpdatedAt = time.Now().UnixMilli()
+	return t.state.Pokes
 }
 
 // Pause suspends an active goal without discarding its accounting.

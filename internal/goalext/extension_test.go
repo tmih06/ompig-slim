@@ -7,7 +7,57 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
+
+	"ompig-slim/internal/goal"
 )
+
+// TestActiveGoalRequestsContinuationBeforeSettlement pins the boundary contract:
+// an unmet goal keeps the run working instead of first reporting idle.
+func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
+	tracker := goal.New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	var sent extension.SendMessagePayload
+	result := continueActiveGoal(context.Background(), tracker, func(payload extension.SendMessagePayload, options *extension.SendMessageOptions) {
+		sent = payload
+		if options == nil || options.DeliverAs != extension.DeliverAsNextTurn {
+			t.Fatalf("continuation options = %+v, want nextTurn", options)
+		}
+	})
+	if result.Continue == nil || !*result.Continue {
+		t.Fatal("an unmet active goal must continue before agent_settled")
+	}
+	if sent.CustomType != "goal-continuation" {
+		t.Fatalf("custom message type = %q, want goal-continuation", sent.CustomType)
+	}
+	if !sent.Display {
+		t.Fatal("goal continuation is hidden from the transcript")
+	}
+	if sent.Content != "Goal poke 1: Continue working toward this goal: finish the work" {
+		t.Fatalf("continuation content = %q", sent.Content)
+	}
+	if got := tracker.Get().Pokes; got != 1 {
+		t.Fatalf("goal pokes = %d, want 1", got)
+	}
+}
+
+func TestAbortedGoalPausesBeforeAnotherPoke(t *testing.T) {
+	tracker := goal.New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	pauseAbortedGoal(tracker, true)
+	if state := tracker.Get(); state == nil || state.Status != goal.StatusPaused {
+		t.Fatalf("aborted goal state = %+v, want paused", state)
+	}
+	result := continueActiveGoal(context.Background(), tracker, func(extension.SendMessagePayload, *extension.SendMessageOptions) {
+		t.Fatal("paused goal was poked after interruption")
+	})
+	if result.Continue != nil && *result.Continue {
+		t.Fatal("paused goal requested continuation")
+	}
+}
 
 // TestGoalSubmitsSkillObjective exercises the real command runner. Goal must
 // forward slash skill syntax to the host's normal prompt/resource expansion.
