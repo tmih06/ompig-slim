@@ -9,6 +9,7 @@ package codingagent
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -17,7 +18,7 @@ import (
 )
 
 // ResetCreditProviders are the provider ids whose saved resets can be spent.
-var ResetCreditProviders = []string{"openai-codex", "anthropic"}
+var ResetCreditProviders = []string{"openai-codex", "codex-json", "anthropic"}
 
 // UsageResetCreditAccount is one stored account's live saved-reset inventory.
 //
@@ -31,9 +32,11 @@ type UsageResetCreditAccount struct {
 	// account, which is a real account and not the provider's selection.
 	AccountKey *string
 	// Label is the account identity shown beside the provider.
-	Label   string
-	Active  bool
-	Credits *ai.UsageResetCredits
+	Label     string
+	Tier      string
+	Active    bool
+	AutoReset bool
+	Credits   *ai.UsageResetCredits
 	// Err reports why this account's inventory could not be read.
 	Err string
 }
@@ -70,6 +73,13 @@ type UsageResetQuotaService interface {
 	ListResetCredits(ctx context.Context) ([]UsageResetCreditAccount, error)
 	// RedeemResetCredit spends one saved reset for one stored account.
 	RedeemResetCredit(ctx context.Context, target UsageResetTarget) (UsageResetOutcome, error)
+}
+
+// UsageAutoResetService persists the account-local automatic reset preference.
+type UsageAutoResetService interface {
+	SetAutoReset(ctx context.Context, providerID string, accountKey *string, enabled bool) error
+	SetAutoResetProvider(ctx context.Context, providerID string, enabled bool) error
+	ProviderAutoResetDefault(providerID string) bool
 }
 
 // redeemInFlight is one account's redemption attempt. Manual and automatic
@@ -133,12 +143,16 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		return entry
 	}
 	usageCredential := ai.UsageCredentialFromStored(credential)
+	if settings := ai.AccountCredentialSettings(*credential); settings != nil {
+		entry.Tier = settings.OrgName
+	}
+	entry.AutoReset = ai.CredentialAutoResetEnabled(*credential) || service.providerAutoResetDefault(account.ProviderID)
 	probeCtx, cancel := context.WithTimeout(ctx, UsageRequestTimeout)
 	defer cancel()
 	fctx := ai.UsageFetchContext{HTTPClient: service.options.HTTPClient, Logger: service.options.Logger}
 	baseURL := service.providerBaseURL(account.ProviderID)
 	switch account.ProviderID {
-	case "openai-codex":
+	case "openai-codex", "codex-json":
 		credits, ok := ai.ListCodexResetCredits(probeCtx, fctx, usageCredential, baseURL)
 		if !ok {
 			entry.Err = "failed to load saved resets"
@@ -156,6 +170,39 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		entry.Err = "provider does not bank saved resets"
 	}
 	return entry
+}
+
+// ProviderAutoResetDefault reports whether newly added accounts inherit auto-reset.
+func (service *UsageService) ProviderAutoResetDefault(providerID string) bool {
+	return service.providerAutoResetDefault(providerID)
+}
+
+func (service *UsageService) providerAutoResetDefault(providerID string) bool {
+	return service.options.AutoResetProviderDefault != nil && service.options.AutoResetProviderDefault(providerID)
+}
+
+// SetAutoResetProvider persists the provider default used by newly added accounts.
+func (service *UsageService) SetAutoResetProvider(ctx context.Context, providerID string, enabled bool) error {
+	if service.options.SetAutoResetProviderDefault == nil {
+		return context.Canceled
+	}
+	return service.options.SetAutoResetProviderDefault(providerID, enabled)
+}
+
+// SetAutoReset persists one account's automatic reset preference without changing
+// provider selection or any credential secret.
+func (service *UsageService) SetAutoReset(ctx context.Context, providerID string, accountKey *string, enabled bool) error {
+	if service.options.Accounts == nil {
+		return context.Canceled
+	}
+	_, err := service.options.Accounts.ModifyAccount(ctx, providerID, accountKey, func(credential *ai.Credential) (*ai.Credential, error) {
+		if credential == nil {
+			return nil, fmt.Errorf("account is not stored")
+		}
+		ai.SetCredentialAutoReset(credential, enabled)
+		return credential, nil
+	})
+	return err
 }
 
 // resetAccounts lists the stored accounts of every reset provider, in provider
@@ -240,7 +287,7 @@ func (service *UsageService) RedeemResetCredit(ctx context.Context, target Usage
 	}
 	outcome := UsageResetOutcome{ProviderID: target.ProviderID, AccountKey: copyAccountKey(target.AccountKey), Label: target.Label}
 	switch target.ProviderID {
-	case "openai-codex", "anthropic":
+	case "openai-codex", "codex-json", "anthropic":
 	default:
 		outcome.Code = "unsupported_provider"
 		return outcome, nil
@@ -404,7 +451,7 @@ func resetBlockScopes(providerID string, cleared []string) []string {
 			scopes = append(scopes, "")
 		}
 		return scopes
-	case "openai-codex":
+	case "openai-codex", "codex-json":
 		return []string{"chat", "shared"}
 	}
 	return nil
@@ -522,6 +569,8 @@ func resetProviderLabel(providerID string) string {
 	switch providerID {
 	case "openai-codex":
 		return "Codex"
+	case "codex-json":
+		return "Codex JSON"
 	case "anthropic":
 		return "Claude"
 	}

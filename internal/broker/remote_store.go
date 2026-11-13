@@ -3,7 +3,6 @@ package broker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -124,10 +123,11 @@ func (s *remoteStore) Delete(ctx context.Context, provider string) error {
 	return s.operation(ctx, vaultRequest{Operation: "delete", Provider: provider}, nil)
 }
 
-// modify evaluates a non-refresh callback once and submits a CAS write. Refresh
-// resolution uses RefreshOAuth instead: a provider callback must never receive
-// the sentinel as if it were a usable refresh token. CAS conflicts are reported,
-// not retried, so a newly completed login is never blindly replayed.
+// modify evaluates a non-refresh callback once and submits a CAS write. A
+// remote-refresh sentinel is retained only for metadata edits: the broker
+// replaces it with the private refresh token already stored on the host. Token
+// refresh itself still uses RefreshOAuth. CAS conflicts are reported, not
+// retried, so a newly completed login is never blindly replayed.
 func (s *remoteStore) modify(ctx context.Context, provider string, key *string, explicit bool, fn func(*ai.Credential) (*ai.Credential, error)) (*ai.Credential, error) {
 	current, _, err := s.read(ctx, provider, key, explicit)
 	if err != nil || explicit && current == nil {
@@ -150,9 +150,6 @@ func (s *remoteStore) modify(ctx context.Context, provider string, key *string, 
 	}
 	if next == nil {
 		return current, nil
-	}
-	if next.Refresh == remoteRefreshSentinel {
-		return nil, fmt.Errorf("remote OAuth credentials must refresh on the broker")
 	}
 	var result *ai.Credential
 	err = s.operation(ctx, vaultRequest{Operation: "modify", Provider: provider, AccountKey: key, Explicit: explicit, Credential: next, Expected: expected}, &result)

@@ -135,6 +135,7 @@ func resetUsageAccountFromInventory(entry UsageResetCreditAccount, nowMs int64) 
 		ProviderID:    entry.ProviderID,
 		ProviderLabel: resetProviderLabel(entry.ProviderID),
 		Active:        entry.Active,
+		AutoReset:     entry.AutoReset,
 		Err:           tui.SanitizeDisplayLine(entry.Err),
 		TargetRef:     usageAccountKeyText(entry.AccountKey),
 	}

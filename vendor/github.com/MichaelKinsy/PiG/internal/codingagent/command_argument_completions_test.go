@@ -25,7 +25,7 @@ func TestBuiltinArgumentSuggestions(t *testing.T) {
 		{"/subagents ST", "status"},
 		{"/subagents unknown", ""},
 		{"/subagents on ", ""},
-		{"/usage ", "show,reset"},
+		{"/usage ", "show,reset,auto-reset"},
 		{"/usage reset ", ""},
 		{"/reload ", "--explain"},
 		{"/name ", ""},

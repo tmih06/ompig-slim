@@ -85,6 +85,32 @@ func resetTestService(t *testing.T, transport *resetRouteTransport, providerID s
 	})
 }
 
+func TestAutoResetRedeemsAnAvailableCreditForAnExhaustedAccount(t *testing.T) {
+	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
+		"GET /backend-api/wham/rate-limit-reset-credits":          {status: 200, body: `{"credits":[{"id":"credit-auto","status":"available"}],"available_count":1}`},
+		"POST /backend-api/wham/rate-limit-reset-credits/consume": {status: 200, body: `{"code":"reset"}`},
+	}}
+	credential := resetTestOAuthCredential()
+	ai.SetCredentialAutoReset(&credential, true)
+	store := newUsageTestStore()
+	store.add("openai-codex", nil, credential)
+	used := 1.0
+	service := NewUsageService(UsageServiceOptions{
+		Credentials: store,
+		Accounts:    store,
+		Providers: []*ai.UsageProvider{{ID: "openai-codex", FetchUsage: func(context.Context, ai.UsageFetchParams, ai.UsageFetchContext) (*ai.UsageReport, error) {
+			return &ai.UsageReport{Provider: "openai-codex", Limits: []ai.UsageLimit{{Status: ai.UsageStatusExhausted, Amount: ai.UsageAmount{UsedFraction: &used}}}}, nil
+		}}},
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if _, err := service.FetchSnapshot(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.requests) != 2 || transport.requests[1].Method != "POST" {
+		t.Fatalf("requests = %d %+v", len(transport.requests), transport.requests)
+	}
+}
+
 func TestListResetCreditsReportsEveryAccountWithItsSession(t *testing.T) {
 	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
 		"GET /backend-api/wham/rate-limit-reset-credits": {status: 200, body: `{
@@ -109,6 +135,20 @@ func TestListResetCreditsReportsEveryAccountWithItsSession(t *testing.T) {
 	}
 	if !strings.Contains(transport.requests[0].Header.Get("Authorization"), "Bearer") {
 		t.Fatalf("authorization = %q", transport.requests[0].Header.Get("Authorization"))
+	}
+}
+
+func TestListResetCreditsIncludesCodexJSON(t *testing.T) {
+	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
+		"GET /backend-api/wham/rate-limit-reset-credits": {status: 200, body: `{"credits":[{"id":"credit-json","status":"available"}],"available_count":1}`},
+	}}
+	service := resetTestService(t, transport, "codex-json", resetTestOAuthCredential())
+	entries, err := service.ListResetCredits(context.Background())
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ProviderID != "codex-json" || entries[0].Err != "" || entries[0].Credits == nil || entries[0].Credits.AvailableCount != 1 {
+		t.Fatalf("entries = %+v", entries)
 	}
 }
 
@@ -386,6 +426,19 @@ func TestUsageHandlerListsResetsWithoutAPicker(t *testing.T) {
 	}
 	if transport.count("POST", "/backend-api/wham/rate-limit-reset-credits/consume") != 0 {
 		t.Fatal("listing spent a credit")
+	}
+}
+
+func TestUsageHandlerOpensAutoResetSettings(t *testing.T) {
+	opened := 0
+	sc := resetSlashContext(new([]string))
+	sc.Args = "auto-reset"
+	sc.ShowAutoResetSelector = func() { opened++ }
+	if err := usageHandler(sc); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if opened != 1 {
+		t.Fatalf("auto-reset picker opened %d times", opened)
 	}
 }
 

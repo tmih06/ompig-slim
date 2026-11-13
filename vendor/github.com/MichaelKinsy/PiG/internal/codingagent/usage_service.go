@@ -63,6 +63,10 @@ type UsageServiceOptions struct {
 	Now func() time.Time
 	// Random returns a float in [0,1) for cache jitter; nil means math/rand.
 	Random func() float64
+	// AutoResetProviderDefault reads the persisted provider default for new accounts.
+	AutoResetProviderDefault func(providerID string) bool
+	// SetAutoResetProviderDefault persists the provider default for new accounts.
+	SetAutoResetProviderDefault func(providerID string, enabled bool) error
 }
 
 // UsageService is the per-runtime quota service behind a usage dashboard.
@@ -122,6 +126,7 @@ type usageSharedProbe struct {
 // usageProbeTarget is what to probe for one stored account or ambient key.
 type usageProbeTarget struct {
 	provider   string
+	accountKey *string
 	impl       *ai.UsageProvider
 	baseURL    string
 	credential ai.UsageCredential
@@ -481,6 +486,7 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 	}
 	target := usageProbeTarget{
 		provider:   probe.provider,
+		accountKey: account.AccountKey,
 		impl:       probe.impl,
 		baseURL:    probe.baseURL,
 		credential: ai.UsageCredentialFromStored(credential),
@@ -695,6 +701,32 @@ func (service *UsageService) sharedProbe(key string, target usageProbeTarget, ca
 	return entry
 }
 
+// maybeAutoReset redeems one available saved reset after an opted-in account
+// reports an exhausted quota. It is intentionally synchronous with the usage
+// probe so the exhausted report is never cached after a successful redemption.
+func (service *UsageService) maybeAutoReset(ctx context.Context, target usageProbeTarget, report *ai.UsageReport) bool {
+	if report == nil || !target.credential.AutoReset {
+		return false
+	}
+	exhausted := false
+	for _, limit := range report.Limits {
+		if ai.IsUsageLimitExhausted(limit) {
+			exhausted = true
+			break
+		}
+	}
+	if !exhausted {
+		return false
+	}
+	entry := service.listAccountResetCredits(ctx, ai.CredentialAccountInfo{ProviderID: target.provider, AccountKey: target.accountKey})
+	credit := selectedResetCredit(entry.Credits)
+	if credit == nil {
+		return false
+	}
+	outcome, err := service.RedeemResetCredit(ctx, UsageResetTarget{ProviderID: target.provider, AccountKey: target.accountKey, CreditID: credit.ID})
+	return err == nil && outcome.Ok
+}
+
 // probe performs one upstream fetch, caching the report or last-good fallback.
 func (service *UsageService) probe(ctx context.Context, key string, target usageProbeTarget, cacheVersion int) usageProbeResult {
 	params := ai.UsageFetchParams{
@@ -755,6 +787,11 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 	now := service.now()
 	if report != nil {
 		ai.AttributeUsageReport(report, target.credential)
+		if service.maybeAutoReset(requestCtx, target, report) {
+			// Do not cache the exhausted pre-reset report. The next request must
+			// observe the newly restored quota rather than spend the same credit again.
+			return usageProbeResult{report: report}
+		}
 		ttl := UsageReportTTL + usageJitter(service.random(), UsageReportTTL)
 		service.store(key, &usageCacheEntry{
 			report:       report,

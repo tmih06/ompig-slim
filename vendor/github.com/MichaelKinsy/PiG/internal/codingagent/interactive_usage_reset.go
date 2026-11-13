@@ -36,6 +36,65 @@ func (m *InteractiveMode) listResetCredits(ctx context.Context) ([]UsageResetCre
 	return service.ListResetCredits(ctx)
 }
 
+// showAutoResetSelector opens the grouped provider/account checkbox view for
+// automatic saved-reset redemption preferences.
+func (m *InteractiveMode) showAutoResetSelector() {
+	if m.editorContainer == nil || m.editor == nil || m.tuiInst == nil {
+		return
+	}
+	service := m.resetQuotaService()
+	auto, ok := service.(UsageAutoResetService)
+	if !ok {
+		m.showWarning("Automatic saved-reset settings are unavailable in this session.")
+		return
+	}
+	ctx := m.backgroundContext()
+	m.showStatus(tui.ActiveTheme().Fg("dim", "Loading saved-reset accounts…"))
+	entries, err := service.ListResetCredits(ctx)
+	if err != nil {
+		m.showError("Could not load saved-reset accounts: " + tui.SanitizeDisplayLine(err.Error()))
+		return
+	}
+	accounts := make([]tui.AutoResetAccount, 0, len(entries))
+	for _, entry := range entries {
+		accounts = append(accounts, tui.AutoResetAccount{
+			ProviderID: entry.ProviderID, ProviderLabel: resetProviderLabel(entry.ProviderID), Tier: entry.Tier,
+			Label: tui.SanitizeDisplayLine(entry.Label), TargetRef: usageAccountKeyText(entry.AccountKey),
+			Active: entry.Active, Enabled: entry.AutoReset,
+			ProviderLocked: auto.ProviderAutoResetDefault(entry.ProviderID),
+			Err:            tui.SanitizeDisplayLine(entry.Err),
+		})
+	}
+	if len(accounts) == 0 {
+		m.showStatus("No Codex or Claude accounts found. Use /login to add one.")
+		return
+	}
+	selector := tui.NewAutoResetSelectorComponent(accounts, func(account tui.AutoResetAccount, enabled bool) {
+		if err := auto.SetAutoReset(ctx, account.ProviderID, resetAccountKey(account.TargetRef), enabled); err != nil {
+			m.showError("Could not update " + account.Label + ": " + tui.SanitizeDisplayLine(err.Error()))
+			return
+		}
+		state := "disabled"
+		if enabled {
+			state = "enabled"
+		}
+		m.showStatus("Automatic saved-reset redemption " + state + " for " + account.Label + ".")
+	}, nil)
+	selector.SetProviderToggleHandler(func(provider string, enabled bool) {
+		if err := auto.SetAutoResetProvider(ctx, provider, enabled); err != nil {
+			m.showError("Could not lock " + provider + ": " + tui.SanitizeDisplayLine(err.Error()))
+			return
+		}
+		state := "unlocked"
+		if enabled {
+			state = "locked"
+		}
+		m.showStatus("Auto-reset " + state + " for new " + provider + " accounts.")
+	})
+	m.runEditorSlotComponent(selector, selector.HandleInput, selector.Done)
+	m.requestRender()
+}
+
 // showResetUsageSelector opens the `/usage reset` account picker in the editor
 // slot. It blocks the input loop while the picker is up; the spend that follows
 // runs on the background task group so the prompt returns immediately.

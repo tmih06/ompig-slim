@@ -19,6 +19,21 @@ func usageTestProvider(fetch func(context.Context, UsageFetchParams, UsageFetchC
 	return &UsageProvider{ID: "test", FetchUsage: fetch}
 }
 
+func TestCredentialAutoResetPreferenceRoundTripsThroughUsageCredential(t *testing.T) {
+	credential := Credential{Type: CredentialOAuth, Access: "token"}
+	if CredentialAutoResetEnabled(credential) {
+		t.Fatal("auto reset is enabled by default")
+	}
+	SetCredentialAutoReset(&credential, true)
+	if !CredentialAutoResetEnabled(credential) || !UsageCredentialFromStored(&credential).AutoReset {
+		t.Fatal("enabled auto-reset preference was not preserved")
+	}
+	SetCredentialAutoReset(&credential, false)
+	if CredentialAutoResetEnabled(credential) || UsageCredentialFromStored(&credential).AutoReset {
+		t.Fatal("disabled auto-reset preference was not preserved")
+	}
+}
+
 func TestUsageUsedFractionPrecedence(t *testing.T) {
 	used := 25.0
 	limit := 200.0

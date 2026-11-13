@@ -115,8 +115,9 @@ func sameRedacted(current, expected *ai.Credential) bool {
 }
 
 // credential persists account edits and quota blocks on the broker. Generic
-// modifications use CAS, never replay a client callback, and cannot write the
-// refresh sentinel back into the authoritative vault.
+// modifications use CAS, never replay a client callback. Metadata-only edits
+// may carry the refresh sentinel; it is replaced with the vault's private
+// refresh token before the authoritative write.
 func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeVaultRequest(w, r)
 	if !ok {
@@ -127,7 +128,7 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch request.Operation {
 	case "save", "modify", "import":
-		if request.Credential == nil || (request.Credential.Type != ai.CredentialOAuth && request.Credential.Type != ai.CredentialAPIKey) || request.Credential.Refresh == remoteRefreshSentinel {
+		if request.Credential == nil || (request.Credential.Type != ai.CredentialOAuth && request.Credential.Type != ai.CredentialAPIKey) || (request.Operation != "modify" && request.Credential.Refresh == remoteRefreshSentinel) {
 			http.Error(w, "invalid credential", 400)
 			return
 		}
@@ -140,7 +141,14 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 				if !sameRedacted(current, request.Expected) {
 					return nil, errVaultConflict
 				}
-				return request.Credential, nil
+				next := *request.Credential
+				if next.Refresh == remoteRefreshSentinel {
+					if current == nil || current.Type != ai.CredentialOAuth {
+						return nil, errors.New("refresh sentinel requires an OAuth account")
+					}
+					next.Refresh = current.Refresh
+				}
+				return &next, nil
 			}
 			var updated *ai.Credential
 			if request.Explicit {
