@@ -1,0 +1,48 @@
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/ai
+BenchmarkOMPCatalogLookup-4    	 6466702	        91.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOMPCatalogLookup-4    	 6577140	        91.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOMPCatalogLookup-4    	 6594243	        91.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOMPCatalogToModel-4   	   27058	     22175 ns/op	    7978 B/op	     134 allocs/op
+BenchmarkOMPCatalogToModel-4   	   25497	     22475 ns/op	    7978 B/op	     134 allocs/op
+BenchmarkOMPCatalogToModel-4   	   24210	     22884 ns/op	    7978 B/op	     134 allocs/op
+PASS
+ok  	github.com/MichaelKinsy/PiG/ai	5.068s
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/internal/codingagent
+BenchmarkModelCatalog/RuntimeModels-4         	     861	    650958 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/RuntimeModels-4         	    1015	    682874 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/RuntimeModels-4         	     939	    669912 ns/op	  594816 B/op	     972 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       5	 119305957 ns/op	41014643 B/op	  631370 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       5	 127767288 ns/op	41015728 B/op	  631371 allocs/op
+BenchmarkModelCatalog/AllModels-4             	       5	 118235964 ns/op	41015763 B/op	  631371 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   26636	     21603 ns/op	    8512 B/op	     137 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   26955	     21931 ns/op	    8512 B/op	     137 allocs/op
+BenchmarkModelCatalog/ExactModel-4            	   27009	     23194 ns/op	    8512 B/op	     137 allocs/op
+PASS
+ok  	github.com/MichaelKinsy/PiG/internal/codingagent	10.024s
+goos: linux
+goarch: arm64
+pkg: github.com/MichaelKinsy/PiG/tui
+BenchmarkModelBrowser/openai/SetItems-4         	    8788	     73493 ns/op	   30805 B/op	      76 allocs/op
+BenchmarkModelBrowser/openai/SetItems-4         	    9886	     78230 ns/op	   30800 B/op	      76 allocs/op
+BenchmarkModelBrowser/openai/SetItems-4         	    9766	     73856 ns/op	   30804 B/op	      76 allocs/op
+BenchmarkModelBrowser/openai/Search-4           	    9093	     75008 ns/op	   20556 B/op	     257 allocs/op
+BenchmarkModelBrowser/openai/Search-4           	    9576	     73520 ns/op	   20562 B/op	     257 allocs/op
+BenchmarkModelBrowser/openai/Search-4           	    9366	     72886 ns/op	   20565 B/op	     257 allocs/op
+BenchmarkModelBrowser/openai/Render-4           	    1591	    385470 ns/op	   86560 B/op	    1282 allocs/op
+BenchmarkModelBrowser/openai/Render-4           	    1656	    417714 ns/op	   86560 B/op	    1282 allocs/op
+BenchmarkModelBrowser/openai/Render-4           	    1659	    382278 ns/op	   86560 B/op	    1282 allocs/op
+BenchmarkModelBrowser/all/SetItems-4            	      56	  10908316 ns/op	 2467027 B/op	   11150 allocs/op
+BenchmarkModelBrowser/all/SetItems-4            	      55	  10926375 ns/op	 2467216 B/op	   11150 allocs/op
+BenchmarkModelBrowser/all/SetItems-4            	      56	  10879050 ns/op	 2467202 B/op	   11150 allocs/op
+BenchmarkModelBrowser/all/Search-4              	      49	  11257939 ns/op	 2747325 B/op	   30089 allocs/op
+BenchmarkModelBrowser/all/Search-4              	      49	  11876455 ns/op	 2747524 B/op	   30089 allocs/op
+BenchmarkModelBrowser/all/Search-4              	      50	  11820236 ns/op	 2747551 B/op	   30089 allocs/op
+BenchmarkModelBrowser/all/Render-4              	    1972	    310591 ns/op	   85711 B/op	    1206 allocs/op
+BenchmarkModelBrowser/all/Render-4              	    1875	    305069 ns/op	   85712 B/op	    1206 allocs/op
+BenchmarkModelBrowser/all/Render-4              	    2001	    304114 ns/op	   85711 B/op	    1206 allocs/op
+PASS
+ok  	github.com/MichaelKinsy/PiG/tui	13.334s

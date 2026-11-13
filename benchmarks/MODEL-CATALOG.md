@@ -7,6 +7,21 @@ after in each repetition. Raw samples, medians, profile summaries, startup
 observations and binary hashes are in [`evidence/model-catalog/`](evidence/model-catalog/).
 These are host/workload-specific medians, not statistical or universal claims.
 
+`342fa69` is a commit on the `feat/model-fallback-chain` branch, not an ancestor
+of `main`; the before column cannot be rebuilt from this checkout without that
+branch plus the benchmark files. A pre-optimization 2026-11-12 reproduction of the after column
+against `5354aa1` is in
+[`evidence/model-catalog/retest-after.txt`](evidence/model-catalog/retest-after.txt)
+and [`retest-after.json`](evidence/model-catalog/retest-after.json). It agrees on
+the browser cases. The catalog cases moved: `AllModels` now reports
+119.3 ms / 41.0 MB / 631,371 allocs/op against the 114.75 ms / 27.2 MB / 391,701
+recorded below, and `ExactModel` 21.9 µs / 8,512 B / 137 allocs against
+17.30 µs / 5,696 B / 84. Model role resolution and the typed-provider rows were
+added after these samples, so the catalog fixture now composes more than it did.
+These warmed samples are not a new interleaved comparison. The absolute catalog
+figures below belong to the older revision. The subsequent local-mode changes
+defer catalog loading without changing the warmed listing/ranking algorithms.
+
 ## Measurements
 
 | Path | Before | After | Allocated bytes/op before → after | Allocations/op before → after |
@@ -68,6 +83,29 @@ startup improvement is claimed.** Neither live-provider latency, inference
 throughput, steady-state RSS nor retained heap was measured by these warmed
 microbenchmarks. Allocated bytes per operation are not retained memory.
 
+A pre-optimization 2026-11-12 retest of the same script compares against a build
+from before the catalog work rather than before/after the catalog optimization. Six runs each in
+isolated fixtures, medians in
+[`evidence/model-catalog/startup-retest.json`](evidence/model-catalog/startup-retest.json):
+the 0.1.0-era binary renders its first editable prompt in 77.88 ms and finishes
+initializing in 187.59 ms, while the pre-optimization 0.1.5 build takes 544.41 ms and
+658.87 ms. That 467 ms gap is not a cost of the ranking and cloning
+optimizations in this document, which the warmed microbenchmarks above measure.
+It enters with the role-based model management change: bisecting startup across
+this history puts ready time at 129 ms immediately before it and 624 ms at it,
+and a CPU profile of an offline launch attributes 450 ms of the ~590 ms ready
+time to `ai.loadOMPCatalog`. See
+[Local-mode optimization](../docs/benchmarks.md#local-mode-optimization).
+
+The optimized build now defers provider model rows during both registry and auth
+construction, uses exact lookup for saved defaults/roles, and avoids loading
+unauthenticated catalogs in available-model listing. A separate local PTY
+before/after with a saved loopback default, one warmup and five fresh measured
+profiles per binary, measures editable startup **596.97 → 134.67 ms** and
+initialization **712.40 → 246.94 ms**. This fixture uses the current 0.1.5 build
+on both sides, not the historical 0.1.0 comparison above. Raw samples and hashes
+are in [`evidence/local-optimization.json`](evidence/local-optimization.json).
+
 Not applied:
 
 - Persistent sort/render caching (*hypothesis*): could avoid more repeated work,
@@ -106,7 +144,13 @@ four dummy authenticated providers, two configured roles and a 120×40 PTY:
 
 Three sequential isolated processes per binary, cold then reopen in each. The
 host is Linux arm64 / Go 1.27.3; raw samples, binary hashes and the metadata
-snapshot hash are in `evidence/model-catalog/menu-latency.json`. The public cache
+snapshot hash are in `evidence/model-catalog/menu-latency.json`. A pre-optimization
+2026-11-12 retest of the 0.1.5 build at the same PTY size and with the same default
+fixture but without a populated metadata cache — the fixture that recorded the
+298 ms figure used 8,671 rows that were not retained — opens `/model` in a
+median 161 ms and reopens it in 149 ms. The workloads differ, so this only
+confirms that the reopen path stays faster than the cold path, not that the
+298/152 ms pair reproduces. The public cache
 itself is not retained; its contents affect discovery counts and timing, so these
 are workload-specific observations, not universal latency promises. Timing stops
 at the first menu-title marker. Roster assertions and Escape wait until that

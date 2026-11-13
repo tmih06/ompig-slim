@@ -1,56 +1,57 @@
 {
-  "measured": "2026-11-07",
+  "measured": "2026-11-12",
   "turns": 200,
-  "method": "PIG_PROFILE=heap,allocs,metrics over one persisted RPC session per run; two runs per binary",
-  "host": "Linux arm64, 4 CPUs, Go 1.27.3",
+  "method": "python3 scripts/benchmark.py --slim <binary> --only ompig-slim --runs 2 --warmups 0 --turns 200 --resume-turns 1 --profile heap allocs metrics --output <directory>; allocation counters below use long processes only",
+  "host": "Linux arm64, Go 1.27.3, four reported CPUs",
+  "comparison": "origin/main e08c2ab versus this branch; local mode, two runs per binary",
   "runs": {
     "before": [
       {
-        "alloc_bytes": 508600968,
-        "gc_cycles": 18,
-        "mapped_bytes": 78874904,
-        "heap_live_bytes": 10667536,
-        "max_rss_bytes": 120184832
+        "alloc_bytes": 2035189448,
+        "gc_cycles": 17,
+        "mapped_bytes": 311114056,
+        "heap_live_bytes": 49882472,
+        "max_rss_bytes": 352788480
       },
       {
-        "alloc_bytes": 508937056,
-        "gc_cycles": 18,
-        "mapped_bytes": 83003672,
-        "heap_live_bytes": 10666064,
-        "max_rss_bytes": 120250368
+        "alloc_bytes": 2035229056,
+        "gc_cycles": 17,
+        "mapped_bytes": 310851912,
+        "heap_live_bytes": 49786984,
+        "max_rss_bytes": 354611200
       }
     ],
     "after": [
       {
-        "alloc_bytes": 314709744,
-        "gc_cycles": 14,
-        "mapped_bytes": 70482184,
-        "heap_live_bytes": 9552736,
-        "max_rss_bytes": 108310528
+        "alloc_bytes": 342718656,
+        "gc_cycles": 15,
+        "mapped_bytes": 66291992,
+        "heap_live_bytes": 8863112,
+        "max_rss_bytes": 105918464
       },
       {
-        "alloc_bytes": 314899960,
-        "gc_cycles": 14,
-        "mapped_bytes": 66287880,
-        "heap_live_bytes": 9687744,
-        "max_rss_bytes": 108388352
+        "alloc_bytes": 343014928,
+        "gc_cycles": 15,
+        "mapped_bytes": 66291992,
+        "heap_live_bytes": 8870152,
+        "max_rss_bytes": 105918464
       }
     ]
   },
   "medians": {
     "before": {
-      "alloc_bytes": 508769012.0,
-      "gc_cycles": 18.0,
-      "mapped_bytes": 80939288.0,
-      "heap_live_bytes": 10666800.0,
-      "max_rss_bytes": 120217600.0
+      "alloc_bytes": 2035209252.0,
+      "gc_cycles": 17.0,
+      "mapped_bytes": 310982984.0,
+      "heap_live_bytes": 49834728.0,
+      "max_rss_bytes": 353699840.0
     },
     "after": {
-      "alloc_bytes": 314804852.0,
-      "gc_cycles": 14.0,
-      "mapped_bytes": 68385032.0,
-      "heap_live_bytes": 9620240.0,
-      "max_rss_bytes": 108349440.0
+      "alloc_bytes": 342866792.0,
+      "gc_cycles": 15.0,
+      "mapped_bytes": 66291992.0,
+      "heap_live_bytes": 8866632.0,
+      "max_rss_bytes": 105918464.0
     }
   }
 }

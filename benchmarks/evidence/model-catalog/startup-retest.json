@@ -1,0 +1,80 @@
+{
+  "measured": "2026-11-12",
+  "purpose": "isolated offline HOME, agent dir and project; one loopback model; no prompts",
+  "command": "python3 scripts/measure-startup.py <binary> --agent-dir <tmp> --cwd <tmp> --runs 6",
+  "host": "Linux arm64, Go 1.27.3, four reported CPUs",
+  "before": {
+    "commit": "6b85a95-era 0.1.0 build (the build the earlier tables described)",
+    "typing_ms_median": 77.88,
+    "initialized_ms_median": 187.59,
+    "samples": [
+      {
+        "run": 1,
+        "typing_ms": 118.87,
+        "initialized_ms": 228.69
+      },
+      {
+        "run": 2,
+        "typing_ms": 75.76,
+        "initialized_ms": 185.64
+      },
+      {
+        "run": 3,
+        "typing_ms": 78.81,
+        "initialized_ms": 188.09
+      },
+      {
+        "run": 4,
+        "typing_ms": 77.83,
+        "initialized_ms": 187.81
+      },
+      {
+        "run": 5,
+        "typing_ms": 76.26,
+        "initialized_ms": 186.09
+      },
+      {
+        "run": 6,
+        "typing_ms": 77.93,
+        "initialized_ms": 187.36
+      }
+    ]
+  },
+  "after": {
+    "commit": "5354aa1",
+    "typing_ms_median": 544.41,
+    "initialized_ms_median": 658.87,
+    "samples": [
+      {
+        "run": 1,
+        "typing_ms": 618.52,
+        "initialized_ms": 730.77
+      },
+      {
+        "run": 2,
+        "typing_ms": 551.05,
+        "initialized_ms": 663.8
+      },
+      {
+        "run": 3,
+        "typing_ms": 533.86,
+        "initialized_ms": 655.08
+      },
+      {
+        "run": 4,
+        "typing_ms": 538.68,
+        "initialized_ms": 651.52
+      },
+      {
+        "run": 5,
+        "typing_ms": 550.15,
+        "initialized_ms": 662.66
+      },
+      {
+        "run": 6,
+        "typing_ms": 533.25,
+        "initialized_ms": 646.26
+      }
+    ]
+  }
+}

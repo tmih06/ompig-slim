@@ -1,0 +1,65 @@
+{
+  "measured": "2026-11-12",
+  "commit": "5354aa1",
+  "purpose": "Reproduction check of the \"after\" column in MODEL-CATALOG.md. The before column came from 342fa69 on feat/model-fallback-chain with the benchmark files added to that checkout; that commit is not an ancestor of this one, so only the after side is retested here.",
+  "host": "Linux arm64, Go 1.27.3, four reported CPUs, GOMAXPROCS=4",
+  "command": "GO111MODULE=off GOPATH=<cache>/gopath GOTOOLCHAIN=local GOMAXPROCS=4 go test -run \"^$\" -bench \"BenchmarkOMPCatalog|BenchmarkModelCatalog|BenchmarkModelBrowser\" -benchmem -benchtime=500ms -count=3 github.com/MichaelKinsy/PiG/ai github.com/MichaelKinsy/PiG/internal/codingagent github.com/MichaelKinsy/PiG/tui",
+  "samples": 3,
+  "medians": {
+    "BenchmarkModelBrowser/all/Render": {
+      "ns_per_op": 305069.0,
+      "bytes_per_op": 85711,
+      "allocs_per_op": 1206
+    },
+    "BenchmarkModelBrowser/all/Search": {
+      "ns_per_op": 11820236.0,
+      "bytes_per_op": 2747524,
+      "allocs_per_op": 30089
+    },
+    "BenchmarkModelBrowser/all/SetItems": {
+      "ns_per_op": 10908316.0,
+      "bytes_per_op": 2467202,
+      "allocs_per_op": 11150
+    },
+    "BenchmarkModelBrowser/openai/Render": {
+      "ns_per_op": 385470.0,
+      "bytes_per_op": 86560,
+      "allocs_per_op": 1282
+    },
+    "BenchmarkModelBrowser/openai/Search": {
+      "ns_per_op": 73520.0,
+      "bytes_per_op": 20562,
+      "allocs_per_op": 257
+    },
+    "BenchmarkModelBrowser/openai/SetItems": {
+      "ns_per_op": 73856.0,
+      "bytes_per_op": 30804,
+      "allocs_per_op": 76
+    },
+    "BenchmarkModelCatalog/AllModels": {
+      "ns_per_op": 119305957.0,
+      "bytes_per_op": 41015728,
+      "allocs_per_op": 631371
+    },
+    "BenchmarkModelCatalog/ExactModel": {
+      "ns_per_op": 21931.0,
+      "bytes_per_op": 8512,
+      "allocs_per_op": 137
+    },
+    "BenchmarkModelCatalog/RuntimeModels": {
+      "ns_per_op": 669912.0,
+      "bytes_per_op": 594816,
+      "allocs_per_op": 972
+    },
+    "BenchmarkOMPCatalogLookup": {
+      "ns_per_op": 91.42,
+      "bytes_per_op": 0,
+      "allocs_per_op": 0
+    },
+    "BenchmarkOMPCatalogToModel": {
+      "ns_per_op": 22475.0,
+      "bytes_per_op": 7978,
+      "allocs_per_op": 134
+    }
+  }
+}

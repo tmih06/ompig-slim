@@ -14,7 +14,7 @@ OMP and Pi have separate npm manifests and integrity-checked lockfiles under `be
 Separate dependency trees make installed-footprint comparisons meaningful and avoid sharing one baseline's dependencies with another.
 No globally installed CLI is used.
 
-Pi uses its maintained package scope because the deprecated `@mariozechner` package has no security-fixed release. OMP retains its CLI pin with a `puppeteer-core` 25.17.0 override: this upgrades Chromium BiDi to a version that supports patched Zod 4 instead of forcing Zod 4 into a Zod 3 consumer. Both dependency trees must pass `npm audit`. The historical measurements below retain their original versions and are not measurements of these updated baselines.
+Pi uses its maintained package scope because the deprecated `@mariozechner` package has no security-fixed release. OMP retains its CLI pin with a `puppeteer-core` 25.17.0 override: this upgrades Chromium BiDi to a version that supports patched Zod 4 instead of forcing Zod 4 into a Zod 3 consumer. Both dependency trees must pass `npm audit`. The measurements below were retested on 2026-11-12 against these current baselines.
 
 ## Workload and assertions
 
@@ -129,43 +129,43 @@ Shared system libraries are excluded for every CLI.
 
 | CLI | Entrypoint B | Entrypoint gzip B | Dependencies B | Dependencies gzip B | Runtime B | Runtime gzip B | Total B | Total gzip B |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| ompig-slim | 72,614,151 | 32,292,361 | 0 | 0 | 0 | 0 | 72,614,151 | 32,292,361 |
-| OMP 18.18.0 | 18,601,469 | 6,404,768 | 293,001,827 | 84,622,789 | 107,339,768 | 51,651,341 | 418,943,064 | 142,671,840 |
-| Pi 0.73.1 | 870 | 561 | 149,604,645 | 31,644,723 | 121,723,800 | 43,894,882 | 271,329,315 | 75,490,930 |
+| ompig-slim | 74,776,839 | 32,553,561 | 0 | 0 | 0 | 0 | 74,776,839 | 32,553,561 |
+| OMP 18.18.0 | 18,601,469 | 6,404,768 | 296,266,075 | 85,467,211 | 107,339,768 | 51,644,283 | 422,207,312 | 143,516,262 |
+| Pi 1.5.2 | 169 | 148 | 115,934,602 | 24,435,944 | 121,723,800 | 43,845,646 | 237,658,571 | 68,281,738 |
 
 Reading the table:
 
 - `ompig-slim` is one self-contained native executable: no interpreter, no dependency tree, nothing to resolve at startup. Nothing is downloaded at run time.
-- OMP's disk cost is dominated by its platform native addon (`pi_natives.linux-arm64.node`, 113 MiB) and Bun itself. Pi's is dominated by its JavaScript dependency tree and Node.
-- Compared as total installed bytes, `ompig-slim` is 17.3% of OMP's footprint and 26.8% of Pi's.
-- Compared as compressed download bytes, it is 22.6% of OMP's and 42.8% of Pi's.
-- The 72.6 MB native binary is larger than OMP's 18.6 MB JavaScript bundle and Pi's 870-byte launcher. A fair single-file comparison would only be against another self-contained binary; neither baseline ships one.
+- OMP's disk cost is dominated by its platform native addon (`pi_natives.linux-arm64.node`) and Bun itself. Pi's is dominated by its JavaScript dependency tree and Node.
+- Compared as total installed bytes, `ompig-slim` is 17.7% of OMP's footprint and 31.4% of Pi's.
+- Compared as compressed download bytes, it is 22.7% of OMP's and 47.7% of Pi's.
+- The 74.7 MB native binary is larger than OMP's 18.6 MB JavaScript bundle and Pi's 169-byte launcher. A fair single-file comparison would only be against another self-contained binary; neither baseline ships one.
 - The interpreter numbers are the exact Node and Bun executables on this host and are not charged to a CLI a second time elsewhere.
-- Two other views are worth stating explicitly: total installed bytes is 4.8x smaller than OMP and 2.7x smaller than Pi; compressed download bytes is 3.4x smaller than OMP and 1.3x smaller than Pi.
+- Two other views are worth stating explicitly: total installed bytes is 5.7x smaller than OMP and 3.2x smaller than Pi; compressed download bytes is 4.4x smaller than OMP and 2.1x smaller than Pi.
 - The compressed gap against Pi is narrow because a stripped Go binary, dominated by machine code, type metadata, and pclntab, compresses less than JavaScript text does. Raw disk footprint is where the native build wins clearly.
 
-Locally cross-compiled `linux/amd64` release artifact: `ompig-slim-linux-x64.tar.gz` is 34,725,899 bytes, containing a 77,697,184-byte binary plus licenses.
-The arm64 development build above is 72,614,151 bytes; architecture and linker inputs differ, so compare release archives to release archives.
+Historical pre-optimization, locally cross-compiled `linux/amd64` release artifact: `ompig-slim-linux-x64.tar.gz` is 35,092,196 bytes, containing an 80,150,688-byte binary plus licenses.
+The optimized arm64 development build above is 74,711,303 bytes; architecture, source revision and linker inputs differ, so compare matching release archives to release archives.
 
-Contents of the stripped arm64 executable:
+Historical pre-optimization contents of the stripped arm64 executable (section/compression experiments were not rerun for this optimization):
 
 | Section | Bytes |
 |---|---:|
-| `.text` | 25,411,860 |
-| `.gopclntab` | 20,054,054 |
-| `.rodata` | 16,279,225 |
-| `.go.type` | 5,517,000 |
-| `.noptrdata` | 3,924,961 |
-| `.data` | 1,270,338 |
+| `.text` | 26,860,660 |
+| `.gopclntab` | 21,178,557 |
+| `.rodata` | 16,041,945 |
+| `.go.type` | 6,055,888 |
+| `.noptrdata` | 3,027,905 |
+| `.data` | 1,406,210 |
 
-The 33.5 MB FIPS DRBG scratch buffer is `.noptrbss` and is virtual address space, not file bytes.
-Unstripped builds are 97,487,846 bytes; the existing `-s -w` flags already remove the symbol table and DWARF data.
-A further `strip -s` recovered only 42,327 bytes, so external stripping would add a toolchain dependency for no meaningful gain.
-xz reaches 24,759,828 bytes and zstd-19 reaches 27,356,167 bytes on this binary; release archives stay on gzip because it is universally available and already verified.
+The 34.1 MB FIPS DRBG scratch buffer is `.noptrbss` and is virtual address space, not file bytes.
+Unstripped builds are 100,969,552 bytes; the existing `-s -w` flags already remove the symbol table and DWARF data.
+A further `strip -s` recovered only 17,111 bytes, so external stripping would add a toolchain dependency for no meaningful gain.
+xz reaches 24,690,828 bytes and zstd-19 reaches 27,396,204 bytes on this binary; release archives stay on gzip because it is universally available and already verified.
 Largest embedded payloads are the codemode/QuickJS runtime, syntax-highlighting data, and the Lisp extension builder.
 
 `benchmarks/evidence/footprint.json` records these numbers with the command that produced them.
-The footprint figures come from a single short session whose purpose is only to emit the distribution columns; the 120-turn timing numbers above come from separate full runs.
+The distribution columns and the 120-turn timing numbers above come from one build measured on 2026-11-12.
 ## Model catalog and browser paths
 
 [Model catalog performance](../benchmarks/MODEL-CATALOG.md) records the
@@ -176,29 +176,56 @@ and raw evidence. Those results do not imply faster inference or lower RSS.
 
 ## Session memory trace
 
-`PIG_PROFILE=heap,allocs,metrics` already writes whole-process profiles on exit, so no new instrumentation was needed.
-Driving 200 turns through one persisted RPC session and reading the profiles gave these numbers before and after the change below.
-Two runs per binary, medians reported; `benchmarks/evidence/session-allocations.json` retains both runs.
+`PIG_PROFILE=heap,allocs,metrics` writes whole-process profiles on exit. The harness now exposes this through `--profile`, with a separate directory per process, and refuses mixed-CLI profiling comparisons. Profiling is opt-in: ordinary timing runs remain uninstrumented.
+Two 200-turn local sessions per binary, medians reported on 2026-11-12. Before is the pre-optimization 0.1.5 build; after includes the local-mode changes below. `benchmarks/evidence/session-allocations.json` retains each run.
 
 | Metric | Before | After | Change |
 |---|---:|---:|---:|
-| Allocated bytes | 508,769,012 | 314,804,852 | -38.1% |
-| GC cycles | 18 | 14 | -22% |
-| Mapped heap | 80,939,288 | 68,385,032 | -15.5% |
-| Live heap at exit | 10,666,800 | 9,620,240 | -9.8% |
-| Peak RSS from metrics | 120,217,600 | 108,349,440 | -9.9% |
+| Allocated bytes | 2,035,209,252 | 342,866,792 | -83.2% |
+| GC cycles | 17 | 15 | -11.8% |
+| Mapped runtime bytes | 310,982,984 | 66,291,992 | -78.7% |
+| Live heap at exit | 49,834,728 | 8,866,632 | -82.2% |
+| Peak RSS from metrics | 353,699,840 | 105,918,464 | -70.1% |
 
-The allocation profile put `strings.Builder.WriteString` inside `convertCompletionsMessages` at 42.6% of all allocated bytes: every request re-joined each historical assistant answer into a fresh copy.
-Only an assistant message with several text blocks needs concatenation; one text block is the ordinary case, and returning that block's string as it stands costs nothing.
-The join is now a single helper with a sized buffer for the multi-block case, and a single block is passed through unchanged.
-Empty content keeps its previous meaning, so a message with blank text is still dropped and a tool-call-only message still carries no text member.
+The original single-text-block optimization in `convertCompletionsMessages` remains intact. The new reduction removes history projection and JSON decoding from the loop guard's ordinary no-draft turn, and avoids serializing unrelated messages to find a todo snapshot. A no-todo-history regression test asserts zero allocations across 600 assistant entries. The transcript and provider conversion memo still retain history; these figures are not a leak proof.
 
-Correctness is covered by comparing the helper's output with the accumulation it replaces, including empty parts and multibyte text, and by asserting the converted content of single-block, multi-block, blank, and tool-call-only assistant messages.
-`make check`, `make race` (isolated cache), the codemode/subagent/web-tool smoke tests, and the CLI comparison all still pass.
+## Local-mode optimization
 
-Turn latency was unchanged within noise across repeated runs, so this is a memory and allocation result, not a speed claim.
-The FIPS DRBG scratch buffer is untouched, so the executable is byte-identical in size at 72,614,151 bytes.
-Regular heap growth with history remains: the session keeps every message, the conversion memo retains provider copies above 64 messages, and the append-only transcript is never truncated within a session.
+All CLI comparisons here measure isolated local mode, even on a host configured for a remote broker. The allowlisted environment excludes `OMPIG_BROKER_URL` and `OMPIG_BROKER_TOKEN`; the temporary HOME/profile has no saved broker configuration. `--offline` also bypasses broker startup. No real profile, credential or broker setting is modified. Broker HTTP/RTT benchmarks below are a separate workload.
+
+Five measured runs after one warmup per binary, each 120 turns plus a fresh 12-turn resume, serial on the same Linux arm64 host:
+
+| Metric | Before optimization | After optimization |
+|---|---:|---:|
+| Ready, long session | 582.8 ms | 121.3 ms |
+| Turn median, long session | 53.7 ms | 20.6 ms |
+| Turn median, resumed session | 191.8 ms | 32.5 ms |
+| Peak RSS, long session | 570.4 MiB | 177.7 MiB |
+| CPU, long session | 4.61 s | 1.48 s |
+| CPU, resumed session | 2.74 s | 0.37 s |
+
+`benchmarks/evidence/local-optimization.json` retains both binaries' hashes, toolchain/runtime provenance, per-run counters and turn arrays, plus the raw process allocation metrics behind the table below. Timelines are omitted. The optimized full comparison also reruns OMP and Pi, rather than combining old baseline timings with new native timings.
+
+The changes remove work, not features:
+
+- `builtinTypedBase` installs lazy provider callbacks using embedded catalog ownership, without decoding every provider's rows. `ResolveCliModel` uses the existing exact `GetModel` path for an explicit provider/id; misses, suffixes and fuzzy selection still use the full resolver. Saved defaults/roles also use exact lookup. Provider overlays, stripping and virtual models stay authoritative. Cost: the full catalog is still decoded when genuinely requested; no new generated index or stale cache.
+- `RequestAuthRuntime` composes auth without decoding model lists until requested; dynamic Radius rows are still snapshotted during composition. Available-model listing checks auth before loading a plain provider catalog. A real local PTY with a saved default (no explicit `--model`) becomes editable in 597 → 135 ms and initializes in 712 → 247 ms, with one warmup and five fresh measured profiles per binary. Cost: catalog work is deferred to actual list/menu use, not removed.
+- The loop guard requests `OnTurnEndSummary`, whose context is explicitly empty. The runner skips projection/decoding when it has no drafts; actual drafts still run validation/repair, and ordinary Go/JSON handlers receive full previews in snapshot order. The guard itself, goals and agent-state remain enabled. Cost: a small explicit host registration contract rather than guessing which fields a callback reads.
+- `phasesOf` rejects decoded non-todo messages before serialization. The reminder still reads the authoritative latest successful non-view todo snapshot, with no cached state to go stale after rewind/resume. Cost: none beyond a type/role check.
+- `GetContextBranch` retains entries decoded for the current context, as `BuildSessionProjection` already does. Resumed prompts stop reparsing a cold prefix on every selection/usage check. Cost: resident entries bounded by active context, not a new unbounded cache; leaf moves/compaction preserve existing eviction and unrelated branches stay file-backed.
+
+Regression coverage pins exact-model resolution against the full resolver, snapshot ordering and unsubscribe behavior, draft validation/repair, normal-handler previews, unchanged retained JSON records, and repeat context reads with no further disk decoding. `make check`, targeted race tests and `make smoke-built` pass. There are no absolute timing thresholds.
+
+Reproduce with the existing harness (profiling affects timing, so keep those runs separate):
+
+```sh
+python3 scripts/benchmark.py --slim ./bin/ompig-slim --runs 5 --warmups 1 --turns 120 --resume-turns 12
+python3 scripts/benchmark.py --slim ./bin/ompig-slim --only ompig-slim \
+  --runs 2 --warmups 0 --turns 200 --resume-turns 1 \
+  --profile heap allocs metrics --output benchmark-results/allocations
+```
+
+Not applied: new catalog wire formats and broader fuzzy/default-selection indexes (*hypothesis*); exact selection no longer needs them, and they add generated-data/compatibility cost. Longer broker credential/quota caching remains deliberately out of scope because it weakens live sibling logout/block visibility. Results measure synthetic harness overhead, not provider latency or universal performance.
 
 ## Remote client round-trip latency
 
@@ -296,28 +323,26 @@ Medians of five `-benchmem` samples:
 
 | Canonical payload | Before ns/op | After ns/op | Speedup | Allocations before/after |
 |---|---:|---:|---:|---:|
-| Short frame | 412.6 | 255.8 | 1.61x | 0 / 0 |
-| Source file | 15,608 | 4,881 | 3.20x | 0 / 0 |
-| Large history | 2,712,432 | 674,740 | 4.02x | 0 / 0 |
+| Short frame | 412.6 | 223.5 | 1.85x | 0 / 0 |
+| Source file | 15,608 | 4,863 | 3.21x | 0 / 0 |
+| Large history | 2,712,432 | 671,374 | 4.04x | 0 / 0 |
 
 Both versions also report zero allocated bytes per operation with a reused destination.
-`canonical-before.txt` and `canonical-after.txt` retain all benchmark samples.
+`canonical-before.txt` retains the original pre-change samples; `canonical-after.txt` was regenerated on 2026-11-12 against this build.
 The tests compare both scan forms with an independent scalar oracle and compare fast JSON canonicalization against the full rewrite, including Unicode, controls, escapes, surrogate pairs, and boundary offsets.
 A bounded fuzz run exercised over 323,000 inputs without a mismatch.
 
-Five-run, 120-turn full-session medians after the change:
+Five-run, 120-turn full-session medians, retested on 2026-11-12 against the current build:
 
 | CLI | Ready ms | Turn ms | Peak RSS MiB | User + system CPU seconds |
 |---|---:|---:|---:|---:|
-| ompig-slim | 121.3 | 21.0 | 179.3 | 1.46 |
-| OMP | 2175.5 | 43.6 | 499.4 | 10.05 |
-| Pi | 1128.7 | 35.9 | 446.3 | 6.15 |
+| ompig-slim | 121.3 | 20.6 | 177.7 | 1.48 |
+| OMP | 2055.7 | 41.4 | 502.1 | 9.20 |
+| Pi | 1135.1 | 35.8 | 439.4 | 6.30 |
 
-Before the change, ompig-slim's matching medians were 134.1 ms ready, 20.6 ms per turn, 183.7 MiB peak RSS, and 1.47 CPU seconds.
-These full-session differences are too small and noisy to claim an end-to-end speed or memory improvement from this patch.
-The demonstrated improvement is lower CPU work in canonical JSON scanning; it does not reduce feature coverage, allocations, or stripped executable bytes on this host.
-`local-metrics.json` retains per-run metrics and executable hashes for these observations; it omits the large sample timelines, which CI retains in its artifacts.
-The evidence predates the addition of idle-CPU sampling and dependency/runtime provenance fields to the report, so those fields are absent from that historical snapshot; the current executable hash is retained in the benchmark artifact on every CI run.
+These are the same optimized local-mode runs reported in [the CLI comparison](../benchmarks/COMPARISON.md).
+The scanner microbenchmark above is a separate historical retest, not attribution for the full-session improvements; those come from the [local-mode optimization](#local-mode-optimization).
+`local-metrics.json` retains per-run metrics, versions, executable hashes, and the run order for these observations; it omits the large sample timelines, which CI retains in its artifacts.
 
 To reproduce the scanner profiles without rebuilding the application:
 
