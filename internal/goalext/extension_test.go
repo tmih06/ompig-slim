@@ -42,6 +42,23 @@ func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
 	}
 }
 
+func TestAbortedGoalPausesBeforeAnotherPoke(t *testing.T) {
+	tracker := goal.New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	pauseAbortedGoal(tracker, true)
+	if state := tracker.Get(); state == nil || state.Status != goal.StatusPaused {
+		t.Fatalf("aborted goal state = %+v, want paused", state)
+	}
+	result := continueActiveGoal(context.Background(), tracker, func(extension.SendMessagePayload, *extension.SendMessageOptions) {
+		t.Fatal("paused goal was poked after interruption")
+	})
+	if result.Continue != nil && *result.Continue {
+		t.Fatal("paused goal requested continuation")
+	}
+}
+
 // TestGoalSubmitsSkillObjective exercises the real command runner. Goal must
 // forward slash skill syntax to the host's normal prompt/resource expansion.
 func TestGoalSubmitsSkillObjective(t *testing.T) {

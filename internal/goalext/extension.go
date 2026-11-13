@@ -127,15 +127,24 @@ func Extension(api extension.API) error {
 		defer mu.Unlock()
 		return continueActiveGoal(ctx, tracker, api.SendMessage), nil
 	})
-	api.OnAgentSettled(func(ctx context.Context, _ extension.AgentSettledEvent) error {
+	api.OnAgentSettled(func(ctx context.Context, event extension.AgentSettledEvent) error {
 		mu.Lock()
 		defer mu.Unlock()
+		pauseAbortedGoal(tracker, event.Aborted)
 		if state := tracker.Get(); state == nil || state.Status != goal.StatusActive {
 			setWorkingMessage(ctx, "")
 		}
 		return nil
 	})
 	return nil
+}
+
+// pauseAbortedGoal prevents an Escape/cancellation from being mistaken for a
+// completed goal. The next run must be an explicit resume, not an automatic poke.
+func pauseAbortedGoal(tracker *goal.Tracker, aborted bool) {
+	if aborted {
+		_ = tracker.Pause()
+	}
 }
 
 // setWorkingMessage exposes the poke count beside the live working indicator in
