@@ -122,18 +122,29 @@ func Extension(api extension.API) error {
 		}
 		return nil
 	}})
-	api.OnAgentSettled(func(_ context.Context, _ extension.AgentSettledEvent) error {
+	api.OnAgentBeforeSettle(func(_ context.Context, _ *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
 		mu.Lock()
-		state := tracker.Get()
-		mu.Unlock()
-		if state == nil || state.Status != goal.StatusActive {
-			return nil
-		}
-		triggerTurn := true
-		api.SendMessage(extension.SendMessagePayload{CustomType: "goal-continuation", Content: fmt.Sprintf("Continue working toward this goal: %s", state.Objective), Display: false}, &extension.SendMessageOptions{TriggerTurn: &triggerTurn, DeliverAs: extension.DeliverAsNextTurn})
-		return nil
+		defer mu.Unlock()
+		return continueActiveGoal(tracker, api.SendMessage), nil
 	})
 	return nil
+}
+
+// continueActiveGoal queues the next turn at the settlement boundary. Returning
+// continuation rather than triggering a message after settlement keeps observers
+// such as agent-state in working state until the goal is complete or paused.
+func continueActiveGoal(tracker *goal.Tracker, send func(extension.SendMessagePayload, *extension.SendMessageOptions)) extension.AgentBeforeSettleEventResult {
+	state := tracker.Get()
+	if state == nil || state.Status != goal.StatusActive {
+		return extension.AgentBeforeSettleEventResult{}
+	}
+	send(extension.SendMessagePayload{
+		CustomType: "goal-continuation",
+		Content:    fmt.Sprintf("Continue working toward this goal: %s", state.Objective),
+		Display:    false,
+	}, &extension.SendMessageOptions{DeliverAs: extension.DeliverAsNextTurn})
+	continueTurn := true
+	return extension.AgentBeforeSettleEventResult{Continue: &continueTurn}
 }
 
 // render formats the compact model and command response shared by both surfaces.
