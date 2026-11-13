@@ -266,6 +266,12 @@ func init() {
 	slices.Sort(GeneratedProviders)
 }
 
+// CodexAccountEmail returns the normalized email claim in a Codex access token.
+// It is used to label legacy imports that predate persisted email metadata.
+func CodexAccountEmail(accessToken string) string {
+	return strings.ToLower(strings.TrimSpace(codexClaimString(codexJWTProfile(accessToken), codexJWTProfileClaim, "email")))
+}
+
 // codexJSONToAuth supplies the required account header even for opaque access
 // tokens whose account was provided explicitly in the import.
 func codexJSONToAuth(c Credential) (ModelAuth, error) {
