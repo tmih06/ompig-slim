@@ -5,10 +5,12 @@
 // `return <value>`, may start with a `// @options:` line, and reach the model catalog, classifiers, and image models
 // through `models.*`. Results start with a "Script completed" or "Script failed" header.
 //
-// Scripts can call the agent loop's nested tools: active `direct` tools and every `codemode` or `deferred` tool. Nested
-// calls run through the agent loop's tool pipeline (`ToolContext.ExecuteTool`), so validation, `tool_call` and
-// `tool_result` hooks, and permission checks apply exactly as for direct calls. Only the script's output reaches the
-// model; nested results do not.
+// Scripts can call the agent loop's nested tools: active `direct` tools and every `codemode` or `deferred` tool, except
+// transcript-stateful tools such as `todo`. Nested calls run through the agent loop's tool pipeline
+// (`ToolContext.ExecuteTool`), so validation, `tool_call` and `tool_result` hooks, and permission checks apply exactly
+// as for direct calls. Only the script's output reaches the model; nested results do not. Transcript-stateful tools are
+// excluded because their next call reads the session branch, which is not appended until the outer script settles; a
+// chained script would otherwise see an empty or stale list and report a misleading task-not-found error.
 //
 // Ports packages/coding-agent/src/extensions/codemode/{tool,execute,renderer,index}.ts.
 package codemode
@@ -76,9 +78,13 @@ func toDeclaration(tool extension.AgentTool, guidelines []string) sandbox.Tool {
 	return sandbox.Tool{Name: tool.Name, Description: description, InputSchema: tool.Parameters, OutputSchema: output}
 }
 
-// callableTools are the tools a script may call: every given tool except the codemode tool itself.
+// callableTools are the tools a script may call. The todo tool is deliberately excluded: its state is reconstructed from
+// the session branch, but nested results are not appended until the enclosing codemode call settles. Allowing a script to
+// chain todo mutations would therefore make the second call read an empty or stale list.
 func callableTools(tools []extension.AgentTool) []extension.AgentTool {
-	return slices.DeleteFunc(slices.Clone(tools), func(tool extension.AgentTool) bool { return tool.Name == ToolName })
+	return slices.DeleteFunc(slices.Clone(tools), func(tool extension.AgentTool) bool {
+		return tool.Name == ToolName || tool.Name == "todo"
+	})
 }
 
 // renderToolSection is `### \`id\` (\`raw name\`)` followed by the tool's description and declaration.
