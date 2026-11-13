@@ -16,6 +16,9 @@ ompig-slim durable run \
 
 ompig-slim durable resume --state /data/workdesk
 ompig-slim durable status --state /data/workdesk
+ompig-slim durable run --state /data/workdesk --cwd /work/repo \
+  --model provider/model --request-id ticket-123 --events-file /data/events.jsonl \
+  'Implement the ticket'
 ompig-slim durable --help
 ```
 
@@ -40,7 +43,14 @@ not reset this budget or automatically retry a terminal failure. PiG's default
 model retry policy and restart limit bound repeated crashes; a terminal
 `unanswered` result needs an operator/factory decision, not endless restarts.
 
-Commands write one JSON submission receipt to stdout, for example:
+Commands write one JSON submission receipt to stdout, for example. The
+optional `--events-file` writes committed text, tool-call, and tool-result
+records as JSONL while the conversation advances. The optional
+`--control-file` reads JSONL objects such as
+`{"content":"Please also inspect the failing test"}` and admits them as
+follow-up Durable inputs while the run is active. These are adapter streams,
+not a second Durable journal; the SQLite/WAL state remains authoritative.
+
 
 ```json
 {"request_id":"ticket-123","status":"done","answer":"Implemented ..."}

@@ -104,6 +104,12 @@ ompig-slim durable run --state /data/workdesk --cwd /work/repo \
   --model provider/model --request-id ticket-123 'Implement and verify the change'
 ompig-slim durable resume --state /data/workdesk
 ompig-slim durable status --state /data/workdesk
+# Optional committed transcript events and live steering:
+ompig-slim durable run --state /data/workdesk --cwd /work/repo \
+  --model provider/model --request-id ticket-123 \
+  --events-file /data/events.jsonl --control-file /data/control.jsonl \
+  'Implement and verify the change'
+printf '%s\n' '{"content":"Also inspect the failing test"}' >> /data/control.jsonl
 ```
 
 Persist both directories across sandbox restarts. This opt-in mode uses PiG

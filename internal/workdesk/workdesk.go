@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
@@ -40,10 +42,39 @@ type assignment struct {
 // Result is a committed submission receipt, not a claim that a PR is approved.
 // Unanswered includes retry/turn-limit failures; pending needs a running host.
 type Result struct {
-	RequestID string `json:"request_id"`
-	Status    string `json:"status"`
-	Answer    string `json:"answer,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	RequestID string        `json:"request_id"`
+	Status    string        `json:"status"`
+	Answer    string        `json:"answer,omitempty"`
+	Reason    string        `json:"reason,omitempty"`
+	Usage     []UsageReport `json:"usage,omitempty"`
+	Events    []WorkerEvent `json:"events,omitempty"`
+}
+
+// WorkerEvent is a provider-neutral transcript event suitable for a daemon
+// adapter. Payload fields are intentionally bounded to the event vocabulary
+// Multica already persists: text, tool calls, and tool results.
+type WorkerEvent struct {
+	ID      string         `json:"id,omitempty"`
+	Type    string         `json:"type"`
+	CallID  string         `json:"call_id,omitempty"`
+	Tool    string         `json:"tool,omitempty"`
+	Content string         `json:"content,omitempty"`
+	Input   map[string]any `json:"input,omitempty"`
+	Output  string         `json:"output,omitempty"`
+	Usage   *UsageReport   `json:"usage,omitempty"`
+}
+
+// UsageReport is the provider usage attached to one durable worker receipt.
+// It intentionally uses Multica's daemon usage vocabulary so a factory can
+// forward it without guessing provider-specific fields.
+type UsageReport struct {
+	Provider         string  `json:"provider"`
+	Model            string  `json:"model"`
+	InputTokens      int     `json:"input_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
 // Run executes run/resume/status and writes one JSON receipt. Callers provide
@@ -52,7 +83,7 @@ type Result struct {
 func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" {
-			_, err := fmt.Fprintln(out, "usage: ompig-slim durable run --state DIR --cwd REPO --model PROVIDER/MODEL --request-id ID [--max-turns 100] PROMPT\n       ompig-slim durable resume|status --state DIR")
+			_, err := fmt.Fprintln(out, "usage: ompig-slim durable run --state DIR --cwd REPO --model PROVIDER/MODEL --request-id ID [--max-turns 100] [--events-file FILE] [--control-file FILE] PROMPT\n       ompig-slim durable resume --state DIR [--events-file FILE] [--control-file FILE]\n       ompig-slim durable status --state DIR")
 			return err
 		}
 	}
@@ -66,6 +97,8 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 	flags := flag.NewFlagSet("durable "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "persistent workdesk directory (required)")
+	eventsPath := flags.String("events-file", "", "append committed worker events as JSONL")
+	controlPath := flags.String("control-file", "", "read supplemental prompts as JSONL")
 	var job assignment
 	if command == "run" {
 		flags.StringVar(&job.CWD, "cwd", "", "repository directory (required)")
@@ -183,6 +216,22 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 	if err != nil {
 		return err
 	}
+	var eventWriter *workerEventWriter
+	if *eventsPath != "" {
+		eventWriter, err = newWorkerEventWriter(*eventsPath)
+		if err != nil {
+			return err
+		}
+		defer eventWriter.Close()
+		observation, observeErr := h.ObserveConversation(ctx, root.Id(), eventWriter, nil)
+		if observeErr != nil {
+			return observeErr
+		}
+		defer observation.Detach()
+	}
+	if *controlPath != "" {
+		go controlLoop(ctx, root, *controlPath)
+	}
 	submission, err := root.Submit(ctx, durable.SubmissionDraft{Type: durable.SubmissionTypeInput, Content: ai.UserText(job.Prompt), RequestId: &job.RequestID})
 	if err != nil {
 		return err
@@ -198,6 +247,9 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 	if err != nil {
 		return err
 	}
+	if usage, usageErr := h.Usage(ctx); usageErr == nil {
+		result.Usage = usageReportsFromState(usage)
+	}
 	if err = json.NewEncoder(out).Encode(result); err != nil {
 		return err
 	}
@@ -205,6 +257,49 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 		return fmt.Errorf("workdesk ended %s: %s", result.Status, result.Reason)
 	}
 	return nil
+}
+
+type controlMessage struct {
+	Content string `json:"content"`
+}
+
+func decodeControlMessages(data []byte) ([]controlMessage, int64) {
+	last := strings.LastIndexByte(string(data), '\n')
+	if last < 0 {
+		return nil, 0
+	}
+	consumed := int64(last + 1)
+	var messages []controlMessage
+	for _, line := range strings.Split(string(data[:last]), "\n") {
+		var message controlMessage
+		if json.Unmarshal([]byte(line), &message) == nil && strings.TrimSpace(message.Content) != "" {
+			messages = append(messages, message)
+		}
+	}
+	return messages, consumed
+}
+
+func controlLoop(ctx context.Context, conversation harness.Conversation, path string) {
+	var offset int64
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err != nil || int64(len(data)) <= offset {
+				continue
+			}
+			messages, consumed := decodeControlMessages(data[offset:])
+			for _, message := range messages {
+				requestID := fmt.Sprintf("control-%d", time.Now().UnixNano())
+				_, _ = conversation.Submit(ctx, durable.SubmissionDraft{Type: durable.SubmissionTypeInput, Content: ai.UserText(message.Content), RequestId: &requestID})
+			}
+			offset += consumed
+		}
+	}
 }
 
 // openStorage opens PiG's canonical SQLite journal with FULL synchronization.
@@ -308,6 +403,97 @@ func status(ctx context.Context, state string, job assignment) (Result, error) {
 	return receipt(ctx, storage, page.Items[0], job)
 }
 
+type workerEventWriter struct {
+	mu   sync.Mutex
+	file *os.File
+	seen map[durable.EntryId]struct{}
+}
+
+func newWorkerEventWriter(path string) (*workerEventWriter, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return nil, err
+	}
+	return &workerEventWriter{file: file, seen: make(map[durable.EntryId]struct{})}, nil
+}
+
+func (w *workerEventWriter) Advance(_ context.Context, call durable.WatchCall[harness.ConversationView]) {
+	if call.Kind != durable.WatchCallValue {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, entry := range call.Value.Entries {
+		if _, ok := w.seen[entry.Id]; ok {
+			continue
+		}
+		w.seen[entry.Id] = struct{}{}
+		for messageIndex, message := range entry.Model {
+			for eventIndex, event := range workerEventsFromMessage(message) {
+				event.ID = fmt.Sprintf("%d:%d:%d", entry.Id, messageIndex, eventIndex)
+				if raw, err := json.Marshal(event); err == nil {
+					_, _ = w.file.Write(append(raw, '\n'))
+				}
+			}
+		}
+	}
+	_ = w.file.Sync()
+}
+
+func (w *workerEventWriter) End(durable.WatchEnd) {}
+
+func (w *workerEventWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.file.Close()
+}
+
+func workerEventsFromMessage(message ai.Message) []WorkerEvent {
+	switch value := message.(type) {
+	case ai.AssistantMessage:
+		events := make([]WorkerEvent, 0, len(value.Content))
+		for _, block := range value.Content {
+			switch block := block.(type) {
+			case ai.TextContent:
+				events = append(events, WorkerEvent{Type: "text", Content: block.Text})
+			case ai.ToolCall:
+				events = append(events, WorkerEvent{Type: "tool_call", CallID: block.ID, Tool: block.Name, Input: block.Arguments})
+			}
+		}
+		if value.Provider != "" || value.Model != "" || value.Usage.TotalTokens > 0 {
+			events = append(events, WorkerEvent{Type: "usage", Usage: &UsageReport{
+				Provider: value.Provider, Model: value.Model,
+				InputTokens: value.Usage.Input, OutputTokens: value.Usage.Output,
+				CacheReadTokens: value.Usage.CacheRead, CacheWriteTokens: value.Usage.CacheWrite,
+				CostUSD: value.Usage.Cost.Total,
+			}})
+		}
+		return events
+	case ai.ToolResultMessage:
+		payload, _ := json.Marshal(value.Content)
+		return []WorkerEvent{{Type: "tool_result", CallID: value.ToolCallID, Tool: value.ToolName, Output: string(payload)}}
+	default:
+		return nil
+	}
+}
+
+func usageReportsFromState(state harness.UsageState) []UsageReport {
+	reports := make([]UsageReport, 0, len(state.Models))
+	for modelRef, usage := range state.Models {
+		provider, model, _ := strings.Cut(modelRef, "/")
+		reports = append(reports, UsageReport{
+			Provider: provider, Model: model,
+			InputTokens: usage.Input, OutputTokens: usage.Output,
+			CacheReadTokens: usage.CacheRead, CacheWriteTokens: usage.CacheWrite,
+			CostUSD: usage.Cost.Total,
+		})
+	}
+	return reports
+}
+
 // receipt derives output from the canonical submission and immutable answer.
 func receipt(ctx context.Context, storage durable.Storage, record durable.SubmissionRecord, job assignment) (Result, error) {
 	result := Result{RequestID: job.RequestID, Status: string(record.Status)}
@@ -321,15 +507,27 @@ func receipt(ctx context.Context, storage durable.Storage, record durable.Submis
 	if err != nil || entry == nil {
 		return result, err
 	}
-	for _, message := range entry.Entry.Model {
+	for messageIndex, message := range entry.Entry.Model {
+		for eventIndex, event := range workerEventsFromMessage(message) {
+			event.ID = fmt.Sprintf("%d:%d:%d", entry.Entry.Id, messageIndex, eventIndex)
+			result.Events = append(result.Events, event)
+		}
 		assistant, ok := message.(ai.AssistantMessage)
 		if !ok {
 			continue
 		}
 		for _, block := range assistant.Content {
-			if text, ok := block.(ai.TextContent); ok {
-				result.Answer += text.Text
+			if value, ok := block.(ai.TextContent); ok {
+				result.Answer += value.Text
 			}
+		}
+		if assistant.Provider != "" || assistant.Model != "" || assistant.Usage.TotalTokens > 0 {
+			result.Usage = append(result.Usage, UsageReport{
+				Provider: assistant.Provider, Model: assistant.Model,
+				InputTokens: assistant.Usage.Input, OutputTokens: assistant.Usage.Output,
+				CacheReadTokens: assistant.Usage.CacheRead, CacheWriteTokens: assistant.Usage.CacheWrite,
+				CostUSD: assistant.Usage.Cost.Total,
+			})
 		}
 	}
 	return result, nil
