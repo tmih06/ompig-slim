@@ -21,12 +21,26 @@ func TestGoalSubmitsSkillObjective(t *testing.T) {
 			}
 			runner := inproc.NewRunner([]extension.Extension{loaded}, root)
 			var submitted any
-			runner.BindCore(extension.ExtensionActions{SendUserMessage: func(content any, _ *extension.SendUserMessageOptions) error { submitted = content; return nil }}, extension.ContextActions{}, nil)
+			var expand *bool
+			runner.BindCore(extension.ExtensionActions{SendUserMessage: func(content any, opts *extension.SendUserMessageOptions) error {
+				submitted = content
+				if opts != nil {
+					expand = opts.ExpandPromptTemplates
+				}
+				return nil
+			}}, extension.ContextActions{}, nil)
 			if !runner.ExecuteCommand(context.Background(), "goal", args) {
 				t.Fatal("goal command not handled")
 			}
 			if submitted != "/skill:review fix this" {
 				t.Fatalf("submitted = %q; want skill objective", submitted)
+			}
+			// A goal objective is a prompt, so the host must run the same
+			// skill/template expansion a typed prompt gets. Without the explicit
+			// request, an extension-originated message defaults to no expansion
+			// and a `/skill:` objective reaches the model as literal text.
+			if expand == nil || !*expand {
+				t.Fatalf("ExpandPromptTemplates = %v; want an explicit true", expand)
 			}
 		})
 	}

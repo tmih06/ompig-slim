@@ -478,6 +478,11 @@ type SendMessageOptions struct {
 // SendUserMessageOptions mirrors upstream options for sendUserMessage.
 type SendUserMessageOptions struct {
 	DeliverAs string `json:"deliverAs,omitempty"` // "steer" | "followUp"
+	// ExpandPromptTemplates is Pi's option of the same name: nil means the
+	// host expands nothing, true asks for the skill and prompt-template
+	// expansion a typed prompt gets. It is a pointer so an absent field stays
+	// distinguishable from an explicit false.
+	ExpandPromptTemplates *bool `json:"expandPromptTemplates,omitempty"`
 }
 
 // ToolInfo is one entry of getAllTools on the wire. Mirrors upstream ToolInfo
