@@ -56,6 +56,7 @@ next-request visibility and persistence with extensions disabled.
 - `benchmarks/`: pinned OMP/Pi npm manifests and lockfiles plus retained local measurement evidence used by CI comparisons.
 - `docs/benchmarks.md`: benchmark build chain, mock workload, metric definitions, limitations, and measured optimization record.
 - `docs/tool-selection.md`: how the declared and codemode-callable tool sets are selected by `defaultTools`, CLI flags, Piglets, and MCP config.
+- `docs/custom-models.md`: the `models.yml` / `models.json` provider format, credential interpolation, built-in provider overrides, and the validation errors that reject the whole file.
 - `docs/research/`: retained investigation notes, kept for their evidence and dated observations rather than as current contracts.
 - `Makefile`: canonical developer targets.
 - `docs/cost-audit.md`: rationale and findings for subagent cost behavior.

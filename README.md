@@ -76,6 +76,7 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 | `ompig-slim -c` / `-r` / `--session <id>` | continue the last session, pick one, open by id |
 | `ompig-slim --model openai/gpt-4o:high` | pick `provider/id` with a thinking level |
 | `ompig-slim --model @review` | run on a saved [model role](docs/model-roles.md) |
+| `ompig-slim --list-models` | list selectable models, including your own ([custom models](docs/custom-models.md)) |
 | `ompig-slim @src/a.ts "explain"` | attach files or images to the prompt |
 | `ompig-slim --tools read,grep,find` | restrict the tool set for one run ([selection rules](docs/tool-selection.md)) |
 
