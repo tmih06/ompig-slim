@@ -86,6 +86,7 @@ func authCommandHelpText() string {
   %[1]s auth logout <provider> [--account <key>]
   %[1]s auth accounts [--provider <provider>] [--json]
   %[1]s auth use <provider> <account>
+  %[1]s auth auto-reset <provider> <account> <on|off>
   %[1]s auth print-api-key [--provider <provider>] [--model <model>]
   %[1]s auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]
   %[1]s auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
@@ -98,6 +99,8 @@ Commands:
   logout <provider>       Remove the stored credentials; environment variables and models.yml stay
   accounts                List stored accounts, marking the active one per provider
   use <provider> <acct>   Make a stored account the active one for that provider
+  auto-reset <provider> <acct> <on|off>
+                           Enable or disable automatic saved-reset redemption
   print-api-key           Print the resolved API key
   print-bearer-token      Print a resolved OAuth bearer token (refreshes if expired)
   check                   Print ready, not_ready, or invalid; exit with 0, 1, or 2
@@ -141,7 +144,7 @@ func ParseAuthCommand(args []string) (*AuthCommand, error) {
 		kind = AuthCommandAPIKey
 	case "print-bearer-token":
 		kind = AuthCommandBearerToken
-	case "login", "logout", "accounts", "use":
+	case "login", "logout", "accounts", "use", "auto-reset":
 		// Dispatched before parsing (auth_run.go); these never reach ParseAuthCommand.
 		return nil, nil
 	default:

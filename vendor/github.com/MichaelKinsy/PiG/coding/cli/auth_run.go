@@ -94,6 +94,8 @@ func runAuthCommandWith(args []string, env authRunEnv) int {
 			return runAuthAccounts(subcommandArgs, env)
 		case "use":
 			return runAuthUse(subcommandArgs, env)
+		case "auto-reset":
+			return runAuthAutoReset(subcommandArgs, env)
 		case "login":
 			return runAuthLogin(subcommandArgs, env)
 		case "logout":

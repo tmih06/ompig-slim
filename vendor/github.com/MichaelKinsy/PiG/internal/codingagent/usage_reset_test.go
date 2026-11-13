@@ -85,6 +85,32 @@ func resetTestService(t *testing.T, transport *resetRouteTransport, providerID s
 	})
 }
 
+func TestAutoResetRedeemsAnAvailableCreditForAnExhaustedAccount(t *testing.T) {
+	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
+		"GET /backend-api/wham/rate-limit-reset-credits":          {status: 200, body: `{"credits":[{"id":"credit-auto","status":"available"}],"available_count":1}`},
+		"POST /backend-api/wham/rate-limit-reset-credits/consume": {status: 200, body: `{"code":"reset"}`},
+	}}
+	credential := resetTestOAuthCredential()
+	ai.SetCredentialAutoReset(&credential, true)
+	store := newUsageTestStore()
+	store.add("openai-codex", nil, credential)
+	used := 1.0
+	service := NewUsageService(UsageServiceOptions{
+		Credentials: store,
+		Accounts:    store,
+		Providers: []*ai.UsageProvider{{ID: "openai-codex", FetchUsage: func(context.Context, ai.UsageFetchParams, ai.UsageFetchContext) (*ai.UsageReport, error) {
+			return &ai.UsageReport{Provider: "openai-codex", Limits: []ai.UsageLimit{{Status: ai.UsageStatusExhausted, Amount: ai.UsageAmount{UsedFraction: &used}}}}, nil
+		}}},
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if _, err := service.FetchSnapshot(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.requests) != 2 || transport.requests[1].Method != "POST" {
+		t.Fatalf("requests = %d %+v", len(transport.requests), transport.requests)
+	}
+}
+
 func TestListResetCreditsReportsEveryAccountWithItsSession(t *testing.T) {
 	transport := &resetRouteTransport{routes: map[string]resetRouteResponse{
 		"GET /backend-api/wham/rate-limit-reset-credits": {status: 200, body: `{

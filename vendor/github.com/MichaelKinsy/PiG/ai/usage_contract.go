@@ -136,7 +136,9 @@ type UsageLogger interface {
 // UsageCredential is the narrow credential bundle a usage fetcher authenticates
 // with, built from a stored credential or the ambient auth resolution.
 type UsageCredential struct {
-	Type                 CredentialType `json:"type"`
+	Type CredentialType `json:"type"`
+	// AutoReset opts this stored account into automatic saved-reset redemption.
+	AutoReset            bool           `json:"autoReset,omitempty"`
 	APIKey               string         `json:"apiKey,omitempty"`
 	AccessToken          string         `json:"accessToken,omitempty"`
 	RefreshToken         string         `json:"refreshToken,omitempty"`
@@ -676,6 +678,7 @@ func UsageCredentialFromStored(credential *Credential) UsageCredential {
 	out := UsageCredential{
 		Type:        CredentialOAuth,
 		AccessToken: credential.Access,
+		AutoReset:   CredentialAutoResetEnabled(*credential),
 	}
 	if credential.Refresh != RemoteRefreshSentinel {
 		out.RefreshToken = credential.Refresh
@@ -696,6 +699,30 @@ func UsageCredentialFromStored(credential *Credential) UsageCredential {
 		out.APIEndpoint = settings.APIEndpoint
 	}
 	return out
+}
+
+const credentialAutoResetKey = "autoReset"
+
+// CredentialAutoResetEnabled reports whether a stored account opted into automatic reset redemption.
+func CredentialAutoResetEnabled(credential Credential) bool {
+	value, ok := credential.Extra[credentialAutoResetKey]
+	if !ok {
+		return false
+	}
+	var enabled bool
+	return json.Unmarshal(value, &enabled) == nil && enabled
+}
+
+// SetCredentialAutoReset updates the account-local automatic reset preference without touching secrets.
+func SetCredentialAutoReset(credential *Credential, enabled bool) {
+	if credential == nil {
+		return
+	}
+	if credential.Extra == nil {
+		credential.Extra = map[string]json.RawMessage{}
+	}
+	value, _ := json.Marshal(enabled)
+	credential.Extra[credentialAutoResetKey] = value
 }
 
 // AttributeUsageReport attaches the stored credential's identity to a report so
