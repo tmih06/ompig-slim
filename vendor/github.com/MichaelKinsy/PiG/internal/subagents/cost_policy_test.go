@@ -36,6 +36,34 @@ func TestCostDefaultsAndCompactToolDescriptions(t *testing.T) {
 	}
 }
 
+// TestAgentSchemaAdvertisesLoadedProfilesAndModelRoles keeps capability
+// discovery local to the schema instead of prompting filesystem searches.
+func TestAgentSchemaAdvertisesLoadedProfilesAndModelRoles(t *testing.T) {
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir()})
+	defer m.Close()
+	for _, mode := range []string{"compact", "full"} {
+		t.Run(mode, func(t *testing.T) {
+			m.mu.Lock()
+			m.settings.ToolDescriptionMode = mode
+			m.mu.Unlock()
+			schema := (&Tool{Manager: m, ToolName: "Agent"}).Schema()
+			for _, path := range []string{".pi/agents", m.host.AgentDir} {
+				if strings.Contains(schema.Description, path) {
+					t.Fatalf("tool description advertises filesystem discovery: %s", path)
+				}
+			}
+			if !strings.Contains(schema.Description, "already loaded") || !strings.Contains(schema.Description, "Do not search") {
+				t.Fatal("tool description must make the loaded profile list authoritative")
+			}
+			props := schema.Parameters["properties"].(map[string]any)
+			model := props["model"].(map[string]any)["description"].(string)
+			if !strings.Contains(model, "@role") {
+				t.Fatal("model parameter must advertise role aliases")
+			}
+		})
+	}
+}
+
 func TestLegacyModelMentionUsesDirectDispatch(t *testing.T) {
 	m := testManager(t, func(_ context.Context, inv Invocation) (Child, error) {
 		if inv.Params.Prompt != "find the auth handler" {

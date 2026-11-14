@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Verbatim model-facing descriptions from the pinned extension, with dynamic
+// Model-facing descriptions adapted from the pinned extension, with dynamic
 // values replaced at registration time, as the original template renderer does.
 //
 //go:embed agent-description.txt

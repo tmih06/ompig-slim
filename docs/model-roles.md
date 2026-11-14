@@ -9,6 +9,21 @@ and **session-only model selection**:
   `--model @review` and subagent `model: "@review"` also resolve roles.
   `pi/review` is the legacy spelling; `*` means `@default`.
 
+## Subagent profiles versus model roles
+
+`Agent.subagent_type` selects a loaded tool/prompt profile; `Agent.model`
+selects its model independently and accepts `@role` aliases. Task-specific
+responsibilities belong in `prompt`, not in a new agent definition. The tool
+description lists profiles already loaded by the runtime, including custom
+profiles; the model should not search agent directories to discover them.
+
+OMP uses the same separation, not arbitrary role names in place of agent
+profiles: its bundled `task` profile specifies `@task`, while `sonic` specifies
+`@smol` (`packages/coding-agent/src/task/agents.ts`). Here, an explicit model
+overrides the profile model; without either, an explicitly assigned `task`
+role is used, otherwise the child inherits the parent model. Choosing a role
+does not change tool permissions or the profile prompt.
+
 ## Fullscreen manager
 
 The sidebar contains All, Recent, Roles, and providers. Locked providers remain

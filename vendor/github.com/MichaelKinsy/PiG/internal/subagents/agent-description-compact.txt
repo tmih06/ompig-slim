@@ -1,7 +1,7 @@
 Launch an autonomous agent for complex, multi-step tasks. Prefer direct tools for known paths, searches, parsing, and tests; do not delegate mechanical work. Agent types:
 {{compactTypeList}}
 
-Custom agents: .pi/agents/<name>.md (project) or {{agentDir}}/agents/<name>.md (global).
+These profiles are already loaded, including custom profiles. Do not search the filesystem for agent definitions. Use subagent_type for the tool/prompt profile, model: "@role" for a model role, and prompt for the task-specific responsibilities.
 
 Notes:
 - description: 3-5 words (shown in UI). Prompts must be self-contained — the agent has not seen this conversation.
