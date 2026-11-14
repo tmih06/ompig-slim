@@ -164,10 +164,9 @@ type Session struct {
 	branchLeaf int
 	ctxPath    []int32
 	// ctxGen changes whenever ctxPath is replaced rather than extended at its leaf; projView, the view projection of ctxPath's first
-	// projCovered entries at generation projGen, is extended while it holds and built again when it moves. projMu guards the three, which
-	// BuildSessionProjectionView updates under a read lock of mu; a writer of mu touches them without it.
+	// projCovered entries at generation projGen, is extended while it holds and built again when it moves. mu guards the projection and
+	// the decoded context entries it retains, just as it guards GetContextBranch's retained entries.
 	ctxGen      uint64
-	projMu      sync.Mutex
 	projView    *sessionProjector
 	projGen     uint64
 	projCovered int
@@ -1327,25 +1326,28 @@ func (s *Session) BuildSessionProjection() SessionProjection {
 // BuildSessionProjectionView is BuildSessionProjection with the entries' own messages in place of copies. The caller reads them and never modifies them or hands them to code that might: an estimate over a long conversation then costs a walk of the branch and not a deep copy of every message in it.
 // The projection of the current leaf is kept and extended by the entries appended to it, so a turn projects only its own entries; a
 // leaf move, a compaction or a context edit projects the branch again. Entries are immutable once appended, so the result equals a new
-// projection of the branch.
+// projection of the branch. A full active-context read also retains its decoded entries, so later startup/settings/transcript reads do not
+// decode that same history again. Moving the leaf or compacting still applies the existing eviction policy.
 func (s *Session) BuildSessionProjectionView() SessionProjection {
 	s.projectionCalls.Add(1)
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.leafID == nil {
 		return SessionProjection{ThinkingLevel: "off"}
 	}
 	if s.branchLeaf < 0 || s.slots[s.branchLeaf].id != *s.leafID || s.slotOrZero(*s.leafID) != s.branchLeaf {
 		return buildSessionProjection(s.contextPathToLocked(*s.leafID), s.messageFor, false)
 	}
-	s.projMu.Lock()
-	defer s.projMu.Unlock()
 	path := s.ctxPath
 	if s.projView != nil && s.projGen == s.ctxGen && s.projCovered <= len(path) &&
 		(s.projCovered == len(path) || s.projView.extend(s.entriesAtLocked(path[s.projCovered:]))) {
 		s.projCovered = len(path)
 		return s.projView.view()
 	}
+	entries := s.entriesAtLocked(path)
+	s.retainReadLocked(path, entries)
+	// Project the retained entries rather than temporary disk decodes, so the
+	// cached view does not keep raw read buffers that retention stripped away.
 	s.projView = newSessionProjector(s.entriesAtLocked(path), s.messageFor, false, 0)
 	s.projGen, s.projCovered = s.ctxGen, len(path)
 	return s.projView.view()

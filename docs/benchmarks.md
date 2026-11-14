@@ -240,6 +240,47 @@ python3 scripts/benchmark.py --slim ./bin/ompig-slim --only ompig-slim \
 
 Not applied: new catalog wire formats and broader fuzzy/default-selection indexes (*hypothesis*); exact selection no longer needs them, and they add generated-data/compatibility cost. Longer broker credential/quota caching remains deliberately out of scope because it weakens live sibling logout/block visibility. Results measure synthetic harness overhead, not provider latency or universal performance.
 
+### Resume-to-work latency
+
+`scripts/measure-resume.py` measures a real terminal opening an old session,
+rendering an edit, and sending its first continuation to a loopback model that
+checks every saved turn marker. `--via-picker` instead measures `/resume` in
+an already-running TUI, including listing and automated selection. Profiles,
+credentials and broker settings are isolated through the benchmark allowlist.
+The PTY reader searches a bounded tail so draining long regular-mode scrollback
+does not itself throttle the binary.
+
+Resume construction uses the cached immutable projection for message-existence
+checks instead of decoding and cloning the whole context just to count it.
+`BuildSessionProjectionView` retains decoded active-context entries under the
+session mutex, as `GetContextBranch` does, so constructor checks, restored
+settings, agent hydration and the transcript share one read. Projection uses
+the retained entries, not temporary disk-decode buffers. No history is hidden,
+no model context is deferred past submission, and leaf moves/compaction still
+evict unrelated entries. Cost: the already-needed active context becomes
+resident earlier; the projection and retained entries share its messages.
+
+A 1,000-turn, 4,000-message fixture on a contended Linux arm64 host measured
+fullscreen startup-to-request **2,731 → 1,779 ms**, and in-app picker-to-request
+**2,834 → 1,682 ms** (medians of three interleaved runs). Regular-mode medians
+were **2,715 → 2,326 ms** and **2,355 → 1,735 ms** respectively; regular mode
+still emits the full transcript into native terminal scrollback. These are
+harness timings, not a latency guarantee for another terminal or provider.
+Raw runs, provenance and timing boundaries are retained in
+[`session-resume-readiness.json`](../benchmarks/evidence/session-resume-readiness.json).
+`TestResumeReadsContextOnce` fails on duplicate cold-prefix decoding and also
+checks that the UI's subsequent context read does no additional disk decoding.
+
+```sh
+python3 scripts/measure-resume.py ./bin/ompig-slim --turns 1000 --runs 3
+python3 scripts/measure-resume.py ./bin/ompig-slim --turns 1000 --runs 3 --via-picker
+# Add --mode regular for native scrollback; --max-ms bounds resume-to-request.
+```
+
+Not changed: terminal scrollback replay and initial parsing of the necessary
+active context. Fullscreen avoids the regular terminal's full-scrollback write,
+but the optimization does not override a user's chosen TUI mode.
+
 ## Remote client round-trip latency
 
 `internal/broker/remote_latency_test.go` exercises real authenticated HTTP and

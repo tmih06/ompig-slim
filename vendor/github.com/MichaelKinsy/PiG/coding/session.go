@@ -651,7 +651,9 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 	switch {
 	case opts.SessionManager != nil:
 		inner = opts.SessionManager
-		if len(inner.BuildContext(inner.GetLeafID())) == 0 {
+		// Only existence is needed here: reuse the immutable projection that
+		// settings restoration and refreshContext also read, without cloning history.
+		if len(inner.BuildSessionProjectionView().Messages) == 0 {
 			if opts.Model != nil {
 				if _, err := inner.AppendModelChangeWithRole(providerID(opts.Model), strings.TrimPrefix(ai.ModelSelector(opts.Model), providerID(opts.Model)+"/"), opts.ModelRole); err != nil {
 					return nil, err
@@ -712,7 +714,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 			agent.SetThinkingLevel(ai.ClampThinkingLevel(opts.Model, opts.ThinkingLevel))
 		}
 		// sdk.ts:449-459: a session with messages gets the missing thinking_level_change entry; one without gets its model and thinking level recorded like a new session.
-		if len(inner.BuildContext(inner.GetLeafID())) == 0 {
+		if len(inner.BuildSessionProjectionView().Messages) == 0 {
 			if opts.Model != nil {
 				if _, err := inner.AppendModelChangeWithRole(providerID(opts.Model), strings.TrimPrefix(ai.ModelSelector(opts.Model), providerID(opts.Model)+"/"), opts.ModelRole); err != nil {
 					return nil, err
@@ -925,7 +927,7 @@ func (s *Session) turnEndWithEntryIDs(event agent.TurnEndEvent) agent.TurnEndEve
 
 // restoreCreatedSessionState is restoreSessionRuntimeState as createAgentSession applies it (sdk.ts:211): only a session with messages restores its saved model and thinking level; one that holds entries and no messages starts like a new session.
 func restoreCreatedSessionState(inner *icodingagent.Session, services *AgentSessionServices, fallbackModel *ai.Model, fallbackThinking ai.ModelThinkingLevel, restoreModel bool) (*ai.Model, ai.ModelThinkingLevel) {
-	if len(inner.BuildContext(inner.GetLeafID())) == 0 {
+	if len(inner.BuildSessionProjectionView().Messages) == 0 {
 		return fallbackModel, fallbackThinking
 	}
 	return restoreSessionRuntimeState(inner, services, fallbackModel, fallbackThinking, restoreModel)
