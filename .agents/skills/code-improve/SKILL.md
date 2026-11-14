@@ -1,6 +1,6 @@
 ---
 name: code-improve
-description: "Review, fix, simplify, and optimize code across four axes (Standards, Spec, Simplification, Optimization). Diagnoses issues in parallel sub-agents and applies fixes and improvements directly in the working tree, verifying with project checks. Use when the user wants to review and improve a branch, PR, or diff (\"code-improve\", \"review since X\"), simplify a change (\"/simplify\"), or optimize performance (\"/optimize\")."
+description: "Review, fix, simplify, and optimize code across four axes (Standards, Spec, Simplification, Optimization). Diagnoses issues in parallel sub-agents, fixes Standards and Spec issues directly, invokes `simplify` and `optimize` to apply simplification and performance improvements, and verifies with project checks. Use when the user wants to review and improve a branch, PR, or diff (\"code-improve\", \"review since X\")."
 ---
 
 Four-axis code review and improvement skill—diagnose issues across all four axes, then fix and improve the code directly:
@@ -10,13 +10,16 @@ Four-axis code review and improvement skill—diagnose issues across all four ax
 - **Simplification**: can the change stay correct with less complexity, duplication, needless abstraction, speculative flexibility, or defensive code?
 - **Optimization**: does the change or target introduce avoidable performance, scaling, or algorithmic costs (N+1 queries, serial I/O, unbounded fan-out, missing batching/caching/indexes, wrong complexity, or overload risks)?
 
-## Modes
+## Requires
 
-Choose the mode from the user's request:
+This skill chains two others and does not reimplement them. Install them alongside it:
 
-1. **Four-axis improve (default)**: review the target diff across all four axes in **parallel read-only sub-agents** (see [Process](#process)), then **apply the fixes and improvements** directly in the working tree, verify with the project's checks, and report what changed. If the user explicitly asks for a **review-only / report-only** pass ("don't edit", "report only"), stop after aggregating the sub-agent findings without editing.
-2. **Simplification pass**: when the user asks to simplify a completed workpackage, branch, PR, or set of files (or invokes `/simplify`), follow [SIMPLIFY.md](./SIMPLIFY.md): establish the workpackage, apply routine behavior-preserving simplifications, ask for approval before significant removals, run the project's checks, and report what changed.
-3. **Optimization pass**: when the user asks to improve performance, latency, throughput, memory usage, or efficiency (or invokes `/optimize`), follow [OPTIMIZE.md](./OPTIMIZE.md) and [SCALING.md](./SCALING.md): define target metrics, attribute bottlenecks, check static/asymptotic issues, macro-optimize before micro-optimizing, verify with before/after measurements, and report each change with its measured effect. If the user explicitly asks for a **review-only** optimization pass, dispatch only the read-only Optimization sub-agent scoped to the target and report under `## Optimization`.
+- `simplify`: removes needless abstraction, duplication, indirection, and defensive code without changing intended behavior (including the approval gate for significant removals).
+- `optimize`: measures target metrics, attributes bottlenecks, macro-optimizes before micro-optimizing, and verifies improvements with before/after evidence.
+
+If a required skill is unavailable, name it and stop at that step rather than improvising it. Reporting the missing skill is the correct outcome; a hand-rolled substitute silently drops the discipline the chain exists to borrow.
+
+If the user explicitly asks for a **review-only / report-only** pass ("don't edit", "report only"), run the four read-only reviewer sub-agents and stop after reporting their findings without editing or invoking `simplify` / `optimize`.
 
 The originating issue or spec usually lives in **GitHub Issues**. Fetch it with the `gh` CLI, which infers the repository from the clone. When findings or edits name domain concepts, use the vocabulary from `GLOSSARY.md` (or the per-context glossaries that `GLOSSARY-MAP.md` points at).
 
@@ -82,7 +85,6 @@ Dispatch all four sub-agents together, in the foreground, and aggregate the repo
 **Simplification sub-agent prompt** should include:
 
 - The diff command and commit list, standards-source files, and spec path or contents when available.
-- The checklist from [SIMPLIFY.md](./SIMPLIFY.md) (section 3, "What to remove or simplify"), pasted or summarized in the prompt.
 - The brief: "Look for changes that can satisfy the same requirements with a smaller, more reused implementation. Apply KISS (choose the least complex design that works), YAGNI (build for current requirements), and DRY (give each piece of shared behavior one owner). Before proposing new code or an extraction, inspect each changed implementation and search the repository outside the diff for existing helpers, components, services, types, and shared modules. Read the candidate code and representative callers so you can check semantics, errors, side effects, and module boundaries.
   - **Reuse:** the change recreates an existing capability. Point to the existing symbol and path, and show the call that would replace the new implementation.
   - **De-duplication:** the change repeats domain logic or creates a second implementation of the same behavior. Favor the current canonical owner. If a new shared abstraction is warranted, name the current callers and the ownership rules it must respect.
@@ -92,7 +94,7 @@ Dispatch all four sub-agents together, in the foreground, and aggregate the repo
 **Optimization sub-agent prompt** should include:
 
 - The diff command and commit list, plus the spec/issue when available.
-- The relevant performance and scaling checklist from [SCALING.md](./SCALING.md) and the static-analysis / macro-optimization principles from [OPTIMIZE.md](./OPTIMIZE.md) pasted into the prompt (the sub-agent has no other access to them).
+- The relevant performance and scaling checklist from [SCALING.md](./SCALING.md) pasted into the prompt (the sub-agent has no other access to it).
 - The brief: "Review the changed code for concrete performance, scaling, and algorithmic opportunities introduced or exposed by the diff. Follow the changed call path outside the diff when needed to prove a finding. Macro-optimize before micro-optimizing: prefer approach-level changes (batch, join, index, cache, queue, pagination, algorithm/data structure, removing classes of work) over micro-optimizations. Name the operation, its expected scale, and the bottleneck mechanism before proposing a fix. Look for:
   - **Algorithmic & structural cost:** wrong asymptotic complexity, wrong algorithm or data structure, unnecessary repeated work, work in the wrong layer, or inefficient control flow.
   - **N+1 and chatty I/O:** queries or remote calls inside loops, especially a bulk endpoint that issues one query per item; lazy loading; serial awaits for independent work. Prefer set-based or batch queries, joins, eager loading, or a request-scoped loader; chunk large batches.
@@ -104,12 +106,12 @@ Dispatch all four sub-agents together, in the foreground, and aggregate the repo
 
 ### 5. Apply fixes and improvements
 
-Unless the user explicitly asked for a **review-only / report-only** pass, fix the valid issues raised by the four sub-agents directly in the working tree:
+Unless the user explicitly asked for a **review-only / report-only** pass, resolve the valid issues raised by the four sub-agents:
 
 - **Deduplicate and prioritize:** When reviewers flag the same issue, resolve it once under the most relevant axis. Read the affected files in full before editing.
-- **Standards & Spec:** Fix documented-standard violations, clear code smells, missing/partial spec requirements, and incorrect implementations. Flag any scope creep that looks intentional before removing it.
-- **Simplification:** Apply routine, behavior-preserving simplifications (inlining single-use trivial wrappers, removing newly added duplication, tightening types, removing unreachable branches). Follow the **Approval gate** in [SIMPLIFY.md](./SIMPLIFY.md) before any significant removal (public APIs, validation/auth/error handling, multi-consumer abstractions, test-covered behavior, or uncertain invariants).
-- **Optimization:** Apply proven macro-optimizations (fixing N+1s, batching, indexing, algorithmic improvements, bounding work) following [OPTIMIZE.md](./OPTIMIZE.md) and [SCALING.md](./SCALING.md). Do not claim an optimization without before/after evidence; mark unmeasured hypotheses as pending measurement.
+- **Standards & Spec:** Fix documented-standard violations, clear code smells, missing/partial spec requirements, and incorrect implementations directly in the working tree. Flag any scope creep that looks intentional before removing it.
+- **Simplification:** When the Simplification reviewer raises findings (or the changed code warrants a cleanup pass), invoke the `simplify` skill via the Skill tool scoped to the workpackage. Let `simplify` handle routine cleanups and its approval gate for significant removals.
+- **Optimization:** When the Optimization reviewer raises concrete performance or scaling findings, invoke the `optimize` skill via the Skill tool scoped to those bottlenecks so they are measured, macro-optimized, and verified with before/after evidence.
 
 ### 6. Verify and report
 

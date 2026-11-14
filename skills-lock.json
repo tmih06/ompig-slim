@@ -5,13 +5,19 @@
       "source": "tmih06/skills",
       "sourceType": "github",
       "skillPath": "skills/code-improve/SKILL.md",
-      "computedHash": "cb40136ec81e492dbbcfb4b0d609433b5c454446e32ad35bc3500f6ae0ceb078"
+      "computedHash": "4722c79dc88c4d5ca342e8399f8afef51e3d6cb25defedaf6a23277de489bcdd"
     },
     "diagnosing-bugs": {
       "source": "Essential-kit/skills",
       "sourceType": "github",
       "skillPath": "skills/diagnosing-bugs/SKILL.md",
       "computedHash": "87c78ae966e591f9ceb177789cc5cc9de69277cd26679ffd36ca5300f430d513"
+    },
+    "handoff": {
+      "source": "tmih06/skills",
+      "sourceType": "github",
+      "skillPath": "skills/handoff/SKILL.md",
+      "computedHash": "684aaf10031543853b73f263d23bbccc85eb4fddf5d5b20a7b09beb4e478e8f5"
     },
     "implement-spec": {
       "source": "tmih06/skills",
@@ -20,7 +26,7 @@
       "computedHash": "50f2aa1caa2c5500e5872516ebb62ed90c031814ab144f08ac4da53e97f9bf5f"
     },
     "optimize": {
-      "source": "Essential-kit/skills",
+      "source": "tmih06/skills",
       "sourceType": "github",
       "skillPath": "skills/optimize/SKILL.md",
       "computedHash": "59880ab4b05450ca779b9b29f4e30a36f87affc2b030de89a87ecec7b640fc38"
@@ -38,7 +44,7 @@
       "computedHash": "5bd6a6b833227dd87ee023c2d4734f4c349f290140514bb80bdc041ead1e837e"
     },
     "simplify": {
-      "source": "Essential-kit/skills",
+      "source": "tmih06/skills",
       "sourceType": "github",
       "skillPath": "skills/simplify/SKILL.md",
       "computedHash": "4724fff9ff22c6d74d21ae5a259ba586c86c09552582e42c71ebdff1a3e7bfd5"
