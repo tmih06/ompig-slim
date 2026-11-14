@@ -54,3 +54,11 @@ Communication to and from subagents should be sparse. Communicate primarily thro
 8. If a draft PR exists, mark it ready for review so a **ready PR** exists after all implement steps are finished; otherwise create a ready PR now. In either case, ensure the spec and all tickets are linked to the PR as closing references (`Closes #<spec>` and one `Closes #<ticket>` per ticket) so they close with the PR on merge — do not run `gh issue close` on them. Report the ready PR and the integration branch.
 
 9. Clean up all **implementer subagent** worktrees.
+
+10. Return a final report covering everything made during the run:
+    - **Spec & tickets**: the spec and each implemented ticket (`#<number>` and title).
+    - **PR & branch**: the integration branch and ready PR (with linked `Closes #...` references).
+    - **Changes made**: a concise summary of what was built per ticket (key files/modules added or changed).
+    - **`code-improve` results**: findings, fixes, simplifications, and optimizations applied across all four axes, plus any pending approvals.
+    - **Verification**: typecheck, lint, and test commands run and their results.
+    - **Cleanup**: confirmation that all implementer worktrees were removed.
