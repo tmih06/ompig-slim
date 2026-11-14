@@ -277,6 +277,39 @@ python3 scripts/measure-resume.py ./bin/ompig-slim --turns 1000 --runs 3 --via-p
 # Add --mode regular for native scrollback; --max-ms bounds resume-to-request.
 ```
 
+A separate **compacted** workload is essential: the earlier uncompacted test
+did not catch reads of history outside the model's kept range. Add
+`--kept-turns 12` to compact the fixture while checking exactly those retained
+turns in the first continuation request. Two interleaved runs per variant on a
+3,000-turn, roughly 19.7 MB log measured:
+
+| Resume-to-request | Before (6add1d6) | After filtered history reads |
+|---|---:|---:|
+| Fullscreen startup | 3,127 ms | 693 ms |
+| Fullscreen `/resume` picker | 2,748 ms | 530 ms |
+| Regular startup | 2,880 ms | 666 ms |
+| Regular `/resume` picker | 2,726 ms | 519 ms |
+
+Cache notices previously forced both a full branch decode and another full
+file decode, despite needing only assistant usage, cache-warming records and
+summary boundaries. They now filter the slot index before reading bodies,
+preserving file order across forks and resets. Transcript hydration reads the
+context branch even when no first-kept entry exists; its compaction trim still
+shows only the summary in that case. Subagent restoration also uses the context
+branch, which retains every state-only entry, including custom records from
+before compaction, without decoding discarded conversation messages. Neither
+feature is disabled, and no new cache or session format is introduced.
+
+`TestCompactedResumeLeavesToolHistoryCold` guards proper, empty, self-referencing
+and missing kept-entry boundaries. `TestCacheNoticeIndexPreservesFileOrder`
+compares notices against the original full-history scan, including orphan
+responses, cache warming and both summary resets. `TestResumeReadsContextOnce`
+also verifies compacted constructor reads and pre-compaction subagent records.
+Raw runs and the separate tool-heavy component benchmark are retained in
+[`session-resume-compacted.json`](../benchmarks/evidence/session-resume-compacted.json).
+The picker fixture contains one saved session, so these results do not measure
+listing hundreds of unrelated logs before a session is selected.
+
 Not changed: terminal scrollback replay and initial parsing of the necessary
 active context. Fullscreen avoids the regular terminal's full-scrollback write,
 but the optimization does not override a user's chosen TUI mode.

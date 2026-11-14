@@ -64,7 +64,9 @@ func (s *Session) initSubagents(opts SessionOptions) error {
 		Restore: func() []subagents.Record {
 			var out []subagents.Record
 			index := map[string]int{}
-			for _, entry := range s.inner.GetBranch() {
+			// The context branch retains every state-only entry, including
+			// pre-compaction custom records, without decoding old message bodies.
+			for _, entry := range s.inner.GetContextBranch() {
 				if c, ok := entry.(icodingagent.CustomEntry); ok && c.CustomType == "subagents:record" {
 					b, err := json.Marshal(c.Data)
 					if err != nil {

@@ -33,7 +33,7 @@ class ResumeModel(http.server.BaseHTTPRequestHandler):
         history = json.dumps(messages[:-1])
         seen = {int(turn) for turn in re.findall(r"RESUME_HISTORY_(\d+)", history)}
         self.server.failures = []
-        if seen != set(range(self.server.turns)):
+        if seen != set(range(self.server.first_turn, self.server.turns)):
             self.server.failures.append("saved conversation is incomplete")
         if "resume-edit-probe" not in json.dumps(messages[-1]):
             self.server.failures.append("continuation prompt missing")
@@ -50,8 +50,12 @@ class ResumeModel(http.server.BaseHTTPRequestHandler):
         self.wfile.write(wire.encode())
 
 
-def write_session(path, cwd, turns):
-    """Write a deterministic uncompacted conversation with matched read calls/results."""
+def write_session(path, cwd, turns, kept_turns=None):
+    """Write matched calls/results, optionally compacting all but kept_turns.
+
+    The first kept turn precedes its compaction entry, matching real session
+    logs; every later turn remains on that same branch.
+    """
     parent = None
     with path.open("w") as stream:
         stream.write(json.dumps({"type": "session", "version": 3, "id": "resume-fixture",
@@ -73,9 +77,14 @@ def write_session(path, cwd, turns):
                 stream.write(json.dumps({"type": "message", "id": entry_id, "parentId": parent,
                                          "timestamp": "2026-01-01T00:00:00.000Z", "message": message}) + "\n")
                 parent = entry_id
+            if kept_turns is not None and turn == turns - kept_turns:
+                stream.write(json.dumps({"type": "compaction", "id": "compacted", "parentId": parent,
+                    "timestamp": "2026-01-01T00:00:00.000Z", "firstKeptEntryId": f"{turn * 4:08x}",
+                    "summary": "Earlier fixture work was summarized.", "tokensBefore": 100000}) + "\n")
+                parent = "compacted"
 
 
-def measure(binary, mode, turns, timeout, via_picker=False):
+def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
     """Time real edits and the first request, isolated from profiles and credentials.
 
     Direct resume starts at exec; picker resume starts when /resume is entered
@@ -90,9 +99,10 @@ def measure(binary, mode, turns, timeout, via_picker=False):
         sessions = root / "sessions"
         sessions.mkdir()
         path = sessions / "history.jsonl"
-        write_session(path, root, turns)
+        write_session(path, root, turns, kept_turns)
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ResumeModel)
         server.turns, server.requested, server.failures = turns, None, []
+        server.first_turn = turns - kept_turns if kept_turns is not None else 0
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         (agent / "models.json").write_text(json.dumps({"providers": {"resume-proof": {
@@ -198,7 +208,8 @@ def measure(binary, mode, turns, timeout, via_picker=False):
         if completed is None or server.requested is None or server.failures:
             raise AssertionError(f"resume failed: editable={editable is not None}, ready={ready is not None}, "
                                  f"history failures={server.failures}; terminal tail={bytes(captured[-3000:])!r}")
-        return {"mode": mode, "via_picker": via_picker, "turns": turns, "session_bytes": path.stat().st_size,
+        return {"mode": mode, "via_picker": via_picker, "turns": turns, "kept_turns": kept_turns,
+                "session_bytes": path.stat().st_size,
                 "editable_ms": round((editable - started) * 1000, 2),
                 "ready_ms": round((ready - started) * 1000, 2),
                 "request_ms": round((server.requested - started) * 1000, 2),
@@ -213,6 +224,7 @@ def main():
     parser.add_argument("binary", type=Path)
     parser.add_argument("--mode", choices=["regular", "fullscreen"], default="fullscreen")
     parser.add_argument("--turns", type=int, default=500)
+    parser.add_argument("--kept-turns", type=int, help="Compact history, keeping this many recent turns")
     parser.add_argument("--via-picker", action="store_true", help="Time /resume selection in an already running TUI instead of exec")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=30)
@@ -220,8 +232,10 @@ def main():
     args = parser.parse_args()
     if min(args.turns, args.runs, args.timeout) <= 0:
         parser.error("turns, runs and timeout must be positive")
+    if args.kept_turns is not None and not 1 <= args.kept_turns <= args.turns:
+        parser.error("kept-turns must be between 1 and turns")
     for run in range(args.runs):
-        result = measure(args.binary.resolve(), args.mode, args.turns, args.timeout, args.via_picker)
+        result = measure(args.binary.resolve(), args.mode, args.turns, args.timeout, args.via_picker, args.kept_turns)
         print(json.dumps({"run": run + 1, **result}), flush=True)
         if args.max_ms is not None and result["request_ms"] > args.max_ms:
             raise SystemExit(f"resume-to-request exceeded {args.max_ms} ms")

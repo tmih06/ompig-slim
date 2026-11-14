@@ -142,13 +142,10 @@ func (m *InteractiveMode) renderSessionEntriesWithHistory(populateHistory bool) 
 	var entries []SessionEntry
 	name := ""
 	if session := m.currentSession(); session != nil {
-		// The kept range and everything after it render the same from the context branch, and the entries before it hydrate the same state;
-		// cache-miss notices scan the whole branch, and a compaction whose kept entry is not on the branch renders the whole branch.
-		if m.showCacheMissNotices() || !session.KeptRangeOnBranch() {
-			entries = session.GetBranch()
-		} else {
-			entries = session.GetContextBranch()
-		}
+		// The context branch carries the retained transcript and usage state.
+		// Cache notices read their own ordered, filtered history below; enabling
+		// them must not force compacted file/shell output back into memory.
+		entries = session.GetContextBranch()
 		name = session.GetSessionName()
 	}
 	if m.statusLine != nil {
@@ -289,7 +286,7 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 		}
 		scanned := entries
 		if sess != nil {
-			scanned = sess.GetEntries()
+			scanned = sess.cacheStatsEntries()
 		}
 		statsEntries := make([]cacheStatsEntry, 0, len(scanned))
 		for _, e := range scanned {

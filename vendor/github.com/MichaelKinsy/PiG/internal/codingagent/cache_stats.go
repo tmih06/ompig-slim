@@ -25,6 +25,28 @@ type cacheStatsEntry struct {
 	usage   *UsageEntry
 }
 
+// cacheStatsEntries returns only records collectCacheMisses can observe, in file
+// append order across every branch. Tool/user bodies cannot change its state;
+// compaction and branch-summary boundaries must remain to reset prior requests.
+// Filtering the slot index before decoding keeps compacted tool output cold.
+func (s *Session) cacheStatsEntries() []SessionEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var indexes []int32
+	for i := range s.slots {
+		slot := &s.slots[i]
+		switch slot.typ() {
+		case "compaction", "branch_summary", "usage":
+			indexes = append(indexes, int32(i))
+		case "message":
+			if slot.role() == "assistant" {
+				indexes = append(indexes, int32(i))
+			}
+		}
+	}
+	return s.entriesAtLocked(indexes)
+}
+
 func collectCacheMisses(entries []cacheStatsEntry, prices ModelPriceSource) map[*agent.AssistantMessage]*cacheMiss {
 	misses := make(map[*agent.AssistantMessage]*cacheMiss)
 	var previous *previousCacheRequest
