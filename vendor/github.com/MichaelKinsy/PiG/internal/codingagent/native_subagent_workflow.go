@@ -14,7 +14,7 @@ func (v *subagentViewer) renderWorkflowInspector(width int) []string {
 	if !ok {
 		return []string{"Workflow no longer exists"}
 	}
-	height := max(8, v.m.tuiInst.Height()-2)
+	height := v.renderHeight()
 	theme := tui.ActiveTheme()
 	records := v.manager.WorkflowRecords(v.id)
 	v.selectedAgent = min(max(0, v.selectedAgent), max(0, len(records)-1))

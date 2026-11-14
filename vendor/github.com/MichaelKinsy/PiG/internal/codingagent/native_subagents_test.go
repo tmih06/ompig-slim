@@ -46,6 +46,29 @@ func observerFixture(t *testing.T) (*InteractiveMode, *subagents.Manager) {
 	return m, manager
 }
 
+// TestFocusedSubagentViewerFillsViewport prevents the centered overlay from
+// exposing a row of the parent conversation above the subagent title.
+func TestFocusedSubagentViewerFillsViewport(t *testing.T) {
+	m, _ := observerFixture(t)
+	m.openSubagentViewer("agent_test", false, true)
+	v := m.subagentUI.viewer
+	m.tuiInst.RenderNow()
+	bounds, ok := v.handle.GetBounds()
+	if !ok {
+		t.Fatal("viewer overlay has no rendered bounds")
+	}
+	if bounds.Row != 0 || bounds.Height != m.tuiInst.Height() {
+		t.Fatalf("viewer leaves parent rows visible: row=%d height=%d, want row=0 height=%d", bounds.Row, bounds.Height, m.tuiInst.Height())
+	}
+	lines := v.Render(m.tuiInst.Width())
+	if !strings.Contains(widthx.StripTerminalSequences(lines[0]), "Find auth files") {
+		t.Fatal("subagent title must be the first screen row")
+	}
+	if v.footerRow != len(lines)-1 {
+		t.Fatal("viewer footer is not on the last row")
+	}
+}
+
 func TestNativeAgentWidgetWidthAndHubShortcut(t *testing.T) {
 	m, _ := observerFixture(t)
 	for _, width := range []int{12, 40, 100} {

@@ -608,11 +608,23 @@ func (m *InteractiveMode) openSubagentViewer(id string, workflow bool, focus ...
 	}
 	m.requestRender()
 }
+
+// renderHeight reserves surrounding space only for the modal viewer. A
+// full-viewport viewer must fill every row so centering cannot expose its parent
+// above the title or below the footer.
+func (v *subagentViewer) renderHeight() int {
+	height := v.m.tuiInst.Height()
+	if v.m.altScreen == nil && !v.focusSession {
+		height -= 2
+	}
+	return max(8, height)
+}
+
 func (v *subagentViewer) Render(width int) []string {
 	if v.workflow {
 		return v.renderWorkflowInspector(width)
 	}
-	height := max(8, v.m.tuiInst.Height()-2)
+	height := v.renderHeight()
 	theme := tui.ActiveTheme()
 	var body []string
 	anchorOffset := -1
