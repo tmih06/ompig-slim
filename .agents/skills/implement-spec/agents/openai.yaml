@@ -1,0 +1,5 @@
+interface:
+  display_name: "Implement Spec"
+  short_description: "Implement a spec and its tickets in code"
+policy:
+  allow_implicit_invocation: false

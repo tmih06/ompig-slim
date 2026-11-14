@@ -624,6 +624,9 @@ func walkIndexProbe(line []byte) (probe indexProbe, ok bool) {
 		case "api":
 			message.API = v
 			return end, once(1 << 15)
+		case "toolName":
+			message.ToolName = v
+			return end, once(1 << 18)
 		case "responseModel":
 			return end, once(1<<16) && decode(v, &message.ResponseModel)
 		case "timestamp":
@@ -642,7 +645,7 @@ func walkIndexProbe(line []byte) (probe indexProbe, ok bool) {
 			if line[at] != '{' {
 				return 0, false
 			}
-			return walkObjectMembers(line, at, []string{"role", "content", "usage", "provider", "model", "api", "responseModel", "timestamp"}, messageMember)
+			return walkObjectMembers(line, at, []string{"role", "content", "usage", "provider", "model", "api", "toolName", "responseModel", "timestamp"}, messageMember)
 		}
 		end := skipJSONValue(line, at)
 		if end < 0 {

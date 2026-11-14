@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/extensions/sdk/json"
@@ -151,8 +152,9 @@ func (b *recordBlock) packed() ([]byte, error) {
 	return buf, nil
 }
 
-// messageKind is a message's role and, for an assistant, its api.
-type messageKind struct{ role, api string }
+// messageKind is a message's role, an assistant's api, and a tool result's tool name.
+// These small facts let branch readers select records without decoding their bodies.
+type messageKind struct{ role, api, toolName string }
 
 // slotKind is what a slot's kind code names: the entry's type and, for a message entry whose role is a string, its message kind.
 type slotKind struct {
@@ -162,7 +164,7 @@ type slotKind struct {
 }
 
 // slotKinds interns slot kinds for the process: a slot keeps a four-byte code where two unique handles took sixteen bytes. The kinds of a
-// session are its entry types and the roles and apis of its messages, so the table stays as small as the distinct combinations seen.
+// session are its entry types, roles, apis and tool names, so the table stays as small as the distinct combinations seen.
 var slotKinds struct {
 	codes sync.Map // slotKind -> uint32
 	mu    sync.Mutex
@@ -302,34 +304,47 @@ func messageKindOf(entry SessionEntry) (messageKind, bool) {
 		if message.Message.Assistant != nil {
 			kind.api = string(message.Message.Assistant.API)
 		}
+		if message.Message.ToolResult != nil {
+			kind.toolName = message.Message.ToolResult.ToolName
+		}
 		return kind, true
 	}
 	return rawMessageKind(entry.Raw())
 }
 
-// messageKindFrom is rawMessageKind from an already decoded role and raw api.
-func messageKindFrom(role string, rawAPI json.RawMessage) (messageKind, bool) {
-	var api string
+// messageKindFrom is rawMessageKind from an already decoded role and raw api/toolName.
+// Tool names matter only for tool results, keeping other message kinds unchanged.
+func messageKindFrom(role string, rawAPI, rawToolName json.RawMessage) (messageKind, bool) {
+	var api, toolName string
 	_ = json.Unmarshal(rawAPI, &api)
-	return messageKind{role: role, api: api}, true
+	if role == "toolResult" {
+		// The probe already validated JSON. Reuse its string fast path rather
+		// than allocate a decoder for every tool name in a large session.
+		if text, end, plain := scanPlainJSONString(rawToolName, 0); plain && end == len(rawToolName) && utf8.Valid(text) {
+			toolName = string(text)
+		} else {
+			_ = json.Unmarshal(rawToolName, &toolName)
+		}
+	}
+	return messageKind{role: role, api: api, toolName: toolName}, true
 }
 
 func rawMessageKind(raw []byte) (messageKind, bool) {
 	var probe struct {
 		Message struct {
-			Role json.RawMessage `json:"role"`
-			API  json.RawMessage `json:"api"`
+			Role     json.RawMessage `json:"role"`
+			API      json.RawMessage `json:"api"`
+			ToolName json.RawMessage `json:"toolName"`
 		} `json:"message"`
 	}
 	if json.Unmarshal(raw, &probe) != nil {
 		return messageKind{}, false
 	}
-	var r, a string
-	if json.Unmarshal(probe.Message.Role, &r) != nil {
+	var role string
+	if json.Unmarshal(probe.Message.Role, &role) != nil {
 		return messageKind{}, false
 	}
-	_ = json.Unmarshal(probe.Message.API, &a)
-	return messageKind{role: r, api: a}, true
+	return messageKindFrom(role, probe.Message.API, probe.Message.ToolName)
 }
 
 // entryAtLocked returns the entry of slot i, reading it from the backing file when it is not resident. The caller holds s.mu.
@@ -998,14 +1013,16 @@ func (s *Session) GetMessageEntriesWithRole(role string) []SessionEntry {
 }
 
 // branchMessagesWithRole returns the message entries with the given message.role on the branch ending at leafID, in branch order, reading no
-// other entry of the branch.
-func (s *Session) branchMessagesWithRole(leafID, role string) []SessionEntry {
+// other entry of the branch. An optional tool name further restricts tool results using the index, including before compaction.
+func (s *Session) branchMessagesWithRole(leafID, role string, toolName ...string) []SessionEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var indexes []int32
 	for _, i := range s.pathIndexesLocked(leafID) {
 		if s.slots[i].typ() == typeMessage && s.slots[i].role() == role {
-			indexes = append(indexes, i)
+			if len(toolName) == 0 || s.slots[i].kindOf().msg.toolName == toolName[0] {
+				indexes = append(indexes, i)
+			}
 		}
 	}
 	return s.entriesAtLocked(indexes)

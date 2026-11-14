@@ -1,13 +1,6 @@
----
-name: simplify
-description: "Simplify a completed workpackage without changing its intended behavior: remove needless abstraction, duplication, indirection, speculative flexibility, and defensive code, then report what changed and what was left for approval. Use when the user says \"/simplify\", asks to simplify a just-finished change, or wants a cleanup pass over a branch, PR, or set of files."
-argument-hint: "The commit, branch, PR, or files to simplify; defaults to this branch's changes"
-disable-model-invocation: true
----
+# Simplification Guide
 
-# Simplify
-
-Review the completed workpackage and simplify its implementation without changing its intended behavior.
+Reference and execution guide for the **Simplification** axis and standalone simplification passes in `code-improve`. Simplify a completed workpackage without changing its intended behavior: remove needless abstraction, duplication, indirection, speculative flexibility, and defensive code, then report what changed and what was left for approval.
 
 ## 1. Establish the workpackage
 
@@ -20,7 +13,7 @@ Identify the code under review before touching anything. In order of preference:
 
 If none of these resolve to a concrete change, ask which change is the workpackage. Read the commit messages and any linked issue or spec: they define the intended behavior that simplification must preserve.
 
-## Scope
+## 2. Scope
 
 - Focus on code added or affected by the workpackage and the nearby code needed to simplify it coherently.
 - Do not perform unrelated cleanup.
@@ -28,7 +21,7 @@ If none of these resolve to a concrete change, ask which change is the workpacka
 - Optimize for a direct, coherent, maintainable design—not the smallest diff.
 - Names belong to the domain: when the codebase or its docs give a concept a specific term, keep that term rather than renaming it in passing.
 
-## What to remove or simplify
+## 3. What to remove or simplify
 
 - Remove abstractions that have no clear responsibility or do not reduce real complexity.
 - Inline trivial helpers, wrappers, adapters, and pass-through layers when they obscure rather than clarify behavior.
@@ -43,7 +36,7 @@ If none of these resolve to a concrete change, ask which change is the workpacka
 
 Before proposing a replacement that introduces shared code, search outside the diff for the existing helper, type, or module that already owns that behavior. Match abstraction size to current needs: similar-looking code is not enough reason to couple modules.
 
-## Approval gate for significant removals
+## 4. Approval gate for significant removals
 
 Classify each candidate change before applying it. Routine, behavior-preserving cleanup proceeds without asking: inlining a single-use trivial helper, removing an unreachable branch proven impossible by the type model, deleting newly added duplication. If uncertain whether a removal is significant, ask.
 
@@ -68,7 +61,7 @@ Treat a decision as significant when it removes or materially changes any of the
 
 Apply approved and routine changes in the working tree. Leave everything else untouched.
 
-## Constraints
+## 5. Constraints
 
 - Preserve intended behavior unless the user explicitly approves a change.
 - Do not remove code merely because it is unused until you have checked whether it is a public API, extension point, generated entry point, or intentionally retained compatibility surface.
@@ -76,7 +69,7 @@ Apply approved and routine changes in the working tree. Leave everything else un
 - Do not weaken tests to permit simplification. Update tests only when an approved behavior change or a cleaner equivalent structure requires it.
 - After edits, run the project's own checks through the same commands it documents or already uses: type check, lint, and the tests covering the affected code. If an approval is pending, leave the working tree in a consistent, passing state rather than a half-applied refactor.
 
-## Completion
+## 6. Completion report
 
 After editing, review the final diff for avoidable complexity, duplication, indirection, defensive branches, and accidental behavior changes. Report:
 

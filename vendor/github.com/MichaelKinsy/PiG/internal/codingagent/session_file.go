@@ -644,7 +644,7 @@ func prepareMessageLine(base SessionEntryBase, account sessionAccountingEntry, d
 	p := preparedLine{state: lineMessage, base: base, slot: baseSlot(base), account: account, counted: decoded, hash: recordHash(line)}
 	if base.Type == "message" {
 		if decoded {
-			p.slot.setMessageKind(messageKindFrom(account.Message.Role, account.Message.API))
+			p.slot.setMessageKind(messageKindFrom(account.Message.Role, account.Message.API, account.Message.ToolName))
 		} else {
 			p.slot.setMessageKind(rawMessageKind(line))
 		}

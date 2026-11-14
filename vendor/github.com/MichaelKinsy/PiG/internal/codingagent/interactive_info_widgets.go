@@ -84,7 +84,7 @@ func (m *InteractiveMode) updateTodoWidget(result agent.AgentToolResult) {
 	m.todoWidget = card
 }
 
-// restoreTodoWidget resets branch-local presentation and reads only tool-result
+// restoreTodoWidget resets branch-local presentation and reads only todo-result
 // records from the entire live branch. The transcript may load a compacted
 // context subset; using that subset would lose a plan from before compaction.
 // Supplied entries are the fallback for surfaces with no native Session.
@@ -92,7 +92,7 @@ func (m *InteractiveMode) restoreTodoWidget(entries []SessionEntry) {
 	m.todoWidget, m.todoWidgetError = nil, ""
 	if session := m.currentSession(); session != nil {
 		if leaf := session.GetLeafID(); leaf != nil {
-			entries = session.branchMessagesWithRole(*leaf, "toolResult")
+			entries = session.branchMessagesWithRole(*leaf, "toolResult", "todo")
 		} else {
 			entries = nil
 		}

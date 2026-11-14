@@ -68,6 +68,8 @@ type sessionAccountingMessage struct {
 	ModelID  string               `json:"model,omitempty"`
 	// API is read for the session index (entrySlot.api), not for accounting; raw, so any value decodes.
 	API json.RawMessage `json:"api,omitempty"`
+	// ToolName lets widget restore select todo records without decoding other tool bodies.
+	ToolName json.RawMessage `json:"toolName,omitempty"`
 	// ResponseModel is nil when the message has none; an empty string is a value (usage-totals.ts `responseModel ?? model`).
 	ResponseModel *string `json:"responseModel,omitempty"`
 	Timestamp     int64   `json:"timestamp,omitempty"`

@@ -1,12 +1,6 @@
----
-name: optimize
-description: Use when improving performance, latency, throughput, memory usage, or general efficiency. Start by defining target metrics, measuring comprehensively, attributing bottlenecks, validating with static analysis, and prioritizing macro-optimizations before micro-optimizations.
-allowed-tools: bash, read, write, grep, agentgrep, batch, todo
----
+# Optimization Guide
 
-# Optimize
-
-Use this skill when the task is about making a system faster, lighter, more scalable, or otherwise more efficient.
+Reference and execution guide for the **Optimization** axis and standalone optimization passes in `code-improve`. Use when improving performance, latency, throughput, memory usage, or general efficiency. For concrete scaling, data-access, caching, and overload mechanisms, pair this with [SCALING.md](./SCALING.md).
 
 ## Core principle
 
@@ -90,7 +84,7 @@ Keep it to a handful of lines. No prose narrative; detail goes in the diff or co
 5. Check for algorithmic or architectural issues.
 6. Apply the highest-leverage fix first.
 7. Re-measure.
-8. Report the changes and their measured effect (see 5).
+8. Report the changes and their measured effect (see section 5).
 9. Repeat until the target is met or tradeoffs stop being worth it.
 
 ## Guardrails
