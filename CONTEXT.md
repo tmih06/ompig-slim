@@ -179,9 +179,15 @@ failures retain the configured client for background retry and exit flush.
 Invalid bootstrap configuration still requires repair and restart. Profile
 `themes/*.json` files join the fixed preference allowlist through an
 authenticated name listing and a durable per-client/host discovery index. The
-index retains deleted names for retry; each theme reuses document CAS, ancestry,
-private adoption backups and conflict handling. Only direct JSON children sync;
-symlink files/directories, project/package themes and external paths do not.
+index retains deleted names for retry; a name absent from both the profile and
+the host has nothing left to reconcile, so reconciliation drops its index entry
+and its ancestry file instead of paying one item request per name on every poll
+forever. The prune runs after the tombstone is pushed, never collects a
+first-adoption backup, and keeps a name still present on either side so an
+unsynced upload or an unpushed deletion is not forgotten. Each theme reuses
+document CAS, ancestry, private adoption backups and conflict handling. Only
+direct JSON children sync; symlink files/directories, project/package themes and
+external paths do not.
 Theme ancestry paths are hashed to remain flat and bounded. The `themes`
 directory is created only by a write, never by listing, discovery or reading a
 missing theme: the broker volume contract allows only synchronized state, so an

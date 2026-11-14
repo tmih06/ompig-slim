@@ -222,7 +222,9 @@ profile without one, so a broker that stored no theme keeps a data directory
 holding only synchronized documents. Each poll
 waits for every document and reports failures in file order. This overlaps network latency
 without increasing polling frequency. Theme discovery adds one listing request
-per poll; upgrade clients and the broker together. See
+per poll; upgrade clients and the broker together. A name absent from both the
+profile and the host is pruned from the index and its ancestry with it, so the
+per-poll cost tracks the themes that exist rather than every name ever seen. See
 [remote latency measurements](benchmarks.md#remote-client-round-trip-latency)
 for the delayed-network comparison and reproduction command. First
 connection adopts hosted files and privately backs up differing local files as

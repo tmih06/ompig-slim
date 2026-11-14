@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -102,10 +103,22 @@ func publishDocument(dir, name string, data []byte) error {
 }
 
 // themeFiles unions local, hosted and previously seen names. Persisting the
-// index before reconciliation makes deletions retryable across process restarts.
+// index before reconciliation makes deletions retryable across process restarts;
+// a name missing from both the profile and the host has nothing left to
+// reconcile, so it leaves the index with its ancestry instead of costing one
+// item request on every poll for the rest of the profile's life. One bulk
+// copy-then-delete of the optional themes would otherwise leave that permanent
+// per-name cost behind.
+//
+// Ancestry is removed before the index is rewritten so a crash between the two
+// steps stays recoverable: the surviving index entry re-derives the same prune
+// set on the next poll and rewrites the index again. The reverse order would
+// strand ancestry files that no index entry names, which nothing would ever
+// collect. Both steps are idempotent.
+//
 // The caller holds the profile lock; each returned file uses normal per-file CAS.
 func (c *Client) themeFiles(ctx context.Context) ([]string, error) {
-	names, err := localThemes(c.dir)
+	local, err := localThemes(c.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -124,12 +137,41 @@ func (c *Client) themeFiles(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 	}
-	names = append(append(names, remote...), known...)
-	for _, name := range names {
+	for _, name := range slices.Concat(local, remote, known) {
 		if !themeName(name) {
 			return nil, fmt.Errorf("invalid theme name in sync index")
 		}
 	}
+	// A name present on either side keeps its ancestry: a local-only theme may be
+	// an unsynced upload or an unpushed deletion, and a hosted-only one an
+	// unsynced download or applied deletion.
+	present := make(map[string]struct{}, len(local)+len(remote))
+	for _, name := range slices.Concat(local, remote) {
+		present[name] = struct{}{}
+	}
+	var kept, pruned []string
+	for _, name := range known {
+		if _, ok := present[name]; ok {
+			kept = append(kept, name)
+			continue
+		}
+		pruned = append(pruned, name)
+	}
+	var failures []error
+	for _, name := range pruned {
+		// Only ancestry is removed. A first-adoption backup holds the user's own
+		// pre-sync bytes and may be the only copy of them, so it stays.
+		if err := os.Remove(c.statePath(name)); err != nil && !os.IsNotExist(err) {
+			// Keep the name so the index still records the work to retry; dropping
+			// it here would leak the ancestry file with nothing left to collect it.
+			kept = append(kept, name)
+			failures = append(failures, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	names := make([]string, 0, len(local)+len(remote)+len(kept))
+	names = append(names, local...)
+	names = append(names, remote...)
+	names = append(names, kept...)
 	slices.Sort(names)
 	names = slices.Compact(names)
 	next, err := json.Marshal(names)
@@ -141,5 +183,8 @@ func (c *Client) themeFiles(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 	}
-	return names, nil
+	// Pruned names no longer synchronize, so unrelated documents still may: the
+	// joined errors name the ancestry that could not be collected, and the next
+	// poll retries them because the failure kept their index entries.
+	return names, errors.Join(failures...)
 }
