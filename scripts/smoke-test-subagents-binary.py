@@ -4,6 +4,7 @@ import http.server
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -57,7 +58,6 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
                     cls.failure = "cross-extension RPC failed: " + str(last)
                 delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native background proof", "role": "@default", "tool": ["read"]})
             elif stage == 2:
-                import re
                 match = re.search(r"agent_[a-z0-9]{6,}", str(last))
                 if not match:
                     cls.failure = "background agent did not return an id: " + str(last)
@@ -69,7 +69,6 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
                     cls.failure = "background result missing: " + str(last)
                 delta, reason = self.tool("SubagentWorkflow", {"script": "export const meta={name:'smoke',description:'Native workflow proof'}; const result=await pipeline(args,item=>agent(item,{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}})); return result;", "args": ["one", "two"]})
             elif stage == 4:
-                import re
                 match = re.search(r"wf_[a-z0-9]+", str(last))
                 if not match:
                     cls.failure = "workflow did not return run id: " + str(last)
@@ -90,6 +89,61 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
 
     def tool(self, name, args):
         return {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_" + name + "_" + str(type(self).stage), "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}, "tool_calls"
+
+
+class BudgetServer(http.server.BaseHTTPRequestHandler):
+    """Drives one child past the hard turn budget in a session of its own, so a
+    tiny defaultMaxTurns cannot starve the workflow children main() covers."""
+    protocol_version = "HTTP/1.1"
+    failure = ""
+    child_turns = 0
+    lock = threading.Lock()
+
+    def log_message(self, *_):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        cls = type(self)
+        messages = body["messages"]
+        child = any("<active_agent name=" in str(m.get("content", "")) for m in messages if m["role"] in ("system", "developer"))
+        if child:
+            rounds = sum(1 for m in messages if m["role"] == "assistant")
+            with cls.lock:
+                cls.child_turns = max(cls.child_turns, rounds)
+            # Stop early only if a regression lets the child outlive a budget
+            # this small, so a broken run fails instead of hanging.
+            if rounds >= 40:
+                delta, reason = {"role": "assistant", "content": "EXHAUST_ESCAPED"}, "stop"
+            else:
+                delta, reason = self.tool("goal", {"op": "get"})
+        else:
+            results = [m for m in messages if m["role"] == "tool"]
+            last = str(results[-1].get("content", "")) if results else ""
+            if not results:
+                delta, reason = self.tool("Agent", {"prompt": "EXHAUST_TURNS", "description": "Budget exhaustion proof", "role": "@default", "tool": ["read"]})
+            elif match := re.search(r"\bagent_[a-z0-9]{6,}", last):
+                delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
+            elif "subagent_outcome: exhausted" not in last:
+                cls.failure = "budget exhaustion lost its outcome: " + last
+                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+            elif "subagent_outcome: canceled" in last:
+                cls.failure = "budget exhaustion reported cancellation: " + last
+                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+            else:
+                delta, reason = {"role": "assistant", "content": "BUDGET_RUNTIME_OK"}, "stop"
+        wire = "".join("data: " + json.dumps(c) + "\n\n" for c in [
+            {"id": "budget-smoke", "object": "chat.completion.chunk", "created": 0, "model": "budget-smoke", "choices": [{"index": 0, "delta": delta, "finish_reason": None}]},
+            {"id": "budget-smoke", "choices": [{"index": 0, "delta": {}, "finish_reason": reason}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}},
+        ]) + "data: [DONE]\n\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(wire.encode())))
+        self.end_headers()
+        self.wfile.write(wire.encode())
+
+    def tool(self, name, args):
+        return {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_" + name, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}, "tool_calls"
 
 
 def main():
@@ -144,6 +198,34 @@ def main():
             server.shutdown()
             server.server_close()
             thread.join()
+    verify_budget(binary)
+
+
+def verify_budget(binary):
+    """A child the manager itself stops must reach the parent as exhausted."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), BudgetServer)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with tempfile.TemporaryDirectory(prefix="ompig-subagents-budget-") as directory:
+            root = pathlib.Path(directory)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+            (root / ".pi").mkdir()
+            # One turn plus one grace turn reaches the hard budget quickly.
+            (root / ".pi" / "subagents.json").write_text(json.dumps({"enabled": True, "defaultMaxTurns": 1, "graceTurns": 1}))
+            (agent_dir / "models.json").write_text(json.dumps({"providers": {"budget-smoke": {"api": "openai-completions", "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "local-fixture-only", "models": [{"id": "budget-smoke"}]}}}))
+            (agent_dir / "settings.json").write_text(json.dumps({"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False, "modelRoles": {"default": "budget-smoke/budget-smoke"}}))
+            env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_AUTH_TOKEN", "_OAUTH_TOKEN"))}
+            env.update(HOME=str(root), PIG_HOME=str(root / "library"), OMPIG_SLIM_CODING_AGENT_DIR=str(agent_dir), PI_OFFLINE="1", PI_TELEMETRY="0", PI_SKIP_VERSION_CHECK="1")
+            result = subprocess.run([str(binary), "--provider", "budget-smoke", "--model", "budget-smoke", "--print", "--offline", "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-themes", "Exercise the child turn budget."], cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+            if result.returncode or BudgetServer.failure or "BUDGET_RUNTIME_OK" not in result.stdout:
+                raise RuntimeError(f"exit={result.returncode}: {BudgetServer.failure}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+            print("hard turn budget reported as exhausted, not canceled: OK")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 if __name__ == "__main__":
