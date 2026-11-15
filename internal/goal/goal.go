@@ -90,8 +90,26 @@ func (t *Tracker) Poke() int {
 // Pause suspends an active goal without discarding its accounting.
 func (t *Tracker) Pause() error { return t.transition(StatusPaused, StatusActive) }
 
-// Resume reactivates a paused goal.
-func (t *Tracker) Resume() error { return t.transition(StatusActive, StatusPaused) }
+// Resume reactivates a paused goal and reports whether its objective must be
+// restarted. It reports false for an already-active goal, so repeating the
+// control cannot duplicate the objective.
+func (t *Tracker) Resume() (restart bool, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == nil {
+		return false, errors.New("there is no active goal")
+	}
+	switch t.state.Status {
+	case StatusPaused:
+		t.state.Status = StatusActive
+		t.state.UpdatedAt = time.Now().UnixMilli()
+		return true, nil
+	case StatusActive:
+		return false, nil
+	default:
+		return false, fmt.Errorf("cannot transition goal from %s to %s", t.state.Status, StatusActive)
+	}
+}
 
 // Complete marks the objective complete and leaves its final state queryable.
 func (t *Tracker) Complete() error { return t.transition(StatusComplete, StatusActive, StatusPaused) }

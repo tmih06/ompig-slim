@@ -4,6 +4,7 @@ package goalext
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -46,7 +47,7 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			case "pause":
 				err = tracker.Pause()
 			case "resume":
-				err = tracker.Resume()
+				_, err = tracker.Resume()
 			case "drop":
 				err = tracker.Drop()
 			default:
@@ -104,7 +105,13 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 				return err
 			}
 		case "resume":
-			if err := tracker.Resume(); err != nil {
+			if err := resumeGoal(tracker, func(objective string) error {
+				commandContext := extension.CommandContextFromContext(ctx)
+				if commandContext == nil {
+					return fmt.Errorf("goal command context is unavailable")
+				}
+				return commandContext.SendUserMessage(objective, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)})
+			}); err != nil {
 				return err
 			}
 		case "complete":
@@ -139,6 +146,27 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 		}
 		return nil
 	})
+	return nil
+}
+
+// resumeGoal reactivates a paused goal and starts its objective, so an explicit
+// resume works from an idle session instead of waiting for a turn that would
+// reach the settlement boundary. It starts nothing when the goal was already
+// active, so repeated resumes cannot duplicate the objective.
+func resumeGoal(tracker *goal.Tracker, submit func(objective string) error) error {
+	state := tracker.Get()
+	if state == nil {
+		return errors.New("there is no active goal")
+	}
+	restart, err := tracker.Resume()
+	if err != nil || !restart {
+		return err
+	}
+	if err := submit(state.Objective); err != nil {
+		// A resume that cannot start work must not report the goal as running.
+		_ = tracker.Pause()
+		return err
+	}
 	return nil
 }
 

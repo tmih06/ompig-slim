@@ -17,8 +17,10 @@ func TestLifecycleKeepsObjectiveUntilDropped(t *testing.T) {
 	if state = tracker.Get(); state == nil || state.Status != StatusPaused {
 		t.Fatalf("paused state = %+v", state)
 	}
-	if err := tracker.Resume(); err != nil {
+	if restart, err := tracker.Resume(); err != nil {
 		t.Fatal(err)
+	} else if !restart {
+		t.Fatal("resuming a paused goal must restart its objective")
 	}
 	if state = tracker.Get(); state == nil || state.Status != StatusActive {
 		t.Fatalf("resumed state = %+v", state)
@@ -57,5 +59,29 @@ func TestCreateRejectsInvalidGoal(t *testing.T) {
 	}
 	if err := tracker.Create("work", -1); err == nil {
 		t.Fatal("negative budget was accepted")
+	}
+}
+
+// TestResumeReportsWhetherToRestart pins the resume contract the goal command
+// depends on: a paused goal restarts once, and repeating resume starts nothing.
+func TestResumeReportsWhetherToRestart(t *testing.T) {
+	tracker := New()
+	if err := tracker.Create("finish the work", 0); err != nil {
+		t.Fatal(err)
+	}
+	if restart, err := tracker.Resume(); err != nil || restart {
+		t.Fatalf("resume of an active goal = (%v, %v), want (false, nil)", restart, err)
+	}
+	if err := tracker.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	if restart, err := tracker.Resume(); err != nil || !restart {
+		t.Fatalf("resume of a paused goal = (%v, %v), want (true, nil)", restart, err)
+	}
+	if restart, err := tracker.Resume(); err != nil || restart {
+		t.Fatalf("second resume = (%v, %v), want (false, nil)", restart, err)
+	}
+	if state := tracker.Get(); state == nil || state.Status != StatusActive {
+		t.Fatalf("resumed state = %+v", state)
 	}
 }
