@@ -22,6 +22,9 @@ type failureStreak struct {
 }
 
 func deterministicClass(tool, text string) string {
+	if firstLine, _, found := strings.Cut(text, "\n"); found {
+		text = firstLine
+	}
 	switch tool {
 	case "edit":
 		if strings.HasPrefix(text, "Could not find ") &&
