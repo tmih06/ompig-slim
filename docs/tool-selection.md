@@ -106,7 +106,15 @@ web_search, goal.`
   selection is shared.
 - `todo` is deliberately excluded from scripts: its state is rebuilt from the
   session branch, which is not appended until the enclosing `codemode` call
-  settles, so a chained call would read a stale list. Call `todo` directly.
+  settles, so a chained call would read a stale list. The generated codemode
+  guidance marks it direct-only. Call `todo` directly; discovery cannot make it
+  callable.
+- A grep regex failure keeps ripgrep's diagnosis and suggests `literal=true` when
+  source punctuation was meant as plain text. It does not retry with a different
+  query.
+- Edit failures name the `edits[]` index and may list up to three candidate source
+  lines. These are read-only hints. Rejected or overlapping edits never write the
+  file.
 - `tool_search` can load deferred tools into the session; it is only useful with
   extensions loaded, and calling it under `--no-extensions` fails with `Tool
   tool_search not found` because nothing registers it.

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -165,12 +166,12 @@ func applyEditsToNormalizedContent(normalizedContent string, edits []editEntry, 
 	for i, e := range normEdits {
 		m := fuzzyFindText(base, e.OldText)
 		if !m.found {
-			return appliedEditsResult{}, notFoundErr(path, i, len(normEdits))
+			return appliedEditsResult{}, fmt.Errorf("%w%s", notFoundErr(path, i, len(normEdits)), editCandidates(original, e.OldText, path, false))
 		}
 		// Count in baseContent (or its fuzzy normalization, same as upstream).
 		occ := countOccurrences(base, e.OldText)
 		if occ > 1 {
-			return appliedEditsResult{}, duplicateErr(path, i, len(normEdits), occ)
+			return appliedEditsResult{}, fmt.Errorf("%w%s", duplicateErr(path, i, len(normEdits), occ), editCandidates(original, e.OldText, path, true))
 		}
 		matched = append(matched, matchedEdit{
 			editIndex:   i,
@@ -321,6 +322,65 @@ func applyReplacementsPreservingUnchangedLines(originalContent, baseContent stri
 	}
 	b.WriteString(strings.Join(originalLines[originalLineIndex:], ""))
 	return b.String(), nil
+}
+
+func editCandidates(content *fuzzyContent, oldText, path string, duplicate bool) string {
+	needle := normalizeForFuzzyMatch(oldText)
+	var lines []int
+	if duplicate && strings.TrimSpace(needle) != "" {
+		source := content.fuzzy()
+		line, offset := 1, 0
+		for len(lines) < 3 {
+			index := strings.Index(source[offset:], needle)
+			if index < 0 {
+				break
+			}
+			index += offset
+			line += strings.Count(source[offset:index], "\n")
+			if len(lines) == 0 || lines[len(lines)-1] != line {
+				lines = append(lines, line)
+			}
+			offset = index + len(needle)
+			line += strings.Count(needle, "\n")
+		}
+	} else if !duplicate {
+		anchors := map[string]bool{}
+		for line := range strings.Lines(needle) {
+			line = strings.TrimSpace(line)
+			if len(line) >= 8 && strings.IndexFunc(line, unicode.IsLetter) >= 0 {
+				anchors[line] = true
+			}
+		}
+		if len(anchors) > 0 {
+			number := 0
+			for line := range strings.Lines(content.fuzzy()) {
+				number++
+				if anchors[strings.TrimSpace(line)] {
+					lines = append(lines, number)
+					if len(lines) == 3 {
+						break
+					}
+				}
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return "\nNo credible candidate locations found. Read the file and use a unique anchor from its current contents."
+	}
+	var message strings.Builder
+	message.WriteString("\ncandidate locations (up to 3; read before retrying with a unique anchor):")
+	number, next := 0, 0
+	for line := range strings.Lines(content.text) {
+		number++
+		if number == lines[next] {
+			fmt.Fprintf(&message, "\n%s:%d: %s", path, number, TruncateLine(strings.TrimSpace(line), 160).Text)
+			next++
+			if next == len(lines) {
+				break
+			}
+		}
+	}
+	return message.String()
 }
 
 // ─── error messages (match upstream wording) ──────────────────────────────────
