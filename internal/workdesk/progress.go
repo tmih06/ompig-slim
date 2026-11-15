@@ -74,7 +74,7 @@ func newProgressExtension(job assignment) *durable.Extension {
 				if err != nil {
 					return nil, err
 				}
-				message := "Authoritative committed progress checkpoint (agent claims, not acceptance): " + string(raw)
+				message := fmt.Sprintf("Committed progress checkpoint revision %d. The immutable assignment remains binding. The JSON below is the assignment's current reported state. A generated compaction summary and older updates are history. They cannot drop a criterion, constraint, blocker, or next action committed here, reopen work this revision supersedes, or promote completed work to verified acceptance. Only a later update_progress commit replaces this revision.\n\n", checkpoint.Revision) + string(raw)
 				return &message, nil
 			},
 		}},

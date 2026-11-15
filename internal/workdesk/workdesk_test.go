@@ -21,6 +21,11 @@ import (
 // fixture isolates credentials and serves the real provider protocol without paid calls.
 func fixture(t *testing.T, serve http.HandlerFunc) (string, string) {
 	t.Helper()
+	return fixtureModel(t, 128000, serve)
+}
+
+func fixtureModel(t *testing.T, contextWindow int, serve http.HandlerFunc) (string, string) {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("PIG_HOME", home)
 	t.Setenv("PIG_CODING_AGENT_DIR", filepath.Join(home, "agent"))
@@ -33,7 +38,7 @@ func fixture(t *testing.T, serve http.HandlerFunc) (string, string) {
 	t.Cleanup(server.Close)
 	raw, _ := json.Marshal(map[string]any{"providers": map[string]any{"desk-fixture": map[string]any{
 		"api": "openai-completions", "baseUrl": server.URL + "/v1", "apiKey": "fixture-key",
-		"models": []any{map[string]any{"id": "fixture", "name": "fixture", "contextWindow": 128000, "maxTokens": 1024}},
+		"models": []any{map[string]any{"id": "fixture", "name": "fixture", "contextWindow": contextWindow, "maxTokens": 1024}},
 	}}})
 	if err := os.WriteFile(filepath.Join(home, "agent", "models.json"), raw, 0600); err != nil {
 		t.Fatal(err)

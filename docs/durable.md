@@ -132,6 +132,42 @@ context includes only committed progress, never transient streamed prose. The
 checkpoint uses latest-document semantics and caps each list at 16 items, each
 text value at 500 characters, and revisions at 1,000,000.
 
+## Progress precedence
+
+The immutable assignment remains binding. The latest committed checkpoint
+governs reported progress over conflicting summaries and older updates.
+After compaction, PiG rebuilds the prompt sections from current committed state
+and omits retained older `pi.system` entries. The next prepared request carries
+the current `ompig_progress` section beside the summary. The section states
+these rules to the model:
+
+- **The assignment is immutable.** Its request ID binds the checkpoint, and a
+  host refuses a checkpoint written by another assignment.
+- **The newest committed revision governs reported state.** It replaces the
+  revision before it.
+- **A generated summary describes history.** It cannot drop a criterion,
+  constraint, blocker, or next action the checkpoint commits, and cannot reopen
+  work the checkpoint supersedes. The summarizer reads the transcript without
+  system messages, so it may never have seen the checkpoint.
+- **Only `update_progress` changes the checkpoint.** Prose in an answer, a
+  summary, or an older message changes nothing.
+
+A completed-work entry stays an agent claim, and `done` still means the agent
+answered. Between compactions, recent context can contain older section updates
+and tool arguments. They remain history, not competing checkpoints. Compaction
+folds that history and rebuilds one current baseline instead of pinning all
+revisions. PiG's recent-context and token-reserve behavior is unchanged.
+
+These are instructions to the model, not a semantic validator for summaries or
+progress updates. The 16-item and 500-character caps bound the checkpoint. An
+unmet criterion omitted from a later explicit progress update is no longer in
+that document. The immutable assignment does not change.
+
+Summary generation and publication still use PiG's compaction task. Its pinned
+range and retry state survive a crash. Summary placement and task completion
+share one Durable transaction, so a response lost before that commit can be
+regenerated without creating another authoritative checkpoint.
+
 ## Agent Sandbox deployment
 
 Persist **both** the state directory (entire directory, WAL included) and the
@@ -170,12 +206,15 @@ go test -mod=vendor ./internal/workdesk -coverprofile=/tmp/workdesk.cover
 
 The Go tests use isolated profiles, temporary workspaces, a local OpenAI SSE
 fixture, and actual child processes. They cover autonomous edits/checks,
-close/reopen and SIGKILL recovery, unsafe shell interruption, repeated crash
-limits, writer exclusion, submission deduplication, cancellation, immutable
-assignment conflicts, turn budgets, admission intent before database creation,
-and private storage. The compiled-binary smoke test covers CLI dispatch,
-SIGKILL/resume, status, admission deduplication, preserved workspace data, and
-the ordinary version command. The smoke test is part of `make smoke`.
+compaction precedence and recovery across a crash, close/reopen and SIGKILL
+recovery, unsafe shell interruption, repeated crash limits, writer exclusion,
+submission deduplication, cancellation, immutable assignment conflicts, turn
+budgets, admission intent before database creation, and private storage. The
+compaction tests force automatic compaction with a small-context model and a
+stale generated summary, then read the real outgoing request. The compiled-binary
+smoke test covers CLI dispatch, SIGKILL/resume, status, admission deduplication,
+preserved workspace data, a compaction followed by SIGKILL and resume, and the
+ordinary version command. The smoke test is part of `make smoke`.
 Kubernetes pod replacement, CSI failure, node/power loss, and remote-service
 idempotency must be verified in the deployment environment; local process tests
 do not certify those guarantees.
