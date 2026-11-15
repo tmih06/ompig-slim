@@ -86,6 +86,17 @@ jobs:
             go-v4-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ matrix.mode }}-
       # Never skip commands on a cache hit: Go validates sources, flags and
       # observed test inputs before reusing successful results.
+      - name: Install ripgrep for offline tool integration tests
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            if [[ "$RUNNER_OS" == macOS ]]; then
+              brew install ripgrep
+            else
+              sudo apt-get update
+              sudo apt-get install -y ripgrep
+            fi
+          fi
+          rg --version
       - name: Run Go tests and platform checks
         env:
           MODE: ${{ matrix.mode }}
