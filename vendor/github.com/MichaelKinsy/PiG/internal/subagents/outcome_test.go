@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -118,7 +120,9 @@ func TestOutcomeDerivationCoversEveryStatus(t *testing.T) {
 
 func TestCancelledWaitStaysParentCancellation(t *testing.T) {
 	release := make(chan struct{})
+	started := make(chan struct{})
 	child := &fakeChild{send: func(ctx context.Context, p string) (string, error) {
+		close(started)
 		select {
 		case <-release:
 			return "finished", nil
@@ -126,20 +130,29 @@ func TestCancelledWaitStaysParentCancellation(t *testing.T) {
 			return "", ctx.Err()
 		}
 	}}
-	m := testManager(t, func(context.Context, Invocation) (Child, error) { return child, nil })
+	var creations atomic.Int32
+	m := testManager(t, func(context.Context, Invocation) (Child, error) { creations.Add(1); return child, nil })
 	defer close(release)
 	r, err := m.Spawn(context.Background(), Params{Prompt: "work", Background: new(true)}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	<-started
 	tool := Tool{Manager: m, ToolName: "get_subagent_result"}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err = tool.Execute(ctx, "result", []byte(`{"agent_id":"`+r.ID+`","wait":true}`), nil); err == nil {
-		t.Fatal("a cancelled wait reported success")
+	// Cancel while the child is genuinely running, which is the case a parent
+	// timeout actually produces.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err = tool.Execute(ctx, "result", []byte(`{"agent_id":"`+r.ID+`","wait":true}`), nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a cancelled wait reported %v, want the parent's own cancellation", err)
 	}
 	if current, _ := m.Find(r.ID); !current.Active() || current.Result != "" {
 		t.Fatalf("cancelling the wait changed the child: %+v", current)
+	}
+	// A cancelled wait is the parent's timeout, not new work for the child.
+	time.Sleep(200 * time.Millisecond)
+	if creations.Load() != 1 {
+		t.Fatalf("cancelling the wait resubmitted work: %d creations", creations.Load())
 	}
 }
 
