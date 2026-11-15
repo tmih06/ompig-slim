@@ -606,7 +606,10 @@ func (m *Manager) workflowAgent(ctx context.Context, w *Workflow, raw json.RawMe
 		}
 	}
 	var result json.RawMessage = json.RawMessage("null")
-	ok := err == nil && r.Status == "completed"
+	// Success is the outcome, not the raw status: a child that wrapped up inside
+	// its grace turns reports steered and still completed, and discarding its
+	// answer would hand downstream steps a null they read as an empty success.
+	ok := err == nil && r.Outcome() == OutcomeCompleted
 	if ok {
 		if len(p.Schema) > 0 {
 			result = r.StructuredJSON

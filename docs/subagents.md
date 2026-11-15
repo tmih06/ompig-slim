@@ -27,6 +27,11 @@ file stays pollable instead of reading as a success nobody observed.
 and it is distinct from a cancellation so a caller can tell a truncated answer
 from a stopped one.
 
+Every reader decides success from the outcome, never from the raw status. A
+`steered` child completed, so its text is real: a workflow journals its value,
+and a caller that matched the status string alone would discard a finished
+answer as an empty success.
+
 Cancelling the parent's own wait is the parent's cancellation. It does not
 change the child, does not report an outcome, and does not resubmit work. A
 foreground `Agent` call that is cancelled hands off to the background instead.
