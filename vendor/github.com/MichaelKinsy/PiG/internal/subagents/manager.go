@@ -1219,7 +1219,7 @@ func (m *Manager) flushNotifications() {
 		if strings.HasPrefix(pending.id, "wf_") {
 			for _, w := range m.workflows {
 				if w.ID == pending.id && !w.consumed && !w.Active() && w.CompletedAt == pending.at {
-					messages = append(messages, "<task-notification>\n"+xmlEscape(w.ResultText())+"\n</task-notification>")
+					messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n%s\n</task-notification>", w.ID, w.Status, xmlEscape(w.ResultText())))
 					w.consumed = true
 				}
 			}
