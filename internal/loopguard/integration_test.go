@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,6 +28,25 @@ type fixtureCall struct {
 func runSessionFixture(t *testing.T, turns [][]fixtureCall) ([]string, string, string) {
 	t.Helper()
 	t.Setenv("PI_OFFLINE", "1")
+	if _, err := exec.LookPath("rg"); err != nil {
+		bin := t.TempDir()
+		stub := filepath.Join(bin, "rg")
+		if err := os.WriteFile(stub, []byte(`#!/bin/sh
+pattern=""
+seen=0
+for arg in "$@"; do
+  if [ "$seen" = 1 ]; then pattern="$arg"; break; fi
+  if [ "$arg" = "--" ]; then seen=1; fi
+done
+case "$pattern" in
+  \[* ) printf 'regex parse error: unclosed character class\n' >&2; exit 2 ;;
+  * ) exit 1 ;;
+esac
+`), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
 	t.Setenv("PIG_HOME", t.TempDir())
 	cwd, dir := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "fixture.txt")
