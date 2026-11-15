@@ -53,7 +53,9 @@ func (c *subagentNotificationCard) Render(width int) []string {
 			result = strings.TrimSpace(task.Text)
 		}
 		icon, color := "✓", "success"
-		if task.Status == "error" || task.Status == "aborted" {
+		// A card stands for a finished child, so it must not show a success mark
+		// for any incomplete outcome, including a budget stop.
+		if outcome := (subagents.Record{Status: task.Status}).Outcome(); outcome != subagents.OutcomeCompleted {
 			icon, color = "✗", "error"
 		}
 		lines = append(lines, clampAgentLine(theme.Fg(color, icon+" ")+tui.ChalkBold(label), width))

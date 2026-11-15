@@ -193,6 +193,16 @@ func TestAgentCardStaysMinimal(t *testing.T) {
 	}
 }
 
+func TestSubagentNotificationCardMarksIncompleteOutcomes(t *testing.T) {
+	for status, wantMark := range map[string]string{"completed": "✓", "steered": "✓", "error": "✗", "stopped": "✗", "exhausted": "✗"} {
+		card := &subagentNotificationCard{text: `<task-notification><task-id>agent_test</task-id><status>` + status + `</status><summary>Audit</summary><result>partial</result></task-notification>`}
+		rendered := widthx.StripAnsi(strings.Join(card.Render(50), "\n"))
+		if !strings.HasPrefix(rendered, wantMark+" Audit") {
+			t.Fatalf("status %q rendered %q, want the %s mark", status, rendered, wantMark)
+		}
+	}
+}
+
 func TestSubagentNotificationCardsHideEnvelopeAndExpand(t *testing.T) {
 	card := &subagentNotificationCard{text: `<task-notification><task-id>agent_test</task-id><status>completed</status><summary>Audit &amp; report</summary><result>one
 two
