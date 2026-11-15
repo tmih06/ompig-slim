@@ -158,9 +158,8 @@ func setWorkingMessage(ctx context.Context, message string) {
 	}
 }
 
-// continueActiveGoal queues the next turn at the settlement boundary. Returning
-// continuation rather than triggering a message after settlement keeps observers
-// such as agent-state in working state until the goal is complete or paused.
+// continueActiveGoal queues a follow-up at the settlement boundary. Returning
+// continuation lets the active run consume it without waiting for a user prompt.
 func continueActiveGoal(ctx context.Context, tracker *goal.Tracker, send func(extension.SendMessagePayload, *extension.SendMessageOptions)) extension.AgentBeforeSettleEventResult {
 	state := tracker.Get()
 	if state == nil || state.Status != goal.StatusActive {
@@ -172,7 +171,7 @@ func continueActiveGoal(ctx context.Context, tracker *goal.Tracker, send func(ex
 		CustomType: "goal-continuation",
 		Content:    fmt.Sprintf("Goal poke %d: Continue working toward this goal: %s", pokes, state.Objective),
 		Display:    true,
-	}, &extension.SendMessageOptions{DeliverAs: extension.DeliverAsNextTurn})
+	}, &extension.SendMessageOptions{DeliverAs: extension.DeliverAsFollowUp})
 	continueTurn := true
 	return extension.AgentBeforeSettleEventResult{Continue: &continueTurn}
 }

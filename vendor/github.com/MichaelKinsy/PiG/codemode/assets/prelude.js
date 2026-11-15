@@ -201,6 +201,9 @@
 				if (typeof property !== "string" || property in object || property in Object.prototype || property === "then" || property === "toJSON") {
 					return Reflect.get(object, property, receiver);
 				}
+				if (label === "tools" && property === "todo") {
+					throw new TypeErrorCtor("tools.todo is unavailable. Call the direct todo tool outside codemode.");
+				}
 				const wanted = comparable(property);
 				const exact = names.filter((name) => comparable(name) === wanted);
 				const close = exact.length > 0 ? exact : names.filter((name) => wanted && (comparable(name).includes(wanted) || wanted.includes(comparable(name))));

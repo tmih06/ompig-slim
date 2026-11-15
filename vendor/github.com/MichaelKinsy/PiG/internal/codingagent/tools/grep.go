@@ -89,7 +89,7 @@ func (t *GrepTool) Label() string { return "" }
 func (t *GrepTool) Schema() ai.ToolSchema {
 	return toolSchemaWithParameters(ai.ToolSchema{
 		Name:        "grep",
-		Description: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars.",
+		Description: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated to 500 chars. Patterns are regex by default; use literal=true to search source punctuation as plain text.",
 	}, `{"type":"object","required":["pattern"],"properties":{
 		"pattern":{"type":"string","description":"Search pattern (regex or literal string)"},
 		"path":{"type":"string","description":"Directory or file to search (default: current directory)"},
@@ -189,6 +189,10 @@ func (t *GrepTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 		msg := jsstring.Trim(run.stderr)
 		if msg == "" {
 			msg = fmt.Sprintf("ripgrep exited with code %d", run.exitCode)
+		}
+		if !p.Literal && strings.Contains(msg, "regex parse error:") {
+			msg = TruncateTail(msg, TruncationOptions{MaxBytes: new(2048), MaxLines: new(8)}).Content +
+				"\nIf you intended plain text, retry with literal=true. Otherwise correct the regex."
 		}
 		return grepError(msg), nil
 	}
