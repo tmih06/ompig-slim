@@ -101,7 +101,6 @@ func (s *Supervisor) RecordCrash() (time.Duration, error) {
 	}
 	s.crashes = pruned
 
-	// Check circuit breaker.
 	if len(s.crashes) >= s.maxCrashes {
 		s.disabled = true
 		s.disableMsg = fmt.Sprintf(

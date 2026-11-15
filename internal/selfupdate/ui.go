@@ -11,10 +11,8 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-// The progress meter is this package's own rendering: the installer and the
-// updater share it so an install and an update read as one product, and
-// scripts/install.sh duplicates it because the installer must run with no Go
-// toolchain. The mark above it is not duplicated — coding.StartupMark owns it.
+// The installer and updater share this progress meter. The shell installer
+// mirrors it because it cannot depend on the Go toolchain.
 const (
 	// barWidth is the number of cells in a full progress bar. It fits an
 	// 80-column terminal beside the label and the percentage.
@@ -26,8 +24,7 @@ const (
 	barEmpty  = "─"
 )
 
-// The SGR codes used by the progress meter. The mark itself carries its own brand colors, which come from
-// coding.StartupMark so an update cannot drift from the startup header.
+// SGR codes used by the progress meter.
 const (
 	ansiReset = "\x1b[0m"
 	ansiBold  = "\x1b[1m"
@@ -51,15 +48,9 @@ func isTerminal(w io.Writer) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// printBanner writes the startup TUI's two-line mark, then a blank line.
-//
-// The art is not restated here: coding.StartupMark renders the same rows the startup header draws, so a change to the
-// mark reaches every surface at once. On a terminal the rows keep the header's own escapes, in the color depth the
-// header would pick. In a pipe or a log the escapes are stripped instead of omitted, which preserves the geometry
-// because every run is a plain span of printable cells.
+// printBanner writes the startup mark and a blank line, stripping escapes for
+// redirected output.
 func printBanner(w io.Writer) {
-	// A pipe gets the downsampled mark: nothing will read the escapes, and the plain form prints the same cells
-	// either way.
 	color := isTerminal(w)
 	mode := tui.TerminalColorMode256
 	if color {
@@ -72,13 +63,7 @@ func printBanner(w io.Writer) {
 	_, _ = io.WriteString(w, "\n"+top+"\n"+bottom+"\n\n")
 }
 
-// markColorMode is the color depth the header would render the mark in.
-//
-// It is tui.GetTerminalColorMode() without the tmux probe. That probe shells out to `tmux display-message` to ask
-// whether the pane forwards OSC 8 hyperlinks, which has no bearing on color depth — inside tmux the answer comes from
-// COLORTERM either way — but it costs a fork and round trip (measured: 28ms to 116ms for a whole update against a
-// 40ms probe) before the user sees the mark. Passing capabilities explicitly is that function's documented way to
-// skip detection, and DetectCapabilities still applies PI_TRUE_COLOR, so the mode matches the header's.
+// markColorMode matches the header without probing tmux for hyperlink support.
 func markColorMode() tui.TerminalColorMode {
 	return tui.GetTerminalColorMode(tui.DetectCapabilities(func() bool { return false }))
 }

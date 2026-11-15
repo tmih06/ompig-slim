@@ -15,21 +15,13 @@ import (
 	"strings"
 )
 
-// systemMD is the embedded prompt. The blank import of embed is what turns the
-// directive into the file's contents at build time.
 //
 //go:embed system.md
 var systemMD string
 
-// system is systemMD trimmed once at startup. The prompt is read on every
-// session's first turn, so the trim is not repeated per call.
 var system = strings.TrimSpace(systemMD)
 
-// System returns the base system prompt: the embedded file with surrounding
-// blank lines trimmed.
-//
-// The returned string is shared and must not be modified; strings are immutable
-// in Go, so a caller only ever receives a copy of the header.
+// System returns the embedded base system prompt with surrounding whitespace trimmed.
 func System() string {
 	return system
 }

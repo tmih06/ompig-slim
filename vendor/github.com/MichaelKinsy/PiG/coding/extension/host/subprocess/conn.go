@@ -839,7 +839,6 @@ func (c *Conn) requestWithOrder(ctx context.Context, env *Envelope, inactivity t
 	c.beginWork()
 	defer c.endWork()
 
-	// Send the request.
 	if c.onDispatch != nil {
 		c.onDispatch()
 	}
@@ -1148,7 +1147,6 @@ func (c *Conn) readLoop(ctx context.Context) {
 	}
 	reader := bufio.NewReaderSize(source, readBufferBytes)
 	for {
-		// Check context before each frame.
 		if ctx.Err() != nil || c.closed.Load() {
 			return
 		}
@@ -1177,7 +1175,6 @@ func (c *Conn) readLoop(ctx context.Context) {
 			return
 		}
 
-		// Read the JSON payload.
 		frame, err := readFrameBuffer(reader, int(msgLen))
 		if err != nil {
 			c.fail(&TransportError{Extension: c.name, Operation: "read", Err: err})

@@ -314,7 +314,6 @@ func (l configResourceList) Render(width int) []string {
 	if len(cs.filtered) == 0 {
 		lines = append(lines, fit(t.Muted+"  No resources found"+"\x1b[39m"))
 	} else {
-		// Calculate visible range.
 		start := max(0, min(cs.cursor-cs.maxVisible/2, len(cs.filtered)-cs.maxVisible))
 		end := min(start+cs.maxVisible, len(cs.filtered))
 
@@ -646,7 +645,6 @@ func sortGroups(groups []*ResourceGroup) {
 				g.Subgroups[j], g.Subgroups[j-1] = g.Subgroups[j-1], g.Subgroups[j]
 			}
 		}
-		// Sort items by name.
 		for _, sg := range g.Subgroups {
 			for i := 1; i < len(sg.Items); i++ {
 				for j := i; j > 0 && localecompare.Compare(sg.Items[j].DisplayName, sg.Items[j-1].DisplayName) < 0; j-- {

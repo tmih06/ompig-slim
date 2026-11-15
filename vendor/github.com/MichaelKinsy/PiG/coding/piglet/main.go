@@ -1830,7 +1830,6 @@ func buildExtensionWithOwner(initial *Piglet, owner func(extension.ToolInfo) str
 		ctx.SetActiveTools(active)
 	}
 
-	// Build extension.Extension with handlers and commands
 	ext := extension.Extension{
 		Name:             "piglet",
 		Path:             "builtin:piglet",
@@ -1901,7 +1900,6 @@ func buildExtensionWithOwner(initial *Piglet, owner func(extension.ToolInfo) str
 				}
 			}
 
-			// Return system prompt override if the piglet declares one.
 			if resolvedSystemPrompt != "" {
 				return &extension.BeforeAgentStartEventResult{
 					SystemPrompt: new(resolvedSystemPrompt),

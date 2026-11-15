@@ -1,18 +1,5 @@
-// Package selfupdate replaces a curl-installed ompig-slim with a newer release.
-//
-// The vendored PiG self-updater only mutates an installation it can prove it
-// owns: a package-manager install, or a standalone binary with a signed update
-// manifest and an installation receipt. This repository publishes neither a
-// signed manifest nor a trust root, so on a binary that scripts/install.sh
-// placed in ~/.local/bin every `ompig-slim update` refused. This package closes
-// that gap using the same trust decision the installer already makes: the
-// release archive plus its published SHA-256 sidecar, downloaded from the
-// release the installer recorded.
-//
-// Ownership is explicit. scripts/install.sh writes a marker under the config
-// root; without that marker this package declines, so an npm, go-install, or
-// container installation keeps PiG's own refusal and remediation instead of
-// being silently replaced by a GitHub archive.
+// Package selfupdate downloads verified release archives and atomically replaces
+// the executable for installations recorded by scripts/install.sh.
 package selfupdate
 
 import (
@@ -65,8 +52,7 @@ const (
 	markerKind = "archive"
 )
 
-// Options is everything Update needs, so tests can drive it without touching
-// the running executable or the real release host.
+// Options configures an update without requiring the real executable or release host.
 type Options struct {
 	// Version is the running release, such as "0.1.0"; a leading "v" is
 	// ignored. It is compared against the release tag.
@@ -131,8 +117,7 @@ func Update(o Options) int {
 		return 1
 	}
 	latest := strings.TrimPrefix(strings.TrimSpace(tag), "v")
-	// Channel switches deliberately permit downgrades; within a channel the
-	// ordinary semver guard still prevents installing an older release.
+	// Channel switches permit downgrades; same-channel updates require a newer version.
 	switching := (o.Channel == "beta") != isBetaVersion(current)
 	if !o.Force && !switching && !isNewer(latest, current) {
 		fmt.Fprintf(o.Stdout, "ompig-slim %s is up to date.\n", current)
@@ -140,9 +125,6 @@ func Update(o Options) int {
 	}
 
 	archiveURL := strings.TrimRight(o.DownloadBase, "/") + "/download/" + tag + "/" + archiveName
-	// One banner per run, then a line naming both releases. The progress meter
-	// below is live on a terminal and silent in a pipe; the summary lines are
-	// printed either way.
 	printBanner(o.Stdout)
 	fmt.Fprintf(o.Stdout, "Updating ompig-slim %s → %s\n\n", current, latest)
 	archive, err := o.download(archiveURL, o.Stderr)
@@ -164,7 +146,6 @@ func Update(o Options) int {
 	return 0
 }
 
-// fallback is the instruction that always works when an update cannot finish.
 func fallback() string {
 	return "Reinstall with the installer instead: curl -fsSL " +
 		"https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash"
@@ -287,8 +268,7 @@ func (o Options) download(archiveURL string, progressOut io.Writer) (string, err
 		return "", err
 	}
 	meter.finish("archive downloaded")
-	// The checksum file is a few dozen bytes; a meter for it would flicker, so
-	// it is fetched without one.
+	// The checksum is small, so fetch it without progress reporting.
 	checksumFile, err := o.fetch(archiveURL+".sha256", nil)
 	if err != nil {
 		_ = os.Remove(archive)
@@ -394,8 +374,6 @@ func (o Options) replace(archive string) error {
 	return renameErr
 }
 
-// extractExecutable writes the archive's single ompig-slim executable to a new
-// temporary file in dir and returns its path.
 func extractExecutable(archive, dir string) (string, error) {
 	file, err := os.Open(archive)
 	if err != nil {
@@ -491,8 +469,7 @@ type countingReader struct {
 	report func(done, total int64)
 }
 
-// Read forwards to the wrapped reader and reports the new running total. A read
-// error is returned untouched; the caller decides whether a short body is fatal.
+// Read forwards bytes and reports the running total. It returns read errors unchanged.
 func (c *countingReader) Read(p []byte) (int, error) {
 	n, err := c.inner.Read(p)
 	if n > 0 {
@@ -517,15 +494,10 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-// request is the part of an `update`/`upgrade` invocation this package owns.
-// The parser's second return already says whether the invocation is a
-// self-update, so the fields describe only what to do once that is decided.
+// request contains the self-update options extracted from an update invocation.
 type request struct {
-	// all is true when packages are updated before the binary.
-	all bool
-	// force reinstalls even when the running version is current.
-	force bool
-	// channel overrides the saved selection; empty retains it (initially stable).
+	all     bool
+	force   bool
 	channel string
 }
 
@@ -560,8 +532,6 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 		}
 		switch arg {
 		case "-h", "--help", "--models", "--extension":
-			// Package and help forms are PiG's. --extension is followed by a
-			// source value that must not be inspected or reordered here.
 			return request{}, false
 		case "--all":
 			resolved.all = true
@@ -570,11 +540,8 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 		case "--extensions":
 			extensionsOnly = true
 		case "--self", "self", "ompig-slim", "pig":
-			// Every spelling of the binary's own name is the self-update.
 			selfTarget = true
 		case "-a", "--approve", "-na", "--no-approve":
-			// Project-trust flags travel with a package operation; alone they
-			// leave the default self-update, as in PiG.
 		default:
 			// A positional package source or an unknown flag: the package
 			// manager owns this request, including its own error for it.
@@ -593,16 +560,8 @@ func resolveRequest(args []string) (resolved request, ok bool) {
 	return resolved, true
 }
 
-// Handle claims the self-update forms of `update` and `upgrade`.
-//
-// It returns the arguments to pass on to PiG. When handled is true the caller
-// must exit with code and ignore the returned arguments; otherwise it must run
-// the returned arguments, which may have `upgrade` rewritten to `update`.
-//
-// `upgrade` is a second spelling of `update`, so every form this package does
-// not own is delegated under the canonical name. Only a self-update on a
-// marker-bearing archive install is claimed; package, model, and extension
-// updates keep going to PiG, as does the refusal for any other install method.
+// Handle intercepts self-update forms of update and upgrade. Unhandled forms
+// return arguments for PiG, with upgrade rewritten to update.
 func Handle(args []string, version string, stdout, stderr io.Writer) (delegated []string, handled bool, code int) {
 	resolved, self := resolveRequest(args)
 	if !self {

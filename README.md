@@ -166,7 +166,7 @@ in local SQLite, or in the configured broker’s SQLite vault, unencrypted at re
 
 One hosted service keeps sign-in, custom providers, settings, model roles, keybindings and custom profile
 themes identical across your machines. Its SQLite vault owns credentials and **refreshes OAuth tokens on the broker**; clients
-receive access credentials, never refresh tokens. Inference and tools stay on each client—no traffic proxy.
+receive access credentials, never refresh tokens. Inference and tools stay on each client. The broker is not a traffic proxy.
 
 ```sh
 docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
@@ -208,7 +208,7 @@ make release           # build the four platform archives
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the tracked PiG tree carries project-specific patches.
-Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance rulings live in [CONTEXT.md](CONTEXT.md).
+Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance guidance lives in [AGENTS.md](AGENTS.md).
 
-Independent personal project, not an official PiG, Pi, or omp release. MIT — see [LICENSE](LICENSE) and
+Independent personal project, not an official PiG, Pi, or omp release. MIT. See [LICENSE](LICENSE) and
 [NOTICE](NOTICE) for attribution.

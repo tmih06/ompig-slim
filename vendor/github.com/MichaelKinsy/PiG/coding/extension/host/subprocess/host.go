@@ -3173,7 +3173,6 @@ func (h *Host) connectExt(ctx, extCtx context.Context, cancel context.CancelFunc
 
 	me.sockPath = sockPath
 
-	// Create listener.
 	listener, address, err := ListenExtension(sockPath, usesNodeRuntime(binPath, me.config.RuntimeLanguage))
 	if err != nil {
 		return nil, newLoadError(me.config.Name, "spawn", "listen_failed", fmt.Errorf("listen %s: %w", sockPath, err))
@@ -3779,7 +3778,6 @@ func (h *Host) buildExtension(me *managedExt, reg *RegisterPayload) *extension.E
 	}
 	ext.InitializeEventHandlers()
 
-	// Build tools.
 	for _, td := range reg.Tools {
 		tool := td // capture
 		source := tool.Source
@@ -3825,7 +3823,6 @@ func (h *Host) buildExtension(me *managedExt, reg *RegisterPayload) *extension.E
 		ext.ToolOrder = append(ext.ToolOrder, td.Name)
 	}
 
-	// Build commands.
 	for _, cd := range reg.Commands {
 		cmd := cd // capture
 		registered := extension.RegisteredCommand{
@@ -3840,7 +3837,6 @@ func (h *Host) buildExtension(me *managedExt, reg *RegisterPayload) *extension.E
 		ext.SetRegisteredCommand(cd.Name, registered)
 	}
 
-	// Build shortcuts.
 	for _, sd := range reg.Shortcuts {
 		sc := sd // capture
 		ext.SetRegisteredShortcut(extension.KeyID(sd.Key), extension.ExtensionShortcut{
@@ -4599,7 +4595,6 @@ func (me *managedExt) makeEventHandler(event string, handlerID int) extension.Ha
 			// value sends JSON null. Upstream treats undefined as "no result",
 			// so null never reaches the Runner as a result value.
 			if result := resp.Response.Result; len(result) > 0 && strings.TrimSpace(string(result)) != "null" {
-				// Return raw JSON for the Runner to interpret.
 				return result, nil
 			}
 		}

@@ -121,39 +121,13 @@ func main() {
 		}
 		return
 	}
-	// Delegate arguments, terminal ownership, signals, and exit status to PiG.
-	// The vendored personal runtime owns the slim feature set and defaults.
-	//
-	// The todo feature is native: coding/extension/builtin/todo registers the tool
-	// with the built-in registry and the stop-time reminder with the native
-	// before-settle hook registry, both from its init. Nothing about the todo
-	// feature is an extension: the tool and reminder exist with
-	// --no-extensions, the tool is dropped by
-	// --no-builtin-tools, and neither appears in the startup Extensions list.
-	//
-	// Pass `delegated`, not `os.Args[1:]`: the self-updater may rewrite the
-	// argument list before handing the rest of the CLI over.
-	//
-	// SystemPromptPreamble is embedded from prompts/system.md rather than written
-	// in Go source, so the prompt is reviewed and diffed as prose. The runtime
-	// composes its tool, rules, project-context and skills sections around it.
-	//
-	// AgentState publishes what the agent is doing as a JSON document under the
-	// configuration root, so an external tool (a terminal multiplexer, a status
-	// bar, a notifier) can watch it without this binary knowing about any of
-	// them. It registers event handlers only, so it adds no tool, command, or
-	// flag; a publisher that cannot resolve a configuration root does nothing.
-	//
-	// The adapters that consume the document live in extensions/, not here: they
-	// are ordinary extensions a user installs, so supporting another consumer
-	// never means a new binary.
+	// PiG owns the terminal, signals, and delegated arguments. The inline
+	// extensions below are hidden program machinery, not user-managed resources.
 	cli.Main(args, &cli.MainOptions{
 		SystemPromptPreamble: prompts.System(),
 		SyncedDocuments:      syncedDocuments,
 		SyncConflicts:        syncConflicts,
 		ExtensionFactories: []extension.InlineExtension{
-			// Hidden program machinery, like agent-state: always active even with
-			// --no-extensions, without adding a user-managed resource or tool.
 			extension.NamedInlineExtension{
 				Name: "tool-call-loop-guard", Factory: loopguard.Extension, Hidden: true,
 			},
@@ -163,10 +137,7 @@ func main() {
 			extension.NamedInlineExtension{
 				Name:    "agent-state",
 				Factory: agentstateext.Extension(agentstate.NewPublisher()),
-				// Hidden keeps the startup Extensions list as it was: this is a
-				// program-level surface, not a resource the user manages, and it
-				// loads whether or not extensions are enabled.
-				Hidden: true,
+				Hidden:  true,
 			},
 		},
 		BeforeExit: finishSync,

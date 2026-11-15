@@ -146,7 +146,6 @@ func (m *sessionMirror) applySessionUpdate(session json.RawMessage) bool {
 		changed = true
 	}
 
-	// Append new entries and index them.
 	for _, raw := range s.EntriesAppended {
 		pos := len(m.entries)
 		m.entries = append(m.entries, raw)

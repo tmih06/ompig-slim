@@ -6,7 +6,7 @@ on:
     tags: ['v*.*.*']
     # Every main push (including documentation-only merges) gets a beta.
   pull_request:
-    paths-ignore: ['README.md', 'CONTEXT.md', 'docs/**']
+    paths-ignore: ['README.md', 'docs/**']
   workflow_dispatch:
 
 permissions:

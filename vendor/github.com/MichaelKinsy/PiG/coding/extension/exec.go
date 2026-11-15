@@ -168,7 +168,6 @@ func ExecCommand(ctx context.Context, cwd, command string, args []string, opts *
 	nodespawn.SetProgram(cmd)
 	nodespawn.SetCommandLine(cmd)
 
-	// Start closes the child's ends of the pipes.
 	err := nodespawn.Start(cmd)
 	if err == nil {
 		attachChildGroup(cmd.Process)

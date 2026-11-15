@@ -30,8 +30,7 @@
 
 ## Docs filtering and required checks
 
-Only root `README.md`, `CONTEXT.md` and `docs/**` are excluded from branch/PR
-triggers. Embedded `prompts/*.md`, vendored files, scripts, assets, dependency
+Only root `README.md` and `docs/**` are excluded from branch/PR triggers. Embedded `prompts/*.md`, vendored files, scripts, assets, dependency
 locks and workflow changes still trigger CI. Tags always run: GitHub does not
 apply path filters to tag pushes. Manual dispatch remains available.
 

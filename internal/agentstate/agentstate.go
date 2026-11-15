@@ -1,40 +1,7 @@
-// Package agentstate publishes what this program's agent is doing so other
-// programs — a terminal multiplexer, a status bar, a notifier, a test harness —
-// can watch it without knowing anything about ompig-slim's internals.
-//
-// The surface is one JSON document per running agent under the configuration
-// root, rewritten atomically whenever the state changes:
-//
-//	<PIG_HOME|~/.pi>/state/agent/<pid>/status.json
-//
-// One directory per process, not one shared file, because several agents run at
-// once on a real machine: two Herdr panes, a pane plus a `-p` run from a script,
-// or a subagent host. A single file would have them overwrite each other, and a
-// consumer would see whichever wrote last — including, on a Herdr pane, a rival
-// session's state. A process identifier is the right key because one process runs
-// one session at a time; a session replacement reuses the directory.
-//
-// A consumer either reads the document of the process it cares about
-// ([PathForPID]) or enumerates the live ones ([List]). Nothing in this package
-// knows about Herdr, terminals, or any other consumer, and a consumer that does
-// not exist costs one small file write per state change.
-//
-// # Why a file
-//
-// A lifecycle event is a moment, and a consumer that starts after it (a status
-// bar launched later, an integration attached to an existing session) would
-// miss it. Publishing the *current* state instead of the transitions means a
-// consumer only has to read the file to be correct, and a publish is naturally
-// coalescing: two changes that happen faster than a write leave the newest
-// state on disk.
-//
-// # Contract
-//
-// The document is advisory. A reader must treat an absent file, an unreadable
-// file, or an old timestamp as "no information" rather than an error, because
-// the writer is a normal process that can be killed mid-turn. [HeartbeatAfter]
-// in the document lets a reader distinguish "idle since long ago" from "the
-// writer died", which a bare state string cannot express.
+// Package agentstate publishes one advisory JSON document per running agent.
+// Documents live under <PIG_HOME|~/.pi>/state/agent/<pid>/status.json and are
+// replaced atomically. Readers can inspect one process with [PathForPID] or
+// enumerate live processes with [List].
 package agentstate
 
 import (
@@ -49,92 +16,44 @@ import (
 	"ompig-slim/internal/configroot"
 )
 
-// Version is the document's schema version. A consumer that sees a higher
-// version should ignore fields it does not know rather than reject the file;
-// the version exists so a consumer can detect a shape it cannot read at all.
+// Version is the document schema version. Consumers must ignore unknown fields
+// when reading a higher version.
 const Version = 1
 
-// State is what the agent is doing. The set is deliberately the union of what
-// terminal multiplexers, status bars, and `wait`-style automation need, and no
-// more: a consumer that wants nuance reads `detail`.
+// State is the agent's externally visible lifecycle state.
 type State string
 
 const (
-	// Idle means the agent is waiting for input: no run is in flight, and no
-	// dialog is open.
-	Idle State = "idle"
-	// Working means a run is in flight.
+	Idle    State = "idle"
 	Working State = "working"
-	// Blocked means the agent cannot proceed without the user: a permission
-	// dialog, a question, or a login prompt is open. `detail` names it.
 	Blocked State = "blocked"
-	// Exited means the program is no longer running in this directory. It is
-	// written once on shutdown so a consumer stops waiting on a dead session
-	// instead of trusting a stale `working`.
-	Exited State = "exited"
+	Exited  State = "exited"
 )
 
-// Document is the published state. Field names are stable wire names; adding a
-// field is a compatible change, removing or renaming one is not.
+// Document is the published state. JSON field names are stable wire names.
 type Document struct {
-	// Version is [Version] as written by the producer.
-	Version int `json:"version"`
-	// State is the agent's current state.
-	State State `json:"state"`
-	// Agent is the program name, so a consumer watching several harnesses can
-	// tell them apart: "ompig-slim".
-	Agent string `json:"agent"`
-	// SessionID is PiG's session identifier, stable across a run.
-	SessionID string `json:"session_id,omitempty"`
-	// SessionFile is the session log's path, which is also what resumes it.
+	Version     int    `json:"version"`
+	State       State  `json:"state"`
+	Agent       string `json:"agent"`
+	SessionID   string `json:"session_id,omitempty"`
 	SessionFile string `json:"session_file,omitempty"`
-	// Cwd is the working directory the agent runs in.
-	Cwd string `json:"cwd,omitempty"`
-	// Mode is the run mode: "tui", "rpc", "json", or "print". A consumer that
-	// only cares about interactive agents should require "tui", because a
-	// one-shot run in the same directory is not the agent a user is watching.
-	Mode string `json:"mode,omitempty"`
-	// Detail is one line of human-readable context for a blocked state — the
-	// dialog title — and empty otherwise. Control characters are replaced so
-	// the value is safe to print unescaped.
-	Detail string `json:"detail,omitempty"`
-	// BlockedKind is what a blocked agent waits for: "permission", "question",
-	// or "auth". Empty when the producer cannot classify the dialog.
+	Cwd         string `json:"cwd,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	Detail      string `json:"detail,omitempty"`
 	BlockedKind string `json:"blocked_kind,omitempty"`
-	// ProcessID is the writer's process ID, so a reader can tell a live
-	// document from one left behind by a killed process.
-	ProcessID int `json:"pid"`
-	// UpdatedAt is when the document was last written, as RFC 3339 with a
-	// numeric zone. A reader that finds this very old should verify
-	// [Document.ProcessID] is still alive before trusting `state`.
-	UpdatedAt string `json:"updated_at"`
+	ProcessID   int    `json:"pid"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
-// HeartbeatAfter is how long a document stays authoritative without being
-// rewritten. The publisher refreshes the document on this interval, and a reader
-// that finds an older `updated_at` must treat the state as unknown rather than
-// current.
-//
-// The interval exists because a writer can stop publishing while staying alive:
-// an extension reloaded mid-run, a handler that panicked, a process suspended and
-// resumed. A reader that trusts a frozen `working` forever shows an agent as busy
-// when it is not, and one that trusts a frozen `exited` stops watching a pane
-// whose agent came back. Both were observed: a session whose document was frozen
-// at `working` from its first turn, and a `/clear` that published `exited` for a
-// process that kept working. One minute is several times the refresh interval, so
-// a reader tolerates a missed write without ever accepting a stale state for long.
+// HeartbeatAfter defines document expiration. Readers must treat an older
+// updated_at as unknown rather than current.
 const HeartbeatAfter = time.Minute
 
-// Stale reports whether doc is too old to describe its writer, per
-// [HeartbeatAfter]. A document with no timestamp counts as stale: guessing that
-// it is current is how a reader shows a dead agent as active.
+// Stale reports whether doc is older than HeartbeatAfter. Missing timestamps are
+// stale.
 func Stale(doc Document) bool { return staleAt(doc, time.Now()) }
 
-// staleAt is Stale against an explicit clock. The comparison has a second of slack
-// at the deadline because the document records its time as RFC 3339, which drops
-// trailing zero nanoseconds: a timestamp written at exactly whole seconds reads
-// back with the same value, but one written mid-second round-trips within that
-// second. A reader must not call a document stale over a formatting artifact.
+// staleAt reports staleness at now, allowing one second for RFC 3339 rounding.
 func staleAt(doc Document, now time.Time) bool {
 	updated, err := time.Parse(time.RFC3339Nano, doc.UpdatedAt)
 	if err != nil {
@@ -143,9 +62,7 @@ func staleAt(doc Document, now time.Time) bool {
 	return now.Sub(updated) > HeartbeatAfter+time.Second
 }
 
-// Root returns the directory holding every agent's document:
-// <config root>/state/agent. A consumer that does not already know which process
-// it wants enumerates this directory.
+// Root returns the directory holding all agent state documents.
 func Root() (string, error) {
 	root, err := configroot.Dir()
 	if err != nil {
@@ -154,14 +71,11 @@ func Root() (string, error) {
 	return filepath.Join(root, "state", "agent"), nil
 }
 
-// Path returns this process's document path. It is computed rather than cached
-// so a test can point PIG_HOME at a temporary directory after this package has
-// been used; confidence in the resolution does not justify process-wide state.
+// Path returns this process's state document path. It resolves the root on each call
+// so tests can change PIG_HOME.
 func Path() (string, error) { return PathForPID(os.Getpid()) }
 
-// PathForPID returns the document path of the agent running as pid, which is what
-// a consumer embedded in that agent (an extension, for instance) reads: it is
-// the one document that describes the session it runs in.
+// PathForPID returns the state document path for pid.
 func PathForPID(pid int) (string, error) {
 	root, err := Root()
 	if err != nil {
@@ -233,16 +147,8 @@ func pidFromDir(dir string) int {
 // Enabled reports whether this Publisher writes anything.
 func (p *Publisher) Enabled() bool { return p != nil && p.dir != "" }
 
-// Refresh rewrites the last published document with a current timestamp, even
-// when its state is unchanged, so a reader can tell a live writer from one that
-// stopped. It publishes nothing when this Publisher has not published yet: a
-// refresh must never invent a document.
-//
-// This is what makes [HeartbeatAfter] meaningful. [Publisher.Publish] suppresses a
-// write whose content matches the last one, so an agent that sits idle for an hour
-// leaves an hour-old timestamp, and a reader applying the staleness rule would
-// call a perfectly healthy agent unknown. The refresh loop is the writer's half of
-// that contract.
+// Refresh rewrites the last published document with a current timestamp. It is a
+// no-op until Publish has written a document.
 func (p *Publisher) Refresh() {
 	if !p.Enabled() {
 		return
@@ -383,11 +289,8 @@ func sameContent(left, right Document) bool {
 	return left == right
 }
 
-// Read parses the document at path. A consumer uses it; tests use it to assert
-// what was published.
-//
-// A missing file returns [ErrNoState] so a caller can distinguish "nothing has
-// published here" from a corrupt document, which returns the decode error.
+// Read parses the document at path. A missing file returns ErrNoState; malformed
+// JSON returns its decode error.
 func Read(path string) (Document, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -406,16 +309,8 @@ func Read(path string) (Document, error) {
 // ErrNoState reports that no state document exists at the requested path.
 var ErrNoState = errors.New("no agent state document")
 
-// List returns every live agent document under [Root], in no particular order.
-//
-// It is the entry point for a consumer that watches the machine rather than one
-// known agent: a status bar showing every running session, a dashboard, or a
-// supervisor looking for work to do. A document whose process is gone is skipped
-// and its directory removed, because a killed writer cannot clean up after
-// itself and a stale `working` in a listing is worse than a missing entry.
-//
-// An unreadable or corrupt document is skipped rather than failing the call: one
-// bad directory must not blind a consumer to every other agent.
+// List returns every live agent document under Root. Dead process directories and
+// unreadable documents are removed or skipped.
 func List() ([]Document, error) {
 	root, err := Root()
 	if err != nil {
@@ -452,11 +347,6 @@ func List() ([]Document, error) {
 	return documents, nil
 }
 
-// Live reports whether the process that wrote doc is still running, which is how
-// a consumer tells a current document from a leftover one. A consumer that only
-// reads one document by path uses this; [List] already applies it.
-//
-// The check is deliberately conservative: a process this one may not signal
-// (another user's, or a pid the platform will not report on) counts as alive, so
-// a document is never dropped for lack of permission to check it.
+// Live reports whether the process described by doc is running. Processes that
+// cannot be signaled due to permissions are treated as alive.
 func Live(doc Document) bool { return processAlive(doc.ProcessID) }

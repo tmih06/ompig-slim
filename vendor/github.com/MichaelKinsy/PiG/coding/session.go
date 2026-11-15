@@ -646,7 +646,6 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 
 	agent.SetTools(allTools)
 
-	// Create or resume the on-disk session.
 	sm := newSessionManagerForDir(svcs, opts.SessionDir)
 	switch {
 	case opts.SessionManager != nil:

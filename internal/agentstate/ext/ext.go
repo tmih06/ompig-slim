@@ -1,11 +1,4 @@
-// Package agentstateext is the extension that publishes [agentstate] documents
-// from a live PiG session.
-//
-// It is the only part of the state surface that must run inside the session,
-// because the events it needs are emitted by PiG's runner. Everything a consumer
-// needs — the file, its schema, and a reader — lives in [agentstate], so the
-// Herdr integration, a status bar, and a test harness all read the same
-// document instead of each learning this extension's protocol.
+// Package agentstateext publishes agentstate documents from PiG session events.
 package agentstateext
 
 import (
@@ -19,24 +12,15 @@ import (
 	"ompig-slim/internal/agentstate"
 )
 
-// agentName is the program name published in the document, and the identity a
-// consumer keys on to tell this harness from another.
+// agentName is the program identifier published in agentstate documents.
 const agentName = "ompig-slim"
 
-// Extension returns the factory that publishes agent state. `publisher` may be
-// nil or disabled, in which case the handlers do nothing at all.
-//
-// The Factory shape — registering event handlers only — means the extension
-// adds no tool, command, or flag to the session, so it cannot shadow a user's
-// extension or appear in the tool list.
+// Extension returns the PiG extension factory that publishes agent state.
 func Extension(publisher *agentstate.Publisher) extension.ExtensionFactory {
 	return extensionWithTracker(publisher, nil)
 }
 
-// extensionWithTracker is Extension with an injectable tracker. A nil tracker
-// builds the production one; a test passes its own so it can shorten the heartbeat
-// interval and observe that the loop stopped, without a second tracker whose state
-// nothing reads.
+// extensionWithTracker constructs a factory with an optional test tracker.
 func extensionWithTracker(publisher *agentstate.Publisher, provided *tracker) extension.ExtensionFactory {
 	return func(api extension.API) error {
 		session := provided
@@ -46,9 +30,7 @@ func extensionWithTracker(publisher *agentstate.Publisher, provided *tracker) ex
 
 		api.OnSessionStart(func(ctx context.Context, _ extension.SessionStartEvent) error {
 			session.identify(ctx)
-			// A reload replaces the extension mid-run, so the session's own
-			// idle flag is the only trustworthy answer here; assuming "idle"
-			// would report a working agent as ready for input.
+			// Read runner idle state so a mid-run reload preserves the status.
 			session.setRunning(!session.idle(ctx))
 			session.startHeartbeat()
 			return nil
@@ -58,9 +40,7 @@ func extensionWithTracker(publisher *agentstate.Publisher, provided *tracker) ex
 			return nil
 		})
 		api.OnAgentSettled(func(_ context.Context, _ extension.AgentSettledEvent) error {
-			// Settled, not agent_end: PiG fires this only once retries,
-			// compaction, and queued continuations are done, so a consumer does
-			// not see "idle" between two attempts of the same turn.
+			// agent_settled fires after retries and continuations complete.
 			session.setRunning(false)
 			return nil
 		})
@@ -80,40 +60,24 @@ func extensionWithTracker(publisher *agentstate.Publisher, provided *tracker) ex
 	}
 }
 
-// tracker derives the published document from the session's lifecycle.
-//
-// The handlers run on different goroutines — prompt events are dispatched from
-// the runner's own drain goroutine while run events come from the run loop — so
-// every field is mutex-guarded and each mutation publishes under the lock. That
-// keeps the file's order equal to the events' order.
+// tracker serializes session lifecycle events and publishes under mu.
 type tracker struct {
 	publisher *agentstate.Publisher
 
-	mu sync.Mutex
-	// identified fields describe the session, refreshed at session_start.
+	mu          sync.Mutex
 	sessionID   string
 	sessionFile string
 	cwd         string
 	mode        string
-	// running is true between agent_start and agent_settled.
-	running bool
-	// blocked counts the open blocking dialogs; detail and kind describe the
-	// newest one. A nested dialog raises the count without changing what the
-	// consumer sees, so only the outermost close ends "blocked".
-	blocked int
-	detail  string
-	kind    string
-	// exited stops further publishing once the session has shut down.
-	exited bool
-	// heartbeat closes to stop the refresh loop; nil before the first
-	// session_start and after the process exits.
+	running     bool
+	// blocked tracks open dialog count, detail, and kind.
+	blocked   int
+	detail    string
+	kind      string
+	exited    bool
 	heartbeat chan struct{}
-	// beatEvery is the refresh interval. Production leaves it zero, which means
-	// [agentstate.HeartbeatInterval]; a test sets it so it need not wait a real
-	// third of a minute to see one beat.
-	beatEvery time.Duration
-	// beatStopped closes once the refresh loop returns, so a test can prove a
-	// shutdown stopped it instead of assuming.
+	// beatEvery overrides HeartbeatInterval in tests.
+	beatEvery   time.Duration
 	beatStopped chan struct{}
 }
 
@@ -141,7 +105,6 @@ func (t *tracker) startHeartbeat() {
 	go t.beat(t.heartbeat, t.beatStopped, every)
 }
 
-// beat refreshes the document until done is closed.
 func (t *tracker) beat(done <-chan struct{}, stopped chan<- struct{}, every time.Duration) {
 	defer close(stopped)
 	ticker := time.NewTicker(every)
@@ -157,17 +120,13 @@ func (t *tracker) beat(done <-chan struct{}, stopped chan<- struct{}, every time
 			t.mu.Unlock()
 			return
 		}
-		// Refresh under the same lock a mutation publishes under, so a beat can
-		// never land between a state change and its own write and leave the file
-		// describing the state before that change.
+		// Hold mu while refreshing to serialize it with state changes.
 		t.publisher.Refresh()
 		t.mu.Unlock()
 	}
 }
 
-// identify records the session's identity. Failures are ignored: a document
-// without a session path is still useful, and the alternative is failing the
-// user's session_start handler over metadata.
+// identify reads and records session metadata. Metadata failures leave fields empty.
 func (t *tracker) identify(ctx context.Context) {
 	sessionID, sessionFile, cwd, mode := sessionIdentity(ctx)
 
@@ -177,9 +136,7 @@ func (t *tracker) identify(ctx context.Context) {
 	t.publishLocked()
 }
 
-// idle reads the session's own idle flag. A missing context or a stale runner
-// reports idle, which is the safe answer: claiming "working" would make a
-// consumer wait on a run that is not happening.
+// idle reports whether the runner is idle, defaulting to true when unavailable.
 func (t *tracker) idle(ctx context.Context) bool {
 	extCtx := extension.FromContext(ctx)
 	if extCtx == nil {
@@ -229,15 +186,7 @@ func (t *tracker) unblock() {
 	t.publishLocked()
 }
 
-// exit publishes the terminal state once. A consumer that keeps polling learns
-// the agent is gone instead of trusting the last `working` forever.
-//
-// Only a real exit reaches it. A session_shutdown whose reason is "new",
-// "reload", "resume" or "fork" ends one session, not the process: `new` is what
-// `/clear` emits, and `reload` is `/reload`, so treating every shutdown as
-// terminal left the document at `exited` for the rest of a live process. That is
-// the state a multiplexer reads as "the agent is gone" — it stops watching the
-// pane, and the next turn's `working` was never published for it to see.
+// exit publishes the terminal exited state for process shutdown.
 func (t *tracker) exit() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -254,11 +203,8 @@ func (t *tracker) exit() {
 	t.publishLocked()
 }
 
-// shutdown routes a session_shutdown event by its reason: the process is ending,
-// or only this session is. A session-scoped shutdown resets the run and dialog
-// state a replaced session cannot carry over, then republishes, so the document
-// describes the new session rather than the ended one. The identity fields are
-// refreshed by the session_start that follows.
+// shutdown distinguishes process exit from session reset. Non-terminal shutdowns
+// clear transient state so the next session can publish fresh metadata.
 func (t *tracker) shutdown(reason string) {
 	switch reason {
 	case "quit", "":
@@ -268,10 +214,7 @@ func (t *tracker) shutdown(reason string) {
 	}
 }
 
-// reset returns the tracker to a freshly started session's state and
-// republishes. It is what a session-scoped shutdown needs: the old session's run
-// and dialog are over, and a document still claiming `working` or `blocked`
-// would describe a session that no longer exists.
+// reset clears run and dialog state for a replaced session and republishes.
 func (t *tracker) reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -348,9 +291,7 @@ func normalizeKind(kind string) string {
 	}
 }
 
-// oneLine collapses a dialog title to a single printable line and caps it, so a
-// consumer can print the value without escaping and without a long prompt
-// crowding out its own layout.
+// oneLine removes control characters and caps the title at 160 runes.
 func oneLine(text string) string {
 	fields := strings.FieldsFunc(text, func(r rune) bool {
 		return r < ' ' || r == '\u007f'

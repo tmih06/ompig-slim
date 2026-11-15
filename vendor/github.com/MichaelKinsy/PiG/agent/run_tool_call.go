@@ -71,7 +71,6 @@ func RunToolCall(ctx context.Context, call AgentToolCall, options RunToolCallOpt
 	onUpdate := options.OnUpdate
 	var observed func() bool
 	if onUpdate == nil {
-		// Nothing receives this call's updates.
 		onUpdate = func(AgentToolResult) error { return nil }
 		observed = func() bool { return false }
 	}

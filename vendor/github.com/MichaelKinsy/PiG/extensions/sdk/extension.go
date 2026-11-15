@@ -1175,7 +1175,6 @@ func (e *Extension) runWithConn(nc net.Conn, started *conn, sockPath string) err
 			e.toolMu.Unlock()
 		}
 	}()
-	// Send register message.
 	if err := conn.send(envelope{
 		Type: msgRegister,
 		Register: &registerMsg{

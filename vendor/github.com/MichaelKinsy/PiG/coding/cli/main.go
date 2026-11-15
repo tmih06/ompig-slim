@@ -375,7 +375,6 @@ func resolvePigletOn(unknownFlags map[string]any, trustOverride *bool, binary pi
 		pigletPath = resolved
 	}
 
-	// Check env vars if no flag.
 	if pigletPath == "" {
 		if p := os.Getenv("PIG_PIGLET_PATH"); p != "" {
 			pigletPath = p

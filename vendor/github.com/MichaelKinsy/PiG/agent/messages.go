@@ -250,7 +250,6 @@ func customMessageText(m map[string]any) string {
 		summary, _ := m["summary"].(string)
 		return CompactionSummaryContextText(summary)
 	}
-	// Fallback: marshal to JSON
 	b, _ := json.Marshal(m)
 	return string(b)
 }

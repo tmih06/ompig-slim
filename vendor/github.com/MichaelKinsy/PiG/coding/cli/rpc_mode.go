@@ -1282,7 +1282,6 @@ commandLoop:
 				writeRPC(rpcError(env.ID, "bash", err.Error()))
 				continue
 			}
-			// Run bash in a goroutine (may block for a long time).
 			bashWG.Add(1)
 			shutdownGate.Begin()
 			go func(id rpcRequestID, command string, excludeFromContext *bool) {

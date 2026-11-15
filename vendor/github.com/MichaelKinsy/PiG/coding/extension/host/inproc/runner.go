@@ -3032,7 +3032,6 @@ func isSessionBeforeEvent(event any) bool {
 // SessionBefore* event signals cancellation. Mirrors upstream's
 // `result.cancel` check (runner.ts:687).
 func sessionBeforeIsCancel(result any) bool {
-	// Handle direct type assertions first.
 	switch r := result.(type) {
 	case *extension.SessionBeforeSwitchResult:
 		return r != nil && r.Cancel

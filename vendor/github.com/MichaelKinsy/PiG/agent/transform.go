@@ -172,7 +172,6 @@ func NormalizeMessages(msgs []AgentMessage, model *ai.Model) []AgentMessage {
 				msg.Assistant = &cp
 			}
 
-			// Collect tool_use IDs for orphan detection.
 			pendingToolUseIDs = pendingToolUseIDs[:0]
 			pendingToolNames = pendingToolNames[:0]
 			seenResultIDs = map[string]bool{}
@@ -185,7 +184,6 @@ func NormalizeMessages(msgs []AgentMessage, model *ai.Model) []AgentMessage {
 			result = append(result, msg)
 
 		case msg.ToolResult != nil:
-			// Record fulfilled tool IDs.
 			seenResultIDs[msg.ToolResult.ToolCallID] = true
 			if unconsumedResults != nil {
 				consumeResult(msg.ToolResult.ToolCallID)
@@ -222,7 +220,6 @@ func NormalizeMessages(msgs []AgentMessage, model *ai.Model) []AgentMessage {
 		}
 	}
 
-	// Flush trailing orphaned tool calls.
 	position = len(msgs)
 	flushSynthetic()
 

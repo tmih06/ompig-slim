@@ -703,7 +703,6 @@ func matchesKeyInfo(data string, info *keyIDInfo) bool {
 		return false
 	}
 
-	// Parse the raw terminal input.
 	pk := keystroke.terminal
 	if pk != nil {
 		return pk.codepoint == expectedCP && pk.modifier == expectedMod && !pk.inexactModifier
