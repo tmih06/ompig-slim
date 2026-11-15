@@ -36,17 +36,15 @@ type vaultRequest struct {
 	UntilMs    int64          `json:"untilMs,omitempty"`
 }
 
-// redact returns a decoded credential with its OAuth refresh replaced by a
-// non-secret sentinel; the caller marshals only this projected value.
-func redact(credential ai.Credential) (ai.Credential, error) {
-	if credential.Type != ai.CredentialOAuth {
-		return credential, nil
+// redact returns a credential with its OAuth refresh replaced by a non-secret
+// sentinel. Credential is already decoded by the vault, so copying the value
+// retains Extra and the provider's exact expiry representation without a
+// marshal/unmarshal round trip.
+func redact(credential ai.Credential) ai.Credential {
+	if credential.Type == ai.CredentialOAuth {
+		credential.Refresh = remoteRefreshSentinel
 	}
-	// Credential is already decoded by the vault. Copying the value avoids a
-	// marshal/unmarshal round trip for every account in a snapshot while
-	// retaining Extra and the provider's exact expiry representation.
-	credential.Refresh = remoteRefreshSentinel
-	return credential, nil
+	return credential
 }
 
 // entries reads enabled credentials from the canonical vault. API-key config
@@ -60,11 +58,7 @@ func (s *Store) entries(ctx context.Context) ([]vaultEntry, error) {
 	}
 	result := make([]vaultEntry, 0, len(accounts))
 	for _, account := range accounts {
-		safe, err := redact(account.Credential)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, vaultEntry{Info: account.Info, Credential: safe})
+		result = append(result, vaultEntry{Info: account.Info, Credential: redact(account.Credential)})
 	}
 	return result, nil
 }
@@ -102,10 +96,7 @@ func sameRedacted(current, expected *ai.Credential) bool {
 	if current == nil || expected == nil {
 		return current == nil && expected == nil
 	}
-	safe, err := redact(*current)
-	if err != nil {
-		return false
-	}
+	safe := redact(*current)
 	a, err := json.Marshal(safe)
 	if err != nil {
 		return false
@@ -157,7 +148,8 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 				updated, err = s.vault.Modify(ctx, request.Provider, modify)
 			}
 			if updated != nil && err == nil {
-				result, err = redact(*updated)
+				safe := redact(*updated)
+				result = safe
 			}
 		}
 	case "select":
@@ -211,11 +203,7 @@ func (s *Store) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	var result *ai.Credential
 	if credential != nil {
-		safe, err := redact(*credential)
-		if err != nil {
-			http.Error(w, "vault read failed", 500)
-			return
-		}
+		safe := redact(*credential)
 		result = &safe
 	}
 	w.Header().Set("Content-Type", "application/json")
