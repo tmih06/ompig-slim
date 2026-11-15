@@ -159,6 +159,9 @@ a Herdr server restart.
 | Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
+Codex account labels and usage views prefer the access-token email, including for existing JSON imports,
+so they match `/usage reset`. Stored email metadata is the fallback when the token has no email.
+
 Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live
 in local SQLite, or in the configured broker’s SQLite vault, unencrypted at rest.
 

@@ -645,7 +645,7 @@ func AccountCredentialSettings(credential Credential) *UsageAccountSettings {
 		AccountID:            trimJSWhitespace(credential.AccountID),
 		ProjectID:            trimJSWhitespace(credential.ProjectID),
 		EnterpriseURL:        trimJSWhitespace(credential.EnterpriseDomain),
-		Email:                stringClaim(credential, "email"),
+		Email:                credentialEmail(credential),
 		OrgID:                stringClaim(credential, "orgId"),
 		OrgName:              stringClaim(credential, "orgName"),
 		Region:               stringClaim(credential, "region"),

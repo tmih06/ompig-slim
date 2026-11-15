@@ -123,9 +123,9 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 	credential := OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}
 	// Keep only the non-secret email claim so account pickers can distinguish
 	// imported accounts without retaining the source JSON or its ID token.
-	email := strings.ToLower(strings.TrimSpace(data.Email))
+	email := CodexAccountEmail(data.Access)
 	if email == "" {
-		email = strings.ToLower(strings.TrimSpace(codexClaimString(codexJWTProfile(data.Access), codexJWTProfileClaim, "email")))
+		email = strings.ToLower(strings.TrimSpace(data.Email))
 	}
 	if email == "" {
 		claims := codexJWTProfile(data.IDToken)
@@ -267,7 +267,7 @@ func init() {
 }
 
 // CodexAccountEmail returns the normalized email claim in a Codex access token.
-// It is used to label legacy imports that predate persisted email metadata.
+// The token profile takes precedence over imported or stored email metadata.
 func CodexAccountEmail(accessToken string) string {
 	return strings.ToLower(strings.TrimSpace(codexClaimString(codexJWTProfile(accessToken), codexJWTProfileClaim, "email")))
 }

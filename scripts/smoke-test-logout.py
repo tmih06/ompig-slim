@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prove single-account /logout and cancellation through the compiled TUI."""
 import argparse
+import base64
 import fcntl
 import json
 import os
@@ -105,8 +106,24 @@ def run(binary):
             wait_for(b"Removed one stored account")
             assert accounts() == [("openai", "keep-me"), ("anthropic", "other")], \
                 "identity-less logout removed a sibling"
+            profile = {"https://api.openai.com/profile": {"email": "Correct@Example.invalid"}}
+            payload = base64.urlsafe_b64encode(json.dumps(profile).encode()).decode().rstrip("=")
+            with sqlite3.connect(database) as db:
+                for key in ("codex-a", "codex-b"):
+                    db.execute("""INSERT INTO auth_credentials
+                        (provider, credential_type, data, identity_key)
+                        VALUES ('codex-json', 'oauth', ?, ?)""",
+                               (json.dumps({"access": f"e30.{payload}.fixture", "accountId": key,
+                                            "email": "stale@example.invalid"}), key))
+            os.write(master, b"/logout\r")
+            wait_for(b"Select provider to logout:")
+            os.write(master, b"Codex JSON\r")
+            wait_for(b"Select account to log out of")
+            assert b"correct@example.invalid" in captured, "Codex picker ignored the access-token email"
+            assert b"stale@example.invalid" not in captured, "Codex picker displayed stale imported email"
             assert b"fixture-secret" not in captured, "picker leaked an API key"
-            print("PASS: account picker, Escape cancellation, named/NULL logout, sibling preservation, no secret display")
+            assert f"e30.{payload}.fixture".encode() not in captured, "picker leaked an access token"
+            print("PASS: account picker, Escape cancellation, named/NULL logout, sibling preservation, Codex token email, no secret display")
         finally:
             if process.poll() is None:
                 process.terminate()

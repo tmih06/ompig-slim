@@ -149,11 +149,6 @@ func (service *UsageService) listAccountResetCredits(ctx context.Context, accoun
 		}
 		entry.Tier = settings.OrgName
 	}
-	if account.ProviderID == "openai-codex" || account.ProviderID == "codex-json" {
-		if email := ai.CodexAccountEmail(credential.Access); email != "" {
-			entry.Label = email
-		}
-	}
 	if entry.Label == "" {
 		entry.Label = service.unavailableLabel(account.ProviderID, &account)
 	}

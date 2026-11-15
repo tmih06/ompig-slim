@@ -89,6 +89,48 @@ func TestCodexJSONImportKeepsEmailForAccountLabels(t *testing.T) {
 	}
 }
 
+func TestCodexJSONAccountEmailMatchesAccessToken(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	access := codexLoginJWT(fmt.Sprintf(`{"exp":%d,"https://api.openai.com/auth":{"chatgpt_account_id":"acct"},"https://api.openai.com/profile":{"email":" Correct@Example.invalid "}}`, now.Add(time.Hour).Unix()))
+	t.Run("import", func(t *testing.T) {
+		credential, err := parseCodexJSON(fmt.Sprintf(`{"accessToken":%q,"idToken":%q,"email":"incorrect@example.invalid"}`, access, codexJSONTestIDToken("other@example.invalid", now.Add(time.Hour))), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := credentialClaim(Credential{Extra: credential.Extra}, "email"); got != "correct@example.invalid" {
+			t.Fatalf("imported email = %q, want correct@example.invalid", got)
+		}
+	})
+	for _, email := range []string{"incorrect@example.invalid", ""} {
+		t.Run("stored/"+email, func(t *testing.T) {
+			store, _ := openTestStore(t)
+			credential := oauthCredential("acct", email, now.Add(time.Hour))
+			credential.Access = access
+			key := deriveAccountKey(credential)
+			if _, err := store.SaveAccount(t.Context(), codexJSONProviderID, key, credential); err != nil {
+				t.Fatal(err)
+			}
+			accounts, err := store.ListAccounts(t.Context())
+			if err != nil || len(accounts) != 1 {
+				t.Fatalf("accounts = %+v, error = %v", accounts, err)
+			}
+			if accounts[0].Label != "correct@example.invalid" {
+				t.Errorf("account label = %q, want correct@example.invalid", accounts[0].Label)
+			}
+			saved, err := store.ReadAccount(t.Context(), codexJSONProviderID, key)
+			if err != nil || saved == nil {
+				t.Fatalf("read account: %v", err)
+			}
+			if got := UsageCredentialFromStored(saved).Email; got != "correct@example.invalid" {
+				t.Errorf("usage email = %q, want correct@example.invalid", got)
+			}
+			if saved.AccountID != "acct" || *accounts[0].AccountKey != *key || credentialClaim(*saved, "email") != email {
+				t.Fatal("display projection changed stored identity")
+			}
+		})
+	}
+}
+
 // TestCodexJSONRegistrationAndSecretPrompt exercises the actual built-in auth
 // adapter, model catalog, entitlement rules and usage-header registration.
 func TestCodexJSONRegistrationAndSecretPrompt(t *testing.T) {

@@ -1664,11 +1664,20 @@ func credentialClaim(credential Credential, field string) string {
 	return jsstring.Trim(value)
 }
 
+func credentialEmail(credential Credential) string {
+	if credential.Type == CredentialOAuth {
+		if email := CodexAccountEmail(credential.Access); email != "" {
+			return email
+		}
+	}
+	return credentialClaim(credential, "email")
+}
+
 // accountLabel is the display label for an account, from the credential's own non-secret claims.
 func accountLabel(credential Credential) string {
 	if credential.Type == CredentialOAuth {
 		return firstNonEmptyClaim(
-			credentialClaim(credential, "email"),
+			credentialEmail(credential),
 			jsstring.Trim(credential.AccountID),
 			jsstring.Trim(credential.ProjectID),
 		)
