@@ -175,6 +175,38 @@ func TestHardTurnBudgetIsNotParentCancellation(t *testing.T) {
 	}
 }
 
+func TestGracePeriodCompletionStaysSuccessful(t *testing.T) {
+	child := &fakeChild{}
+	child.send = func(context.Context, string) (string, error) {
+		child.mu.Lock()
+		listener := child.listener
+		child.mu.Unlock()
+		// One turn trips the soft limit; the next two are grace turns, and the
+		// child answers well before MaxTurns+GraceTurns is reached.
+		for range 3 {
+			listener(agent.TurnStartEvent{})
+		}
+		return "wrapped up in time", nil
+	}
+	m := testManager(t, func(context.Context, Invocation) (Child, error) { return child, nil })
+	maxTurns := 1
+	r, err := m.Spawn(context.Background(), Params{Prompt: "work", MaxTurns: &maxTurns}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	await(t, func() bool { current, _ := m.Find(r.ID); return !current.Active() })
+	current, _ := m.Find(r.ID)
+	if current.Outcome() != OutcomeCompleted {
+		t.Fatalf("grace-period completion reported %q (%s), want completed", current.Outcome(), current.Status)
+	}
+	if current.Partial() {
+		t.Fatal("a completed child was marked partial")
+	}
+	if text := retrieval(t, []Record{current}, `{"agent_id":"`+r.ID+`"}`); text != "wrapped up in time" {
+		t.Fatalf("completed retrieval gained status prose: %q", text)
+	}
+}
+
 func TestParentCancellationIsNotBudgetExhaustion(t *testing.T) {
 	started := make(chan struct{})
 	child := &fakeChild{send: func(ctx context.Context, _ string) (string, error) {
