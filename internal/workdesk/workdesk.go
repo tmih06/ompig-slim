@@ -48,6 +48,7 @@ type Result struct {
 	Reason    string        `json:"reason,omitempty"`
 	Usage     []UsageReport `json:"usage,omitempty"`
 	Events    []WorkerEvent `json:"events,omitempty"`
+	Progress  ProgressView  `json:"progress"`
 }
 
 // WorkerEvent is a provider-neutral transcript event suitable for a daemon
@@ -208,10 +209,15 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 		return err
 	}
 	defer func() { runErr = errors.Join(runErr, h.Close(context.Background())) }()
+	progressExtension := newProgressExtension(job)
+	if err = registry.Install(progressExtension); err != nil {
+		storage.Close(context.Background())
+		return err
+	}
 	root, err := h.Root(ctx, &harness.RootOptions{Agent: &harness.AgentChange{
 		Model: harness.SetTo(durable.ModelRef{Provider: provider, ModelId: id}), Cwd: harness.SetTo(job.CWD),
 		MaxTurns:     harness.SetTo(float64(job.MaxTurns)),
-		Instructions: harness.SetTo("Work autonomously on the assigned objective. Inspect the repository instructions, implement the change, run relevant checks, and inspect the diff. Do not ask for routine confirmations. Never claim checks passed unless run. If a tool was interrupted, inspect its effects before deciding whether to retry. Report blockers honestly. Ticket orchestration, push and PR policy belong to the caller."),
+		Instructions: harness.SetTo("Work autonomously on the assigned objective. Inspect the repository instructions, implement the change, run relevant checks, and inspect the diff. Use update_progress after meaningful milestones. Do not ask for routine confirmations. Never claim checks passed unless run. If a tool was interrupted, inspect its effects before deciding whether to retry. Report blockers honestly. Ticket orchestration, push and PR policy belong to the caller."),
 	}})
 	if err != nil {
 		return err
@@ -382,7 +388,7 @@ func saveAssignment(state string, job assignment) error {
 // status reads committed records without opening a scheduler or using model
 // credentials. An admission intent without a database is still pending work.
 func status(ctx context.Context, state string, job assignment) (Result, error) {
-	result := Result{RequestID: job.RequestID, Status: "pending"}
+	result := Result{RequestID: job.RequestID, Status: "pending", Progress: ProgressView{}}
 	if _, err := os.Stat(filepath.Join(state, "session.sqlite")); errors.Is(err, os.ErrNotExist) {
 		return result, nil
 	} else if err != nil {
@@ -496,7 +502,12 @@ func usageReportsFromState(state harness.UsageState) []UsageReport {
 
 // receipt derives output from the canonical submission and immutable answer.
 func receipt(ctx context.Context, storage durable.Storage, record durable.SubmissionRecord, job assignment) (Result, error) {
-	result := Result{RequestID: job.RequestID, Status: string(record.Status)}
+	result := Result{RequestID: job.RequestID, Status: string(record.Status), Progress: ProgressView{}}
+	var err error
+	result.Progress, err = readProgress(ctx, storage, record.ConversationId, job.RequestID)
+	if err != nil {
+		return result, err
+	}
 	if record.Reason != nil {
 		result.Reason = *record.Reason
 	}

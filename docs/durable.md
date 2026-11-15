@@ -114,6 +114,24 @@ checks/migrations. Do not use a different binary version as a live viewer during
 an upgrade. Model/provider configuration must be restored for execution/resume;
 status needs only the state directory.
 
+## Progress checkpoint
+
+Durable coding runs expose a bounded `ompig.progress` conversation document. The
+model can replace it through the `update_progress` tool with criteria, completed
+work, current step, constraints, decisions, blockers, and the next action. Each
+committed revision is tied to the immutable assignment request ID. Completed work
+is an agent claim and does not mean that tests passed or that factory acceptance
+is complete.
+
+The status receipt includes `progress.present` and the latest committed
+checkpoint. A missing document is reported as `present: false`, including for
+state created by an older binary. Status only opens the canonical SQLite store.
+The checkpoint is committed in the same Durable transaction as the tool result,
+so a crash before that commit leaves the previous revision visible. Resumed model
+context includes only committed progress, never transient streamed prose. The
+checkpoint uses latest-document semantics and caps each list at 16 items, each
+text value at 500 characters, and revisions at 1,000,000.
+
 ## Agent Sandbox deployment
 
 Persist **both** the state directory (entire directory, WAL included) and the
