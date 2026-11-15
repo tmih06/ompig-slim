@@ -21,8 +21,8 @@ func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
 	var sent extension.SendMessagePayload
 	result := continueActiveGoal(context.Background(), tracker, func(payload extension.SendMessagePayload, options *extension.SendMessageOptions) {
 		sent = payload
-		if options == nil || options.DeliverAs != extension.DeliverAsNextTurn {
-			t.Fatalf("continuation options = %+v, want nextTurn", options)
+		if options == nil || options.DeliverAs != extension.DeliverAsFollowUp {
+			t.Fatalf("continuation options = %+v, want followUp", options)
 		}
 	})
 	if result.Continue == nil || !*result.Continue {

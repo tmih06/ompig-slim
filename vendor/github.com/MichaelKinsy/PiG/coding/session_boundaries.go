@@ -219,7 +219,7 @@ func (s *Session) runBeforeSettleBoundary(ctx context.Context) (bool, error) {
 			return false, err
 		}
 		if !checked.CanContinue {
-			if extensionContinue || nativeContinue {
+			if shouldReportInvalidBoundaryContinuation(extensionContinue) {
 				s.reportInvalidBoundaryContinuation(icodingagent.EventAgentBeforeSettle)
 			}
 			return false, nil
@@ -290,6 +290,10 @@ func (s *Session) lastAssistantTextForSettle() string {
 		return b.String()
 	}
 	return ""
+}
+
+func shouldReportInvalidBoundaryContinuation(extensionContinue bool) bool {
+	return extensionContinue
 }
 
 func (s *Session) reportInvalidBoundaryContinuation(event string) {
