@@ -93,7 +93,9 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 
 Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
 `/export` `/hotkeys`. Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;
-`/goal pause`, `/goal resume`, `/goal complete`, and `/goal drop` control it. `ompig-slim --help` lists every flag.
+`/goal pause`, `/goal resume`, `/goal complete`, and `/goal drop` control it. A goal that reports the
+same blocker three times pauses itself and asks for the missing input ([goal contract](docs/goal.md));
+`/goal resume` continues it. `ompig-slim --help` lists every flag.
 
 ### Durable headless work
 
