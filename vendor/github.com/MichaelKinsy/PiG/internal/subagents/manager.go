@@ -99,6 +99,8 @@ type Params struct {
 	Detached       bool            `json:"-"`
 }
 
+const maxToolResultPreview = 1500
+
 type Record struct {
 	HubActivity    []HubActivity   `json:"hubActivity,omitempty"`
 	Requests       int             `json:"requests,omitempty"`
@@ -127,6 +129,7 @@ type Record struct {
 	ContextWindow  int             `json:"contextWindow,omitempty"`
 	Compactions    int             `json:"compactionCount"`
 	Activity       string          `json:"activity,omitempty"`
+	ProviderName   string          `json:"providerName,omitempty"`
 	ModelName      string          `json:"modelName,omitempty"`
 	Thinking       string          `json:"thinking,omitempty"`
 	Background     bool            `json:"isBackground"`
@@ -344,11 +347,12 @@ func (m *Manager) changed() {
 		m.host.Changed()
 	}
 }
-func (m *Manager) SetInvocation(id, model string, window int, thinking string) {
+func (m *Manager) SetInvocation(id, provider, model string, window int, thinking string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.runs {
 		if r.ID == id {
+			r.ProviderName = provider
 			r.ModelName = model
 			r.ContextWindow = window
 			r.Thinking = thinking
@@ -519,6 +523,9 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 	if p.Name != "" && (!safeHandle.MatchString(p.Name) || strings.EqualFold(p.Name, "main")) {
 		return Record{}, errors.New("name must use letters, digits, underscores or hyphens and cannot be main")
 	}
+	if p.Model != "" && (len(p.Model) < 2 || p.Model[0] != '@') {
+		return Record{}, errors.New("model must be a configured role beginning with @")
+	}
 	if p.Type == "" {
 		p.Type = "general-purpose"
 	}
@@ -601,6 +608,10 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		c = r.Config
 		p.Type = r.Type
 		p.Model = r.Params.Model
+		if p.Model != "" && (len(p.Model) < 2 || p.Model[0] != '@') {
+			m.mu.Unlock()
+			return Record{}, errors.New("model must be a configured role beginning with @")
+		}
 		p.Thinking = r.Params.Thinking
 		p.Isolation = r.Params.Isolation
 		p.Schema = r.Params.Schema
@@ -643,6 +654,10 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		return out, nil
 	}
 	p = resolveInvocation(c, p, m.settings, owner != "")
+	if p.Model != "" && (len(p.Model) < 2 || p.Model[0] != '@') {
+		m.mu.Unlock()
+		return Record{}, errors.New("model must be a configured role beginning with @")
+	}
 	if p.Thinking != "" && !slices.Contains([]string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}, p.Thinking) {
 		m.mu.Unlock()
 		return Record{}, fmt.Errorf("invalid thinking level %q", p.Thinking)
@@ -1171,7 +1186,7 @@ func (m *Manager) flushNotifications() {
 			if r.Error != "" && r.Error != r.Result {
 				text += "\nError: " + r.Error
 			}
-			preview := clip(text, 1500)
+			preview := clip(text, maxToolResultPreview)
 			hint := ""
 			if preview != text {
 				hint = "\nResult truncated; use get_subagent_result for the full result."

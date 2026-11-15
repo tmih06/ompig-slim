@@ -2,6 +2,7 @@ package subagents
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -141,6 +142,30 @@ func TestAgentResultDoesNotDuplicateIdenticalErrors(t *testing.T) {
 	}
 	if text := result.Content[0].(ai.TextContent).Text; strings.Count(text, "command failed") != 1 {
 		t.Fatal("identical result and error duplicated in model context", text)
+	}
+}
+
+func TestGetAgentResultReturnsExactResultWithoutTranscript(t *testing.T) {
+	const transcriptOnly = "transcript-only tool call"
+	exact := strings.Repeat("result ", 400)
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), Restore: func() []Record {
+		return []Record{{ID: "exact", Status: "completed", Result: exact}}
+	}})
+	defer m.Close()
+	if err := m.Update(map[string]any{"enabled": true}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.runs[0].transcript = []json.RawMessage{json.RawMessage(`{"content":"transcript-only tool call"}`)}
+	m.mu.Unlock()
+	tool := Tool{Manager: m, ToolName: "get_subagent_result"}
+	result, err := tool.Execute(context.Background(), "result", []byte(`{"agent_id":"exact", "verbose":true}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := result.Content[0].(ai.TextContent).Text
+	if text != exact || strings.Contains(text, transcriptOnly) {
+		t.Fatalf("get_subagent_result did not return only the exact result: %q", text)
 	}
 }
 

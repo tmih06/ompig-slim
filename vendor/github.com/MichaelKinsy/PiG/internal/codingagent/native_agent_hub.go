@@ -116,6 +116,15 @@ func hubSingleLine(text string) string {
 		return r
 	}, text)
 }
+func hubProviderModel(r subagents.HubAgent) string {
+	if r.ProviderName == "" {
+		return r.ModelName
+	}
+	if r.ModelName == "" {
+		return r.ProviderName
+	}
+	return r.ProviderName + "/" + r.ModelName
+}
 func hubLabel(r subagents.HubAgent) string {
 	if r.Alias != "" {
 		return r.Alias
@@ -461,7 +470,7 @@ func (h *agentHub) roster(width, height int) []string {
 		if !h.tree && r.ParentID != "" {
 			title += "  ↳ " + hubSingleLine(h.labelFor(r.ParentID))
 		}
-		model := hubModel(r.ModelName, r.Thinking)
+		model := hubModel(hubProviderModel(r), r.Thinking)
 		if r.ModelName != "" && widthx.VisibleWidth(title)+widthx.VisibleWidth(model)+2 <= width {
 			title += strings.Repeat(" ", width-widthx.VisibleWidth(title)-widthx.VisibleWidth(model)) + model
 		}
@@ -504,7 +513,7 @@ func (h *agentHub) details(width int) []string {
 	r := h.rows[h.index]
 	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("dim", r.ID), hubStatus(r.State, r.State) + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
 	if r.ModelName != "" {
-		lines = append(lines, hubModel(r.ModelName, r.Thinking))
+		lines = append(lines, hubModel(hubProviderModel(r), r.Thinking))
 	}
 	lines = append(lines, "", hubHeading("Task"), hubSingleLine(r.Description))
 	if r.Params.Prompt != "" {

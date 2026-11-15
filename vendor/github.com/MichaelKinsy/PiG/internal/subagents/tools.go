@@ -50,7 +50,7 @@ func (t *Tool) Schema() ai.ToolSchema {
 	switch t.ToolName {
 	case "Agent":
 		description = t.Manager.toolDescription(false)
-		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "subagent_type": property("string", "Loaded tool/prompt profile, case insensitive; not a model role. Set task-specific responsibilities in prompt."), "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "model": property("string", "Model role (@role, e.g. @task or @smol), provider/modelId, or fuzzy available model name. Omit to use the profile model, configured task role, or parent model."), "thinking": property("string", "off, minimal, low, medium, high, xhigh or max."), "max_turns": map[string]any{"type": "integer", "minimum": 1, "maximum": 10000, "description": "Soft turn limit, followed by a wrap-up warning and grace turns."}, "run_in_background": property("boolean", "Default true. False waits inline; ctrl+b sends a running foreground agent to the background."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
+		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "subagent_type": property("string", "Loaded tool/prompt profile, case insensitive; not a model role. Set task-specific responsibilities in prompt."), "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "model": property("string", "Configured model role only, such as @role, @task or @smol. Direct model IDs and fuzzy names are not accepted. Omit to use the profile or configured default."), "thinking": property("string", "off, minimal, low, medium, high, xhigh or max."), "max_turns": map[string]any{"type": "integer", "minimum": 1, "maximum": 10000, "description": "Soft turn limit, followed by a wrap-up warning and grace turns."}, "run_in_background": property("boolean", "Default true. False waits inline; ctrl+b sends a running foreground agent to the background."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
 		if s.WorktreeIsolation {
 			props["isolation"] = map[string]any{"type": "string", "enum": []string{"off", "worktree"}, "description": "off (default) uses current checkout; worktree creates an isolated copy at HEAD, without uncommitted main-checkout changes."}
 		}
@@ -59,8 +59,8 @@ func (t *Tool) Schema() ai.ToolSchema {
 		}
 		required = []string{"prompt", "description", "subagent_type"}
 	case "get_subagent_result":
-		description = "Retrieve agent status or a full result when the notification was truncated. Short notifications already contain the result. Use wait:true when completion is required; do not poll."
-		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false."), "verbose": property("boolean", "Include the full conversation and tool calls.")}
+		description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll."
+		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false.")}
 		required = []string{"agent_id"}
 	case "steer_subagent":
 		description = "Send a message to a running agent. Delivered after the current tool execution as a user message, without restarting."
@@ -74,6 +74,12 @@ func (t *Tool) Schema() ai.ToolSchema {
 }
 func textResult(text string, details any) agent.AgentToolResult {
 	return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}}, Details: details}
+}
+
+// toolResultPreview bounds model-visible completion text while keeping the full
+// result in Record for explicit retrieval and persistence.
+func toolResultPreview(text string) string {
+	return clip(text, maxToolResultPreview)
 }
 func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, update agent.ToolUpdateCallback) (result agent.AgentToolResult, err error) {
 	defer func() {
@@ -136,16 +142,16 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 		if r.Active() {
 			return textResult(backgroundResult(r), r), nil
 		}
-		result := textResult(r.Result, r)
+		result := textResult(toolResultPreview(r.Result), r)
 		result.IsError = r.Status == "error" || r.Status == "aborted"
 		if r.Error != "" && r.Error != r.Result {
-			result.Content = append(result.Content, ai.TextContent{Text: r.Error})
+			result.Content = append(result.Content, ai.TextContent{Text: toolResultPreview(r.Error)})
 		}
 		return result, nil
 	case "get_subagent_result":
 		var p struct {
-			ID            string `json:"agent_id"`
-			Wait, Verbose bool
+			ID   string `json:"agent_id"`
+			Wait bool
 		}
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return agent.AgentToolResult{}, err
@@ -170,19 +176,7 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 			}
 			return agent.AgentToolResult{}, err
 		}
-		out := fmt.Sprintf("Agent %s (%s): %s\n", r.ID, r.Type, r.Status) + r.Result
-		if r.Error != "" && r.Error != r.Result {
-			out += "\nError: " + r.Error
-		}
-		if p.Verbose {
-			transcript, e := t.Manager.Transcript(r.ID)
-			if e == nil {
-				for _, msg := range transcript {
-					out += "\n" + string(msg)
-				}
-			}
-		}
-		return textResult(out, r), nil
+		return textResult(r.Result, r), nil
 	case "steer_subagent":
 		var p struct {
 			ID      string `json:"agent_id"`

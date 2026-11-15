@@ -11,6 +11,12 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
+func TestHubProviderModelLabelIncludesProvider(t *testing.T) {
+	if got := hubProviderModel(subagents.HubAgent{Record: subagents.Record{ProviderName: "anthropic", ModelName: "claude"}}); got != "anthropic/claude" {
+		t.Fatalf("provider missing from hub label: %q", got)
+	}
+}
+
 func TestHubResponsiveRosterFilteringAndFocus(t *testing.T) {
 	m, _ := observerFixture(t)
 	m.toggleAgentHub()

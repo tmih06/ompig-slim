@@ -300,7 +300,7 @@ func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) 
 		}
 		child.refreshContext()
 	}
-	s.subagents.SetInvocation(inv.ID, model.DisplayName, model.Capabilities.ContextWindow, string(child.ThinkingLevel()))
+	s.subagents.SetInvocation(inv.ID, model.Provider.ID(), model.DisplayName, model.Capabilities.ContextWindow, string(child.ThinkingLevel()))
 	return subagentSession{child}, nil
 }
 

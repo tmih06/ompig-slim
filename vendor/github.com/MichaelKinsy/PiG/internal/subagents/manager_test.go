@@ -26,6 +26,21 @@ type fakeChild struct {
 	closed   atomic.Bool
 }
 
+func TestSpawnRejectsDirectModelIDs(t *testing.T) {
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir()})
+	defer m.Close()
+	if _, err := m.Spawn(context.Background(), Params{Prompt: "inspect", Model: "provider/model"}, "", ""); err == nil || !strings.Contains(err.Error(), "configured role") {
+		t.Fatalf("direct model ID was accepted: %v", err)
+	}
+}
+
+func TestToolResultPreviewIsBounded(t *testing.T) {
+	result := toolResultPreview(strings.Repeat("x", maxToolResultPreview+1))
+	if len([]rune(result)) != maxToolResultPreview+1 || !strings.HasSuffix(result, "…") {
+		t.Fatalf("preview is not bounded: length=%d", len([]rune(result)))
+	}
+}
+
 func TestConsumedResultDoesNotNotifyAndGroupWaits(t *testing.T) {
 	var notified atomic.Int32
 	first, second := make(chan struct{}), make(chan struct{})
