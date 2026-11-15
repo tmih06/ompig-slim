@@ -28,13 +28,16 @@ type detection struct {
 	Count            int    `json:"count"`
 	ArgumentsSummary string `json:"argumentsSummary"`
 	ResultSummary    string `json:"resultSummary"`
+	FailureClass     string `json:"failureClass,omitempty"`
+	TargetSummary    string `json:"targetSummary,omitempty"`
 }
 
-// guard owns one run's consecutive-turn fingerprint. The extension serializes
+// guard owns one run's repetition and failure streaks. The extension serializes
 // access; separate factory invocations must never share this state.
 type guard struct {
-	last  string
-	count int
+	last     string
+	count    int
+	failures failureStreak
 }
 
 // Extension registers the primary-session guard without adding tools or UI.
@@ -123,6 +126,9 @@ func (g *guard) record(event extension.TurnEndEvent) (*detection, error) {
 	} else {
 		g.last, g.count = key, 1
 	}
+	if detected := g.failures.record(calls, event.ToolResults); detected != nil {
+		return detected, nil
+	}
 	if g.count < threshold {
 		return nil, nil
 	}
@@ -193,6 +199,13 @@ func summarize(text string, limit int) string {
 // render mirrors OMP's corrective rather than terminating or restarting a run.
 // Continued identical turns earn another steer, not a fresh threshold window.
 func (d detection) render() string {
+	if d.FailureClass != "" {
+		recovery := "Re-read the target with `read`, then use a unique exact anchor from the fresh content or change approach."
+		if d.FailureClass == "grep-invalid-regex" {
+			recovery = "Correct the regex, use `literal: true` for a literal search, or change approach."
+		}
+		return fmt.Sprintf("<system-interrupt reason=\"deterministic_tool_failure\">\n`%s` failed on `%s` in %d consecutive failing turns with `%s`, even if arguments change. %s\n</system-interrupt>", d.ToolName, d.TargetSummary, d.Count, d.FailureClass, recovery)
+	}
 	result := d.ResultSummary
 	if result == "" {
 		result = "(no text result)"

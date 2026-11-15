@@ -16,6 +16,7 @@ import (
 	_ "github.com/MichaelKinsy/PiG/ai/all"
 	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	_ "github.com/MichaelKinsy/PiG/coding/extension/builtin/codemode"
 )
 
 type fixtureCall struct {
@@ -192,8 +193,31 @@ func TestSessionLegitimateProgress(t *testing.T) {
 			if strings.Contains(log, `"customType":"tool-call-loop-redirect"`) {
 				t.Fatal("legitimate progress persisted a steer")
 			}
-			if test.name == "red test and fix" && (!strings.Contains(log, "exited with code 1") || !strings.Contains(log, "recovered")) {
-				t.Fatal("fixture did not exercise a failing test and fix")
+			var failures int
+			var lastError bool
+			for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+				var entry struct {
+					Message struct {
+						Role    string `json:"role"`
+						IsError bool   `json:"isError"`
+					} `json:"message"`
+				}
+				if err := json.Unmarshal([]byte(line), &entry); err != nil {
+					t.Fatal(err)
+				}
+				if entry.Message.Role == "toolResult" {
+					lastError = entry.Message.IsError
+					if lastError {
+						failures++
+					}
+				}
+			}
+			wantFailures := 0
+			if test.name == "red test and fix" {
+				wantFailures = 3
+			}
+			if failures != wantFailures || lastError {
+				t.Fatalf("got %d failures and last result error=%v, want %d failures and successful recovery", failures, lastError, wantFailures)
 			}
 		})
 	}

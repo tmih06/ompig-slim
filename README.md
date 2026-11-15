@@ -149,7 +149,7 @@ a Herdr server restart.
 |---|---|
 | Tools | `read` (files, dirs, URLs, GitHub issue/PR links and `issue://N` / `pr://N` with automatic repository detection), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
 | Prompt | Completed slash commands use distinct colors; `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
-| Loop guard | Steers the primary agent away from identical tool calls after five consecutive turns |
+| Loop guard | [Corrective steers](docs/loop-guard.md) after five identical tool-call turns or three recurring deterministic failures on the same target |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
