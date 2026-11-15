@@ -52,6 +52,7 @@ type Host struct {
 	ParentRunning                        func() bool
 	Subscribe                            func(func(agent.AgentEvent)) func()
 	InstalledPackages                    func() []PackageRoot
+	ModelRoles                           func() []string
 }
 
 // Mention starts an off-screen orchestration clone in model mode; direct mode
@@ -84,9 +85,11 @@ type Params struct {
 	Prompt         string          `json:"prompt"`
 	Description    string          `json:"description"`
 	Name           string          `json:"name,omitempty"`
-	Type           string          `json:"subagent_type"`
+	Type           string          `json:"subagent_type,omitempty"`
 	Model          string          `json:"model,omitempty"`
 	Thinking       string          `json:"thinking,omitempty"`
+	Role           string          `json:"role,omitempty"`
+	Tools          []string        `json:"tool,omitempty"`
 	MaxTurns       *int            `json:"max_turns,omitempty"`
 	Background     *bool           `json:"run_in_background,omitempty"`
 	Resume         string          `json:"resume,omitempty"`
@@ -146,7 +149,21 @@ type Record struct {
 	StructuredJSON json.RawMessage `json:"structuredJson,omitempty"`
 }
 
-func (r Record) Active() bool   { return r.Status == "running" || r.Status == "queued" }
+func (r Record) Active() bool { return r.Status == "running" || r.Status == "queued" }
+
+func (m *Manager) ModelRoles() []string {
+	if m.host.ModelRoles == nil {
+		return nil
+	}
+	roles := slices.Clone(m.host.ModelRoles())
+	for i, role := range roles {
+		if !strings.HasPrefix(role, "@") {
+			roles[i] = "@" + role
+		}
+	}
+	slices.Sort(roles)
+	return slices.Compact(roles)
+}
 func (r Record) TopLevel() bool { return r.ParentID == "" && r.WorkflowID == "" }
 
 type run struct {
@@ -526,9 +543,6 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 	if p.Model != "" && (len(p.Model) < 2 || p.Model[0] != '@') {
 		return Record{}, errors.New("model must be a configured role beginning with @")
 	}
-	if p.Type == "" {
-		p.Type = "general-purpose"
-	}
 	if p.Schedule != "" {
 		return m.schedule(p)
 	}
@@ -559,11 +573,6 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		if depth > m.settings.MaxSubagentDepth {
 			m.mu.Unlock()
 			return Record{}, errors.New("maximum subagent depth reached")
-		}
-		allow := parent.Config.AllowedSubagents
-		if !slices.Contains(allow, "all") && !slices.ContainsFunc(allow, func(s string) bool { return strings.EqualFold(s, p.Type) }) {
-			m.mu.Unlock()
-			return Record{}, fmt.Errorf("parent cannot delegate to %q", p.Type)
 		}
 	}
 	c, note, err := resolveConfig(m.configs, p.Type, m.settings.FallbackSubagent)
@@ -654,6 +663,9 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		return out, nil
 	}
 	p = resolveInvocation(c, p, m.settings, owner != "")
+	if len(p.Tools) > 0 {
+		c.Tools = slices.Clone(p.Tools)
+	}
 	if p.Model != "" && (len(p.Model) < 2 || p.Model[0] != '@') {
 		m.mu.Unlock()
 		return Record{}, errors.New("model must be a configured role beginning with @")

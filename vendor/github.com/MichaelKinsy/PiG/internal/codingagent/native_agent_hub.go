@@ -117,13 +117,16 @@ func hubSingleLine(text string) string {
 	}, text)
 }
 func hubProviderModel(r subagents.HubAgent) string {
-	if r.ProviderName == "" {
-		return r.ModelName
+	model := r.ModelName
+	if r.ProviderName != "" && model != "" {
+		model = r.ProviderName + "/" + model
+	} else if r.ProviderName != "" {
+		model = r.ProviderName
 	}
-	if r.ModelName == "" {
-		return r.ProviderName
+	if r.Params.Role != "" && model != "" {
+		return r.Params.Role + " " + model
 	}
-	return r.ProviderName + "/" + r.ModelName
+	return model
 }
 func hubLabel(r subagents.HubAgent) string {
 	if r.Alias != "" {

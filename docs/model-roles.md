@@ -9,20 +9,16 @@ and **session-only model selection**:
   `--model @review` and subagent `model: "@review"` also resolve roles.
   `pi/review` is the legacy spelling; `*` means `@default`.
 
-## Subagent profiles versus model roles
+## Subagent roles and tools
 
-`Agent.subagent_type` selects a loaded tool/prompt profile; `Agent.model`
-selects its model independently and accepts `@role` aliases. Task-specific
-responsibilities belong in `prompt`, not in a new agent definition. The tool
-description lists profiles already loaded by the runtime, including custom
-profiles; the model should not search agent directories to discover them.
+`Agent.role` selects a configured model role and `Agent.tool` lists the tools
+available to the child. Both fields are required. Task-specific responsibilities
+belong in `prompt`. The tool description lists the available model roles.
 
-OMP uses the same separation, not arbitrary role names in place of agent
-profiles: its bundled `task` profile specifies `@task`, while `sonic` specifies
-`@smol` (`packages/coding-agent/src/task/agents.ts`). Here, an explicit model
-overrides the profile model; without either, an explicitly assigned `task`
-role is used, otherwise the child inherits the parent model. Choosing a role
-does not change tool permissions or the profile prompt.
+The role selects inference only. The tool list selects the child tool surface.
+Nested delegation remains controlled by the parent agent's `allowed_subagents`
+configuration. The anonymous `Agent` invocation uses the `agent` capability, so a
+parent that restricts delegation must list `agent` or `all` to permit it.
 
 ## Fullscreen manager
 

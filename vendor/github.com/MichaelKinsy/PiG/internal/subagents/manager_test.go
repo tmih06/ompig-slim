@@ -144,7 +144,7 @@ func TestCrossExtensionRPCReplyAndOwnership(t *testing.T) {
 		t.Fatal(reply)
 	}
 	bus.On("subagents:rpc:spawn:reply:spawn", func(data any) { replies <- data.(map[string]any) })
-	bus.Emit("subagents:rpc:spawn", map[string]any{"requestId": "spawn", "type": "Explore", "prompt": "RPC"})
+	bus.Emit("subagents:rpc:spawn", map[string]any{"requestId": "spawn", "prompt": "RPC"})
 	select {
 	case reply := <-replies:
 		if reply["success"] != true {
@@ -227,19 +227,19 @@ func TestQueuePoolsSteeringAndDisableDrain(t *testing.T) {
 	if err := m.Update(map[string]any{"maxConcurrent": 1}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := m.Spawn(context.Background(), Params{Type: "Explore", Prompt: "first", Name: "audit"}, "", "")
+	a, err := m.Spawn(context.Background(), Params{Prompt: "first", Name: "audit"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	await(t, func() bool { return created.Load() == 1 })
-	b, err := m.Spawn(context.Background(), Params{Type: "explore", Prompt: "second"}, "", "")
+	b, err := m.Spawn(context.Background(), Params{Prompt: "second"}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Status != "queued" || b.Handle != "explore-2" {
+	if b.Status != "queued" || b.Handle != "agent-2" {
 		t.Fatalf("second background run: %+v", b)
 	}
-	fg, err := m.Spawn(context.Background(), Params{Type: "Plan", Prompt: "foreground", Background: new(false)}, "", "")
+	fg, err := m.Spawn(context.Background(), Params{Prompt: "foreground", Background: new(false)}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestNestedOwnershipAndDepth(t *testing.T) {
 	if err := os.MkdirAll(path, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(path, "parent.md"), []byte("---\nname: parent\ndescription: Parent\nallowed_subagents: [Explore]\n---\nDelegate."), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(path, "parent.md"), []byte("---\nname: parent\ndescription: Parent\nallowed_subagents: [agent]\n---\nDelegate."), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Update(map[string]any{}); err != nil {
@@ -354,17 +354,34 @@ func TestNestedOwnershipAndDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := m.Spawn(context.Background(), Params{Type: "Explore", Prompt: "nested"}, parent.ID, "")
+	child, err := m.Spawn(context.Background(), Params{Prompt: "nested"}, parent.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = m.Consume(child.ID, ""); err == nil {
 		t.Fatal("main can access ownership-scoped nested child")
 	}
-	if _, err = m.Spawn(context.Background(), Params{Type: "Plan", Prompt: "outside allowlist"}, parent.ID, ""); err == nil {
+	if _, err = m.Spawn(context.Background(), Params{Type: "custom", Prompt: "outside allowlist"}, parent.ID, ""); err == nil {
 		t.Fatal("parent escaped allowlist")
 	}
-	if _, err = m.Spawn(context.Background(), Params{Type: "Explore", Prompt: "too deep"}, child.ID, ""); err == nil {
+	restrictedPath := filepath.Join(m.host.CWD, ".pi", "agents", "restricted.md")
+	if err := os.WriteFile(restrictedPath, []byte("---\nname: restricted\ndescription: Restricted\nallowed_subagents: [custom]\n---\nDelegate."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Update(map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	restricted, err := m.Spawn(context.Background(), Params{Type: "restricted", Prompt: "restricted"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Spawn(context.Background(), Params{Prompt: "anonymous outside allowlist"}, restricted.ID, ""); err == nil {
+		t.Fatal("anonymous child escaped allowlist")
+	}
+	if err = m.Stop(restricted.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Spawn(context.Background(), Params{Prompt: "too deep"}, child.ID, ""); err == nil {
 		t.Fatal("depth cap did not apply")
 	}
 	if err = m.Stop(parent.ID, ""); err != nil {

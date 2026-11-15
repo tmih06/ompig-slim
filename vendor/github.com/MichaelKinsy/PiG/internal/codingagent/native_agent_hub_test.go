@@ -11,9 +11,10 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-func TestHubProviderModelLabelIncludesProvider(t *testing.T) {
-	if got := hubProviderModel(subagents.HubAgent{Record: subagents.Record{ProviderName: "anthropic", ModelName: "claude"}}); got != "anthropic/claude" {
-		t.Fatalf("provider missing from hub label: %q", got)
+func TestHubProviderModelLabelIncludesRoleProviderAndID(t *testing.T) {
+	r := subagents.Record{ProviderName: "anthropic", ModelName: "claude-sonnet-4-20250514", Params: subagents.Params{Role: "@task"}}
+	if got := hubProviderModel(subagents.HubAgent{Record: r}); got != "@task anthropic/claude-sonnet-4-20250514" {
+		t.Fatalf("incomplete hub model label: %q", got)
 	}
 }
 

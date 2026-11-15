@@ -120,8 +120,8 @@ func TestHubRebuildsActivityFromSavedChildToolCalls(t *testing.T) {
 func TestHubIncludesChildrenWithoutDoubleBilling(t *testing.T) {
 	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), Restore: func() []Record {
 		return []Record{
-			{ID: "parent", Type: "general-purpose", Status: "completed", Turns: 2, LifetimeUsage: ai.Usage{Input: 100, Output: 20, CacheRead: 1000, Cost: ai.UsageCost{Total: 3}}},
-			{ID: "child", ParentID: "parent", Type: "Explore", Status: "completed", Turns: 1, LifetimeUsage: ai.Usage{Input: 60, Output: 10, CacheRead: 500, Cost: ai.UsageCost{Total: 1}}},
+			{ID: "parent", Status: "completed", Turns: 2, LifetimeUsage: ai.Usage{Input: 100, Output: 20, CacheRead: 1000, Cost: ai.UsageCost{Total: 3}}},
+			{ID: "child", ParentID: "parent", Status: "completed", Turns: 1, LifetimeUsage: ai.Usage{Input: 60, Output: 10, CacheRead: 500, Cost: ai.UsageCost{Total: 1}}},
 		}
 	}})
 	defer m.Close()
@@ -141,7 +141,7 @@ func TestHubRevivePromptAndKillOwnSession(t *testing.T) {
 	var creates, sends atomic.Int32
 	child := &fakeChild{send: func(context.Context, string) (string, error) { sends.Add(1); return "follow-up complete", nil }}
 	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), Restore: func() []Record {
-		return []Record{{ID: "saved", Type: "general-purpose", Status: "completed", SessionFile: "saved.jsonl", Config: Config{Name: "general-purpose"}}}
+		return []Record{{ID: "saved", Status: "completed", SessionFile: "saved.jsonl"}}
 	}, Create: func(_ context.Context, inv Invocation) (Child, error) {
 		creates.Add(1)
 		if inv.Params.Resume != "saved" {
@@ -213,8 +213,8 @@ func TestHubActivityUpdatesToolsAndStaysBounded(t *testing.T) {
 func TestHubCanResumeSettledChildWithoutGrantingModelDelegation(t *testing.T) {
 	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), Restore: func() []Record {
 		return []Record{
-			{ID: "parent", Type: "general-purpose", Status: "completed"},
-			{ID: "child", ParentID: "parent", Type: "general-purpose", Status: "completed", Config: Config{Name: "general-purpose"}},
+			{ID: "parent", Status: "completed"},
+			{ID: "child", ParentID: "parent", Status: "completed"},
 		}
 	}, Create: func(context.Context, Invocation) (Child, error) {
 		return &fakeChild{send: func(context.Context, string) (string, error) { return "human follow-up", nil }}, nil

@@ -156,7 +156,7 @@ func TestObserverMouseAndComposerStayLocal(t *testing.T) {
 
 func TestAgentCardStaysMinimal(t *testing.T) {
 	m, _ := observerFixture(t)
-	args := json.RawMessage(`{"subagent_type":"Explore","description":"Run sleep loop one"}`)
+	args := json.RawMessage(`{"role":"@default","tool":["read"],"description":"Run sleep loop one"}`)
 	card := tui.NewToolExecutionComponent("Agent", "minimal", args, tui.ToolExecutionOptions{}, nil, nil, "")
 	m.bindToolCard(card, "minimal", "Agent", args)
 	assertMinimal := func(background string) {

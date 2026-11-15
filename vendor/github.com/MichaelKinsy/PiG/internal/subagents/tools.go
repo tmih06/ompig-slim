@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
@@ -50,14 +51,18 @@ func (t *Tool) Schema() ai.ToolSchema {
 	switch t.ToolName {
 	case "Agent":
 		description = t.Manager.toolDescription(false)
-		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "subagent_type": property("string", "Loaded tool/prompt profile, case insensitive; not a model role. Set task-specific responsibilities in prompt."), "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "model": property("string", "Configured model role only, such as @role, @task or @smol. Direct model IDs and fuzzy names are not accepted. Omit to use the profile or configured default."), "thinking": property("string", "off, minimal, low, medium, high, xhigh or max."), "max_turns": map[string]any{"type": "integer", "minimum": 1, "maximum": 10000, "description": "Soft turn limit, followed by a wrap-up warning and grace turns."}, "run_in_background": property("boolean", "Default true. False waits inline; ctrl+b sends a running foreground agent to the background."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
+		role := map[string]any{"type": "string", "minLength": 2, "description": "Required configured model role, such as @task."}
+		if roles := t.Manager.ModelRoles(); len(roles) > 0 {
+			role["enum"] = roles
+		}
+		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "role": role, "tool": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "minLength": 1}, "description": "Required list of tool names the agent may use."}, "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "max_turns": map[string]any{"type": "integer", "minimum": 1, "maximum": 10000, "description": "Soft turn limit, followed by a wrap-up warning and grace turns."}, "run_in_background": property("boolean", "Default true. False waits inline; ctrl+b sends a running foreground agent to the background."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
 		if s.WorktreeIsolation {
 			props["isolation"] = map[string]any{"type": "string", "enum": []string{"off", "worktree"}, "description": "off (default) uses current checkout; worktree creates an isolated copy at HEAD, without uncommitted main-checkout changes."}
 		}
 		if s.SchedulingEnabled && t.Owner == "" {
 			props["schedule"] = property("string", "Six-field cron, recurring interval (5m), relative one-shot (+10m), or ISO timestamp. Cannot combine with resume, inherit_context or foreground.")
 		}
-		required = []string{"prompt", "description", "subagent_type"}
+		required = []string{"prompt", "description", "role", "tool"}
 	case "get_subagent_result":
 		description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll."
 		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false.")}
@@ -96,6 +101,16 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return agent.AgentToolResult{}, err
 		}
+		if strings.TrimSpace(p.Role) == "" || len(p.Tools) == 0 {
+			return agent.AgentToolResult{}, fmt.Errorf("role and tool are required")
+		}
+		for _, name := range p.Tools {
+			if strings.TrimSpace(name) == "" {
+				return agent.AgentToolResult{}, fmt.Errorf("tool names must not be empty")
+			}
+		}
+		p.Model = p.Role
+		p.Type = ""
 		r, err := t.Manager.Spawn(ctx, p, t.Owner, t.WorkflowID)
 		if err != nil {
 			return agent.AgentToolResult{}, err

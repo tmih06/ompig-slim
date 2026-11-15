@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// Model-facing descriptions adapted from the pinned extension, with dynamic
-// values replaced at registration time, as the original template renderer does.
+// Model-facing descriptions adapted from the pinned extension.
 //
 //go:embed agent-description.txt
 var fullAgentDescription string
@@ -24,25 +23,6 @@ var compactWorkflowDescription string
 
 func (m *Manager) toolDescription(workflow bool) string {
 	s := m.Settings()
-	var full, compact []string
-	for _, c := range m.Configs() {
-		if c.Enabled != nil && !*c.Enabled {
-			continue
-		}
-		tools := "all available tools"
-		if c.Tools != nil {
-			tools = strings.Join(c.Tools, ", ")
-		}
-		full = append(full, "- "+c.Name+": "+c.Description+" (Tools: "+tools+")")
-		description := c.Description
-		for i, r := range description {
-			if strings.ContainsRune(".!?", r) && i+1 < len(description) && description[i+1] == ' ' {
-				description = description[:i+1]
-				break
-			}
-		}
-		compact = append(compact, "- "+c.Name+": "+description+" (Tools: "+tools+")")
-	}
 	isolation, shortIsolation, schedule := "", "", ""
 	if s.WorktreeIsolation {
 		isolation = "\n- Use isolation: \"worktree\" to give the agent its own git worktree (safe parallel file modifications); leave it unset, or pass \"off\", for none. The worktree is removed when the agent finishes; if it made changes, they are committed to a branch and the branch is named in the result."
@@ -71,5 +51,10 @@ func (m *Manager) toolDescription(workflow bool) string {
 			}
 		}
 	}
-	return strings.NewReplacer("{{typeList}}", strings.Join(full, "\n"), "{{compactTypeList}}", strings.Join(compact, "\n"), "{{agentDir}}", m.host.AgentDir, "{{isolationGuideline}}", isolation, "{{isolationCompactGuideline}}", shortIsolation, "{{scheduleGuideline}}", schedule).Replace(template)
+	description := strings.NewReplacer("{{agentDir}}", m.host.AgentDir, "{{isolationGuideline}}", isolation, "{{isolationCompactGuideline}}", shortIsolation, "{{scheduleGuideline}}", schedule).Replace(template)
+	roles := m.ModelRoles()
+	if len(roles) > 0 && !workflow {
+		description += "\n\nAvailable model roles: " + strings.Join(roles, ", ")
+	}
+	return description
 }

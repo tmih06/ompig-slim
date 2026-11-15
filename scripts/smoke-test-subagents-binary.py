@@ -55,7 +55,7 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
             elif stage == 1:
                 if "RPC_BRIDGE_OK" not in str(last):
                     cls.failure = "cross-extension RPC failed: " + str(last)
-                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native foreground proof", "subagent_type": "general-purpose", "run_in_background": False})
+                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native foreground proof", "role": "@default", "tool": ["read"], "run_in_background": False})
             elif stage == 2:
                 if "CHILD_SESSION_OK" not in str(last):
                     cls.failure = "foreground result missing: " + str(last)
@@ -122,7 +122,7 @@ def main():
         thread.start()
         try:
             (agent_dir / "models.json").write_text(json.dumps({"providers": {"subagent-smoke": {"api": "openai-completions", "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "local-fixture-only", "models": [{"id": "subagent-smoke"}]}}}))
-            (agent_dir / "settings.json").write_text(json.dumps({"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False}))
+            (agent_dir / "settings.json").write_text(json.dumps({"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False, "modelRoles": {"default": "subagent-smoke/subagent-smoke"}}))
             env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_AUTH_TOKEN", "_OAUTH_TOKEN"))}
             env.update(HOME=str(root), PIG_HOME=str(root / "library"), OMPIG_SLIM_CODING_AGENT_DIR=str(agent_dir), PI_OFFLINE="1", PI_TELEMETRY="0", PI_SKIP_VERSION_CHECK="1")
             result = subprocess.run([str(binary), "--provider", "subagent-smoke", "--model", "subagent-smoke", "--extension", str(extension), "--print", "--offline", "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-themes", "Exercise native subagents."], cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)

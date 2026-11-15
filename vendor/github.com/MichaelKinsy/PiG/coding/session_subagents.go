@@ -92,6 +92,14 @@ func (s *Session) initSubagents(opts SessionOptions) error {
 			}
 		},
 		RefreshTools: s.syncSubagentTools,
+		ModelRoles: func() []string {
+			settings := s.SettingsManager().Get()
+			chains := map[string][]string{}
+			if settings.Retry != nil {
+				chains = settings.Retry.FallbackChains
+			}
+			return settings.Config.Known(chains)
+		},
 	})
 	s.subagentToolsAllowed = opts.NoTools != "all" && !opts.SkipBuiltinTools && opts.NoTools != "builtin"
 	if opts.subagentBuiltinSelection != nil {
@@ -300,7 +308,7 @@ func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) 
 		}
 		child.refreshContext()
 	}
-	s.subagents.SetInvocation(inv.ID, model.Provider.ID(), model.DisplayName, model.Capabilities.ContextWindow, string(child.ThinkingLevel()))
+	s.subagents.SetInvocation(inv.ID, model.Provider.ID(), model.ID, model.Capabilities.ContextWindow, string(child.ThinkingLevel()))
 	return subagentSession{child}, nil
 }
 

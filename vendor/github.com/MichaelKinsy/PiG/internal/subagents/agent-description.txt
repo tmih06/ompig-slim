@@ -1,15 +1,10 @@
-Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.
+Launch a new agent to handle complex, multi-step tasks autonomously. The child receives the selected model role and tool allowlist.
 
-Available agent types and the tools they have access to:
-{{typeList}}
-
-These profiles are already loaded, including custom profiles. Do not search the filesystem for agent definitions.
-
-Use subagent_type to select the tool/prompt profile, not the model role. Use model: "@role" (for example "@task" or "@smol") to select a configured model role independently of the profile. Describe task-specific responsibilities in prompt; a new agent definition is not required for each responsibility.
+Use a configured model role. Provide tool as a nonempty list of the tool names the child may use.
 
 ## When not to use
 
-If the target is already known, use a direct tool — `read` for a known path, `grep`/`find` for a specific symbol or string. Reserve this tool for open-ended questions that span the codebase, or tasks that match an available agent type.
+If the target is already known, use a direct tool — `read` for a known path, `grep`/`find` for a specific symbol or string. Reserve this tool for open-ended questions that span the codebase.
 
 ## Usage notes
 
@@ -23,9 +18,6 @@ If the target is already known, use a direct tool — `read` for a known path, `
 - Use resume with an agent ID to continue a previous agent's work. A new (non-resume) Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
 - Use steer_subagent to send mid-run messages to a running background agent.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
-- If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
-- Use model only to specify a configured model role ("@role", e.g. "@task" or "@smol"). Direct model IDs and fuzzy model names are not accepted.
-- Use thinking to control extended thinking level.
 - Use inherit_context if the agent needs the parent conversation history.{{isolationGuideline}}{{scheduleGuideline}}
 
 ## Writing the prompt

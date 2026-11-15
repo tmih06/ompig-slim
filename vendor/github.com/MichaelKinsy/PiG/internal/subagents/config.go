@@ -27,7 +27,6 @@ type Settings struct {
 	BackgroundByDefault     bool   `json:"backgroundByDefault"`
 	SchedulingEnabled       bool   `json:"schedulingEnabled"`
 	StrictAgentFiles        bool   `json:"strictAgentFiles"`
-	DisableDefaultAgents    bool   `json:"disableDefaultAgents"`
 	AgentMentions           string `json:"agentMentions"`
 	RememberAgents          bool   `json:"rememberAgents"`
 	WidgetMode              string `json:"widgetMode"`
@@ -46,7 +45,7 @@ type Settings struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, AgentMentions: "direct", ToolDescriptionMode: "compact", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant", FallbackSubagent: "general-purpose"}
+	return Settings{MaxConcurrent: 10, GraceTurns: 5, MaxSubagentDepth: 2, DefaultJoinMode: "smart", BackgroundByDefault: true, SchedulingEnabled: true, AgentMentions: "direct", ToolDescriptionMode: "compact", RememberAgents: true, WidgetMode: "background", OutputTranscript: true, WorktreeIsolation: true, WorkflowsEnabled: true, ViewerMarkdown: "assistant"}
 }
 
 func LoadSettings(cwd, agentDir string) (Settings, []string) {
@@ -365,10 +364,7 @@ func Inherits(value any, name string) bool {
 }
 
 func LoadConfigs(cwd, agentDir string, settings Settings) ([]Config, []string) {
-	configs := DefaultConfigs()
-	if settings.DisableDefaultAgents {
-		configs = nil
-	}
+	configs := []Config{}
 	var warnings []string
 	home, _ := os.UserHomeDir()
 	for _, root := range []struct{ path, source string }{{filepath.Join(home, ".agents", "agents"), "global"}, {filepath.Join(agentDir, "agents"), "global"}, {filepath.Join(cwd, ".agents", "agents"), "project"}, {filepath.Join(cwd, ".pi", "agents"), "project"}} {
@@ -405,6 +401,9 @@ func LoadConfigs(cwd, agentDir string, settings Settings) ([]Config, []string) {
 }
 
 func resolveConfig(configs []Config, name, fallback string) (Config, string, error) {
+	if name == "" {
+		return Config{Name: "agent", DisplayName: "Agent", PromptMode: "append", Extensions: true, Skills: true}, "", nil
+	}
 	find := func(name string) (Config, bool) {
 		var found []Config
 		for _, c := range configs {
@@ -420,10 +419,7 @@ func resolveConfig(configs []Config, name, fallback string) (Config, string, err
 	if c, ok := find(name); ok {
 		return c, "", nil
 	}
-	if fallback == "" {
-		fallback = "general-purpose"
-	}
-	if fallback != "none" {
+	if fallback != "none" && fallback != "" {
 		if c, ok := find(fallback); ok {
 			return c, fmt.Sprintf("Agent type %q is unknown, disabled, or ambiguous; using %s.\n", name, c.Name), nil
 		}

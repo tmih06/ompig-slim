@@ -3,6 +3,7 @@ package subagents
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,10 +38,8 @@ func TestCostDefaultsAndCompactToolDescriptions(t *testing.T) {
 	}
 }
 
-// TestAgentSchemaAdvertisesLoadedProfilesAndModelRoles keeps capability
-// discovery local to the schema instead of prompting filesystem searches.
-func TestAgentSchemaAdvertisesLoadedProfilesAndModelRoles(t *testing.T) {
-	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir()})
+func TestAgentSchemaAdvertisesRolesAndTools(t *testing.T) {
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), ModelRoles: func() []string { return []string{"@default", "@review"} }})
 	defer m.Close()
 	for _, mode := range []string{"compact", "full"} {
 		t.Run(mode, func(t *testing.T) {
@@ -53,15 +52,41 @@ func TestAgentSchemaAdvertisesLoadedProfilesAndModelRoles(t *testing.T) {
 					t.Fatalf("tool description advertises filesystem discovery: %s", path)
 				}
 			}
-			if !strings.Contains(schema.Description, "already loaded") || !strings.Contains(schema.Description, "Do not search") {
-				t.Fatal("tool description must make the loaded profile list authoritative")
+			if !strings.Contains(schema.Description, "Available model roles: @default, @review") {
+				t.Fatalf("tool description must list configured roles: %s", schema.Description)
 			}
 			props := schema.Parameters["properties"].(map[string]any)
-			model := props["model"].(map[string]any)["description"].(string)
-			if !strings.Contains(model, "@role") {
-				t.Fatal("model parameter must advertise role aliases")
+			for _, name := range []string{"role", "tool"} {
+				if _, ok := props[name]; !ok {
+					t.Fatalf("missing required %s parameter", name)
+				}
+			}
+			required := schema.Parameters["required"].([]string)
+			if !slices.Contains(required, "role") || !slices.Contains(required, "tool") {
+				t.Fatalf("role and tool must be required: %v", required)
+			}
+			if _, ok := props["model"]; ok {
+				t.Fatal("legacy model parameter remains")
 			}
 		})
+	}
+}
+
+func TestAgentSchemaRejectsMissingRoleOrTools(t *testing.T) {
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir()})
+	defer m.Close()
+	schema := (&Tool{Manager: m, ToolName: "Agent"}).Schema()
+	parameters, err := json.Marshal(schema.Parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{
+		`{"prompt":"inspect","description":"Inspect code","tool":["read"]}`,
+		`{"prompt":"inspect","description":"Inspect code","role":"@task","tool":[]}`,
+	} {
+		if _, err := ai.ValidateToolArgumentsJSON("Agent", parameters, json.RawMessage(args)); err == nil {
+			t.Fatalf("malformed Agent arguments were accepted: %s", args)
+		}
 	}
 }
 
@@ -78,10 +103,10 @@ func TestLegacyModelMentionUsesDirectDispatch(t *testing.T) {
 	if m.Settings().AgentMentions != "direct" {
 		t.Fatal("legacy model mode still permits an orchestration-only model call")
 	}
-	if err := m.Mention("Explore", "find the auth handler"); err != nil {
-		t.Fatal(err)
+	if err := m.Mention("missing", "find the auth handler"); err == nil {
+		t.Fatal("removed built-in agent type was accepted")
 	}
-	await(t, func() bool { return len(m.Records()) == 1 && !m.Records()[0].Active() })
+
 }
 
 func TestHumanAgentRunsDoNotWakeParentModel(t *testing.T) {
