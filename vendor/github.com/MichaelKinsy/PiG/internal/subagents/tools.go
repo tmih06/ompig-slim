@@ -64,7 +64,7 @@ func (t *Tool) Schema() ai.ToolSchema {
 		}
 		required = []string{"prompt", "description", "role", "tool"}
 	case "get_subagent_result":
-		description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll."
+		description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll. The result details carry outcome: running, completed, failed, canceled or exhausted, plus partial when the text stopped short of a finished answer. An empty result with outcome completed is the agent's real answer."
 		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false.")}
 		required = []string{"agent_id"}
 	case "steer_subagent":
@@ -164,11 +164,11 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 		if r.Active() {
 			return textResult(backgroundResult(r), r), nil
 		}
-		result := textResult(toolResultPreview(r.Result), r)
-		result.IsError = r.Status == "error" || r.Status == "aborted"
-		if r.Error != "" && r.Error != r.Result {
-			result.Content = append(result.Content, ai.TextContent{Text: toolResultPreview(r.Error)})
-		}
+		// The envelope carries the outcome, so the text keeps the exact result for
+		// a completed child and states an incomplete one instead of returning
+		// nothing the model could read as success.
+		result := textResult(toolResultPreview(retrievalText(r)), r.Envelope())
+		result.IsError = r.Outcome() != OutcomeCompleted && r.Outcome() != OutcomeRunning
 		return result, nil
 	case "get_subagent_result":
 		var p struct {
@@ -198,7 +198,11 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 			}
 			return agent.AgentToolResult{}, err
 		}
-		return textResult(r.Result, r), nil
+		// Retrieval reports an incomplete child as a failure result as well, so a
+		// caller that reads only the result shape is not told it succeeded.
+		result := textResult(retrievalText(r), r.Envelope())
+		result.IsError = r.Outcome() != OutcomeCompleted && r.Outcome() != OutcomeRunning
+		return result, nil
 	case "steer_subagent":
 		var p struct {
 			ID      string `json:"agent_id"`

@@ -183,6 +183,7 @@ type run struct {
 	stop          bool
 	limited       bool
 	activeTools   map[string]string
+	budget        bool
 	transcript    []json.RawMessage
 	partial       json.RawMessage
 	worktree      *worktree
@@ -395,6 +396,7 @@ func (m *Manager) emit(name string, payload any) {
 		data := map[string]any{"id": r.ID, "type": r.Type, "description": r.Description}
 		if name == "subagents:completed" || name == "subagents:failed" {
 			data["result"], data["error"], data["status"], data["toolUses"] = r.Result, r.Error, r.Status, r.ToolUses
+			data["outcome"] = r.Outcome()
 			data["durationMs"] = r.CompletedAt - r.StartedAt
 			if r.Tokens > 0 {
 				data["tokens"] = map[string]any{"input": r.LifetimeUsage.Input, "output": r.LifetimeUsage.Output, "total": r.Tokens}
@@ -645,6 +647,7 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		r.retry = false
 		r.consumed = false
 		r.limited = false
+		r.budget = false
 		if r.Requests == 0 {
 			r.Requests = r.Turns
 		}
@@ -912,8 +915,9 @@ func (m *Manager) execute(ctx context.Context, r *run) {
 		}
 	}
 	m.mu.Lock()
-	limited, stopped := r.limited, r.stop
+	limited, stopped, budget := r.limited, r.stop, r.budget
 	m.mu.Unlock()
+	// A child that wrapped up inside its grace turns still completed normally.
 	status := "completed"
 	if limited {
 		status = "steered"
@@ -923,6 +927,11 @@ func (m *Manager) execute(ctx context.Context, r *run) {
 	}
 	if ctx.Err() != nil {
 		status = "aborted"
+	}
+	// The hard budget cancels its own run context, so it must be read after that
+	// cancellation and before a person's stop, which is the last word.
+	if budget {
+		status = "exhausted"
 	}
 	if stopped {
 		status = "stopped"
@@ -973,6 +982,7 @@ func (m *Manager) onEvent(r *run, event agent.AgentEvent) {
 			r.limited = true
 			steer = "You have reached your turn limit. Wrap up immediately — provide your final answer now."
 		} else if r.limited && r.Turns >= r.MaxTurns+m.settings.GraceTurns {
+			r.budget = true
 			abort = r.cancel
 		}
 	case agent.ToolExecutionStartEvent:
@@ -1232,7 +1242,14 @@ func (m *Manager) flushNotifications() {
 			if preview != text {
 				hint = "\nResult truncated; use get_subagent_result for the full result."
 			}
-			messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<summary>%s</summary>\n<result>%s</result>%s\n</task-notification>", r.ID, r.Status, xmlEscape(r.Description), xmlEscape(preview), hint))
+			// A notified child may be incomplete, so the notification states the
+			// outcome and whether the preview is partial instead of leaving a
+			// short or empty result to read as success.
+			partial := ""
+			if r.Partial() {
+				partial = "\n<partial>true</partial>"
+			}
+			messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<outcome>%s</outcome>\n<summary>%s</summary>\n<result>%s</result>%s%s\n</task-notification>", r.ID, r.Status, r.Outcome(), xmlEscape(r.Description), xmlEscape(preview), partial, hint))
 			r.consumed = true
 		}
 	}
