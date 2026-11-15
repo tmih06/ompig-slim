@@ -15,8 +15,11 @@ import (
 
 // Extension returns a hidden inline extension. The goal tool remains available
 // to the model while the slash command provides the human lifecycle controls.
-func Extension(api extension.API) error {
-	tracker := goal.New()
+func Extension(api extension.API) error { return extensionWithTracker(api, goal.New()) }
+
+// extensionWithTracker is Extension over a caller-supplied tracker, so a test
+// can observe the state the tool and slash command report.
+func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 	var mu sync.Mutex
 	api.RegisterTool(extension.ToolDefinition{
 		Name: "goal", Label: "Goal", Description: "Track one persistent autonomous objective. Use create, get, complete, pause, resume, or drop.",
