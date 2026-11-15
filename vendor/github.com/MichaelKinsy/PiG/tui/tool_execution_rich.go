@@ -86,16 +86,28 @@ func richOutputSection(name string) bool {
 	return name == "bash" || name == "powershell"
 }
 
-// richStatusIcon is formatStatusIcon: a spinner while the tool runs, then the
-// settled glyph for its outcome.
+// richSpinnerInterval is how long one spinner frame shows, matching
+// DefaultLoaderIntervalMs so a card's spinner runs at the loader's cadence.
+const richSpinnerInterval = DefaultLoaderIntervalMs * time.Millisecond
+
+// richStatusIcon is formatStatusIcon: a spinner while the tool is unfinished,
+// then the settled glyph for its outcome.
+//
+// A card exists from the moment its call starts streaming and is only marked
+// started when its arguments finish, so the wait before execution is just as
+// real as the wait during it: the model is still writing the arguments. Both
+// animate the same DefaultSpinnerFrames, so the icon is never a still picture of
+// progress. Any frame is one cell wide, so the title keeps its column across the
+// switch from pending to running.
 func (c *ToolExecutionComponent) richStatusIcon(now time.Time) (string, string) {
 	if c.State == ToolStateRunning {
-		if c.StartedAt.IsZero() {
-			return "⏳", "muted" // status.pending
+		// Before execution the card's own creation is the clock: it goes away
+		// with the card, so nothing has to be reset when the card is reused.
+		since, role := c.StartedAt, "accent"
+		if since.IsZero() {
+			since, role = c.createdAt, "muted" // status.pending
 		}
-		// theme.spinnerFrames, indexed by the frame counter at 80ms.
-		frames := [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		return frames[int(max(0, now.Sub(c.StartedAt))/(80*time.Millisecond))%len(frames)], "accent"
+		return DefaultSpinnerFrames[int(max(0, now.Sub(since))/richSpinnerInterval)%len(DefaultSpinnerFrames)], role
 	}
 	switch {
 	case c.aborted:

@@ -9,19 +9,23 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-// TestRichStatusLine covers OMP's status line: spinner/pending glyph, the
-// `Title: description` form, exit-code and duration meta, and error states.
+// TestRichStatusLine covers OMP's status line: the animated icon while the call
+// is unfinished, the `Title: description` form, exit-code and duration meta, and
+// error states.
 func TestRichStatusLine(t *testing.T) {
 	for _, name := range []string{"bash", "read", "write", "edit", "grep", "find", "ls", "web_search", "codemode", "Agent", "custom_tool"} {
 		t.Run(name, func(t *testing.T) {
 			c := NewToolExecutionComponent(name, "call", json.RawMessage(`{}`), ToolExecutionOptions{Rich: true}, nil, nil, "")
-			if line := widthx.StripAnsi(c.richStatusLine(80, time.Now())); !strings.HasPrefix(line, "⏳ ") {
-				t.Fatalf("pending status: %q", line)
+			// A pending card animates from its creation, so the real regression is
+			// a still glyph in place of a spinner frame.
+			pending := widthx.StripAnsi(c.richStatusLine(80, time.Now()))
+			if !strings.ContainsRune(pending, []rune(DefaultSpinnerFrames[0])[0]) {
+				t.Fatalf("pending status is not a spinner frame: %q", pending)
 			}
 			c.MarkExecutionStarted()
 			c.StartedAt = time.Now().Add(-1500 * time.Millisecond)
 			line := widthx.StripAnsi(c.richStatusLine(80, time.Now()))
-			if strings.Contains(line, "⏳") || !strings.Contains(line, FormatToolDuration(1500*time.Millisecond)) || !c.IsDirty() {
+			if !strings.Contains(line, FormatToolDuration(1500*time.Millisecond)) || !c.IsDirty() {
 				t.Fatalf("running status: %q", line)
 			}
 			c.SetResult("ok", false, time.Second)
@@ -293,5 +297,55 @@ func TestRichMouseToggleSurvivesResize(t *testing.T) {
 			t.Fatalf("width %d: card stayed collapsed", width)
 		}
 		c.SetExpanded(false)
+	}
+}
+
+// TestRichPendingCardAnimates is the regression for the pending tool card
+// drawing a static sand clock. A card exists from the moment its call starts
+// streaming and is only marked started when its arguments finish, so the whole
+// window before execution used to show one frozen glyph, two cells wide, which
+// also shifted the title when the spinner replaced it.
+func TestRichPendingCardAnimates(t *testing.T) {
+	for _, name := range []string{"todo", "bash", "read", "write", "edit", "grep", "find", "codemode", "web_search", "custom_tool"} {
+		t.Run(name, func(t *testing.T) {
+			c := NewToolExecutionComponent(name, "call", nil, ToolExecutionOptions{Rich: true}, nil, nil, "")
+			if !c.StartedAt.IsZero() || !c.IsPartial {
+				t.Fatal("a new card must be pending")
+			}
+			created := time.Now()
+			var frames []string
+			for step := range len(DefaultSpinnerFrames) {
+				now := created.Add(time.Duration(step) * richSpinnerInterval)
+				glyph, role := c.richStatusIcon(now)
+				if role != "muted" {
+					t.Fatalf("pending frame %d uses the %q tone, want muted", step, role)
+				}
+				line := widthx.StripAnsi(c.richStatusLine(80, now))
+				if strings.Contains(line, "⏳") || strings.Contains(line, "⌛") {
+					t.Fatalf("pending card drew an hourglass: %q", line)
+				}
+				if got := widthx.VisibleWidth(glyph); got != 1 {
+					t.Fatalf("pending icon is %d cells, want 1 so the title never shifts: %q", got, glyph)
+				}
+				if !strings.HasPrefix(line, glyph+" ") {
+					t.Fatalf("pending status line does not start on the icon: %q", line)
+				}
+				frames = append(frames, glyph)
+			}
+			if strings.Join(frames, "") != strings.Join(DefaultSpinnerFrames, "") {
+				t.Fatalf("pending card does not cycle the spinner: %q", frames)
+			}
+			// The pending icon must advance with the clock; a still glyph is the
+			// defect this test exists for.
+			first := widthx.StripAnsi(c.richStatusLine(80, created))
+			later := widthx.StripAnsi(c.richStatusLine(80, created.Add(2*richSpinnerInterval)))
+			if first == later {
+				t.Fatalf("pending icon did not animate: %q", later)
+			}
+			// A pending rich card has to repaint for any of that to be visible.
+			if !c.IsDirty() {
+				t.Fatal("a pending rich card must report dirty so its icon animates")
+			}
+		})
 	}
 }

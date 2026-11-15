@@ -103,6 +103,12 @@ type ToolExecutionComponent struct {
 	// renderResult, which ticks the elapsed every second during execution).
 	StartedAt time.Time
 
+	// createdAt is when the card came into existence, which is when its call
+	// started streaming. It is the clock for the pending animation: a card that
+	// has no result yet is waiting whether or not execution began, and this is
+	// the only timestamp that is always set.
+	createdAt time.Time
+
 	// Configurable thresholds. Zero values fall back to defaults.
 	AutoCollapseLines int // default 8
 	BodyMaxLines      int // default 40
@@ -264,6 +270,7 @@ func NewToolExecutionComponent(toolName, toolCallID string, args json.RawMessage
 		ShowImages:      true,
 		ImageWidthCells: 60,
 		IsPartial:       true,
+		createdAt:       time.Now(),
 		outputPad:       1,
 	}
 	if options.ShowImages != nil {
