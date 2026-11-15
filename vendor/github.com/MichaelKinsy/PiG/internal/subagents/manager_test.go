@@ -213,6 +213,39 @@ func await(t *testing.T, condition func() bool) {
 	t.Fatal("condition did not become true")
 }
 
+func TestSubagentTimeoutWarningAndAbort(t *testing.T) {
+	created := make(chan *fakeChild, 1)
+	m := testManager(t, func(_ context.Context, _ Invocation) (Child, error) {
+		child := &fakeChild{send: func(ctx context.Context, _ string) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}}
+		created <- child
+		return child, nil
+	})
+	r, err := m.Spawn(context.Background(), Params{Prompt: "long task"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := <-created
+	await(t, func() bool { current, _ := m.Find(r.ID); return current.Status == "running" })
+	if err := m.Steer(r.ID, subagentTimeoutMessage, ""); err != nil {
+		t.Fatal(err)
+	}
+	child.mu.Lock()
+	steers := append([]string(nil), child.steers...)
+	child.mu.Unlock()
+	if len(steers) != 1 || steers[0] != subagentTimeoutMessage {
+		t.Fatalf("timeout warning was not delivered: %q", steers)
+	}
+	m.abortExpired(r.ID, "")
+	await(t, func() bool { current, _ := m.Find(r.ID); return !current.Active() })
+	current, _ := m.Find(r.ID)
+	if current.Status != "aborted" {
+		t.Fatalf("expired agent status = %q, want aborted", current.Status)
+	}
+}
+
 func TestQueuePoolsSteeringAndDisableDrain(t *testing.T) {
 	var created atomic.Int32
 	var closed atomic.Int32

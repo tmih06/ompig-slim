@@ -804,6 +804,13 @@ func (m *Manager) admitLocked() {
 	}
 }
 
+const (
+	subagentCompletionWarning = 2 * time.Hour
+	subagentAbortDeadline     = 2*time.Hour + 15*time.Minute
+)
+
+const subagentTimeoutMessage = "You have been working for two hours. Immediately stop working and return your current final result. Do not start more work."
+
 func (m *Manager) execute(ctx context.Context, r *run) {
 	defer m.wg.Done()
 	select {
@@ -812,6 +819,14 @@ func (m *Manager) execute(ctx context.Context, r *run) {
 		return
 	case <-r.start:
 	}
+	warningTimer := time.AfterFunc(subagentCompletionWarning, func() {
+		_ = m.Steer(r.ID, subagentTimeoutMessage, r.ParentID)
+	})
+	abortTimer := time.AfterFunc(subagentAbortDeadline, func() {
+		m.abortExpired(r.ID, r.ParentID)
+	})
+	defer warningTimer.Stop()
+	defer abortTimer.Stop()
 	m.emit("subagents:started", m.snapshot(r))
 	m.mu.Lock()
 	c, p, history, child := r.Config, r.Params, r.history, r.child
@@ -925,6 +940,20 @@ func assistantText(a *agent.AssistantMessage) string {
 	}
 	return strings.Join(parts, "\n")
 }
+func (m *Manager) abortExpired(ref, owner string) {
+	m.mu.Lock()
+	r := m.findLocked(ref, owner)
+	if r == nil || !r.Active() {
+		m.mu.Unlock()
+		return
+	}
+	cancel := r.cancel
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (m *Manager) snapshot(r *run) Record {
 	m.mu.Lock()
 	defer m.mu.Unlock()

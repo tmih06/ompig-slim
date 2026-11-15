@@ -55,12 +55,20 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
             elif stage == 1:
                 if "RPC_BRIDGE_OK" not in str(last):
                     cls.failure = "cross-extension RPC failed: " + str(last)
-                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native foreground proof", "role": "@default", "tool": ["read"], "run_in_background": False})
+                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native background proof", "role": "@default", "tool": ["read"]})
             elif stage == 2:
-                if "CHILD_SESSION_OK" not in str(last):
-                    cls.failure = "foreground result missing: " + str(last)
-                delta, reason = self.tool("SubagentWorkflow", {"script": "export const meta={name:'smoke',description:'Native workflow proof'}; const result=await pipeline(args,item=>agent(item,{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}})); return result;", "args": ["one", "two"]})
+                import re
+                match = re.search(r"agent_[a-z0-9]{6,}", str(last))
+                if not match:
+                    cls.failure = "background agent did not return an id: " + str(last)
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+                else:
+                    delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
             elif stage == 3:
+                if "CHILD_SESSION_OK" not in str(last):
+                    cls.failure = "background result missing: " + str(last)
+                delta, reason = self.tool("SubagentWorkflow", {"script": "export const meta={name:'smoke',description:'Native workflow proof'}; const result=await pipeline(args,item=>agent(item,{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}})); return result;", "args": ["one", "two"]})
+            elif stage == 4:
                 import re
                 match = re.search(r"wf_[a-z0-9]+", str(last))
                 if not match:
@@ -69,7 +77,7 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
                 else:
                     delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
             else:
-                if stage == 4 and "STRUCTURED_CHILD_OK" not in str(last):
+                if stage == 5 and "STRUCTURED_CHILD_OK" not in str(last):
                     cls.failure = "structured workflow result missing: " + str(last)
                 delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED" if cls.failure else "SUBAGENT_RUNTIME_OK"}, "stop"
         chunks = [{"id": "subagent-smoke", "object": "chat.completion.chunk", "created": 0, "model": "subagent-smoke", "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}, {"id": "subagent-smoke", "choices": [{"index": 0, "delta": {}, "finish_reason": reason}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}}]
@@ -131,7 +139,7 @@ def main():
             sessions = list(agent_dir.glob("sessions/**/subagents/**/*.jsonl"))
             if len(sessions) != 3:
                 raise RuntimeError(f"expected three persisted child sessions, found {sessions}")
-            print("extension RPC, native foreground child, isolated delegation, schema correction, QuickJS pipeline, and persisted sessions: OK")
+            print("extension RPC, native background child, isolated delegation, schema correction, QuickJS pipeline, and persisted sessions: OK")
         finally:
             server.shutdown()
             server.server_close()

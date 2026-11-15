@@ -22,7 +22,19 @@ const (
 	StatusDropped  Status = "dropped"
 )
 
-// State describes the current objective and its optional token budget.
+const (
+	// BlockerThreshold is how many consecutive reports of the same blocker pause
+	// an active goal. Three separates a repeated blocker from a coincidence while
+	// bounding the automatic turns wasted on an answer that cannot change.
+	BlockerThreshold = 3
+
+	// maxBlockerRunes bounds the stored explanation, so a pasted log cannot flood
+	// goal status or the pause notice.
+	maxBlockerRunes = 240
+)
+
+// State describes the current objective, its optional token budget, and the
+// blocker it last reported.
 type State struct {
 	ID              string `json:"id"`
 	Objective       string `json:"objective"`
@@ -31,8 +43,14 @@ type State struct {
 	TokensUsed      int    `json:"tokensUsed"`
 	TimeUsedSeconds int64  `json:"timeUsedSeconds"`
 	Pokes           int    `json:"pokes"`
-	CreatedAt       int64  `json:"createdAt"`
-	UpdatedAt       int64  `json:"updatedAt"`
+	// Blocker is the last reported blocker as normalized for display, kept after
+	// resume so the status still explains why the goal paused.
+	Blocker string `json:"blocker,omitempty"`
+	// BlockerCount is the current consecutive streak of that blocker. Resume and
+	// progress clear it; a different blocker restarts it at one.
+	BlockerCount int   `json:"blockerCount"`
+	CreatedAt    int64 `json:"createdAt"`
+	UpdatedAt    int64 `json:"updatedAt"`
 }
 
 var nextID atomic.Uint64
@@ -91,24 +109,69 @@ func (t *Tracker) Poke() int {
 func (t *Tracker) Pause() error { return t.transition(StatusPaused, StatusActive) }
 
 // Resume reactivates a paused goal and reports whether its objective must be
-// restarted. It reports false for an already-active goal, so repeating the
-// control cannot duplicate the objective.
+// restarted, so an explicit resume starts work from an idle session instead of
+// waiting for a turn that would reach the settlement boundary. The blocker text
+// stays as the explanation of the pause, but the streak restarts: a human
+// deciding to continue is a new attempt, not the fourth report of the same
+// blocker.
 func (t *Tracker) Resume() (restart bool, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.state == nil {
 		return false, errors.New("there is no active goal")
 	}
-	switch t.state.Status {
-	case StatusPaused:
-		t.state.Status = StatusActive
-		t.state.UpdatedAt = time.Now().UnixMilli()
-		return true, nil
-	case StatusActive:
-		return false, nil
-	default:
+	if t.state.Status != StatusPaused {
 		return false, fmt.Errorf("cannot transition goal from %s to %s", t.state.Status, StatusActive)
 	}
+	t.state.Status, t.state.BlockerCount = StatusActive, 0
+	t.state.UpdatedAt = time.Now().UnixMilli()
+	return true, nil
+}
+
+// Blocked records a report that the goal cannot proceed and returns the state
+// after it. The threshold pause lives here rather than in a caller, so no surface
+// can record a blocker without applying the policy. Reports are accepted only
+// for an active goal: a late report cannot restart work a human stopped.
+func (t *Tracker) Blocked(reason string) (*State, error) {
+	reason = normalizeBlocker(reason)
+	if reason == "" {
+		return nil, errors.New("a blocker report must say what the goal is missing")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch {
+	case t.state == nil:
+		return nil, errors.New("there is no active goal")
+	case t.state.Status != StatusActive:
+		return nil, fmt.Errorf("cannot record a blocker for a %s goal", t.state.Status)
+	}
+	if t.state.BlockerCount > 0 && blockerIdentity(t.state.Blocker) == blockerIdentity(reason) {
+		t.state.BlockerCount++
+	} else {
+		t.state.Blocker, t.state.BlockerCount = reason, 1
+	}
+	if t.state.BlockerCount >= BlockerThreshold {
+		t.state.Status = StatusPaused
+	}
+	t.state.UpdatedAt = time.Now().UnixMilli()
+	return clone(t.state), nil
+}
+
+// Progress records an explicit progress outcome and clears the blocker streak.
+// Progress is reported, never inferred: a read-only turn that answered the
+// objective has made progress even though it wrote no file.
+func (t *Tracker) Progress() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch {
+	case t.state == nil:
+		return errors.New("there is no active goal")
+	case t.state.Status != StatusActive:
+		return fmt.Errorf("cannot record progress for a %s goal", t.state.Status)
+	}
+	t.state.Blocker, t.state.BlockerCount = "", 0
+	t.state.UpdatedAt = time.Now().UnixMilli()
+	return nil
 }
 
 // Complete marks the objective complete and leaves its final state queryable.
@@ -141,6 +204,23 @@ func (t *Tracker) transition(next Status, allowed ...Status) error {
 	}
 	return fmt.Errorf("cannot transition goal from %s to %s", t.state.Status, next)
 }
+
+// normalizeBlocker collapses whitespace and truncates the report so the stored
+// explanation stays readable; the limit counts runes, so cut text keeps valid
+// UTF-8.
+func normalizeBlocker(reason string) string {
+	reason = strings.Join(strings.Fields(reason), " ")
+	runes := []rune(reason)
+	if len(runes) > maxBlockerRunes {
+		return string(runes[:maxBlockerRunes]) + "…"
+	}
+	return reason
+}
+
+// blockerIdentity is what "the same blocker" compares: the normalized text,
+// case-folded. Nothing else is folded, because merging differently worded
+// blockers would pause a goal that has moved on to a new problem.
+func blockerIdentity(reason string) string { return strings.ToLower(normalizeBlocker(reason)) }
 
 // clone returns an immutable snapshot copy for callers outside the tracker lock.
 func clone(state *State) *State {

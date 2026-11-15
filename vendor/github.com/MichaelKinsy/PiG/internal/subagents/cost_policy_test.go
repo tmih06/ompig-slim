@@ -68,7 +68,36 @@ func TestAgentSchemaAdvertisesRolesAndTools(t *testing.T) {
 			if _, ok := props["model"]; ok {
 				t.Fatal("legacy model parameter remains")
 			}
+			for _, name := range []string{"run_in_background", "max_turns"} {
+				if _, ok := props[name]; ok {
+					t.Fatalf("Agent must not expose %s", name)
+				}
+			}
 		})
+	}
+}
+
+func TestAgentToolAlwaysDetachesAndUsesConfiguredTurnPolicy(t *testing.T) {
+	created := make(chan Invocation, 1)
+	m := testManager(t, func(_ context.Context, inv Invocation) (Child, error) {
+		created <- inv
+		return &fakeChild{send: func(context.Context, string) (string, error) { return "done", nil }}, nil
+	})
+	tool := &Tool{Manager: m, ToolName: "Agent"}
+	result, err := tool.Execute(context.Background(), "call", json.RawMessage(`{"prompt":"finish the task","description":"Finish task","role":"@task","tool":["read"],"run_in_background":false,"max_turns":1}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("agent tool returned an error: %+v", result)
+	}
+	select {
+	case got := <-created:
+		if got.Params.Background == nil || !*got.Params.Background || got.Params.MaxTurns != nil {
+			t.Fatalf("tool policy was not enforced: %+v", got.Params)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent was not started")
 	}
 }
 

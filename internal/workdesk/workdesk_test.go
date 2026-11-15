@@ -104,6 +104,54 @@ func TestRunAcceptsControlFileWhileActive(t *testing.T) {
 	}
 }
 
+func TestProgressCheckpointUpdatesInspectsAndResumes(t *testing.T) {
+	var calls atomic.Int32
+	var resumedBody string
+	state, cwd := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := ioReadBody(r)
+		switch calls.Add(1) {
+		case 1:
+			toolCall(w, "update_progress", map[string]any{
+				"criteria": []string{"change is implemented"}, "completedWork": []string{"added the change"},
+				"currentStep": "verify", "constraints": []string{"keep the assignment immutable"},
+				"decisions": []string{"use the canonical durable store"}, "blockers": []string{}, "nextAction": "run checks",
+			})
+		default:
+			resumedBody = body
+			answer(w, "continued from checkpoint")
+		}
+	})
+	args := []string{"run", "--state", state, "--cwd", cwd, "--model", "desk-fixture/fixture", "--request-id", "progress-1", "Implement and verify"}
+	var out bytes.Buffer
+	if err := workdesk.Run(context.Background(), args, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resumedBody, "added the change") {
+		t.Fatalf("resume context omitted committed progress: %s", resumedBody)
+	}
+	var result workdesk.Result
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Progress.Present || result.Progress.Checkpoint == nil || result.Progress.Checkpoint.Revision != 1 {
+		t.Fatalf("run progress: %+v", result.Progress)
+	}
+	if err := os.Remove(filepath.Join(os.Getenv("OMPIG_SLIM_CODING_AGENT_DIR"), "models.json")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := workdesk.Run(context.Background(), []string{"status", "--state", state}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status workdesk.Result
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Progress.Present || status.Progress.Checkpoint.NextAction != "run checks" {
+		t.Fatalf("status progress: %+v", status.Progress)
+	}
+}
+
 func TestRunResumeAndStatus(t *testing.T) {
 	var calls atomic.Int32
 	state, cwd := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls.Add(1); answer(w, "Implemented and verified.") })
