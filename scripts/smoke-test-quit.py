@@ -99,13 +99,17 @@ def run(binary, server, mode, persisted, populated, custom=False):
             plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(captured)).decode(errors="replace")
             assert plain.count("Session summary") == 1, plain[-4000:]
             summary = plain[plain.index("Session summary"):]
-            # Only the bytes between teardown and the summary, so a startup header
-            # in the same capture cannot satisfy the logo assertion.
+            # Two lines immediately above the summary, so the startup header and
+            # the terminal title cannot satisfy the logo assertion.
+            before = re.sub(rb"\x1b\][^\x07]*\x07", b"", bytes(captured[:captured.index(b"Session summary")]))
+            before = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", before).decode(errors="replace")
+            lines = [line for line in before.splitlines() if line.strip()]
+            assert len(lines) >= 2, f"no quit logo: {before[-400:]!r}"
+            top, bottom = lines[-2], lines[-1]
+            assert "-slim" in top, f"quit logo top line missing: {top!r}"
+            assert " in " in bottom and "\u2588\u2584\u2588" in bottom, \
+                f"quit logo bottom line missing: {bottom!r}"
             summary_at = captured.index(b"Session summary")
-            logo = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"",
-                          bytes(captured[max(0, summary_at - 600):summary_at]))
-            assert b"-slim" in logo and b"\xe2\x96\x88" in logo, \
-                f"quit logo missing before summary: {logo!r}"
             if mode == "fullscreen":
                 assert 0 <= captured.rfind(b"\x1b[?1049l") < summary_at, \
                     "summary printed inside alternate screen"
