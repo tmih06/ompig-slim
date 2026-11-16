@@ -122,11 +122,11 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 	}
 	credential := OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}
 	// Keep only the non-secret email claim so account pickers can distinguish
-	// imported accounts without retaining the source JSON or its ID token.
+	// imported accounts without retaining the source JSON or its ID token. The
+	// token's verified address outranks the JSON's own `email` field, which an
+	// import source may fill with a placeholder: the claim is the label rotation
+	// notices and the usage tab show for the account.
 	email := CodexAccountEmail(data.Access)
-	if email == "" {
-		email = strings.ToLower(strings.TrimSpace(data.Email))
-	}
 	if email == "" {
 		claims := codexJWTProfile(data.IDToken)
 		email = strings.ToLower(strings.TrimSpace(codexClaimString(claims, codexJWTProfileClaim, "email")))
@@ -134,6 +134,9 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 			email, _ = claims["email"].(string)
 			email = strings.ToLower(strings.TrimSpace(email))
 		}
+	}
+	if email == "" {
+		email = strings.ToLower(strings.TrimSpace(data.Email))
 	}
 	if email != "" {
 		credential.Extra = map[string]json.RawMessage{}
@@ -235,9 +238,19 @@ func (codexJSONOAuthProvider) RefreshTokenContext(ctx context.Context, c OAuthCr
 		return OAuthCredentials{}, errors.New("Codex JSON refresh account mismatch; credentials retained")
 	}
 	refreshed.AccountID = c.AccountID
-	// JSON accounts retain only the minimal import fields, even though the
-	// shared token endpoint enriches regular browser/device login profiles.
+	// JSON accounts retain only the non-secret email label, not the richer
+	// profile the shared token endpoint adds for browser logins. A minted token
+	// can omit its profile claim, so keep the stored address: dropping it would
+	// rename the account in rotation notices and the usage tab after a refresh.
+	email := codexProfileString(refreshed, "email")
+	if email == "" {
+		email = codexProfileString(c, "email")
+	}
 	refreshed.Extra = nil
+	if email != "" {
+		refreshed.Extra = map[string]json.RawMessage{}
+		refreshed.Extra["email"], _ = json.Marshal(email)
+	}
 	return refreshed, nil
 }
 

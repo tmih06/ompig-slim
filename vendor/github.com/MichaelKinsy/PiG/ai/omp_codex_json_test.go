@@ -348,3 +348,62 @@ func TestCodexJSONAccessOnlyExpiry(t *testing.T) {
 		t.Fatal("rejected access-only account retained")
 	}
 }
+
+// TestCodexJSONImportPrefersVerifiedEmail covers imports whose JSON carries a
+// placeholder address in `email` while the ID token holds the verified one.
+// The account label is what the rotation notice and the usage tab both print.
+func TestCodexJSONImportPrefersVerifiedEmail(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	input := fmt.Sprintf(`{"accessToken":%q,"idToken":%q,"expiresIn":3600,"email":"codex_5ad812@router.local","providerSpecificData":{"chatgptAccountId":"acct"}}`,
+		codexJSONTestJWT("acct", now.Add(time.Hour)), codexJSONTestIDToken("Verified.Real@Example.com", now.Add(time.Hour)))
+	credential, err := parseCodexJSON(input, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := credentialFromOAuth(credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := credentialClaim(stored, "email"); got != "verified.real@example.com" {
+		t.Fatalf("stored email = %q, want the verified ID-token address", got)
+	}
+	if label := accountLabel(stored); label != "verified.real@example.com" {
+		t.Fatalf("account label = %q, want the verified address", label)
+	}
+	if email := UsageCredentialFromStored(&stored).Email; email != "verified.real@example.com" {
+		t.Fatalf("usage email = %q, want the same verified address", email)
+	}
+}
+
+// TestCodexJSONRefreshKeepsEmailLabel covers a refresh whose new access token has
+// no profile claim. The account keeps its stored address so the rotation notice
+// and the usage tab keep naming the account the same way.
+func TestCodexJSONRefreshKeepsEmailLabel(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	access := codexLoginJWT(fmt.Sprintf(`{"exp":%d,"https://api.openai.com/auth":{"chatgpt_account_id":"acct"}}`, now.Add(2*time.Hour).Unix()))
+	withCodexJSONTokenServer(t, 200, fmt.Sprintf(`{"access_token":%q,"refresh_token":"rotated-fixture","expires_in":3600}`, access))
+	store, _ := openTestStore(t)
+	old := oauthCredential("acct", "user@example.invalid", now.Add(-time.Hour))
+	key := deriveAccountKey(old)
+	if _, err := store.SaveAccount(t.Context(), codexJSONProviderID, key, old); err != nil {
+		t.Fatal(err)
+	}
+	auth, _ := BuiltinProviderAuth(codexJSONProviderID)
+	if _, err := ResolveProviderAuth(t.Context(), codexJSONProviderID, auth, store, AuthContext{}, WithAccountKey(AuthResolutionOverrides{}, key)); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.ReadAccount(t.Context(), codexJSONProviderID, key)
+	if err != nil || saved == nil {
+		t.Fatalf("read refreshed account: %v", err)
+	}
+	if got := credentialClaim(*saved, "email"); got != "user@example.invalid" {
+		t.Fatalf("email after refresh = %q, want user@example.invalid", got)
+	}
+	accounts, err := store.ListAccounts(t.Context())
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("accounts = %+v, error = %v", accounts, err)
+	}
+	if accounts[0].Label != "user@example.invalid" {
+		t.Fatalf("account label after refresh = %q, want user@example.invalid", accounts[0].Label)
+	}
+}
