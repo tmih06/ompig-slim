@@ -74,7 +74,7 @@ var appKeybindingRows = [...]appKeybindingRow{
 	// terminal without the Kitty protocol or modifyOtherKeys can distinguish from ctrl+p (the forward key), so the
 	// upstream default fired the forward action instead. A Ctrl+Shift+arrow needs no such reporting: xterm sends it
 	// as CSI 1;6D, which a stock Apple Terminal profile already produces.
-	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+shift+left"}, Windows: []KeyID{"alt+p"}}},
+	{id: "app.model.cycleBackward", description: "Cycle to previous model", keys: []KeyID{"ctrl+shift+left"}},
 	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"alt+p", "ctrl+l"}},
 	{id: "app.usage.toggleView", description: "Switch usage overview and detailed report", keys: []KeyID{"tab", "enter"}},
 	{id: "app.usage.refresh", description: "Refresh provider usage quotas", keys: []KeyID{"r"}},
