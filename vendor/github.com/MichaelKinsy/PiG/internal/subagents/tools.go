@@ -82,7 +82,9 @@ func (t *Tool) Schema() ai.ToolSchema {
 	switch t.ToolName {
 	case "Agent":
 		description = t.Manager.toolDescription(false)
-		role := map[string]any{"type": "string", "enum": agentRoleNames(), "description": "Required agent role: @task for coding, @smol for research, @slow for heavy review or analysis."}
+		// The enum carries the role names; each role's purpose is in the tool description above,
+		// so restating it here would be a second copy to keep in sync.
+		role := map[string]any{"type": "string", "enum": agentRoleNames(), "description": "Required agent role. Choose the one whose purpose matches the work."}
 		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "role": role, "tool": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "minLength": 1}, "description": "Required list of tool names the agent may use."}, "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
 		if s.WorktreeIsolation {
 			props["isolation"] = map[string]any{"type": "string", "enum": []string{"off", "worktree"}, "description": "off (default) uses current checkout; worktree creates an isolated copy at HEAD, without uncommitted main-checkout changes."}

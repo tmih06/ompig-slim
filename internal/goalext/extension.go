@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -188,6 +190,8 @@ type goalCommand struct {
 	objective string
 }
 
+// goalControlWords is the whole command vocabulary: the parser and the completion list both read
+// it, so a verb cannot exist in one and be missing from the other.
 var goalControlWords = map[string]goalOp{
 	"show": goalOpShow, "status": goalOpShow, "get": goalOpShow,
 	"set": goalOpSet, "create": goalOpSet, "pause": goalOpPause,
@@ -225,10 +229,11 @@ func goalCompletions(prefix string) ([]extension.AutocompleteItem, error) {
 	if strings.ContainsAny(prefix, " \t\r\n") {
 		return nil, nil
 	}
-	words := []string{"show", "status", "get", "set", "create", "pause", "resume", "complete", "drop", "help"}
+	prefix = strings.ToLower(prefix)
+	words := slices.Sorted(maps.Keys(goalControlWords))
 	items := make([]extension.AutocompleteItem, 0, len(words))
 	for _, word := range words {
-		if strings.HasPrefix(word, strings.ToLower(prefix)) {
+		if strings.HasPrefix(word, prefix) {
 			items = append(items, extension.AutocompleteItem{Value: word, Label: word})
 		}
 	}

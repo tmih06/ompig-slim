@@ -240,3 +240,46 @@ func TestGoalSubmitsSkillObjective(t *testing.T) {
 		})
 	}
 }
+
+// TestGoalCompletionsOfferEveryControlWord pins the completion list to the parser's vocabulary, so
+// a verb the handler accepts cannot be invisible in the picker, and a suggestion cannot parse as a
+// prompt.
+func TestGoalCompletionsOfferEveryControlWord(t *testing.T) {
+	items, err := goalCompletions("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered := make(map[string]bool, len(items))
+	for _, item := range items {
+		offered[item.Value] = true
+		command, err := parseGoalCommand(item.Value)
+		if err != nil {
+			// Only a verb that requires an objective may refuse a bare invocation.
+			if goalControlWords[item.Value] != goalOpSet {
+				t.Fatalf("suggestion %q does not parse: %v", item.Value, err)
+			}
+			continue
+		}
+		if command.op == goalOpPrompt {
+			t.Fatalf("suggestion %q parses as a prompt instead of a control word", item.Value)
+		}
+	}
+	for word := range goalControlWords {
+		if !offered[word] {
+			t.Errorf("control word %q is missing from the completion list", word)
+		}
+	}
+	if len(offered) != len(goalControlWords) {
+		t.Fatalf("completions offer %d words, vocabulary has %d", len(offered), len(goalControlWords))
+	}
+	filtered, err := goalCompletions("RE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].Value != "resume" {
+		t.Fatalf("prefix match = %+v, want resume only", filtered)
+	}
+	if spaced, err := goalCompletions("set a goal"); err != nil || spaced != nil {
+		t.Fatalf("an argument position offered completions: %+v %v", spaced, err)
+	}
+}
