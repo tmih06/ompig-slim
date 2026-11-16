@@ -3,11 +3,11 @@
 
 Two things are asserted against a built executable:
 
-1. The binary publishes <PIG_HOME>/state/agent/status.json and moves it through
-   idle -> working -> idle for a real model turn.
+1. A resumed session publishes <PIG_HOME>/state/agent/<pid>/status.json and
+   moves it through idle -> working -> idle for a real model turn.
 2. The installable Herdr extension in extensions/herdr, loaded with `-e`, turns
    those transitions into `herdr pane report-agent` calls, which a fake Herdr
-   executable records.
+   executable records, despite an old process document for the same session.
 
 The extension is built by PiG on first load, so this needs a Go toolchain and the
 staged extension SDK, exactly like any other installed extension.
@@ -80,6 +80,18 @@ def run(binary):
                 'echo \'{"id":"cli:request","result":{"ok":{}}}\'\n')
             fake_herdr.chmod(0o755)
             agent_root = root / "state" / "agent"
+            session_file = root / "resumed.jsonl"
+            session_file.write_text(json.dumps({
+                "type": "session", "version": 3, "id": "herdr-resume-fixture",
+                "cwd": str(root), "timestamp": "2026-01-01T00:00:00.000Z",
+            }) + "\n")
+            previous = agent_root / "0000"
+            previous.mkdir(parents=True)
+            (previous / "status.json").write_text(json.dumps({
+                "state": "exited", "session_id": "herdr-resume-fixture",
+                "session_file": str(session_file),
+                "updated_at": "2026-01-01T00:00:00.000Z",
+            }))
 
             env = dict(os.environ,
                        PIG_HOME=directory, PI_HOME=directory, TERM="xterm-256color",
@@ -91,7 +103,8 @@ def run(binary):
 
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-            process = subprocess.Popen([str(binary), "--model", "state-fixture", "-e", str(extension)],
+            process = subprocess.Popen([str(binary), "--model", "state-fixture", "-e", str(extension),
+                                        "--session", str(session_file)],
                                        stdin=slave, stdout=slave, stderr=slave,
                                        cwd=root, env=env, start_new_session=True)
             os.close(slave)
@@ -99,21 +112,10 @@ def run(binary):
             states = []
 
             def published():
-                """Return the one live agent document, or None.
-
-                The document is one directory per process, so this enumerates
-                rather than assuming a path: that is what an external observer
-                does, and it is what the test is meant to prove.
-                """
-                if not agent_root.is_dir():
-                    return None
-                documents = [entry / "status.json" for entry in agent_root.iterdir()
-                             if entry.is_dir() and (entry / "status.json").exists()]
-                if len(documents) != 1:
-                    return None
+                """Read the launched agent's document, excluding the old fixture."""
                 try:
-                    return json.loads(documents[0].read_text())
-                except ValueError:
+                    return json.loads((agent_root / str(process.pid) / "status.json").read_text())
+                except (OSError, ValueError):
                     return None
 
             def pump(seconds):
@@ -139,10 +141,13 @@ def run(binary):
 
             try:
                 # The first load builds the extension against the staged SDK.
-                pump(90)
+                pump_until(lambda: published() and herdr_log.exists(), 90)
+                assert herdr_log.exists(), "resumed session reported nothing with an old matching document"
                 assert states == ["idle"], f"startup state was {states!r}: {bytes(captured[-2000:])!r}"
                 document = published()
                 assert document, "no agent state document was published"
+                assert document["session_id"] == "herdr-resume-fixture", document
+                assert document["session_file"] == str(session_file), document
                 for field in ("session_id", "session_file", "cwd", "pid", "updated_at"):
                     assert document.get(field), f"state document lacks {field}: {document!r}"
                 assert document["mode"] == "tui", f"mode was {document.get('mode')!r}"
@@ -183,7 +188,7 @@ def run(binary):
                 f"no report carried a resume command: {reports!r}"
 
             print(f"PASS: state document {states}, Herdr reports {reported}, "
-                  f"resume command forwarded")
+                  f"resume command forwarded despite an old matching document")
     finally:
         server.shutdown()
 

@@ -30,6 +30,10 @@ harness refreshes it every twenty seconds while it runs, so an old one describes
 a writer that stopped publishing, and Herdr never expires a reported state on its
 own. Any other consumer of that file needs no change here.
 
+Resuming a session reuses its identifier. The extension skips stale, exited, or
+unrecognized documents left by previous processes and keeps looking for a fresh,
+reportable document with that identifier.
+
 ## Requirements
 
 - `ompig-slim` on `PATH`, because Herdr types the resume command into a fresh

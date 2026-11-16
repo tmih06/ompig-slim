@@ -23,7 +23,6 @@ package herdr
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -283,39 +282,32 @@ func agentRoot() (string, bool) {
 	return filepath.Join(root, "state", "agent"), true
 }
 
-// findDocument returns the document of the session running as sessionID.
-//
 // The extension cannot use its own process id: PiG runs it in a separate process
 // from the agent, so the document keyed by its pid belongs to nobody. It knows the
 // session identifier, which every document carries, so it matches on that. A
 // session replacement changes the identifier, and the next poll finds the new
 // document without any explicit re-subscription.
-func findDocument(root, sessionID string) (string, bool) {
+func findReported(root, sessionID string, now time.Time) (reported, bool) {
 	if sessionID == "" {
-		return "", false
+		return reported{}, false
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return "", false
+		return reported{}, false
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(root, entry.Name(), "status.json")
-		data, err := os.ReadFile(path)
-		if err != nil {
+		doc, ok := readDocument(filepath.Join(root, entry.Name(), "status.json"))
+		if !ok || doc.SessionID != sessionID {
 			continue
 		}
-		var doc statusDocument
-		if err := json.Unmarshal(data, &doc); err != nil {
-			continue
-		}
-		if doc.SessionID == sessionID {
-			return path, true
+		if state, ok := doc.report(now); ok {
+			return state, true
 		}
 	}
-	return "", false
+	return reported{}, false
 }
 
 // Extension is the factory PiG loads.
@@ -422,17 +414,14 @@ func (s *session) watch(ctx context.Context, sessionID string, reporter *reporte
 			return
 		case <-ticker.C:
 		}
-		path, found := findDocument(root, sessionID)
+		state, found := findReported(root, sessionID, time.Now())
 		if !found {
 			// The document may not exist yet (a fresh session publishes at its
-			// first event) or the session may have been replaced.
-			continue
-		}
-		state, ok := readReported(path)
-		if !ok {
-			// No document yet, or an unreadable one. Reporting nothing is
-			// correct: the previous state is still the last thing that was true,
-			// and Herdr clears the pane itself once the shell prompt returns.
+			// first event), the session may have been replaced, or the only
+			// document naming it is a leftover from a stopped process. Reporting
+			// nothing is correct: the previous state is still the last thing that
+			// was true, and Herdr clears the pane itself once the shell prompt
+			// returns.
 			continue
 		}
 		reporter.update(state)

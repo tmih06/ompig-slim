@@ -42,36 +42,27 @@ func (d statusDocument) fresh(now time.Time) bool {
 	return now.Sub(updated) <= staleAfter
 }
 
-// readReported reads the state document at path and maps it onto a Herdr report.
-//
-// A missing, unreadable, stale or unmappable document returns false instead of an
-// error: the caller polls, and a document that is briefly absent (the writer
-// replacing it, the session not yet started) or no longer refreshed must not be
-// reported as any state at all. Silently reporting nothing is correct because the
-// last state Herdr holds is still the last thing that was true; the alternative,
-// forwarding a frozen state, is what makes a pane read as busy after its agent
-// stopped publishing. "exited" is not forwarded — Herdr clears a pane whose agent
-// returned to its shell, and a stale exit from a previous session in the same pane
-// must not overwrite a live one.
-func readReported(path string) (reported, bool) {
-	return readReportedAt(path, time.Now())
-}
-
-// readReportedAt is readReported against an explicit clock, so a test can age a
-// document without sleeping.
-func readReportedAt(path string, now time.Time) (reported, bool) {
+func readDocument(path string) (statusDocument, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return reported{}, false
+		return statusDocument{}, false
 	}
 	var doc statusDocument
 	if err := json.Unmarshal(data, &doc); err != nil {
+		return statusDocument{}, false
+	}
+	return doc, true
+}
+
+// A document is forwarded only while its writer is publishing and its state has a
+// Herdr equivalent. "exited" has none on purpose: Herdr clears a pane whose agent
+// returned to its shell, and a stale exit from a previous session in the same pane
+// must not overwrite a live one. An unknown state is not this adapter's to invent.
+func (d statusDocument) report(now time.Time) (reported, bool) {
+	if !d.fresh(now) {
 		return reported{}, false
 	}
-	if !doc.fresh(now) {
-		return reported{}, false
-	}
-	state, ok := herdrState(doc.State)
+	state, ok := herdrState(d.State)
 	if !ok {
 		return reported{}, false
 	}
@@ -79,13 +70,13 @@ func readReportedAt(path string, now time.Time) (reported, bool) {
 	if state == "blocked" {
 		// A message belongs to the blocked state; Herdr ignores it otherwise and
 		// a stale title would misdescribe an idle pane.
-		detail = oneLine(doc.Detail)
+		detail = oneLine(d.Detail)
 	}
 	return reported{
 		state:       state,
 		detail:      detail,
-		blockedKind: doc.BlockedKind,
-		sessionFile: doc.SessionFile,
+		blockedKind: d.BlockedKind,
+		sessionFile: d.SessionFile,
 	}, true
 }
 

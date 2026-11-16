@@ -245,6 +245,18 @@ func TestDisabledEnvironmentSendsNothing(t *testing.T) {
 	}
 }
 
+func readReported(path string) (reported, bool) {
+	return readReportedAt(path, time.Now())
+}
+
+func readReportedAt(path string, now time.Time) (reported, bool) {
+	doc, ok := readDocument(path)
+	if !ok {
+		return reported{}, false
+	}
+	return doc.report(now)
+}
+
 func TestReadReportedMapsPublishedStates(t *testing.T) {
 	dir := t.TempDir()
 	for _, state := range []string{"idle", "working", "blocked"} {
@@ -433,6 +445,7 @@ func startWatching(t *testing.T, session *session, dir, sessionID string) {
 	watchCtx, cancel := context.WithCancel(context.Background())
 	session.cancel = cancel
 	session.mu.Unlock()
+	t.Cleanup(cancel)
 	go session.watch(watchCtx, sessionID, session.reporter)
 }
 
@@ -496,28 +509,75 @@ func TestAgentRootFollowsPigHome(t *testing.T) {
 	}
 }
 
-// TestFindDocumentMatchesTheSessionNotTheProcess pins why the extension matches on
+// TestFindReportedMatchesTheSessionNotTheProcess pins why the extension matches on
 // session id: PiG runs it in its own process, so its pid never names the agent's
 // document. Two agents publishing at once must not be confused.
-func TestFindDocumentMatchesTheSessionNotTheProcess(t *testing.T) {
+func TestFindReportedMatchesTheSessionNotTheProcess(t *testing.T) {
 	root := t.TempDir()
-	firstDir := filepath.Join(root, "1111")
-	secondDir := filepath.Join(root, "2222")
-	writeState(t, firstDir, map[string]any{"state": "working", "session_id": "other"})
-	writeState(t, secondDir, map[string]any{"state": "blocked", "session_id": "mine"})
+	writeState(t, filepath.Join(root, "1111"), map[string]any{"state": "working", "session_id": "other"})
+	writeState(t, filepath.Join(root, "2222"), map[string]any{
+		"state": "blocked", "detail": "Approve?", "session_id": "mine",
+	})
 
-	path, ok := findDocument(root, "mine")
+	got, ok := findReported(root, "mine", time.Now())
 	if !ok {
-		t.Fatal("findDocument did not find the session's own document")
+		t.Fatal("findReported did not find the session's own document")
 	}
-	if want := filepath.Join(secondDir, "status.json"); path != want {
-		t.Fatalf("findDocument = %q, want %q", path, want)
+	if got.state != "blocked" || got.detail != "Approve?" {
+		t.Fatalf("findReported = %+v, want the matching document's report", got)
 	}
-	if _, ok := findDocument(root, "absent"); ok {
-		t.Fatal("findDocument matched a session that has no document")
+	if _, ok := findReported(root, "absent", time.Now()); ok {
+		t.Fatal("findReported matched a session that has no document")
 	}
-	if _, ok := findDocument(root, ""); ok {
-		t.Fatal("findDocument matched an empty session id")
+	if _, ok := findReported(root, "", time.Now()); ok {
+		t.Fatal("findReported matched an empty session id")
+	}
+}
+
+func TestFindReportedSkipsADocumentItCannotReport(t *testing.T) {
+	for name, document := range map[string]map[string]any{
+		"stale working": {"state": "working", "updated_at": time.Now().Add(-2 * staleAfter).Format(time.RFC3339Nano)},
+		"exited":        {"state": "exited"},
+		"unknown":       {"state": "bogus"},
+		"no timestamp":  {"state": "working", "updated_at": ""},
+	} {
+		root := t.TempDir()
+		document["session_id"] = "mine"
+		writeState(t, filepath.Join(root, "0000"), document)
+
+		if got, ok := findReported(root, "mine", time.Now()); ok {
+			t.Fatalf("%s: findReported reported %+v for a document it must not forward", name, got)
+		}
+	}
+}
+
+func TestPollerReportsTheResumedSession(t *testing.T) {
+	stale := time.Now().Add(-2 * staleAfter).Format(time.RFC3339Nano)
+	for name, leftover := range map[string]map[string]any{
+		"stale working": {"state": "working", "updated_at": stale, "session_id": "resumed", "session_file": "/tmp/old.jsonl"},
+		"fresh exited":  {"state": "exited", "session_id": "resumed", "session_file": "/tmp/old.jsonl"},
+		"unknown":       {"state": "bogus", "session_id": "resumed", "session_file": "/tmp/old.jsonl"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			rec := &recorder{}
+			session := newSession(enabledEnv(), func() (string, bool) { return root, true }, rec.run)
+
+			writeState(t, filepath.Join(root, "0000"), leftover)
+			writeState(t, filepath.Join(root, "4242"), map[string]any{
+				"state": "idle", "session_id": "resumed", "session_file": "/tmp/live.jsonl",
+			})
+
+			startWatching(t, session, root, "resumed")
+			args := rec.waitFor(t)
+			if got := flagValue(t, args, "--state"); got != "idle" {
+				t.Fatalf("state = %q, want the live document's idle", got)
+			}
+			separator := indexOf(args, "--")
+			if separator < 0 || !equal(args[separator+1:], []string{"ompig-slim", "--session", "/tmp/live.jsonl"}) {
+				t.Fatalf("resume argv = %v, want the live document's session", args)
+			}
+		})
 	}
 }
 
