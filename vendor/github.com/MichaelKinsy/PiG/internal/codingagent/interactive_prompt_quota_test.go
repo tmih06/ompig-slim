@@ -430,3 +430,33 @@ func TestPromptQuotaFollowsRoutedTierAndTotalsAllItsAccounts(t *testing.T) {
 		})
 	}
 }
+
+// TestPromptQuotaReadsMistralVibeCredits drives the shared prompt-quota path
+// with the report the Mistral usage provider produces, so a Mistral session
+// shows its Vibe Code allowance beside the context meter.
+func TestPromptQuotaReadsMistralVibeCredits(t *testing.T) {
+	used := 42.5
+	fraction := used / 100
+	reset := time.Now().Add(48 * time.Hour).UnixMilli()
+	limit := ai.UsageLimit{
+		ID:     "mistral:vibe-credits",
+		Label:  "Vibe Credits",
+		Scope:  ai.UsageScope{Provider: "mistral", WindowID: "monthly", Shared: true},
+		Window: &ai.UsageWindow{ID: "monthly", Label: "Monthly", ResetsAt: &reset},
+		Amount: ai.UsageAmount{Used: &used, UsedFraction: &fraction, Unit: ai.UsageUnitPercent},
+		Status: ai.UsageStatusOK,
+	}
+	snapshot := ai.UsageSnapshot{Reports: []ai.UsageReport{{Provider: "mistral", Limits: []ai.UsageLimit{limit}}}}
+	m := &InteractiveMode{
+		opts:        InteractiveModeOptions{Model: &ai.Model{ID: "devstral-medium-latest", ProviderMeta: ai.ProviderMetadata{ProviderID: "mistral"}}},
+		promptQuota: &promptQuotaState{loaded: true, snapshot: snapshot},
+	}
+	m.opts.UsageAccountKey = func(string) (*string, bool) { return nil, true }
+	label := m.promptQuotaLabel(200)
+	if !strings.Contains(label, "monthly") || !strings.Contains(label, "57% left") {
+		t.Fatalf("Mistral allowance missing from the prompt quota: %q", label)
+	}
+	if strings.Contains(strings.ToLower(label), "mistral") {
+		t.Fatalf("the prompt quota named the provider: %q", label)
+	}
+}

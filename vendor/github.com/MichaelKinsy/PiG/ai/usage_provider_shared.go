@@ -513,6 +513,7 @@ var defaultUsageProviders = sync.OnceValue(func() []*UsageProvider {
 		claudeUsageProvider(),
 		clinePassUsageProvider(),
 		zaiUsageProvider(),
+		mistralUsageProvider(),
 		umansUsageProvider(),
 		openCodeGoUsageProvider(),
 		githubCopilotUsageProvider(),
