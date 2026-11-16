@@ -46,6 +46,17 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
         else:
             if not {"Agent", "get_subagent_result", "steer_subagent", "SubagentWorkflow"} <= offered:
                 cls.failure = "built-in subagent tools are missing: " + repr(offered)
+            agent = next((t for t in body.get("tools", []) if t["function"]["name"] == "Agent"), None)
+            properties = (agent or {}).get("function", {}).get("parameters", {}).get("properties", {})
+            roles = properties.get("role", {}).get("enum")
+            offered_roles = ["@task", "@smol", "@slow"]
+            if roles != offered_roles:
+                cls.failure = "Agent must offer exactly the three roles: " + repr(roles)
+            description = (agent or {}).get("function", {}).get("description", "")
+            guidance = {line.split(". ", 1)[0]: line.split(". ", 1)[1] for line in description.splitlines() if line.startswith("- @") and ". " in line}
+            for role in offered_roles:
+                if len(guidance.get("- " + role, "")) < 20:
+                    cls.failure = f"Agent description omits {role} purpose guidance: " + description
             with cls.lock:
                 stage = cls.stage
                 cls.stage += 1
@@ -56,7 +67,7 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
             elif stage == 1:
                 if "RPC_BRIDGE_OK" not in str(last):
                     cls.failure = "cross-extension RPC failed: " + str(last)
-                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native background proof", "role": "@default", "tool": ["read"]})
+                delta, reason = self.tool("Agent", {"prompt": "Return CHILD_SESSION_OK", "description": "Native background proof", "role": "@task", "tool": ["read"]})
             elif stage == 2:
                 match = re.search(r"agent_[a-z0-9]{6,}", str(last))
                 if not match:
@@ -78,7 +89,12 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
             else:
                 if stage == 5 and "STRUCTURED_CHILD_OK" not in str(last):
                     cls.failure = "structured workflow result missing: " + str(last)
-                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED" if cls.failure else "SUBAGENT_RUNTIME_OK"}, "stop"
+                if stage == 5:
+                    delta, reason = self.tool("Agent", {"prompt": "Rejected role proof", "description": "Rejected role proof", "role": "@default", "tool": ["read"]})
+                else:
+                    if "expected one of" not in str(last) or any(role not in str(last) for role in offered_roles) or "agent_" in str(last):
+                        cls.failure = "unlisted role was not rejected before launch: " + str(last)
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED" if cls.failure else "SUBAGENT_RUNTIME_OK"}, "stop"
         chunks = [{"id": "subagent-smoke", "object": "chat.completion.chunk", "created": 0, "model": "subagent-smoke", "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}, {"id": "subagent-smoke", "choices": [{"index": 0, "delta": {}, "finish_reason": reason}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}}]
         wire = "".join("data: " + json.dumps(c) + "\n\n" for c in chunks) + "data: [DONE]\n\n"
         self.send_response(200)
@@ -121,7 +137,7 @@ class BudgetServer(http.server.BaseHTTPRequestHandler):
             results = [m for m in messages if m["role"] == "tool"]
             last = str(results[-1].get("content", "")) if results else ""
             if not results:
-                delta, reason = self.tool("Agent", {"prompt": "EXHAUST_TURNS", "description": "Budget exhaustion proof", "role": "@default", "tool": ["read"]})
+                delta, reason = self.tool("Agent", {"prompt": "EXHAUST_TURNS", "description": "Budget exhaustion proof", "role": "@task", "tool": ["read"]})
             elif match := re.search(r"\bagent_[a-z0-9]{6,}", last):
                 delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
             elif "subagent_outcome: exhausted" not in last:

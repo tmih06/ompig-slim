@@ -86,6 +86,17 @@ for another retrieval.
 </task-notification>
 ```
 
+## Live inspection
+
+The main view shows each active child as `@role name task usage`. The name
+uses the child's alias or handle instead of the generic `Agent` label. Role
+labels use the same configured color as the model hub.
+
+Provider-emitted thinking text streams beneath the child's row and in the
+Agent Hub inspector. Opening the child transcript shows its thinking blocks
+alongside its responses and tool calls. These views do not reveal reasoning
+that the provider does not emit.
+
 ## Persistence
 
 `Record` persists status, result, and error with the record, so a reload derives

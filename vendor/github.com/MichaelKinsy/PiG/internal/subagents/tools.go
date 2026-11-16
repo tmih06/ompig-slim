@@ -13,6 +13,37 @@ import (
 
 var ToolNames = []string{"Agent", "get_subagent_result", "steer_subagent", "SubagentWorkflow"}
 
+var agentRoles = [...]struct{ Name, Purpose string }{
+	{"@task", "Default coding worker. Implement the change, run the checks, and finish the task end to end."},
+	{"@smol", "Research and codebase scout. Read, search, and report findings for a question."},
+	{"@slow", "Heavy brainstorm, review, and analysis. Weigh design options and give a judgment."},
+}
+
+func agentRoleNames() []string {
+	names := make([]string, 0, len(agentRoles))
+	for _, role := range agentRoles {
+		names = append(names, role.Name)
+	}
+	return names
+}
+
+func isAgentRole(name string) bool {
+	for _, role := range agentRoles {
+		if role.Name == name {
+			return true
+		}
+	}
+	return false
+}
+func agentRoleGuidance() string {
+	lines := make([]string, 0, len(agentRoles)+1)
+	lines = append(lines, "Choose the role whose purpose matches the work. Any other value is rejected:")
+	for _, role := range agentRoles {
+		lines = append(lines, "- "+role.Name+". "+role.Purpose)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func IsTool(name string) bool {
 	for _, n := range ToolNames {
 		if n == name {
@@ -51,10 +82,7 @@ func (t *Tool) Schema() ai.ToolSchema {
 	switch t.ToolName {
 	case "Agent":
 		description = t.Manager.toolDescription(false)
-		role := map[string]any{"type": "string", "minLength": 2, "description": "Required configured model role, such as @task."}
-		if roles := t.Manager.ModelRoles(); len(roles) > 0 {
-			role["enum"] = roles
-		}
+		role := map[string]any{"type": "string", "enum": agentRoleNames(), "description": "Required agent role: @task for coding, @smol for research, @slow for heavy review or analysis."}
 		props = map[string]any{"prompt": property("string", "The task for the agent to perform."), "description": property("string", "Short (3-5 word) task description shown in UI."), "role": role, "tool": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "minLength": 1}, "description": "Required list of tool names the agent may use."}, "name": property("string", "Optional memorable handle (letters, digits, underscores and hyphens)."), "resume": property("string", "Resume an agent ID or handle after its current run finishes, preserving conversation."), "isolated": property("boolean", "Only built-in tools; omit extension and MCP tools."), "inherit_context": property("boolean", "Fork parent conversation into the agent. Default false.")}
 		if s.WorktreeIsolation {
 			props["isolation"] = map[string]any{"type": "string", "enum": []string{"off", "worktree"}, "description": "off (default) uses current checkout; worktree creates an isolated copy at HEAD, without uncommitted main-checkout changes."}
@@ -103,6 +131,9 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 		}
 		if strings.TrimSpace(p.Role) == "" || len(p.Tools) == 0 {
 			return agent.AgentToolResult{}, fmt.Errorf("role and tool are required")
+		}
+		if !isAgentRole(p.Role) {
+			return agent.AgentToolResult{}, fmt.Errorf("role must be one of %s", strings.Join(agentRoleNames(), ", "))
 		}
 		for _, name := range p.Tools {
 			if strings.TrimSpace(name) == "" {

@@ -52,7 +52,6 @@ type Host struct {
 	ParentRunning                        func() bool
 	Subscribe                            func(func(agent.AgentEvent)) func()
 	InstalledPackages                    func() []PackageRoot
-	ModelRoles                           func() []string
 }
 
 // Mention starts an off-screen orchestration clone in model mode; direct mode
@@ -151,19 +150,6 @@ type Record struct {
 
 func (r Record) Active() bool { return r.Status == "running" || r.Status == "queued" }
 
-func (m *Manager) ModelRoles() []string {
-	if m.host.ModelRoles == nil {
-		return nil
-	}
-	roles := slices.Clone(m.host.ModelRoles())
-	for i, role := range roles {
-		if !strings.HasPrefix(role, "@") {
-			roles[i] = "@" + role
-		}
-	}
-	slices.Sort(roles)
-	return slices.Compact(roles)
-}
 func (r Record) TopLevel() bool { return r.ParentID == "" && r.WorkflowID == "" }
 
 type run struct {

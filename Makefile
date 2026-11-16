@@ -50,6 +50,7 @@ smoke-built:
 	python3 scripts/smoke-test-opencode-free.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
+	python3 scripts/smoke-test-subagent-ui.py ./bin/ompig-slim
 	python3 scripts/smoke-test-web-tools-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-agent-state.py ./bin/ompig-slim
 	python3 scripts/smoke-test-goal-interruption.py ./bin/ompig-slim

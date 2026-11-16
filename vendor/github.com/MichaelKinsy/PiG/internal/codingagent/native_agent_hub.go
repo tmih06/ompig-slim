@@ -116,6 +116,7 @@ func hubSingleLine(text string) string {
 		return r
 	}, text)
 }
+
 func hubProviderModel(r subagents.HubAgent) string {
 	model := r.ModelName
 	if r.ProviderName != "" && model != "" {
@@ -123,23 +124,9 @@ func hubProviderModel(r subagents.HubAgent) string {
 	} else if r.ProviderName != "" {
 		model = r.ProviderName
 	}
-	if r.Params.Role != "" && model != "" {
-		return r.Params.Role + " " + model
-	}
 	return model
 }
-func hubLabel(r subagents.HubAgent) string {
-	if r.Alias != "" {
-		return r.Alias
-	}
-	if r.Handle != "" {
-		return r.Handle
-	}
-	if r.DisplayName != "" {
-		return r.DisplayName
-	}
-	return r.ID
-}
+func hubLabel(r subagents.HubAgent) string { return subagentIdentity(r.Record) }
 func hubStatusOrder(status string) int {
 	switch status {
 	case "running":
@@ -473,8 +460,8 @@ func (h *agentHub) roster(width, height int) []string {
 		if !h.tree && r.ParentID != "" {
 			title += "  ↳ " + hubSingleLine(h.labelFor(r.ParentID))
 		}
-		model := hubModel(hubProviderModel(r), r.Thinking)
-		if r.ModelName != "" && widthx.VisibleWidth(title)+widthx.VisibleWidth(model)+2 <= width {
+		model := h.hubRoleModel(r)
+		if model != "" && widthx.VisibleWidth(title)+widthx.VisibleWidth(model)+2 <= width {
 			title += strings.Repeat(" ", width-widthx.VisibleWidth(title)-widthx.VisibleWidth(model)) + model
 		}
 		detail := r.Description
@@ -515,8 +502,8 @@ func (h *agentHub) details(width int) []string {
 	}
 	r := h.rows[h.index]
 	lines := []string{hubGlyph(r.State) + " " + tui.ChalkBold(hubSingleLine(hubLabel(r))), tui.ActiveTheme().Fg("dim", r.ID), hubStatus(r.State, r.State) + " · last active " + hubDuration(time.Now().UnixMilli()-r.LastActive) + " ago"}
-	if r.ModelName != "" {
-		lines = append(lines, hubModel(hubProviderModel(r), r.Thinking))
+	if model := h.hubRoleModel(r); model != "" {
+		lines = append(lines, model)
 	}
 	lines = append(lines, "", hubHeading("Task"), hubSingleLine(r.Description))
 	if r.Params.Prompt != "" {
@@ -524,6 +511,14 @@ func (h *agentHub) details(width int) []string {
 	}
 	if r.Activity != "" {
 		lines = append(lines, "", hubHeading("Current"), hubSingleLine(r.Activity))
+	}
+	if r.State == "running" {
+		if thinking := subagentThinkingPreview(h.manager, r.ID); thinking != "" {
+			if r.Activity == "" {
+				lines = append(lines, "", hubHeading("Current"))
+			}
+			lines = append(lines, subagentThinkingLines(thinking, max(1, width-2), 4)...)
+		}
 	}
 	lines = append(lines, "", hubHeading("Usage"), hubMetrics(r))
 	if r.ContextWindow > 0 {

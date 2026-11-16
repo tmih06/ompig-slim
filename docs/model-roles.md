@@ -6,14 +6,33 @@ and **session-only model selection**:
 - `/model` opens the fullscreen manager.
 - Alt+P opens the compact session-only picker; Ctrl+L remains a shortcut alias.
 - Type `@review` in that picker to select a logical role for this session.
-  `--model @review` and subagent `model: "@review"` also resolve roles.
+  `--model @review` and workflow `model: "@review"` also resolve roles.
   `pi/review` is the legacy spelling; `*` means `@default`.
 
 ## Subagent roles and tools
 
-`Agent.role` selects a configured model role and `Agent.tool` lists the tools
-available to the child. Both fields are required. Task-specific responsibilities
-belong in `prompt`. The tool description lists the available model roles.
+The `Agent` tool offers exactly three roles, and `Agent.role` must be one of
+them. Any other selector, including a configured role such as `@default` or a
+configured custom role, is rejected before a child starts.
+
+| Role | Purpose |
+|---|---|
+| `@task` | Default coding worker. Implement the change, run the checks, finish the task end to end. |
+| `@smol` | Research and codebase scout. Read, search, and report findings for a question. |
+| `@slow` | Heavy brainstorm, review, and analysis. Weigh design options and give a judgment. |
+
+The purposes guide role selection. The tool list still decides what the child
+may do. `Agent.tool` lists the tools available to
+the child, and both fields are required. Task-specific responsibilities belong
+in `prompt`. The schema enum, the tool description, and the execution check read
+one list, so the three cannot disagree.
+
+Subagent roles are a fixed policy and do not follow the configured model roles.
+The role resolves through the global role settings, so `task`, `smol`, and `slow`
+are assigned in `/model` like any other role, and an unassigned `@task` inherits
+`@default`. Workflows, mentions, resumes, and the shared spawn path keep their
+existing model handling. An `Agent` resume call still requires one of the three
+roles as its argument, but the child keeps its recorded model.
 
 The role selects inference only. The tool list selects the child tool surface.
 Nested delegation remains controlled by the parent agent's `allowed_subagents`

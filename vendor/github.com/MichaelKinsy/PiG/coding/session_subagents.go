@@ -92,14 +92,6 @@ func (s *Session) initSubagents(opts SessionOptions) error {
 			}
 		},
 		RefreshTools: s.syncSubagentTools,
-		ModelRoles: func() []string {
-			settings := s.SettingsManager().Get()
-			chains := map[string][]string{}
-			if settings.Retry != nil {
-				chains = settings.Retry.FallbackChains
-			}
-			return settings.Config.Known(chains)
-		},
 	})
 	s.subagentToolsAllowed = opts.NoTools != "all" && !opts.SkipBuiltinTools && opts.NoTools != "builtin"
 	if opts.subagentBuiltinSelection != nil {

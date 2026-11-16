@@ -52,9 +52,8 @@ func (m *Manager) toolDescription(workflow bool) string {
 		}
 	}
 	description := strings.NewReplacer("{{agentDir}}", m.host.AgentDir, "{{isolationGuideline}}", isolation, "{{isolationCompactGuideline}}", shortIsolation, "{{scheduleGuideline}}", schedule).Replace(template)
-	roles := m.ModelRoles()
-	if len(roles) > 0 && !workflow {
-		description += "\n\nAvailable model roles: " + strings.Join(roles, ", ")
+	if !workflow {
+		description += "\n\n" + agentRoleGuidance()
 	}
 	return description
 }

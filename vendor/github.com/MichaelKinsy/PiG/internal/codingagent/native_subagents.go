@@ -113,17 +113,38 @@ func subagentIcon(r subagents.Record) string {
 	return theme.Fg("error", "✗")
 }
 func subagentName(r subagents.Record) string {
-	name := r.DisplayName
-	if name == "" {
-		name = r.Type
-	}
+	name := subagentIdentity(r)
 	if r.Color != "" {
 		return subagentBadge(name, r.Color)
 	}
 	return tui.ChalkBold(name)
 }
+
+func subagentIdentity(r subagents.Record) string {
+	if r.Alias != "" {
+		return r.Alias
+	}
+	if r.Handle != "" {
+		return r.Handle
+	}
+	if r.DisplayName != "" {
+		return r.DisplayName
+	}
+	if r.Type != "" {
+		return r.Type
+	}
+	return r.ID
+}
+
+func (m *InteractiveMode) subagentRow(r subagents.Record) string {
+	if role := m.subagentRoleSelector(r.Params.Role); role != "" {
+		return role + " " + subagentName(r)
+	}
+	return subagentName(r)
+}
 func subagentStats(r subagents.Record, s subagents.Settings) string {
 	var parts []string
+	theme := tui.ActiveTheme()
 	if s.ShowModel && r.ModelName != "" {
 		parts = append(parts, r.ModelName, "thinking: "+r.Thinking)
 	}
@@ -143,7 +164,7 @@ func subagentStats(r subagents.Record, s subagents.Settings) string {
 			} else if percent >= 70 {
 				color = "warning"
 			}
-			signals = append(signals, tui.ActiveTheme().Fg(color, fmt.Sprintf("%.0f%%", percent)))
+			signals = append(signals, theme.Fg(color, fmt.Sprintf("%.0f%%", percent))+theme.GetFgAnsi("dim"))
 		}
 		if r.Compactions > 0 {
 			signals = append(signals, fmt.Sprintf("⇊%d", r.Compactions))
@@ -196,13 +217,16 @@ func (w *nativeAgentWidget) Render(width int) []string {
 			overflow++
 			continue
 		}
-		lines = append(lines, theme.Fg("dim", "├─ ")+subagentIcon(r)+" "+subagentName(r)+"  "+theme.Fg("muted", r.Description)+theme.Fg("dim", " · "+subagentStats(r, s)))
+		lines = append(lines, theme.Fg("dim", "├─ ")+subagentIcon(r)+" "+w.m.subagentRow(r)+"  "+theme.Fg("muted", r.Description)+theme.Fg("dim", " · "+subagentStats(r, s)))
 		if r.Active() {
 			activity := r.Activity
 			if activity == "" {
 				activity = "thinking…"
 			}
 			lines = append(lines, theme.Fg("dim", "│    ⎿  "+activity))
+			if thinking := subagentThinkingPreview(manager, r.ID); thinking != "" {
+				lines = append(lines, theme.Fg("dim", "│       ")+subagentThinkingLine(thinking, width-8))
+			}
 		}
 	}
 	if queued > 0 {
@@ -217,8 +241,10 @@ func (w *nativeAgentWidget) Render(width int) []string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if strings.Contains(lines[i], "├─") {
 			lines[i] = strings.Replace(lines[i], "├─", "└─", 1)
-			if i+1 < len(lines) {
-				lines[i+1] = strings.Replace(lines[i+1], "│", " ", 1)
+			for below := i + 1; below < len(lines); below++ {
+				if strings.HasPrefix(widthx.StripTerminalSequences(lines[below]), "│") {
+					lines[below] = strings.Replace(lines[below], "│", " ", 1)
+				}
 			}
 			break
 		}
@@ -666,6 +692,10 @@ func (v *subagentViewer) Render(width int) []string {
 			if msg.Assistant != nil {
 				for _, block := range msg.Assistant.Content {
 					switch b := block.(type) {
+					case ai.ThinkingContent:
+						if text := subagentThinkingBlock(b); text != "" {
+							body = append(body, subagentThinkingLines(text, max(1, width-2), -1)...)
+						}
 					case ai.TextContent:
 						if v.markdown != "off" {
 							md := tui.NewMarkdown(b.Text)
@@ -1020,7 +1050,11 @@ func WithSubagentRenderers(def extension.ToolDefinition) extension.ToolDefinitio
 func subagentRenderCall(args json.RawMessage, _ extension.Theme, _ extension.ToolRenderContext) extension.Component {
 	var p subagents.Params
 	_ = json.Unmarshal(args, &p)
-	text := tui.ChalkBold("Agent")
+	label := strings.TrimSpace(hubSingleLine(p.Name))
+	if label == "" {
+		label = "Agent"
+	}
+	text := tui.ChalkBold(label)
 	if description := hubSingleLine(p.Description); description != "" {
 		text += "  " + tui.ActiveTheme().Fg("muted", description)
 	}
