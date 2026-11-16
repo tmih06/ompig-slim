@@ -1,12 +1,10 @@
 package codingagent
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode"
 
-	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -36,18 +34,11 @@ func subagentThinkingPreview(manager *subagents.Manager, id string) string {
 	if manager == nil || id == "" {
 		return ""
 	}
-	messages, err := manager.Transcript(id)
-	if err != nil {
+	assistant := manager.NewestAssistantMessage(id)
+	if assistant == nil {
 		return ""
 	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		var message agent.AgentMessage
-		if json.Unmarshal(messages[i], &message) != nil || message.Assistant == nil {
-			continue
-		}
-		return subagentThinkingText(message.Assistant.Content)
-	}
-	return ""
+	return subagentThinkingText(assistant.Content)
 }
 
 func subagentThinkingSanitize(text string) string {

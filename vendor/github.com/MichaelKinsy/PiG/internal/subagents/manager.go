@@ -1463,6 +1463,38 @@ func (m *Manager) Transcript(ref string) ([]json.RawMessage, error) {
 	}
 	return out, nil
 }
+// NewestAssistantMessage is the most recent assistant message recorded for ref, or nil. It reads
+// the tail without copying the transcript, so a render loop can poll it every frame.
+func (m *Manager) NewestAssistantMessage(ref string) *agent.AssistantMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findLocked(ref, "")
+	if r == nil {
+		for _, candidate := range m.runs {
+			if candidate.ID == ref {
+				r = candidate
+				break
+			}
+		}
+	}
+	if r == nil {
+		return nil
+	}
+	// partial is the message still streaming, so it holds the newest thinking.
+	if r.partial != nil {
+		var message agent.AgentMessage
+		if json.Unmarshal(r.partial, &message) == nil && message.Assistant != nil {
+			return message.Assistant
+		}
+	}
+	for i := len(r.transcript) - 1; i >= 0; i-- {
+		var message agent.AgentMessage
+		if json.Unmarshal(r.transcript[i], &message) == nil && message.Assistant != nil {
+			return message.Assistant
+		}
+	}
+	return nil
+}
 func (m *Manager) taskDir() (string, error) {
 	encoded := strings.TrimLeft(strings.NewReplacer("/", "-", "\\", "-", ":", "").Replace(m.host.CWD), "-")
 	dir := filepath.Join(os.TempDir(), "pi-subagents-"+fmt.Sprint(os.Getuid()), encoded, m.host.SessionID, "tasks")
