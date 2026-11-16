@@ -9,8 +9,6 @@ package tui
 
 import (
 	"cmp"
-	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -76,105 +74,14 @@ type TUIKeybindingDef struct {
 	Description string
 }
 
-// KeybindingPlatform selects a column of per-platform default keys. Upstream
-// branches its default table on process.platform and on
-// useWindowsKeybindings() (coding-agent core/keybindings.ts); these four values
-// name every combination the table distinguishes. The values match the
-// columns of the behavior-input inventory.
-type KeybindingPlatform string
-
-const (
-	KeybindingPlatformDarwin   KeybindingPlatform = "darwin"
-	KeybindingPlatformLinux    KeybindingPlatform = "linux"
-	KeybindingPlatformLinuxWSL KeybindingPlatform = "linuxWsl"
-	KeybindingPlatformWin32    KeybindingPlatform = "win32"
-)
-
-// KeybindingPlatforms lists every platform column in inventory order.
-var KeybindingPlatforms = []KeybindingPlatform{
-	KeybindingPlatformDarwin, KeybindingPlatformLinux, KeybindingPlatformLinuxWSL, KeybindingPlatformWin32,
-}
-
-// UseWindowsKeybindings reports whether Windows default keys apply: native
-// Windows, or Linux under WSL. WT_SESSION alone does not count, because
-// Windows Terminal also hosts SSH sessions to other machines. Mirrors
-// upstream useWindowsKeybindings(platform, env) in core/keybindings.ts; goos
-// uses Go's runtime.GOOS names.
-func UseWindowsKeybindings(goos string, getenv func(string) string) bool {
-	return goos == "windows" || (goos == "linux" && (getenv("WSL_DISTRO_NAME") != "" || getenv("WSL_INTEROP") != ""))
-}
-
-// KeybindingPlatformFor maps a runtime.GOOS value and an environment to the
-// default-key column. Platforms upstream does not name (freebsd, etc.) take
-// the Linux column, as process.platform comparisons fall through there.
-func KeybindingPlatformFor(goos string, getenv func(string) string) KeybindingPlatform {
-	switch {
-	case goos == "darwin":
-		return KeybindingPlatformDarwin
-	case goos == "windows":
-		return KeybindingPlatformWin32
-	case UseWindowsKeybindings(goos, getenv):
-		return KeybindingPlatformLinuxWSL
-	default:
-		return KeybindingPlatformLinux
-	}
-}
-
-// UsesWindowsKeybindings reports whether the platform takes Windows defaults.
-func (p KeybindingPlatform) UsesWindowsKeybindings() bool {
-	return p == KeybindingPlatformWin32 || p == KeybindingPlatformLinuxWSL
-}
-
-// hostKeybindingPlatform is detected once, as upstream evaluates
-// useWindowsKeybindings() once when the keybindings module loads.
-var hostKeybindingPlatform = KeybindingPlatformFor(runtime.GOOS, os.Getenv)
-
-// HostKeybindingPlatform returns the platform column for this process.
-func HostKeybindingPlatform() KeybindingPlatform {
-	return hostKeybindingPlatform
-}
-
-// PlatformKeys holds default keys that differ by platform. Other applies
-// unless a narrower field is non-nil. Windows covers every platform that uses
-// Windows keybindings (win32 and WSL); Win32, LinuxWSL, and Darwin override it
-// for one platform. A non-nil empty slice means "no default key" on that
-// platform, as upstream's `[]`.
-type PlatformKeys struct {
-	Other    []string
-	Darwin   []string
-	Windows  []string
-	Win32    []string
-	LinuxWSL []string
-}
-
-// For returns the default keys for platform.
-func (k PlatformKeys) For(platform KeybindingPlatform) []string {
-	switch {
-	case platform == KeybindingPlatformDarwin && k.Darwin != nil:
-		return k.Darwin
-	case platform == KeybindingPlatformWin32 && k.Win32 != nil:
-		return k.Win32
-	case platform == KeybindingPlatformLinuxWSL && k.LinuxWSL != nil:
-		return k.LinuxWSL
-	case platform.UsesWindowsKeybindings() && k.Windows != nil:
-		return k.Windows
-	default:
-		return k.Other
-	}
-}
-
-// tuiKeybindingRow is one row of the tui.* definition table. A row with platform set takes its keys from it; the rest take keys.
+// tuiKeybindingRow defines one action and its platform-independent default keys.
 type tuiKeybindingRow struct {
 	id          TUIKeybinding
 	description string
 	keys        []string
-	platform    *PlatformKeys
 }
 
-// tuiKeybindingRows is upstream TUI_KEYBINDINGS (packages/tui/src/keybindings.ts) in declaration order, with the per-platform tui.*
-// defaults that coding-agent's KEYBINDINGS applies on top (core/keybindings.ts). It is a package-level composite of constants, so the
-// linker emits it as data: building the table at package init (a map literal of slice literals) cost one allocation per row in every
-// binary that links the package, `pig --version` included.
+// A static row table avoids per-row initialization allocations in every binary that links this package.
 var tuiKeybindingRows = [...]tuiKeybindingRow{
 	{id: KBEditorCursorUp, description: "Move cursor up", keys: []string{"up"}},
 	{id: KBEditorCursorDown, description: "Move cursor down", keys: []string{"down"}},
@@ -198,13 +105,7 @@ var tuiKeybindingRows = [...]tuiKeybindingRow{
 	{id: KBEditorDeleteToLineEnd, description: "Delete to line end", keys: []string{"ctrl+k"}},
 	{id: KBEditorYank, description: "Yank", keys: []string{"ctrl+y"}},
 	{id: KBEditorYankPop, description: "Yank pop", keys: []string{"alt+y"}},
-	// Native Windows undoes on ctrl+z; WSL leaves ctrl+z to job control
-	// and takes alt+z. Mirrors coding-agent KEYBINDINGS["tui.editor.undo"].
-	{id: KBEditorUndo, description: "Undo", platform: &PlatformKeys{
-		Other:    []string{"ctrl+-"},
-		Win32:    []string{"ctrl+z"},
-		LinuxWSL: []string{"alt+z"},
-	}},
+	{id: KBEditorUndo, description: "Undo", keys: []string{"ctrl+-"}},
 	{id: KBInputNewLine, description: "Insert newline", keys: []string{"shift+enter", "ctrl+j"}},
 	{id: KBInputSubmit, description: "Submit input", keys: []string{"enter"}},
 	{id: KBInputTab, description: "Tab / autocomplete", keys: []string{"tab"}},
@@ -221,11 +122,9 @@ var tuiKeybindingRows = [...]tuiKeybindingRow{
 	{id: KBAltScreenHalfPageDown, description: "Scroll viewport down half a page", keys: []string{}},
 	{id: KBAltScreenLineUp, description: "Scroll viewport up one line", keys: []string{}},
 	{id: KBAltScreenLineDown, description: "Scroll viewport down one line", keys: []string{}},
-	{id: KBAltScreenPreviousPrompt, description: "Jump to previous semantic prompt", platform: &PlatformKeys{Other: []string{"ctrl+shift+up", "ctrl+up"}, Windows: []string{"ctrl+up"}}},
-	{id: KBAltScreenNextPrompt, description: "Jump to next semantic prompt", platform: &PlatformKeys{Other: []string{"ctrl+shift+down", "ctrl+down"}, Windows: []string{"ctrl+down"}}},
-	// ompig-slim: ctrl+f on every column. ctrl+shift+f is a Ctrl+Shift+letter, which a terminal without the Kitty
-	// protocol or xterm modifyOtherKeys cannot report: both collapse to the same control byte as ctrl+f, so the
-	// upstream macOS/Linux default never fired there. The Windows column already used ctrl+f.
+	{id: KBAltScreenPreviousPrompt, description: "Jump to previous semantic prompt", keys: []string{"ctrl+up"}},
+	{id: KBAltScreenNextPrompt, description: "Jump to next semantic prompt", keys: []string{"ctrl+down"}},
+	// Legacy terminals cannot distinguish Ctrl+Shift+F from Ctrl+F.
 	{id: KBAltScreenSearch, description: "Search the primary scroll view", keys: []string{"ctrl+f"}},
 	{id: KBAltScreenSearchNext, description: "Select the next search match", keys: []string{"enter", "ctrl+g"}},
 	// ompig-slim: f3 is the portable second key. ctrl+shift+g is Ctrl+Shift-only (a legacy terminal reports it as
@@ -237,31 +136,18 @@ var tuiKeybindingRows = [...]tuiKeybindingRow{
 	{id: KBAltScreenBottom, description: "Scroll viewport to bottom", keys: []string{"ctrl+end"}},
 }
 
-// keysFor returns the row's default keys on platform.
-func (r *tuiKeybindingRow) keysFor(platform KeybindingPlatform) []string {
-	if r.platform != nil {
-		return r.platform.For(platform)
-	}
-	return r.keys
-}
-
-// TUIKeybindingDefinitionsFor returns the tui.* definition table for a
-// platform: upstream TUI_KEYBINDINGS (packages/tui/src/keybindings.ts) with
-// the per-platform tui.* defaults that coding-agent's KEYBINDINGS applies on
-// top (core/keybindings.ts). Every call returns a fresh map. The default keys
-// of all rows are copied into one array, each row owning a capacity-limited
-// slice of it, so a call allocates that array besides the map.
-func TUIKeybindingDefinitionsFor(platform KeybindingPlatform) KeybindingDefinitions {
+// TUIKeybindingDefinitions returns a fresh copy of the shared TUI defaults.
+func TUIKeybindingDefinitions() KeybindingDefinitions {
 	total := 0
 	for i := range tuiKeybindingRows {
-		total += len(tuiKeybindingRows[i].keysFor(platform))
+		total += len(tuiKeybindingRows[i].keys)
 	}
 	keys := make([]string, 0, total)
 	definitions := make(KeybindingDefinitions, len(tuiKeybindingRows))
 	for i := range tuiKeybindingRows {
 		row := &tuiKeybindingRows[i]
 		start := len(keys)
-		keys = append(keys, row.keysFor(platform)...)
+		keys = append(keys, row.keys...)
 		definitions[row.id] = TUIKeybindingDef{DefaultKeys: keys[start:len(keys):len(keys)], Description: row.description}
 	}
 	return definitions
@@ -318,8 +204,8 @@ var TUIKeybindingOrder = []TUIKeybinding{
 	KBAltScreenBottom,
 }
 
-// TUIKeybindings is upstream TUI_KEYBINDINGS, the table getKeybindings() uses until an application installs its own. It has no platform column: the Windows and WSL keys are coding-agent KEYBINDINGS overrides, which the coding agent installs through its own manager. The Linux column carries none of those overrides.
-var TUIKeybindings = TUIKeybindingDefinitionsFor(KeybindingPlatformLinux)
+// TUIKeybindings supplies shared defaults until an application installs its own manager.
+var TUIKeybindings = TUIKeybindingDefinitions()
 
 // TUIKeybindingConflict is pi-tui's KeybindingConflict: a key claimed by more than one keybinding.
 type TUIKeybindingConflict struct {

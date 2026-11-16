@@ -796,7 +796,7 @@ func TestUsageDashboardHonorsRemappedBindings(t *testing.T) {
 	previous := GetKeybindings()
 	defer SetKeybindings(previous)
 
-	definitions := TUIKeybindingDefinitionsFor(HostKeybindingPlatform())
+	definitions := TUIKeybindingDefinitions()
 	definitions["app.usage.toggleView"] = TUIKeybindingDef{DefaultKeys: []string{"ctrl+y"}, Description: "toggle"}
 	definitions["app.usage.refresh"] = TUIKeybindingDef{DefaultKeys: []string{"shift+r"}, Description: "refresh"}
 	SetKeybindings(NewKeybindingsManager(definitions, nil))

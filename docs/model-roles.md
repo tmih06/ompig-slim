@@ -4,8 +4,9 @@ The native Go port follows OMP's split between **persistent model management**
 and **session-only model selection**:
 
 - `/model` opens the fullscreen manager.
-- Alt+P opens the compact session-only picker on every platform, including
-  Windows Terminal and WSL; Ctrl+L remains a shortcut alias.
+- Alt+P opens the compact session-only picker; Ctrl+L remains a shortcut alias.
+  All shortcut defaults are shared across operating systems, including Windows
+  Terminal and WSL.
 - Ctrl+P cycles forward through models; Ctrl+Shift+Left cycles backward on every
   platform. Explicit user keybindings still override these defaults.
 - Type `@review` in that picker to select a logical role for this session.

@@ -4,7 +4,6 @@ package codingagent
 
 import (
 	"fmt"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -40,11 +39,7 @@ func hotkeysMarkdown(shortcuts []extension.ExtensionShortcut) string {
 	row("Scroll by page", "tui.editor.pageUp", "tui.editor.pageDown")
 	section("Editing")
 	row("Send message", "tui.input.submit")
-	newLine := "New line"
-	if runtime.GOOS == "windows" {
-		newLine += " (Ctrl+Enter on Windows Terminal)"
-	}
-	row(newLine, "tui.input.newLine")
+	row("New line", "tui.input.newLine")
 	row("Delete word backwards", "tui.editor.deleteWordBackward")
 	row("Delete word forwards", "tui.editor.deleteWordForward")
 	row("Delete to start of line", "tui.editor.deleteToLineStart")

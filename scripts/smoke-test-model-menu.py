@@ -18,7 +18,7 @@ import time
 import settings_fixture
 
 
-def run(binary, label, windows_defaults):
+def run(binary, label, wsl_environment):
     """Mount real fullscreen/compact menus and assert durable edits in isolation."""
     with tempfile.TemporaryDirectory(prefix="omp-model-menu-") as directory:
         root = Path(directory)
@@ -38,7 +38,7 @@ def run(binary, label, windows_defaults):
                    PIG_HOME=directory, PI_HOME=directory, TERM="xterm-256color")
         for key in ("WSL_DISTRO_NAME", "WSL_INTEROP", "WSLENV"):
             env.pop(key, None)
-        if windows_defaults:
+        if wsl_environment:
             env["WSL_DISTRO_NAME"] = "Ubuntu"
         for key in ("PIG_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR"):
             env[key] = str(agent)
@@ -85,6 +85,13 @@ def run(binary, label, windows_defaults):
 
         try:
             read_until(lambda data: b"interactive-ready" in data, "startup")
+            send(b"/hotkeys\r")
+            shortcuts = read_until(
+                lambda data: b"Paste files on macOS" in visible_text(data), "shared shortcuts")
+            shortcuts = visible_text(shortcuts)
+            alt = b"Option" if sys.platform == "darwin" else b"Alt"
+            for key in (b"Ctrl+-", b"Ctrl+Z", alt + b"+Q", b"Ctrl+V", alt + b"+P/Ctrl+L"):
+                assert key in shortcuts, f"{label}: missing shared shortcut {key!r}"
             send(b"/model\r")
             read_until(lambda data: b"All models" in data and b"Models" in data, "model hub")
             send(b"\x1b[A")
@@ -137,7 +144,7 @@ def run(binary, label, windows_defaults):
             assert "review" not in deleted.get("cycleOrder", []), "role cycle survived"
             assert "review" not in deleted.get("retry", {}).get("fallbackChains", {}), "role fallback survived"
             assert deleted["modelRoles"]["default"] == saved_roles["default"], "unrelated role changed"
-            print(f"PASS [{label}]: fullscreen hub, Roles, cycle edit, main-screen restore, session-only Alt+P @role picker, confirmed custom-role deletion")
+            print(f"PASS [{label}]: shared /hotkeys, fullscreen hub, Roles, cycle edit, main-screen restore, session-only Alt+P @role picker, confirmed custom-role deletion")
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -167,9 +174,9 @@ def main():
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
     binary = args.binary.resolve()
-    run(binary, "host defaults", windows_defaults=False)
+    run(binary, "host defaults", wsl_environment=False)
     if sys.platform == "linux":
-        run(binary, "Windows/WSL defaults", windows_defaults=True)
+        run(binary, "WSL environment, shared defaults", wsl_environment=True)
 
 
 if __name__ == "__main__":
