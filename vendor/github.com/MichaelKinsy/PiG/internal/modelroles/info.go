@@ -29,7 +29,7 @@ func (c Config) RoleInfo(role string) Info {
 	case "memory":
 		info = Info{Tag: "MEMORY", Name: "Memory", Color: "dim"}
 	case "task":
-		info = Info{Tag: "TASK", Name: "Subtask", Color: "muted"}
+		info = Info{Tag: "TASK", Name: "Subtask", Color: "success"}
 	case "advisor":
 		info = Info{Tag: "ADVISOR", Name: "Advisor", Color: "accent"}
 	case "widget":

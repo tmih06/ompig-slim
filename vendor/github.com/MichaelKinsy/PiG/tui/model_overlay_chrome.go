@@ -69,8 +69,7 @@ func modelSegmentPalette(count int) []string {
 // same token RoleInfo reports to the model manager's role rows. An unknown token,
 // or one the theme leaves undefined, falls back to muted: RoleInfo inherits a color
 // from user-authored modelTags, and GetFgAnsi panics on a token the theme does not
-// define. Roles that share a token therefore draw alike — plan, task and judge are
-// all muted — which is the point: one role, one color.
+// define.
 func modelRoleColor(config modelroles.Config, role string) string {
 	th := modelOverlayTheme()
 	if token := config.RoleInfo(role).Color; th.HasFgToken(token) {

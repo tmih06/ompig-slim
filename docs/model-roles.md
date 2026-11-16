@@ -31,6 +31,12 @@ the child, and both fields are required. Task-specific responsibilities belong
 in `prompt`. The schema enum, the tool description, and the execution check read
 one list, so the three cannot disagree.
 
+`@task`, `@smol`, and `@slow` have distinct built-in colors: `success`,
+`warning`, and `accent`. Role labels use those colors in the manager, the quick
+picker, the subagent row, and the footer, so a label says which role you picked
+even when two roles resolve to one model. A `modelTags` color for the role
+overrides the built-in one.
+
 Subagent roles are a fixed policy and do not follow the configured model roles.
 The role resolves through the global role settings, so `task`, `smol`, and `slow`
 are assigned in `/model` like any other role, and an unassigned `@task` inherits
@@ -116,8 +122,8 @@ Each entry there carries its role's own color — the same token the role's row,
 quick picker, and the footer use — so a role keeps one color no matter where it
 sits in the order. OMP colors that track by position instead; this diverges on
 purpose, because a positional color made a role change hue when reordered and told
-you nothing about which role a segment was. Roles sharing a token (`plan`, `task`,
-`judge` are all muted) deliberately share a color.
+you nothing about which role a segment was. Roles sharing a token (`plan` and
+`judge` are both muted) deliberately share a color.
 
 Removed custom-role names are ignored.
 If a nonempty saved cycle contains only removed roles (for example old

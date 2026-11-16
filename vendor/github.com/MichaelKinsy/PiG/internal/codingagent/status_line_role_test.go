@@ -99,10 +99,11 @@ func TestFooterRoleUsesCatalogColor(t *testing.T) {
 	}
 	cases := []struct{ role, wantToken string }{
 		{"default", "success"},
+		{"task", "success"},
 		{"smol", "warning"},
 		{"slow", "accent"},
-		{"review", "accent"},            // the tag override, not the built-in error
-		{"task", "muted"},               // a custom-row default
+		{"review", "accent"}, // the tag override, not the built-in error
+		{"plan", "muted"},
 		{"broken", "statusLineContext"}, // unknown token falls back
 	}
 	for _, tc := range cases {

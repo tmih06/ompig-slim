@@ -229,10 +229,10 @@ func TestSubagentRoleUsesCatalogColor(t *testing.T) {
 	m := &InteractiveMode{opts: InteractiveModeOptions{Settings: settings}}
 	m.opts.SettingsManager = NewInMemorySettingsManager(settings)
 	for _, tc := range []struct{ role, wantToken string }{
-		{"@slow", "accent"},
-		{"@task", "muted"},
-		{"@default", "success"},
+		{"@task", "success"},
 		{"@smol", "warning"},
+		{"@slow", "accent"},
+		{"@default", "success"},
 		{"@review", "warning"},
 		{"@broken", "muted"},
 		{"@unknown", "muted"},
@@ -241,6 +241,22 @@ func TestSubagentRoleUsesCatalogColor(t *testing.T) {
 		if got := m.subagentRoleSelector(tc.role); got != want {
 			t.Fatalf("role %s: got %q, want %s %q", tc.role, got, tc.wantToken, want)
 		}
+	}
+	muted := theme.GetFgAnsi("muted")
+	for _, role := range []string{"@task", "@smol", "@slow"} {
+		row := m.subagentRow(subagents.Record{Type: "Explore", Params: subagents.Params{Role: role}})
+		if strings.HasPrefix(row, muted) {
+			t.Fatalf("%s is drawn in the muted hue: %q", role, row)
+		}
+		if !strings.HasPrefix(row, m.subagentRoleSelector(role)) {
+			t.Fatalf("%s row does not start with its role label: %q", role, row)
+		}
+	}
+	m.opts.SettingsManager = NewInMemorySettingsManager(Settings{Config: modelroles.Config{
+		ModelTags: map[string]modelroles.Tag{"task": {Color: "error"}},
+	}})
+	if got, want := m.subagentRoleSelector("@task"), theme.Fg("error", "@task"); got != want {
+		t.Fatalf("tag override lost to the built-in task color: got %q, want %q", got, want)
 	}
 	if got := m.subagentRoleSelector(""); got != "" {
 		t.Fatalf("a role-free child rendered a role: %q", got)
