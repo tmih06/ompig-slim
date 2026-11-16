@@ -56,7 +56,10 @@ unavailable upstream model.
 
 Chat models expose text and image inputs where the native runtime and upstream
 both support them. Audio and video input formats are not exposed. Reasoning
-effort is sent only for models that advertise it. The runtime applies its normal
+effort is sent only for models that advertise it, and only with a value that
+model publishes: OpenCode's per-model effort list decides which levels the
+`/model` manager and `--thinking` accept. A model that reasons without an
+effort control sends no effort. The runtime applies its normal
 output budgets, including an explicit caller budget when supplied.
 
 ## Use Jev as a judge
