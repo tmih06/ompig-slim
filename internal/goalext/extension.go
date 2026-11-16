@@ -152,9 +152,15 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 		updateGoalWidget(ctx, tracker.Get())
 		return nil
 	})
-	api.OnAgentBeforeSettle(func(ctx context.Context, _ *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
+	api.OnAgentBeforeSettle(func(ctx context.Context, event *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		if state := tracker.Get(); event.Outcome == extension.AgentActivityError && state != nil && state.Status == goal.StatusActive {
+			_ = tracker.Pause()
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal paused after a model error. Resolve the error, then run /goal resume.", "error")
+			return extension.AgentBeforeSettleEventResult{}, nil
+		}
 		return continueActiveGoal(ctx, tracker, api.SendMessage), nil
 	})
 	api.OnAgentSettled(func(ctx context.Context, event extension.AgentSettledEvent) error {

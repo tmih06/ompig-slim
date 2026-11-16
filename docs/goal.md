@@ -5,17 +5,17 @@ agent loop; this binary owns the goal state machine in `internal/goal`, and
 `internal/goalext` connects it to the tool, the slash command, and the settlement
 boundary.
 
-An active goal is poked: at every settlement boundary the extension requests
-another turn until the goal leaves `active`. That is the behavior the blocker
-policy exists to bound, because a model that keeps reaching the same dead end
-would otherwise be poked forever.
+At each successful settlement boundary, the extension pokes an active goal to
+request another turn until the goal leaves `active`. The blocker policy bounds
+this behavior, because a model that keeps reaching the same dead end would
+otherwise be poked forever.
 
 ## States and transitions
 
 | From | Operation | To |
 |---|---|---|
 | none | `create` | active |
-| active | `pause`, or three identical blocker reports | paused |
+| active | `pause`, model error after retries, or three identical blocker reports | paused |
 | active | `complete` | complete |
 | paused | `resume` | active, and the objective restarts |
 | active, paused | `complete` | complete |
@@ -23,7 +23,10 @@ would otherwise be poked forever.
 
 A settled goal accepts no blocker or progress report, so a late report or a
 pending automatic continuation cannot restart work a human stopped. An aborted
-run (`Esc`) pauses the goal rather than completing it.
+run (`Esc`) pauses the goal rather than completing it. A model error also pauses
+the goal once the runtime finishes its retry and recovery attempts. This includes
+quota errors. No automatic poke follows the error. `/goal resume` explicitly
+restarts the objective after the error is resolved.
 
 Only `resume` reanimates a paused goal. Continuation happens at a settlement
 boundary, which an idle session never reaches, so `resume` submits the objective
@@ -84,5 +87,8 @@ provider. It reports a blocker until the goal pauses, then proves no further
 provider request happens until an explicit resume, and covers a read-only progress
 report and a changed blocker. `scripts/smoke-test-goal-ui.py` drives both TUI modes
 and checks the painted Goal widget, command feedback, aliases, and preserved
-objective text. `internal/goal` and `internal/goalext` tests cover the transition
-table, the identity rules, and the notice-once behavior.
+objective text. Running
+`python3 scripts/smoke-test-goal-interruption.py ./bin/ompig-slim --quota` checks
+that a quota error stops provider requests until an explicit resume.
+`internal/goal` and `internal/goalext` tests cover the transition table, the
+identity rules, and the notice-once behavior.

@@ -24,6 +24,7 @@ lock = threading.Lock()
 hold = threading.Event()
 gate = threading.Event()
 gate.set()
+quota_error = "--quota" in sys.argv
 
 
 class Model(http.server.BaseHTTPRequestHandler):
@@ -37,6 +38,14 @@ class Model(http.server.BaseHTTPRequestHandler):
         with lock:
             calls.append(json.loads(body))
             n = len(calls)
+        if quota_error:
+            wire = json.dumps({"error": {"message": "Quota exhausted", "type": "insufficient_quota"}}).encode()
+            self.send_response(402)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(wire)))
+            self.end_headers()
+            self.wfile.write(wire)
+            return
         # Hold chosen requests so a human control can land mid-run.
         if hold.is_set():
             gate.clear()
@@ -138,6 +147,21 @@ def main(binary):
                 pump(8)
                 # 1. Start a goal; let it continue autonomously for a few turns.
                 os.write(master, "/goal finish the fixture\r".encode())
+                if quota_error:
+                    wait_requests(1, 15)
+                    pump(4)
+                    assert len(snapshot()) == 1, \
+                        f"quota error triggered {len(snapshot())} provider requests, want 1"
+                    os.write(master, b"/goal status\r")
+                    pump(1)
+                    assert b"paused" in captured, "quota error did not pause the goal"
+                    os.write(master, b"/goal resume\r")
+                    wait_requests(2, 15)
+                    pump(4)
+                    assert len(snapshot()) == 2, \
+                        f"resume after quota error triggered {len(snapshot())} total requests, want 2"
+                    print("PASS: quota error paused the goal without poking; explicit resume retried once")
+                    return
                 wait_requests(3, 15)
                 first = snapshot()
                 assert first, "the goal started no turn"

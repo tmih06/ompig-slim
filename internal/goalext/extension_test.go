@@ -45,6 +45,138 @@ func TestActiveGoalRequestsContinuationBeforeSettlement(t *testing.T) {
 	}
 }
 
+type recordingUI struct {
+	extension.UIContext
+	notices []string
+	widget  []string
+}
+
+func (u *recordingUI) Notify(message, kind string) { u.notices = append(u.notices, kind+": "+message) }
+
+func (u *recordingUI) SetWidget(key string, content []string, opts *extension.ExtensionWidgetOptions) {
+	if key == "goal" {
+		u.widget = content
+	}
+}
+
+type settledGoal struct {
+	runner  *inproc.Runner
+	tracker *goal.Tracker
+	ui      *recordingUI
+	sent    []extension.CustomMessageRef
+}
+
+func newSettledGoal(t *testing.T, objective string) *settledGoal {
+	t.Helper()
+	root := t.TempDir()
+	tracker := goal.New()
+	if objective != "" {
+		if err := tracker.Create(objective, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime := extension.CreateExtensionRuntime()
+	loaded, err := factoryload.LoadExtensionFromFactory(
+		func(api extension.API) error { return extensionWithTracker(api, tracker) },
+		root, extension.CreateEventBus(), runtime, "<inline:goal>",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &settledGoal{tracker: tracker, ui: &recordingUI{UIContext: extension.NoopUIContext}}
+	g.runner = inproc.NewRunner([]extension.Extension{loaded}, root, runtime)
+	t.Cleanup(g.runner.Shutdown)
+	g.runner.BindCore(extension.ExtensionActions{SendMessage: func(message extension.CustomMessageRef, options *extension.SendMessageOptions) error {
+		g.sent = append(g.sent, message)
+		return nil
+	}}, extension.ContextActions{}, nil)
+	g.runner.SetUIContext(g.ui, extension.ModeTUI)
+	return g
+}
+
+func (g *settledGoal) settle(t *testing.T, outcome extension.AgentActivityOutcome) inproc.BoundaryDispatchResult {
+	t.Helper()
+	result, err := g.runner.EmitBoundary(
+		context.Background(),
+		&extension.AgentBeforeSettleEvent{Type: "agent_before_settle", BoundaryState: extension.BoundaryState{Outcome: outcome}},
+		func([]extension.SessionBoundaryDraft) (extension.BoundaryContextPreview, error) {
+			return extension.BoundaryContextPreview{CanContinue: true}, nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestModelErrorPausesTheGoalInsteadOfPoking(t *testing.T) {
+	g := newSettledGoal(t, "finish the work")
+	result := g.settle(t, extension.AgentActivityError)
+	if result.Continue {
+		t.Fatal("a failed run requested another turn")
+	}
+	if len(g.sent) != 0 {
+		t.Fatalf("a failed run queued %d follow-ups, want none", len(g.sent))
+	}
+	state := g.tracker.Get()
+	if state == nil || state.Status != goal.StatusPaused {
+		t.Fatalf("goal after a model error = %+v, want paused", state)
+	}
+	if state.Pokes != 0 {
+		t.Fatalf("goal pokes = %d, want 0", state.Pokes)
+	}
+	if len(g.ui.widget) != 1 || !strings.Contains(g.ui.widget[0], "paused") {
+		t.Fatalf("goal widget = %q, want the paused state", g.ui.widget)
+	}
+	if len(g.ui.notices) != 1 || !strings.Contains(g.ui.notices[0], "/goal resume") {
+		t.Fatalf("notices = %q, want one naming /goal resume", g.ui.notices)
+	}
+
+	if result := g.settle(t, extension.AgentActivityCompleted); result.Continue || len(g.sent) != 0 {
+		t.Fatal("a paused goal was poked at the next boundary")
+	}
+}
+
+func TestModelErrorLeavesNonActiveGoalsAlone(t *testing.T) {
+	t.Run("no goal", func(t *testing.T) {
+		g := newSettledGoal(t, "")
+		result := g.settle(t, extension.AgentActivityError)
+		if result.Continue || len(g.sent) != 0 {
+			t.Fatal("an absent goal requested a turn")
+		}
+		if len(g.ui.notices) != 0 {
+			t.Fatalf("notices = %q, want none without a goal", g.ui.notices)
+		}
+	})
+	t.Run("completed goal", func(t *testing.T) {
+		g := newSettledGoal(t, "finish the work")
+		if err := g.tracker.Complete(); err != nil {
+			t.Fatal(err)
+		}
+		if result := g.settle(t, extension.AgentActivityError); result.Continue || len(g.sent) != 0 {
+			t.Fatal("a completed goal requested a turn")
+		}
+		if state := g.tracker.Get(); state == nil || state.Status != goal.StatusComplete {
+			t.Fatalf("goal after a model error = %+v, want complete", state)
+		}
+		if len(g.ui.notices) != 0 {
+			t.Fatalf("notices = %q, want none for a completed goal", g.ui.notices)
+		}
+	})
+	t.Run("successful run", func(t *testing.T) {
+		g := newSettledGoal(t, "finish the work")
+		if result := g.settle(t, extension.AgentActivityCompleted); !result.Continue {
+			t.Fatal("an active goal stopped continuing after a successful turn")
+		}
+		if len(g.sent) != 1 || g.sent[0].CustomType != "goal-continuation" {
+			t.Fatalf("queued = %+v, want one goal continuation", g.sent)
+		}
+		if state := g.tracker.Get(); state == nil || state.Status != goal.StatusActive {
+			t.Fatalf("goal after a successful turn = %+v, want active", state)
+		}
+	})
+}
+
 func TestAbortedGoalPausesBeforeAnotherPoke(t *testing.T) {
 	tracker := goal.New()
 	if err := tracker.Create("finish the work", 0); err != nil {
