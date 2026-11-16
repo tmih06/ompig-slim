@@ -67,7 +67,8 @@ def run(binary, label, wsl_environment):
             while time.monotonic() < end:
                 if select.select([master], [], [], 0.05)[0]:
                     try:
-                        data = os.read(master, 262144)
+                        # Exercise readiness checks across fragmented terminal output.
+                        data = os.read(master, 256)
                     except OSError:
                         break
                     observed.extend(data)
@@ -108,17 +109,9 @@ def run(binary, label, wsl_environment):
             send(b"@review")
             read_until(lambda data: b"@review" in data, "quick-role search")
             send(b"\r")
-            # The footer redraws in the same burst that announces the selection, and
-            # read_until only inspects bytes seen during its own call, so assert on the
-            # buffer it returns rather than waiting for a second redraw. saved_settings
-            # waits out a write in progress, which the runner publishes truncating.
-            selection_output = read_until(lambda data: b"Model:" in data or b"test-faux/model" in data,
-                                          "role selection")
+            # Both fixture roles use the same model, so only the footer's role identifies the selection.
+            read_until(lambda data: b"@review model" in visible_text(data), "active @review footer")
             assert saved_settings()["modelRoles"] == saved_roles, "picker changed saved roles"
-            # default and review resolve to the same fixture model, so the footer must
-            # name the active role: the model name alone cannot tell them apart.
-            assert b"@review model" in visible_text(selection_output), \
-                f"footer does not name the active role: {visible_text(selection_output)[-600:]!r}"
             send(b"/model\r")
             read_until(lambda data: b"All models" in data, "reopen manager")
             send(b"\x1b[A")
