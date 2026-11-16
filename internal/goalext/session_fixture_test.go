@@ -35,11 +35,12 @@ type loopback struct {
 	requests []string
 	started  chan int
 	release  chan struct{}
+	done     chan struct{}
 }
 
 func newLoopback(t *testing.T) *loopback {
 	t.Helper()
-	l := &loopback{t: t, started: make(chan int, 64), release: make(chan struct{})}
+	l := &loopback{t: t, started: make(chan int, 64), release: make(chan struct{}), done: make(chan struct{})}
 	l.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -51,8 +52,14 @@ func newLoopback(t *testing.T) *loopback {
 		l.requests = append(l.requests, string(body))
 		n := len(l.requests)
 		l.mu.Unlock()
-		l.started <- n
-		<-l.release
+		select {
+		case l.started <- n:
+		case <-l.done:
+		}
+		select {
+		case <-l.release:
+		case <-l.done:
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunk, _ := json.Marshal(map[string]any{"id": "fixture", "object": "chat.completion.chunk", "choices": []any{
 			map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": fmt.Sprintf("reply %d", n)}, "finish_reason": nil},
@@ -164,21 +171,10 @@ func newGoalSession(t *testing.T) *goalSession {
 	return drive
 }
 
-// releaseAll unblocks every held response so a failed test cannot hang the suite.
+// releaseAll unblocks held and future responses, including continuations that
+// arrive after cleanup starts, so server shutdown cannot hang the suite.
 func (l *loopback) releaseAll() {
-	l.mu.Lock()
-	held := len(l.requests)
-	l.mu.Unlock()
-	for i := 0; i < held+1; i++ {
-		select {
-		case <-l.started:
-		case <-time.After(10 * time.Millisecond):
-		}
-		select {
-		case l.release <- struct{}{}:
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	close(l.done)
 }
 
 // run drives one prompt off the test goroutine and returns a channel that
