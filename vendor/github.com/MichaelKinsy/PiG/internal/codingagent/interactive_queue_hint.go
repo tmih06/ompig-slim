@@ -14,7 +14,7 @@ import (
 
 const (
 	appleTerminalProgram = "Apple_Terminal"
-	// dequeueOptionUpKey is the key id Pi binds app.message.dequeue to on every platform but Windows.
+	// Users who bind dequeue to Alt+Up still need Terminal.app's key mapping.
 	dequeueOptionUpKey = "alt+up"
 	// terminalAppMappingHint is the Terminal.app profile setting that makes Option+Up send CSI 1;3A, which pig decodes as alt+up.
 	// It never mentions Option-as-Meta: that makes Option+Up send ESC then Up, and ESC aborts the turn.

@@ -85,11 +85,20 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 | `Ctrl+O` | expand or collapse tool output |
 | `Ctrl+P` | cycle to the next model in the role cycle |
 | `Alt+P` | model picker for this session |
+| `Ctrl+Shift+Left` | cycle to the previous model |
+| `Ctrl+-` | undo an editor change |
+| `Ctrl+V` | paste from the clipboard |
 | `Shift+Tab` | cycle thinking level |
 | `Ctrl+Q` | queue a follow-up behind the current task |
+| `Alt+Q` | restore queued messages to the editor |
 | `Alt+W` | fold the task/quota widget to its border control |
 | `Alt+A` | Agent Hub (live subagents) |
 | `Esc` | interrupt |
+
+Default shortcuts are the same on every OS. Your `~/.pi/agent/keybindings.json`
+overrides still apply. macOS calls the Alt key Option. Terminal key mappings can
+intercept shortcuts before the application receives them. Ctrl+Z requests process
+suspension; native Windows reports that suspension is unsupported.
 
 Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
 `/export` `/hotkeys`. Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;

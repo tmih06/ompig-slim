@@ -1,3 +1,4 @@
 command: python3 scripts/smoke-test-model-menu.py ./bin/ompig-slim
 journey: startup -> /model -> Roles -> cycle edit -> Alt+P role picker -> custom-role deletion
-PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker, confirmed custom-role deletion
+PASS [host defaults]: shared /hotkeys, fullscreen hub, Roles, cycle edit, main-screen restore, session-only Alt+P @role picker, confirmed custom-role deletion
+PASS [WSL environment, shared defaults]: shared /hotkeys, fullscreen hub, Roles, cycle edit, main-screen restore, session-only Alt+P @role picker, confirmed custom-role deletion

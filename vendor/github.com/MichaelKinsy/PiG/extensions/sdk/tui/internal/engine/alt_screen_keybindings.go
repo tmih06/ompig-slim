@@ -4,7 +4,7 @@ package engine
 
 // Alt-screen viewport actions added in pi-tui v0.87.1 keybindings.ts. The
 // action names are defined here; their default keys are in
-// TUIKeybindingDefinitionsFor.
+// TUIKeybindingDefinitions.
 const (
 	KBAltScreenHalfPageUp     TUIKeybinding = "tui.altScreen.halfPageUp"
 	KBAltScreenHalfPageDown   TUIKeybinding = "tui.altScreen.halfPageDown"

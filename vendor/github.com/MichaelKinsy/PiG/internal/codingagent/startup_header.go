@@ -72,7 +72,7 @@ func (m *InteractiveMode) renderBuiltInHeader(width int) []string {
 		return last.lines
 	}
 	if bindings == nil {
-		bindings = tui.NewKeybindingsManager(keybindingDefinitionsFor(tui.HostKeybindingPlatform()), nil)
+		bindings = tui.NewKeybindingsManager(keybindingDefinitions(), nil)
 	}
 	lines := drawBuiltInHeader(key, bindings)
 	m.builtInHeaderLast.Store(&builtInHeaderRender{key: key, lines: lines})

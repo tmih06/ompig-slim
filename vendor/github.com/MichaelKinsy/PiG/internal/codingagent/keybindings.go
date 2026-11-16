@@ -36,37 +36,24 @@ type KeybindingsManager struct {
 	resolved     map[string][]KeyID
 	conflicts    []KeybindingConflict
 	configPath   string
-	platform     tui.KeybindingPlatform
 	// merged is upstream's single KEYBINDINGS manager: the tui.* and app.*
 	// table with every user override. syncToTUI installs it for tui components.
 	merged *tui.TUIKeybindingsManager
 }
 
-// appKeybindingRow is one row of the app.* definition table. A row with platform set takes its keys from it; the rest take keys, and a row with
-// neither has no default key (nil).
 type appKeybindingRow struct {
 	id          string
 	description string
 	keys        []KeyID
-	platform    *tui.PlatformKeys
 }
 
-func (r *appKeybindingRow) keysFor(platform tui.KeybindingPlatform) []KeyID {
-	if r.platform != nil {
-		return r.platform.For(platform)
-	}
-	return r.keys
-}
-
-// appKeybindingRows are the app.* rows of upstream KEYBINDINGS (core/keybindings.ts), each with its keys by platform column. Like tui's table it is
-// a package-level composite of constants, so the linker emits it as data: a map literal of slice literals is code for every row.
 var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.agents.hub", description: "Open Agent Hub", keys: []KeyID{"alt+a"}},
 	{id: "app.session.observe", description: "Open Agent Hub (legacy)", keys: []KeyID{"ctrl+s"}},
 	{id: "app.interrupt", description: "Cancel or abort", keys: []KeyID{"escape"}},
 	{id: "app.clear", description: "Clear editor", keys: []KeyID{"ctrl+c"}},
 	{id: "app.exit", description: "Exit when editor is empty", keys: []KeyID{"ctrl+d"}},
-	{id: "app.suspend", description: "Suspend to background", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+z"}, Win32: []KeyID{}}},
+	{id: "app.suspend", description: "Suspend to background", keys: []KeyID{"ctrl+z"}},
 	{id: "app.thinking.cycle", description: "Cycle thinking level", keys: []KeyID{"shift+tab"}},
 	{id: "app.thinking.save", description: "Save thinking level", keys: []KeyID{"ctrl+s"}},
 	{id: "app.model.cycleForward", description: "Cycle to next model", keys: []KeyID{"ctrl+p"}},
@@ -74,7 +61,7 @@ var appKeybindingRows = [...]appKeybindingRow{
 	// terminal without the Kitty protocol or modifyOtherKeys can distinguish from ctrl+p (the forward key), so the
 	// upstream default fired the forward action instead. A Ctrl+Shift+arrow needs no such reporting: xterm sends it
 	// as CSI 1;6D, which a stock Apple Terminal profile already produces.
-	{id: "app.model.cycleBackward", description: "Cycle to previous model", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+shift+left"}, Windows: []KeyID{"alt+p"}}},
+	{id: "app.model.cycleBackward", description: "Cycle to previous model", keys: []KeyID{"ctrl+shift+left"}},
 	{id: "app.model.select", description: "Open model selector", keys: []KeyID{"alt+p", "ctrl+l"}},
 	{id: "app.usage.toggleView", description: "Switch usage overview and detailed report", keys: []KeyID{"tab", "enter"}},
 	{id: "app.usage.refresh", description: "Refresh provider usage quotas", keys: []KeyID{"r"}},
@@ -82,19 +69,17 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.thinking.toggle", description: "Toggle thinking blocks", keys: []KeyID{"ctrl+t"}},
 	{id: "app.session.toggleNamedFilter", description: "Toggle named session filter", keys: []KeyID{"ctrl+n"}},
 	{id: "app.editor.external", description: "Open external editor", keys: []KeyID{"ctrl+g"}},
-	// ompig-slim default: ctrl+q queues a follow-up on every platform (upstream binds alt+enter outside Windows and WSL).
-	// ctrl+q is the XON flow-control byte, which reaches the process because raw mode clears IXON; upstream already
-	// binds it on Windows, and ctrl+s (XOFF) is bound the same way, so no terminal is asked for a new capability.
+	// Raw mode clears IXON, so the Ctrl+Q flow-control byte reaches the follow-up handler.
 	{id: "app.message.followUp", description: "Queue follow-up message", keys: []KeyID{"ctrl+q"}},
 	{id: "app.message.copy", description: "Copy selection or last assistant message", keys: []KeyID{"ctrl+x"}},
-	{id: "app.message.dequeue", description: "Restore queued messages", platform: &tui.PlatformKeys{Other: []KeyID{"alt+up"}, Windows: []KeyID{"alt+q"}}},
-	{id: "app.clipboard.pasteImage", description: "Paste files on macOS, images, or text from clipboard", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+v"}, Windows: []KeyID{"alt+v"}}},
+	{id: "app.message.dequeue", description: "Restore queued messages", keys: []KeyID{"alt+q"}},
+	{id: "app.clipboard.pasteImage", description: "Paste files on macOS, images, or text from clipboard", keys: []KeyID{"ctrl+v"}},
 	{id: "app.session.new", description: "Start a new session"},
 	{id: "app.session.tree", description: "Open session tree"},
 	{id: "app.session.fork", description: "Fork current session"},
 	{id: "app.session.resume", description: "Resume a session"},
-	{id: "app.tree.foldOrUp", description: "Fold tree branch or move up", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+left", "alt+left"}, Darwin: []KeyID{"alt+left", "ctrl+left"}}},
-	{id: "app.tree.unfoldOrDown", description: "Unfold tree branch or move down", platform: &tui.PlatformKeys{Other: []KeyID{"ctrl+right", "alt+right"}, Darwin: []KeyID{"alt+right", "ctrl+right"}}},
+	{id: "app.tree.foldOrUp", description: "Fold tree branch or move up", keys: []KeyID{"ctrl+left", "alt+left"}},
+	{id: "app.tree.unfoldOrDown", description: "Unfold tree branch or move down", keys: []KeyID{"ctrl+right", "alt+right"}},
 	{id: "app.tree.editLabel", description: "Edit tree label", keys: []KeyID{"shift+l"}},
 	{id: "app.tree.toggleLabelTimestamp", description: "Toggle tree label timestamps", keys: []KeyID{"shift+t"}},
 	{id: "app.session.togglePath", description: "Toggle session path display", keys: []KeyID{"ctrl+p"}},
@@ -112,20 +97,17 @@ var appKeybindingRows = [...]appKeybindingRow{
 	{id: "app.tree.filter.cycleBackward", description: "Tree filter: cycle backward", keys: []KeyID{"ctrl+shift+right"}},
 }
 
-// appKeybindingDefinitionsFor returns the app.* rows of upstream KEYBINDINGS (core/keybindings.ts) for one platform column. Every call returns a
-// fresh map. The default keys of all rows are copied into one array, each row owning a capacity-limited slice of it; a row with no key slice has
-// nil, and one whose slice is empty has an empty one, as upstream's `[]`.
-func appKeybindingDefinitionsFor(platform tui.KeybindingPlatform) map[string]KeybindingDefinition {
+func defaultAppKeybindingDefinitions() map[string]KeybindingDefinition {
 	total := 0
 	for i := range appKeybindingRows {
-		total += len(appKeybindingRows[i].keysFor(platform))
+		total += len(appKeybindingRows[i].keys)
 	}
 	keys := make([]KeyID, 0, total)
 	definitions := make(map[string]KeybindingDefinition, len(appKeybindingRows))
 	for i := range appKeybindingRows {
 		row := &appKeybindingRows[i]
 		definition := KeybindingDefinition{Description: row.description}
-		if rowKeys := row.keysFor(platform); rowKeys != nil {
+		if rowKeys := row.keys; rowKeys != nil {
 			start := len(keys)
 			keys = append(keys, rowKeys...)
 			definition.DefaultKeys = keys[start:len(keys):len(keys)]
@@ -135,14 +117,12 @@ func appKeybindingDefinitionsFor(platform tui.KeybindingPlatform) map[string]Key
 	return definitions
 }
 
-var appKeybindingDefinitions = appKeybindingDefinitionsFor(tui.HostKeybindingPlatform())
+var appKeybindingDefinitions = defaultAppKeybindingDefinitions()
 
-// keybindingDefinitionsFor returns upstream KEYBINDINGS for one platform: the
-// tui.* table with its per-platform defaults plus the app.* table. The TUI
-// manager receives this whole table so components there resolve app actions.
-func keybindingDefinitionsFor(platform tui.KeybindingPlatform) map[string]tui.TUIKeybindingDef {
-	defs := tui.TUIKeybindingDefinitionsFor(platform)
-	for id, def := range appKeybindingDefinitionsFor(platform) {
+// keybindingDefinitions merges the shared TUI and application defaults.
+func keybindingDefinitions() map[string]tui.TUIKeybindingDef {
+	defs := tui.TUIKeybindingDefinitions()
+	for id, def := range defaultAppKeybindingDefinitions() {
 		defs[id] = tui.TUIKeybindingDef{DefaultKeys: def.DefaultKeys, Description: def.Description}
 	}
 	return defs
@@ -288,7 +268,6 @@ func NewKeybindingsManagerFromBindings(userBindings map[string][]KeyID, configPa
 		userBindings: map[string][]KeyID{},
 		resolved:     map[string][]KeyID{},
 		configPath:   configPath,
-		platform:     tui.HostKeybindingPlatform(),
 	}
 	for action, keys := range userBindings {
 		km.userBindings[action] = slices.Clone(keys)
@@ -331,7 +310,7 @@ func normalizeKeys(keys []KeyID) []KeyID {
 func (km *KeybindingsManager) rebuild() {
 	km.resolved = make(map[string][]KeyID, len(km.definitions))
 	km.conflicts = nil
-	definitions := keybindingDefinitionsFor(km.platform)
+	definitions := keybindingDefinitions()
 	userClaims := map[KeyID][]string{}
 	for action, keys := range km.userBindings {
 		// upstream: packages/tui/src/keybindings.ts:KeybindingsManager.rebuild skips a user id that KEYBINDINGS does not define.
@@ -666,12 +645,12 @@ func (km *KeybindingsManager) GetConflicts() []KeybindingConflict {
 	return out
 }
 
-// ExtensionKeybindingTable supplies the platform definitions and user overrides used by extension editor and UI factories. The definitions depend only on the platform, so every table of one platform shares them; the table is encoded for extensions and never modified.
+// ExtensionKeybindingTable publishes shared defaults and user overrides to extensions.
 func (km *KeybindingsManager) ExtensionKeybindingTable() map[string]any {
 	if km == nil {
 		return nil
 	}
-	definitions := extensionKeybindingDefinitionsFor(km.platform)
+	definitions := extensionKeybindingDefinitions()
 	userBindings := make(map[string][]KeyID, len(km.userBindings))
 	for action, keys := range km.userBindings {
 		userBindings[action] = slices.Clone(keys)
@@ -679,25 +658,19 @@ func (km *KeybindingsManager) ExtensionKeybindingTable() map[string]any {
 	return map[string]any{"definitions": definitions, "userBindings": userBindings}
 }
 
-var extensionKeybindingDefinitions sync.Map // tui.KeybindingPlatform -> map[string]any
-
-func extensionKeybindingDefinitionsFor(platform tui.KeybindingPlatform) map[string]any {
-	if cached, ok := extensionKeybindingDefinitions.Load(platform); ok {
-		return cached.(map[string]any)
-	}
+var extensionKeybindingDefinitions = sync.OnceValue(func() map[string]any {
 	definitions := map[string]any{}
-	for id, def := range keybindingDefinitionsFor(platform) {
+	for id, def := range keybindingDefinitions() {
 		keys := def.DefaultKeys
 		if keys == nil {
 			keys = []string{}
 		}
 		definitions[id] = map[string]any{"defaultKeys": keys, "description": def.Description}
 	}
-	cached, _ := extensionKeybindingDefinitions.LoadOrStore(platform, definitions)
-	return cached.(map[string]any)
-}
+	return definitions
+})
 
-// GetDefinition returns the definition of an action in the merged tui.* and app.* table for the manager's platform, and whether the table has one (keybindings.ts getDefinition over KEYBINDINGS).
+// GetDefinition returns an action from the merged TUI and application table.
 func (km *KeybindingsManager) GetDefinition(action string) (KeybindingDefinition, bool) {
 	definition, ok := km.merged.GetDefinition(action)
 	if !ok {

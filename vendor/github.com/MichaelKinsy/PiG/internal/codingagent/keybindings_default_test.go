@@ -2,26 +2,20 @@ package codingagent
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
-// TestFollowUpDefaultIsCtrlQ pins the ompig-slim default for app.message.followUp: ctrl+q on every
-// platform column, in place of upstream's alt+enter outside Windows and WSL. The binding table is the
-// single source of truth — the startup header hint, `/hotkeys` and the `/settings` follow-up row all
-// read it — so a default that drifted back to alt+enter fails here rather than only in a terminal.
 func TestFollowUpDefaultIsCtrlQ(t *testing.T) {
-	for _, platform := range tui.KeybindingPlatforms {
-		definitions := appKeybindingDefinitionsFor(platform)
-		definition, ok := definitions["app.message.followUp"]
-		if !ok {
-			t.Fatalf("%s: app.message.followUp is not defined", platform)
-		}
-		if want := []KeyID{"ctrl+q"}; !slices.Equal(definition.DefaultKeys, want) {
-			t.Errorf("%s: app.message.followUp defaults to %q, want %q", platform, definition.DefaultKeys, want)
-		}
+	definition, ok := defaultAppKeybindingDefinitions()["app.message.followUp"]
+	if !ok {
+		t.Fatal("app.message.followUp is not defined")
+	}
+	if want := []KeyID{"ctrl+q"}; !slices.Equal(definition.DefaultKeys, want) {
+		t.Errorf("app.message.followUp defaults to %q, want %q", definition.DefaultKeys, want)
 	}
 }
 
@@ -73,6 +67,100 @@ func TestFollowUpDispatchReachesTheQueueAction(t *testing.T) {
 	}
 }
 
+func TestSharedShortcutDefaults(t *testing.T) {
+	want := map[string][]string{
+		"app.suspend":                  {"ctrl+z"},
+		"app.message.dequeue":          {"alt+q"},
+		"app.clipboard.pasteImage":     {"ctrl+v"},
+		"app.tree.foldOrUp":            {"ctrl+left", "alt+left"},
+		"app.tree.unfoldOrDown":        {"ctrl+right", "alt+right"},
+		"tui.editor.undo":              {"ctrl+-"},
+		"tui.altScreen.previousPrompt": {"ctrl+up"},
+		"tui.altScreen.nextPrompt":     {"ctrl+down"},
+	}
+	baseline := DefaultKeybindingsManager().ExtensionKeybindingTable()
+	for _, environment := range []string{"", "Ubuntu", "Windows_Terminal"} {
+		t.Run(environment, func(t *testing.T) {
+			t.Setenv("WSL_DISTRO_NAME", environment)
+			t.Setenv("WSL_INTEROP", environment)
+			t.Setenv("WT_SESSION", environment)
+			km := DefaultKeybindingsManager()
+			for action, keys := range want {
+				if got := km.GetKeys(action); !slices.Equal(got, keys) {
+					t.Errorf("%s keys = %v, want %v", action, got, keys)
+				}
+			}
+			if !km.merged.Matches("\x1f", tui.KBEditorUndo) {
+				t.Error("Ctrl+- does not reach editor undo")
+			}
+			if km.merged.Matches("\x1a", tui.KBEditorUndo) {
+				t.Error("Ctrl+Z still reaches editor undo instead of suspend")
+			}
+			if got := km.ExtensionKeybindingTable(); !reflect.DeepEqual(got, baseline) {
+				t.Error("terminal environment changed extension keybindings")
+			}
+			for _, test := range []struct {
+				input string
+				want  keyAction
+			}{
+				{"\x1bq", actionDequeue},
+				{"\x1a", actionSuspend},
+				{"\x16", actionPasteImage},
+			} {
+				if got := classifyKeyWithBindings(test.input, km); got != test.want {
+					t.Errorf("input %q action = %v, want %v", test.input, got, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestModelPickerDispatch(t *testing.T) {
+	for _, wsl := range []string{"", "Ubuntu"} {
+		t.Run("WSL="+wsl, func(t *testing.T) {
+			t.Setenv("WSL_DISTRO_NAME", wsl)
+			t.Setenv("WSL_INTEROP", wsl)
+			km := NewKeybindingsManagerFromBindings(nil, "")
+			for _, test := range []struct {
+				key    string
+				inputs []string
+				want   keyAction
+			}{
+				{"alt+p", []string{"\x1bp", "\x1b[112;3u", "\x1b[27;3;112~"}, actionModelPicker},
+				{"ctrl+l", []string{"\x0c", "\x1b[108;5u", "\x1b[27;5;108~"}, actionModelPicker},
+				{"ctrl+p", []string{"\x10", "\x1b[112;5u", "\x1b[27;5;112~"}, actionCycleModelForward},
+				{"ctrl+shift+left", []string{"\x1b[1;6D"}, actionCycleModelBackward},
+			} {
+				for _, data := range test.inputs {
+					if got := classifyKeyWithBindings(data, km); got != test.want {
+						t.Errorf("%s input %q classifies as %v, want %v", test.key, data, got, test.want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestModelPickerPreservesExplicitBackwardOverride(t *testing.T) {
+	for _, wsl := range []string{"", "Ubuntu"} {
+		t.Run("WSL="+wsl, func(t *testing.T) {
+			t.Setenv("WSL_DISTRO_NAME", wsl)
+			t.Setenv("WSL_INTEROP", wsl)
+			km := NewKeybindingsManagerFromBindings(map[string][]KeyID{
+				"app.model.cycleBackward": {"alt+p"},
+			}, "")
+			for _, data := range []string{"\x1bp", "\x1b[112;3u", "\x1b[27;3;112~"} {
+				if got := classifyKeyWithBindings(data, km); got != actionCycleModelBackward {
+					t.Errorf("overridden alt+p input %q classifies as %v, want actionCycleModelBackward", data, got)
+				}
+			}
+			if got := classifyKeyWithBindings("\x0c", km); got != actionModelPicker {
+				t.Errorf("ctrl+l classifies as %v, want actionModelPicker", got)
+			}
+		})
+	}
+}
+
 // terminalRepertoire is every raw form an xterm-family terminal can send without the Kitty
 // keyboard protocol and without xterm modifyOtherKeys: the C0 bytes and printable ASCII, the
 // fixed CSI sequences for navigation and function keys with every modifier parameter, and the
@@ -120,30 +208,28 @@ func deliverable(keyID string) (string, bool) {
 // same failure the follow-up key had. Each replacement is checked to be deliverable from the
 // legacy repertoire and, where two actions could answer at once, to be unique.
 func TestDefaultsAreReachableWithoutExtendedKeys(t *testing.T) {
-	for _, platform := range tui.KeybindingPlatforms {
-		defs := keybindingDefinitionsFor(platform)
-		for _, action := range []string{
-			"app.model.cycleBackward",
-			"app.tree.filter.cycleBackward",
-			"app.session.deleteNoninvasive",
-			"tui.altScreen.search",
-			"tui.altScreen.searchPrevious",
-			"app.message.followUp",
-		} {
-			keys := defs[action].DefaultKeys
-			if len(keys) == 0 {
-				t.Fatalf("%s: %s has no default key", platform, action)
+	defs := keybindingDefinitions()
+	for _, action := range []string{
+		"app.model.cycleBackward",
+		"app.tree.filter.cycleBackward",
+		"app.session.deleteNoninvasive",
+		"tui.altScreen.search",
+		"tui.altScreen.searchPrevious",
+		"app.message.followUp",
+	} {
+		keys := defs[action].DefaultKeys
+		if len(keys) == 0 {
+			t.Fatalf("%s has no default key", action)
+		}
+		reachable := false
+		for _, key := range keys {
+			if _, ok := deliverable(key); ok {
+				reachable = true
+				break
 			}
-			reachable := false
-			for _, key := range keys {
-				if _, ok := deliverable(key); ok {
-					reachable = true
-					break
-				}
-			}
-			if !reachable {
-				t.Errorf("%s: %s defaults to %v, none reachable from a legacy terminal", platform, action, keys)
-			}
+		}
+		if !reachable {
+			t.Errorf("%s defaults to %v, none reachable from a legacy terminal", action, keys)
 		}
 	}
 }
