@@ -66,14 +66,23 @@ returns to zero.
 
 ## Status
 
-`/goal show`, and the tool's `get`, report the objective, status, tokens, poke
-count, and, when one is recorded, the blocker with its consecutive count. `drop`
+`/goal`, `/goal show`, `/goal status`, and `/goal get` report the objective, status,
+tokens, poke count, and, when one is recorded, the blocker with its consecutive
+count. In the TUI, an active goal stays in one compact line below the prompt box,
+and lifecycle commands send a notification. The widget disappears when no goal is active. `/goal help` shows the available controls. `/goal drop`
 discards the goal, so the next objective starts with no inherited blocker.
+
+The short form `/goal <objective>` and `/goal set <objective>` preserve the
+objective's case and internal whitespace. Control commands reject extra arguments
+instead of silently ignoring them. The tool's `get` remains the machine-readable
+status interface for headless modes.
 
 ## Verification
 
 `scripts/smoke-test-goal-blockers.py` drives the built binary against a loopback
 provider. It reports a blocker until the goal pauses, then proves no further
 provider request happens until an explicit resume, and covers a read-only progress
-report and a changed blocker. `internal/goal` and `internal/goalext` tests cover
-the transition table, the identity rules, and the notice-once behavior.
+report and a changed blocker. `scripts/smoke-test-goal-ui.py` drives both TUI modes
+and checks the painted Goal widget, command feedback, aliases, and preserved
+objective text. `internal/goal` and `internal/goalext` tests cover the transition
+table, the identity rules, and the notice-once behavior.

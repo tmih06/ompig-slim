@@ -73,20 +73,15 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			if err != nil {
 				return extension.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: err.Error()}}, IsError: true}, nil
 			}
+			updateGoalWidget(ctx, tracker.Get())
 			return toolResult(tracker.Get(), extra), nil
 		},
 	})
-	api.RegisterCommand("goal", extension.CommandOptions{Description: "Set, inspect, pause, resume, complete, or drop the autonomous goal.", Handler: func(ctx context.Context, args string) error {
-		parts := strings.Fields(args)
-		op := "show"
-		if len(parts) > 0 {
-			op, parts = strings.ToLower(parts[0]), parts[1:]
-			if op == "show" && len(parts) > 0 {
-				// `show` only acts as a command when it is used alone; with
-				// arguments it is a perfectly valid prompt.
-				parts = append([]string{"show"}, parts...)
-				op = "__prompt"
-			}
+	api.RegisterCommand("goal", extension.CommandOptions{Description: "Set, inspect, pause, resume, complete, or drop the autonomous goal.", GetArgumentCompletions: goalCompletions, Handler: func(ctx context.Context, args string) error {
+		command, err := parseGoalCommand(args)
+		if err != nil {
+			notify(ctx, err.Error(), "error")
+			return err
 		}
 		mu.Lock()
 		defer mu.Unlock()
@@ -94,33 +89,34 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			if err := tracker.Create(objective, 0); err != nil {
 				return err
 			}
-			// Creating the tracker must submit the objective too; otherwise the
-			// user waits for an unrelated turn before goal mode starts.
 			commandContext := extension.CommandContextFromContext(ctx)
 			if commandContext == nil {
 				_ = tracker.Drop()
 				return fmt.Errorf("goal command context is unavailable")
 			}
-			// A goal objective is a prompt, not literal text: it reaches the same
-			// skill and prompt-template expansion a typed prompt gets, and the same
-			// `@path` auto-read. sendUserMessage defaults expansion off for
-			// extension-originated messages, so the request is explicit here.
 			if err := commandContext.SendUserMessage(objective, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)}); err != nil {
 				_ = tracker.Drop()
 				return err
 			}
 			return nil
 		}
-		switch op {
-		case "set", "create":
-			return start(strings.Join(parts, " "))
-		case "show":
-			fmt.Println(render(tracker.Get()))
-		case "pause":
+		switch command.op {
+		case goalOpSet, goalOpPrompt:
+			if err := start(command.objective); err != nil {
+				return err
+			}
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal started.", "info")
+		case goalOpShow:
+			updateGoalWidget(ctx, tracker.Get())
+			presentGoal(ctx, render(tracker.Get()), "info")
+		case goalOpPause:
 			if err := tracker.Pause(); err != nil {
 				return err
 			}
-		case "resume":
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal paused.", "info")
+		case goalOpResume:
 			if err := resumeGoal(tracker, func(objective string) error {
 				commandContext := extension.CommandContextFromContext(ctx)
 				if commandContext == nil {
@@ -130,26 +126,30 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			}); err != nil {
 				return err
 			}
-			// The streak is cleared, so the working label no longer describes the goal.
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal resumed.", "info")
 			setWorkingMessage(ctx, "")
-		case "complete":
+		case goalOpComplete:
 			if err := tracker.Complete(); err != nil {
 				return err
 			}
-		case "drop":
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal complete.", "info")
+		case goalOpDrop:
 			if err := tracker.Drop(); err != nil {
 				return err
 			}
-		default:
-			// `/goal <prompt>` is the short form of `/goal set <prompt>`.
-			objective := strings.Join(append([]string{op}, parts...), " ")
-			if op == "__prompt" {
-				objective = strings.Join(parts, " ")
-			}
-			return start(objective)
+			updateGoalWidget(ctx, tracker.Get())
+			notify(ctx, "Goal dropped.", "info")
+		case goalOpHelp:
+			presentGoal(ctx, goalUsage, "info")
 		}
 		return nil
 	}})
+	api.OnSessionStart(func(ctx context.Context, _ extension.SessionStartEvent) error {
+		updateGoalWidget(ctx, tracker.Get())
+		return nil
+	})
 	api.OnAgentBeforeSettle(func(ctx context.Context, _ *extension.AgentBeforeSettleEvent) (extension.AgentBeforeSettleEventResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -159,12 +159,112 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 		mu.Lock()
 		defer mu.Unlock()
 		pauseAbortedGoal(tracker, event.Aborted)
+		updateGoalWidget(ctx, tracker.Get())
 		if state := tracker.Get(); state == nil || state.Status != goal.StatusActive {
 			setWorkingMessage(ctx, "")
 		}
 		return nil
 	})
 	return nil
+}
+
+const goalUsage = "Usage: /goal [show|status|get|set <objective>|pause|resume|complete|drop|help]"
+
+type goalOp uint8
+
+const (
+	goalOpShow goalOp = iota
+	goalOpSet
+	goalOpPrompt
+	goalOpPause
+	goalOpResume
+	goalOpComplete
+	goalOpDrop
+	goalOpHelp
+)
+
+type goalCommand struct {
+	op        goalOp
+	objective string
+}
+
+var goalControlWords = map[string]goalOp{
+	"show": goalOpShow, "status": goalOpShow, "get": goalOpShow,
+	"set": goalOpSet, "create": goalOpSet, "pause": goalOpPause,
+	"resume": goalOpResume, "complete": goalOpComplete, "drop": goalOpDrop,
+	"help": goalOpHelp,
+}
+
+func parseGoalCommand(args string) (goalCommand, error) {
+	trimmed := strings.TrimSpace(args)
+	if trimmed == "" {
+		return goalCommand{op: goalOpShow}, nil
+	}
+	head, rest := trimmed, ""
+	if index := strings.IndexAny(trimmed, " \t\r\n"); index >= 0 {
+		head, rest = trimmed[:index], strings.TrimSpace(trimmed[index:])
+	}
+	if op, ok := goalControlWords[strings.ToLower(head)]; ok {
+		switch op {
+		case goalOpSet:
+			if rest == "" {
+				return goalCommand{}, errors.New("usage: /goal set <objective>")
+			}
+			return goalCommand{op: op, objective: rest}, nil
+		case goalOpShow, goalOpPause, goalOpResume, goalOpComplete, goalOpDrop, goalOpHelp:
+			if rest != "" {
+				return goalCommand{}, fmt.Errorf("/goal %s does not take arguments", strings.ToLower(head))
+			}
+			return goalCommand{op: op}, nil
+		}
+	}
+	return goalCommand{op: goalOpPrompt, objective: trimmed}, nil
+}
+
+func goalCompletions(prefix string) ([]extension.AutocompleteItem, error) {
+	if strings.ContainsAny(prefix, " \t\r\n") {
+		return nil, nil
+	}
+	words := []string{"show", "status", "get", "set", "create", "pause", "resume", "complete", "drop", "help"}
+	items := make([]extension.AutocompleteItem, 0, len(words))
+	for _, word := range words {
+		if strings.HasPrefix(word, strings.ToLower(prefix)) {
+			items = append(items, extension.AutocompleteItem{Value: word, Label: word})
+		}
+	}
+	return items, nil
+}
+
+func goalWidget(state *goal.State) []string {
+	if state == nil {
+		return nil
+	}
+	objective := strings.Join(strings.Fields(state.Objective), " ")
+	line := fmt.Sprintf("◆ Goal · %s · %s", state.Status, objective)
+	if state.Blocker != "" {
+		line += " · blocker: " + strings.Join(strings.Fields(state.Blocker), " ")
+	}
+	return []string{line}
+}
+
+func presentGoal(ctx context.Context, text, kind string) {
+	if extCtx := extension.FromContext(ctx); extCtx != nil {
+		if ui, err := extCtx.UI(); err == nil {
+			if hasUI, _ := extCtx.HasUI(); hasUI {
+				ui.Notify(text, kind)
+				return
+			}
+		}
+	}
+	fmt.Println(text)
+}
+
+func updateGoalWidget(ctx context.Context, state *goal.State) {
+	if extCtx := extension.FromContext(ctx); extCtx != nil {
+		if ui, err := extCtx.UI(); err == nil {
+			ui.SetWidget("goal", goalWidget(state), &extension.ExtensionWidgetOptions{Placement: extension.WidgetPlacementBelowEditor})
+		}
+	}
 }
 
 // resumeGoal reactivates a paused goal and starts its objective, so an explicit
