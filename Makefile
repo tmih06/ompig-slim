@@ -53,6 +53,7 @@ smoke-built:
 	python3 scripts/smoke-test-agent-state.py ./bin/ompig-slim
 	python3 scripts/smoke-test-goal-interruption.py ./bin/ompig-slim
 	python3 scripts/smoke-test-goal-blockers.py ./bin/ompig-slim
+	python3 scripts/smoke-test-goal-ui.py ./bin/ompig-slim
 
 release:
 	bash scripts/build-binaries.sh $(ARGS)
