@@ -345,7 +345,7 @@ func (m *InteractiveMode) finishInteractiveShutdown() error {
 	}
 	if !fromSignal {
 		m.emitQuitShutdown()
-		m.printResumeHint()
+		m.printQuitSummary()
 	}
 	return inputErr
 }

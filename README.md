@@ -101,7 +101,9 @@ intercept shortcuts before the application receives them. Ctrl+Z requests proces
 suspension; native Windows reports that suspension is unsupported.
 
 Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
-`/export` `/hotkeys`. Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;
+`/export` `/hotkeys` `/quit`. On interactive exit, `/quit` leaves the logo, session message and tool-call
+counts, token usage, and recorded cost in your terminal. Saved sessions include a resume command.
+Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;
 `/goal pause`, `/goal resume`, `/goal complete`, and `/goal drop` control it. An active goal continues on
 its own until you stop it, and a goal that reports the same blocker three times pauses itself and asks for
 the missing input ([goal contract](docs/goal.md)). Interrupting with `Esc` or `/goal pause` takes effect

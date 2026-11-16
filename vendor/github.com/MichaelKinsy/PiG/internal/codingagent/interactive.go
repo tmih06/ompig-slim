@@ -1481,20 +1481,6 @@ func resumeCommand(sessionPath, sessionID, sessionDir string, includeSessionDir 
 
 var stdoutIsTTY = func() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
 
-// printResumeHint writes the resume command after the terminal is restored on an interactive quit, only for a persisted session with an existing file and TTY stdout.
-func (m *InteractiveMode) printResumeHint() {
-	cmd := m.resumeHintCommand()
-	if cmd == "" {
-		return
-	}
-	// upstream: interactive-mode.ts:4326 `${chalk.dim("To resume this session:")} ${resumeCommand}`, dim only at a nonzero chalk level.
-	label := "To resume this session:"
-	if chalkModifiersEnabled() {
-		label = ChalkApply("\x1b[2m", "\x1b[22m", label)
-	}
-	_, _ = fmt.Printf("%s %s\n", label, cmd)
-}
-
 // Run renders the initial editor and footer even with quiet startup, then blocks in the interactive loop until the user exits.
 func (m *InteractiveMode) Run(ctx context.Context) (err error) {
 	// After Run returns nothing services owner tasks, so a runtime closed later resets the UI in place.
