@@ -73,6 +73,54 @@ func TestFollowUpDispatchReachesTheQueueAction(t *testing.T) {
 	}
 }
 
+func TestModelPickerDispatchOnEveryPlatform(t *testing.T) {
+	for _, platform := range tui.KeybindingPlatforms {
+		t.Run(string(platform), func(t *testing.T) {
+			km := NewKeybindingsManagerFromBindings(nil, "")
+			km.platform = platform
+			km.definitions = appKeybindingDefinitionsFor(platform)
+			km.rebuild()
+			for _, test := range []struct {
+				key    string
+				inputs []string
+				want   keyAction
+			}{
+				{"alt+p", []string{"\x1bp", "\x1b[112;3u", "\x1b[27;3;112~"}, actionModelPicker},
+				{"ctrl+l", []string{"\x0c", "\x1b[108;5u", "\x1b[27;5;108~"}, actionModelPicker},
+				{"ctrl+p", []string{"\x10", "\x1b[112;5u", "\x1b[27;5;112~"}, actionCycleModelForward},
+				{"ctrl+shift+left", []string{"\x1b[1;6D"}, actionCycleModelBackward},
+			} {
+				for _, data := range test.inputs {
+					if got := classifyKeyWithBindings(data, km); got != test.want {
+						t.Errorf("%s input %q classifies as %v, want %v", test.key, data, got, test.want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestModelPickerPreservesExplicitBackwardOverride(t *testing.T) {
+	for _, platform := range tui.KeybindingPlatforms {
+		t.Run(string(platform), func(t *testing.T) {
+			km := NewKeybindingsManagerFromBindings(map[string][]KeyID{
+				"app.model.cycleBackward": {"alt+p"},
+			}, "")
+			km.platform = platform
+			km.definitions = appKeybindingDefinitionsFor(platform)
+			km.rebuild()
+			for _, data := range []string{"\x1bp", "\x1b[112;3u", "\x1b[27;3;112~"} {
+				if got := classifyKeyWithBindings(data, km); got != actionCycleModelBackward {
+					t.Errorf("overridden alt+p input %q classifies as %v, want actionCycleModelBackward", data, got)
+				}
+			}
+			if got := classifyKeyWithBindings("\x0c", km); got != actionModelPicker {
+				t.Errorf("ctrl+l classifies as %v, want actionModelPicker", got)
+			}
+		})
+	}
+}
+
 // terminalRepertoire is every raw form an xterm-family terminal can send without the Kitty
 // keyboard protocol and without xterm modifyOtherKeys: the C0 bytes and printable ASCII, the
 // fixed CSI sequences for navigation and function keys with every modifier parameter, and the

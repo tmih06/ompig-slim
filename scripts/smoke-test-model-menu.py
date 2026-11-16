@@ -10,6 +10,7 @@ import pty
 import select
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -17,7 +18,7 @@ import time
 import settings_fixture
 
 
-def run(binary):
+def run(binary, label, windows_defaults):
     """Mount real fullscreen/compact menus and assert durable edits in isolation."""
     with tempfile.TemporaryDirectory(prefix="omp-model-menu-") as directory:
         root = Path(directory)
@@ -35,6 +36,10 @@ def run(binary):
         env = dict(os.environ, PIG_TEST_FAUX="1", PIG_STARTUP_TRACE="1",
                    PI_OFFLINE="1", PI_SKIP_VERSION_CHECK="1", PI_TELEMETRY="0",
                    PIG_HOME=directory, PI_HOME=directory, TERM="xterm-256color")
+        for key in ("WSL_DISTRO_NAME", "WSL_INTEROP", "WSLENV"):
+            env.pop(key, None)
+        if windows_defaults:
+            env["WSL_DISTRO_NAME"] = "Ubuntu"
         for key in ("PIG_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR", "OMPIG_SLIM_CODING_AGENT_DIR"):
             env[key] = str(agent)
         master, slave = pty.openpty()
@@ -132,7 +137,7 @@ def run(binary):
             assert "review" not in deleted.get("cycleOrder", []), "role cycle survived"
             assert "review" not in deleted.get("retry", {}).get("fallbackChains", {}), "role fallback survived"
             assert deleted["modelRoles"]["default"] == saved_roles["default"], "unrelated role changed"
-            print("PASS: fullscreen hub, Roles, cycle edit, main-screen restore, session-only @role picker, confirmed custom-role deletion")
+            print(f"PASS [{label}]: fullscreen hub, Roles, cycle edit, main-screen restore, session-only Alt+P @role picker, confirmed custom-role deletion")
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -161,7 +166,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
-    run(args.binary.resolve())
+    binary = args.binary.resolve()
+    run(binary, "host defaults", windows_defaults=False)
+    if sys.platform == "linux":
+        run(binary, "Windows/WSL defaults", windows_defaults=True)
 
 
 if __name__ == "__main__":
