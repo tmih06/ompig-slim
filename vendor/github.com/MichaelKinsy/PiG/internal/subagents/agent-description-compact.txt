@@ -1,6 +1,6 @@
 Launch an autonomous agent for complex, multi-step tasks. Prefer direct tools for known paths, searches, parsing, and tests; do not delegate mechanical work.
 
-Use a configured model role and provide a nonempty list of tool names the child may use.
+Use one of the listed agent roles matching the work, and provide a nonempty list of tool names the child may use.
 
 Notes:
 - description: 3-5 words (shown in UI). Prompts must be self-contained — the agent has not seen this conversation.

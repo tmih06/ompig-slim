@@ -1,6 +1,6 @@
-Launch a new agent to handle complex, multi-step tasks autonomously. The child receives the selected model role and tool allowlist.
+Launch a new agent to handle complex, multi-step tasks autonomously. The child receives the selected agent role and tool allowlist.
 
-Use a configured model role. Provide tool as a nonempty list of the tool names the child may use.
+Choose one of the listed roles for the work. Provide tool as a nonempty list of the tool names the child may use.
 
 ## When not to use
 

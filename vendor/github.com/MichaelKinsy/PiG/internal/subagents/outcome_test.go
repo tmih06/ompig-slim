@@ -284,7 +284,7 @@ func TestOutcomeSurvivesReload(t *testing.T) {
 func launchAgent(t *testing.T, m *Manager) Record {
 	t.Helper()
 	tool := Tool{Manager: m, ToolName: "Agent"}
-	result, err := tool.Execute(context.Background(), "call", []byte(`{"prompt":"inspect","description":"Inspect code","role":"@default","tool":["read"]}`), nil)
+	result, err := tool.Execute(context.Background(), "call", []byte(`{"prompt":"inspect","description":"Inspect code","role":"@task","tool":["read"]}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

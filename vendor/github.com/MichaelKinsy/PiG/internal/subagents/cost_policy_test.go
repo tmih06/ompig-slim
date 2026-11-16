@@ -3,6 +3,8 @@ package subagents
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -39,7 +41,7 @@ func TestCostDefaultsAndCompactToolDescriptions(t *testing.T) {
 }
 
 func TestAgentSchemaAdvertisesRolesAndTools(t *testing.T) {
-	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir(), ModelRoles: func() []string { return []string{"@default", "@review"} }})
+	m := New(Host{CWD: t.TempDir(), AgentDir: t.TempDir()})
 	defer m.Close()
 	for _, mode := range []string{"compact", "full"} {
 		t.Run(mode, func(t *testing.T) {
@@ -52,13 +54,23 @@ func TestAgentSchemaAdvertisesRolesAndTools(t *testing.T) {
 					t.Fatalf("tool description advertises filesystem discovery: %s", path)
 				}
 			}
-			if !strings.Contains(schema.Description, "Available model roles: @default, @review") {
-				t.Fatalf("tool description must list configured roles: %s", schema.Description)
-			}
 			props := schema.Parameters["properties"].(map[string]any)
 			for _, name := range []string{"role", "tool"} {
 				if _, ok := props[name]; !ok {
 					t.Fatalf("missing required %s parameter", name)
+				}
+			}
+			if got := props["role"].(map[string]any)["enum"]; !slices.Equal(got.([]string), []string{"@task", "@smol", "@slow"}) {
+				t.Fatalf("Agent must offer exactly the three agent roles: %v", got)
+			}
+			for _, name := range agentRoleNames() {
+				if !strings.Contains(schema.Description, name) {
+					t.Fatalf("%s description omits role %s: %s", mode, name, schema.Description)
+				}
+			}
+			for _, absent := range []string{"@default", "@review", "Available model roles"} {
+				if strings.Contains(schema.Description, absent) {
+					t.Fatalf("%s description advertises a configured role: %s", mode, schema.Description)
 				}
 			}
 			required := schema.Parameters["required"].([]string)
@@ -72,6 +84,86 @@ func TestAgentSchemaAdvertisesRolesAndTools(t *testing.T) {
 				if _, ok := props[name]; ok {
 					t.Fatalf("Agent must not expose %s", name)
 				}
+			}
+		})
+	}
+}
+
+func TestAgentDescriptionNamesEveryRolePurposeInAllModes(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, ".pi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, ".pi", "agent-tool-description.md"), []byte("Custom agent description."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(Host{CWD: cwd, AgentDir: t.TempDir()})
+	defer m.Close()
+	for _, mode := range []string{"compact", "full", "custom"} {
+		t.Run(mode, func(t *testing.T) {
+			m.mu.Lock()
+			m.settings.ToolDescriptionMode = mode
+			m.mu.Unlock()
+			description := m.toolDescription(false)
+			if mode == "custom" && !strings.HasPrefix(description, "Custom agent description.") {
+				t.Fatalf("custom mode ignored the authored description: %s", description)
+			}
+			for _, role := range agentRoles {
+				if !strings.Contains(description, role.Name+". "+role.Purpose) {
+					t.Fatalf("%s description omits the purpose of %s: %s", mode, role.Name, description)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentAcceptsWorkerRoles(t *testing.T) {
+	for _, role := range []string{"@task", "@smol", "@slow"} {
+		t.Run(role, func(t *testing.T) {
+			created := make(chan string, 1)
+			m := testManager(t, func(_ context.Context, inv Invocation) (Child, error) {
+				created <- inv.Params.Model
+				return &fakeChild{send: func(context.Context, string) (string, error) { return "done", nil }}, nil
+			})
+			tool := &Tool{Manager: m, ToolName: "Agent"}
+			args := json.RawMessage(`{"prompt":"inspect","description":"Inspect code","role":"` + role + `","tool":["read"]}`)
+			parameters, err := json.Marshal(tool.Schema().Parameters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ai.ValidateToolArgumentsJSON("Agent", parameters, args); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tool.Execute(context.Background(), "call", args, nil); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case got := <-created:
+				if got != role {
+					t.Fatalf("child model = %q, want %q", got, role)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("child did not start")
+			}
+		})
+	}
+}
+
+func TestAgentExecuteRejectsUnlistedRoleBeforeSpawn(t *testing.T) {
+	for _, role := range []string{"@default", "@review", "@TASK", "task", "@task:high", " @task", "@task ", "provider/model"} {
+		t.Run(role, func(t *testing.T) {
+			var spawned atomic.Bool
+			m := testManager(t, func(context.Context, Invocation) (Child, error) {
+				spawned.Store(true)
+				return &fakeChild{send: func(context.Context, string) (string, error) { return "done", nil }}, nil
+			})
+			tool := &Tool{Manager: m, ToolName: "Agent"}
+			_, err := tool.Execute(context.Background(), "call", json.RawMessage(`{"prompt":"inspect","description":"Inspect code","role":"`+role+`","tool":["read"]}`), nil)
+			if err == nil || !strings.Contains(err.Error(), "@task, @smol, @slow") {
+				t.Fatalf("Agent accepted role %s: %v", role, err)
+			}
+			if spawned.Load() {
+				t.Fatalf("role %s reached Spawn", role)
 			}
 		})
 	}

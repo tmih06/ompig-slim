@@ -157,7 +157,7 @@ a Herdr server restart.
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
 | Routing | Roles, fallback chains, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
-| Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub, [explicit child outcomes](docs/subagents.md) |
+| Subagents | `Agent` with fixed `@task`, `@smol` and `@slow` [roles](docs/model-roles.md#subagent-roles-and-tools), `get_subagent_result`, `steer_subagent`, workflows, Agent Hub, [explicit child outcomes](docs/subagents.md) |
 | TUI | omp-style tool cards, task/quota widget, todo reminder, Mermaid diagrams |
 | Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |
 | Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |

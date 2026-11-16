@@ -13,8 +13,8 @@ import (
 
 func TestHubProviderModelLabelIncludesRoleProviderAndID(t *testing.T) {
 	r := subagents.Record{ProviderName: "anthropic", ModelName: "claude-sonnet-4-20250514", Params: subagents.Params{Role: "@task"}}
-	if got := hubProviderModel(subagents.HubAgent{Record: r}); got != "@task anthropic/claude-sonnet-4-20250514" {
-		t.Fatalf("incomplete hub model label: %q", got)
+	if got := hubProviderModel(subagents.HubAgent{Record: r}); got != "anthropic/claude-sonnet-4-20250514" {
+		t.Fatalf("hub model label is not the model identity alone: %q", got)
 	}
 }
 

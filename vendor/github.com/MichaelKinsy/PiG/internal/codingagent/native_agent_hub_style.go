@@ -6,6 +6,7 @@ package codingagent
 import (
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
@@ -56,4 +57,36 @@ func hubModel(model, thinking string) string {
 		label += " " + theme.GetThinkingBorderColor(thinking)(thinking)
 	}
 	return label
+}
+
+func (m *InteractiveMode) subagentRoleSelector(role string) string {
+	name := strings.TrimPrefix(strings.TrimSpace(role), "@")
+	if name == "" {
+		return ""
+	}
+	return tui.ModelOverlayTheme().Fg(m.subagentRoleToken(name), "@"+name)
+}
+
+func (m *InteractiveMode) subagentRoleToken(name string) string {
+	token := ""
+	if m.opts.SettingsManager != nil {
+		token = readMerged(m.opts.SettingsManager, func(s *Settings) string { return s.RoleInfo(name).Color })
+	} else {
+		token = m.opts.Settings.Config.RoleInfo(name).Color
+	}
+	if !tui.ModelOverlayTheme().HasFgToken(token) {
+		return "muted"
+	}
+	return token
+}
+
+func (h *agentHub) hubRoleModel(r subagents.HubAgent) string {
+	var parts []string
+	if role := h.m.subagentRoleSelector(r.Params.Role); role != "" {
+		parts = append(parts, role)
+	}
+	if r.ModelName != "" {
+		parts = append(parts, hubModel(hubProviderModel(r), r.Thinking))
+	}
+	return strings.Join(parts, " ")
 }
