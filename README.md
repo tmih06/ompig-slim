@@ -159,7 +159,7 @@ a Herdr server restart.
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent`, `get_subagent_result`, `steer_subagent`, workflows, Agent Hub, [explicit child outcomes](docs/subagents.md) |
 | TUI | omp-style tool cards, task/quota widget, todo reminder, Mermaid diagrams |
-| Integrations | Publishes agent state for other tools; Herdr adapter ships as an installable extension |
+| Integrations | Publishes agent state for other tools; Herdr is an installable extension; [OpenCode Free](docs/opencode-free.md) is built in |
 | Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 

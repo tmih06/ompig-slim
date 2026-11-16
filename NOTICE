@@ -1,6 +1,14 @@
 ompig-slim
 ==========
 
+The built-in OpenCode Free provider incorporates OpenCode's generated
+system preamble and identifier encoding at commit
+b75b1583962ddc9ad2a057d3a3641b770321aa9e. Copyright (c) 2025 opencode, MIT.
+The permission notice is retained in
+vendor/github.com/MichaelKinsy/PiG/ai/opencode_free_data/LICENSE.
+Its Go TLS compatibility transport uses uTLS (BSD-3-Clause); the dependency
+license is retained at vendor/github.com/refraction-networking/utls/LICENSE.
+
 This personal coding harness links PiG v0.7.0 as a Go library, with local
 feature ports in vendor/github.com/MichaelKinsy/PiG. PiG is Copyright Michael
 Kinsy, distributed under MIT. The original PiG notices are retained in that

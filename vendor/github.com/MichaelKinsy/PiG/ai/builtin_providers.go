@@ -68,6 +68,8 @@ func GetAllBuiltinModels(provider string) []AnyModel {
 // builtinClassifiers are the classifier implementations of the providers that serve classifier models.
 func builtinClassifiers(provider string) ProviderClassifierMap {
 	switch provider {
+	case OpenCodeFreeProviderID:
+		return ProviderClassifierMap{ClassifierAPITypesafeSystemOne: opencodeFreeClassifier()}
 	case "typesafe", "opencode", "openrouter", "vercel-ai-gateway":
 		return ProviderClassifierMap{ClassifierAPITypesafeSystemOne: TypesafeSystemOneAPI()}
 	case "cloudflare-workers-ai":
