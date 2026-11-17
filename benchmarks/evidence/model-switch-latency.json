@@ -1,0 +1,263 @@
+{
+  "fixture_broker_rtt_ms": 150,
+  "runs_per_binary": 5,
+  "profiled": false,
+  "summary_ms": {
+    "/tmp/ompig-cycle-baseline": {
+      "cycle_ms": {
+        "median": 152.69361900027434,
+        "range": [
+          151.89630899840267,
+          153.36503099933907
+        ]
+      },
+      "picker_open_ms": {
+        "median": 152.6963539999997,
+        "range": [
+          152.2721229994204,
+          154.187489000833
+        ]
+      },
+      "picker_select_ms": {
+        "median": 153.18684600060806,
+        "range": [
+          152.5322010002128,
+          153.72113199919113
+        ]
+      }
+    },
+    "/home/tmih/.herdr/worktrees/ompig-slim/fix-perf-on-cycle-roles/bin/ompig-slim": {
+      "cycle_ms": {
+        "median": 0.8752249996177852,
+        "range": [
+          0.7411269998556236,
+          1.431816999684088
+        ]
+      },
+      "picker_open_ms": {
+        "median": 1.0703339994506678,
+        "range": [
+          0.7347869996010559,
+          1.9025399997190107
+        ]
+      },
+      "picker_select_ms": {
+        "median": 153.17474699986633,
+        "range": [
+          152.52031100135355,
+          154.34205699966697
+        ]
+      }
+    }
+  },
+  "runs": {
+    "/tmp/ompig-cycle-baseline": [
+      {
+        "timings": {
+          "cycle_ms": 151.89630899840267,
+          "picker_open_ms": 154.187489000833,
+          "picker_select_ms": 153.72113199919113
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          },
+          "picker_open_ms": {
+            "/v1/snapshot": 1
+          },
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 152.78525100075058,
+          "picker_open_ms": 153.0720390001079,
+          "picker_select_ms": 153.15556000132347
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          },
+          "picker_open_ms": {
+            "/v1/snapshot": 1
+          },
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 152.5397739987966,
+          "picker_open_ms": 152.2721229994204,
+          "picker_select_ms": 153.18684600060806
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          },
+          "picker_open_ms": {
+            "/v1/snapshot": 1
+          },
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 152.69361900027434,
+          "picker_open_ms": 152.6963539999997,
+          "picker_select_ms": 153.31101399897307
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          },
+          "picker_open_ms": {
+            "/v1/snapshot": 1
+          },
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 153.36503099933907,
+          "picker_open_ms": 152.60451100039063,
+          "picker_select_ms": 152.5322010002128
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/accounts": 1,
+            "/v1/snapshot": 1
+          },
+          "picker_open_ms": {
+            "/v1/snapshot": 1
+          },
+          "picker_select_ms": {
+            "/v1/snapshot": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      }
+    ],
+    "/home/tmih/.herdr/worktrees/ompig-slim/fix-perf-on-cycle-roles/bin/ompig-slim": [
+      {
+        "timings": {
+          "cycle_ms": 1.2802330002159579,
+          "picker_open_ms": 1.0221720003755763,
+          "picker_select_ms": 153.17474699986633
+        },
+        "broker_requests": {
+          "cycle_ms": {},
+          "picker_open_ms": {},
+          "picker_select_ms": {
+            "/v1/snapshot": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 0.7411269998556236,
+          "picker_open_ms": 1.0703339994506678,
+          "picker_select_ms": 152.52031100135355
+        },
+        "broker_requests": {
+          "cycle_ms": {},
+          "picker_open_ms": {},
+          "picker_select_ms": {
+            "/v1/snapshot": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 0.8752249996177852,
+          "picker_open_ms": 0.7347869996010559,
+          "picker_select_ms": 152.75371200004884
+        },
+        "broker_requests": {
+          "cycle_ms": {},
+          "picker_open_ms": {},
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 0.8686569999554195,
+          "picker_open_ms": 1.9025399997190107,
+          "picker_select_ms": 153.48073299901444
+        },
+        "broker_requests": {
+          "cycle_ms": {},
+          "picker_open_ms": {},
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      },
+      {
+        "timings": {
+          "cycle_ms": 1.431816999684088,
+          "picker_open_ms": 1.1330609995638952,
+          "picker_select_ms": 154.34205699966697
+        },
+        "broker_requests": {
+          "cycle_ms": {
+            "/v1/accounts": 1
+          },
+          "picker_open_ms": {},
+          "picker_select_ms": {
+            "/v1/snapshot": 1,
+            "/v1/accounts": 1
+          }
+        },
+        "errors": 0,
+        "completed_switches": 2,
+        "saved_assignments_unchanged": true
+      }
+    ]
+  }
+}

@@ -299,6 +299,23 @@ in [the comparison evidence](../benchmarks/evidence/startup-resume-latency.json)
 The remaining resume profile is dominated by JSON decoding and transcript
 rendering, not a timer that can safely be removed.
 
+After replaying the two performance commits onto newer `main`, the final
+production-binary retest measured explicit-role startup at 452.46 ms before
+and 70.20 ms after, over five alternating runs per binary. Ranges were
+411.07–593.84 ms and 60.78–96.09 ms respectively. Seven-run picker-to-request
+medians were 613.87 ms and 535.14 ms, but ranges overlapped at 498.87–724.25 ms
+and 451.84–846.47 ms. This final-artifact resume comparison is inconclusive,
+not a demonstrated speedup on current `main`. See the
+[final-artifact retest](../benchmarks/evidence/startup-resume-pr-retest.json)
+for samples, binary hashes, successful history checks, and source revisions.
+
+The separate cycle-role fix removes synchronous credential reads from model
+presentation. Five alternating runs at 150 ms fixture broker RTT measured
+cycle medians of 152.69 ms before and 0.88 ms after, and picker-open medians
+of 152.70 ms and 1.07 ms. Live selection confirmation still takes its
+authentication round trip. See the
+[model-switch evidence](../benchmarks/evidence/model-switch-latency.json).
+
 ### Resume-to-work latency
 
 `scripts/measure-resume.py` measures a real terminal opening an old session,
