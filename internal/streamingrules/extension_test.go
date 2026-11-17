@@ -28,7 +28,6 @@ type captureAPI struct {
 	renderer extension.EntryRenderer
 	settings map[string]any
 	start    extension.ExtensionHandlerNoResult[extension.AgentStartEvent]
-	message  extension.ExtensionHandlerNoResult[extension.MessageStartEvent]
 	update   extension.ExtensionHandlerNoResult[extension.MessageUpdateEvent]
 	call     extension.ExtensionHandler[extension.ToolCallEvent, extension.ToolCallEventResult]
 	result   extension.ExtensionHandler[extension.ToolResultEvent, extension.ToolResultEventResult]
@@ -43,10 +42,6 @@ func (a *captureAPI) RegisterEntryRenderer(customType string, renderer extension
 }
 func (a *captureAPI) OnAgentStart(h extension.ExtensionHandlerNoResult[extension.AgentStartEvent]) func() {
 	a.start = h
-	return func() {}
-}
-func (a *captureAPI) OnMessageStart(h extension.ExtensionHandlerNoResult[extension.MessageStartEvent]) func() {
-	a.message = h
 	return func() {}
 }
 func (a *captureAPI) OnMessageUpdate(h extension.ExtensionHandlerNoResult[extension.MessageUpdateEvent]) func() {
@@ -103,8 +98,10 @@ func TestBlockingAndFinalArguments(t *testing.T) {
 		partial := &ai.AssistantMessage{Content: []ai.AssistantContentBlock{ai.ToolCall{
 			ID: "streamed", Name: "write", Arguments: ai.JsonObject{"path": "a.go", "content": text},
 		}}}
-		if err := api.update(ctx, extension.MessageUpdateEvent{AssistantMessageEvent: ai.ToolCallDeltaEvent{ContentIndex: 0, Partial: partial}}); err != nil {
-			t.Fatal(err)
+		if api.update != nil {
+			if err := api.update(ctx, extension.MessageUpdateEvent{AssistantMessageEvent: ai.ToolCallDeltaEvent{ContentIndex: 0, Partial: partial}}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	result, err := api.call(ctx, toolCall("streamed", "write", map[string]any{"path": "a.go", "content": "GOOD"}))
@@ -154,6 +151,70 @@ func TestBlockingAndFinalArguments(t *testing.T) {
 	assertPoke(t, api, (*ended.Entries)[0], "Tool call blocked", "no-bad", "Use GOOD instead.")
 	if again, err := api.end(ctx, boundary(extension.AgentActivityCompleted)); err != nil || again.Entries != nil {
 		t.Fatal("blocked poke leaked to next turn", again, err)
+	}
+}
+
+func TestChangedExecutionArguments(t *testing.T) {
+	cwd, agentDir := t.TempDir(), t.TempDir()
+	directory := filepath.Join(agentDir, "rules")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "no-bad.md"), []byte("---\ncondition: BAD\nscope: tool:write(*.go)\n---\nUse GOOD instead."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api, ctx := startExtension(t, cwd, agentDir)
+	args := map[string]any{"path": "a.go", "content": "GOOD"}
+	if result, err := api.call(ctx, toolCall("changed", "write", args)); err != nil || result.Block {
+		t.Fatal("blocked valid arguments", result, err)
+	}
+	args["content"] = "BAD"
+	if _, err := api.result(ctx, extension.CustomToolResultEvent{
+		ToolResultEventBase: extension.ToolResultEventBase{ToolCallID: "changed", Input: args}, ToolName: "write",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ended, err := api.end(ctx, boundary(extension.AgentActivityCompleted))
+	if err != nil || ended.Entries == nil || len(*ended.Entries) != 2 {
+		t.Fatal("missed execution arguments changed by a later handler", ended, err)
+	}
+	assertPoke(t, api, (*ended.Entries)[1], "Reminder sent", "no-bad", "Use GOOD instead.")
+}
+
+func TestGenericToolRule(t *testing.T) {
+	cwd, agentDir := t.TempDir(), t.TempDir()
+	directory := filepath.Join(agentDir, "rules")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "read-path.md"), []byte("---\ncondition: 'danger'\nscope: 'tool:read(*.txt)'\ninterruptMode: never\n---\nCheck the requested path."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api, ctx := startExtension(t, cwd, agentDir)
+	for _, file := range []string{"danger.go", "safe.txt", "danger.txt"} {
+		args := map[string]any{"path": file}
+		if result, err := api.call(ctx, toolCall(file, "read", args)); err != nil || result.Block {
+			t.Fatal("advisory rule blocked the tool", result, err)
+		}
+		if _, err := api.result(ctx, extension.CustomToolResultEvent{
+			ToolResultEventBase: extension.ToolResultEventBase{ToolCallID: file, Input: args}, ToolName: "read",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		ended, err := api.end(ctx, boundary(extension.AgentActivityCompleted))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if file != "danger.txt" {
+			if ended.Entries != nil {
+				t.Fatal("matched outside the scope or condition", ended)
+			}
+			continue
+		}
+		if ended.Entries == nil || len(*ended.Entries) != 2 {
+			t.Fatal("generic tool arguments did not match", ended)
+		}
+		assertPoke(t, api, (*ended.Entries)[1], "read-path", "Check the requested path.")
 	}
 }
 
@@ -228,6 +289,12 @@ func TestPassiveDelivery(t *testing.T) {
 	}
 	if got, err := api.end(ctx, boundary(extension.AgentActivityCompleted)); err != nil || got.Entries != nil {
 		t.Fatal("leaked pending warning", got, err)
+	}
+	if _, err := api.result(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := api.end(ctx, boundary(extension.AgentActivityCompleted)); err != nil || got.Entries == nil || len(*got.Entries) != 2 {
+		t.Fatal("aborted reminder did not rearm", got, err)
 	}
 	api.settings = map[string]any{"ttsr": map[string]any{"enabled": false}}
 	if err := api.start(ctx, extension.AgentStartEvent{}); err != nil {

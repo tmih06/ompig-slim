@@ -154,12 +154,13 @@ print, JSONL, and RPC sessions. It remains active with `--no-extensions`, like t
 other hidden application extensions. The separate durable workdesk and built-in
 child sessions do not install this extension.
 
-The extension checks decoded tool-argument snapshots during streaming and checks
-final arguments again at the awaited `tool_call` boundary. A stream match alone
-does not interrupt generation or deliver a reminder. Final arguments are authoritative.
-This avoids canceling a tool because of an incomplete argument or a discarded
-provider attempt. Large streamed snapshots are sampled after 25 percent growth.
-Final checks are exact and do not use that throttle.
+The extension checks finalized arguments at the awaited `tool_call` boundary
+for blocking rules. After a successful tool result it checks all undelivered
+rules, including arguments changed by a later extension handler.
+Partial streaming output never triggers a reminder or interrupts generation.
+This avoids acting on incomplete arguments or discarded provider attempts.
+Already delivered rules and unrelated tool scopes are skipped before source
+extraction. Final checks are exact; there is no partial-output cache.
 
 For `write`, matching sees `content`. For `edit`, it sees each `newText` separately,
 not `oldText`, the existing file, or unrelated replacements joined together.
