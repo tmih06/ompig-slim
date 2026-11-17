@@ -99,15 +99,17 @@ def run(binary, server, mode, persisted, populated, custom=False):
             plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(captured)).decode(errors="replace")
             assert plain.count("Session summary") == 1, plain[-4000:]
             summary = plain[plain.index("Session summary"):]
-            # Two lines immediately above the summary, so the startup header and
-            # the terminal title cannot satisfy the logo assertion.
+            # The two lines immediately above the summary, so the startup header and
+            # the terminal title cannot satisfy the logo assertion. Apple Terminal and
+            # a terminal without block glyphs print the one-line wordmark instead.
             before = re.sub(rb"\x1b\][^\x07]*\x07", b"", bytes(captured[:captured.index(b"Session summary")]))
             before = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", before).decode(errors="replace")
             lines = [line for line in before.splitlines() if line.strip()]
             assert len(lines) >= 2, f"no quit logo: {before[-400:]!r}"
             top, bottom = lines[-2], lines[-1]
-            assert "-slim" in top, f"quit logo top line missing: {top!r}"
-            assert " in " in bottom and "\u2588\u2584\u2588" in bottom, \
+            wordmark = "OMPi -slim" in bottom
+            assert "-slim" in top or wordmark, f"quit logo top line missing: {top!r}"
+            assert wordmark or (" in " in bottom and "\u2588\u2584\u2588" in bottom), \
                 f"quit logo bottom line missing: {bottom!r}"
             summary_at = captured.index(b"Session summary")
             if mode == "fullscreen":
