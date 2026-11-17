@@ -16,6 +16,7 @@ import (
 // rewrites such a chunk into the shape the typed decoder expects for exactly the cases whose JS result it reproduces. A member Pi stores or adds as the raw value
 // (an id or name, a completion or cache count that is not a number, a prompt count whose Number() is not an integer, a non-integer tool call index) is not
 // rewritten, so the typed decode fails again and the turn ends with the decode error.
+// Additive: typed content arrays from OpenAI-compatible endpoints are decoded as text and thinking parts instead of JS string coercion.
 // upstream: openai-completions.ts:558-700
 
 // notIterableToolCalls is the TypeError V8 throws for `for (const toolCall of choice.delta.tool_calls)` when the value is not iterable (:640-641).
@@ -252,11 +253,31 @@ func normalizeOpenAIDelta(delta map[string]any, thrown *string) bool {
 		switch content := content.(type) {
 		case string, nil:
 		case []any:
-			// `content.length > 0`, then `block.text += content` appends String(content).
-			if len(content) > 0 {
-				delta["content"] = jsToString(content)
-			} else {
-				delete(delta, "content")
+			// Mistral returns typed text/thinking parts through chat/completions.
+			// Coercing that array with String() loses the text as "[object Object]".
+			var text, thinking strings.Builder
+			for _, part := range content {
+				if value, ok := part.(string); ok {
+					text.WriteString(value)
+					continue
+				}
+				item, _ := part.(map[string]any)
+				switch item["type"] {
+				case "text":
+					value, _ := item["text"].(string)
+					text.WriteString(value)
+				case "thinking":
+					parts, _ := item["thinking"].([]any)
+					for _, part := range parts {
+						fields, _ := part.(map[string]any)
+						value, _ := fields["text"].(string)
+						thinking.WriteString(value)
+					}
+				}
+			}
+			delta["content"] = text.String()
+			if thinking.Len() > 0 {
+				delta["reasoning_content"] = thinking.String()
 			}
 		case map[string]any:
 			if length, hasLength := content["length"]; hasLength && jsGreaterThanZero(length) {

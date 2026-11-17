@@ -71,6 +71,10 @@ the binary:
 `google-vertex`, `bedrock-converse-stream`, `mistral-conversations`,
 `pi-messages`.
 
+`openai-completions` also decodes Mistral's structured streaming content:
+`text` parts become assistant text, and `thinking` parts become thinking blocks.
+These arrays are not stringified as `[object Object]`; no API override is needed.
+
 An unknown `api` is **not** an error. It is accepted by the schema and then
 handled by the fallback branch, so a typo such as `openai-completionss` quietly
 speaks OpenAI Completions to `baseUrl` — with the wrong request shape if the
