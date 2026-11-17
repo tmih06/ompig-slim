@@ -64,11 +64,12 @@ output budgets, including an explicit caller budget when supplied.
 
 ## Use Jev as a judge
 
-Jev uses the existing classifier API, not chat completions. Assign
-`opencode-free/jev-1.13-free` to a judge role, or call it from codemode:
+Jev is a native classifier, not chat completions. Assign
+`opencode-free/jev-1.13-free` to the `judge` role in `/model`; codemode then
+selects it automatically without a script-level model or role choice:
 
 ```js
-const result = await models.classify("opencode-free/jev-1.13-free", {
+const result = await models.judge({
 	state: { answer: 4 },
 	questions: {
 		correct: {
@@ -78,13 +79,14 @@ const result = await models.classify("opencode-free/jev-1.13-free", {
 		},
 	},
 });
-text(result);
+if (result.stopReason !== "stop") throw new Error(result.errorMessage);
+text(result.answers.correct.value);
 ```
 
-The native classifier sends this request to
-`https://opencode.ai/inference/systemone/v1/systemone` with the public free-tier
-credential. It returns typed answers and probabilities through the existing
-judge-model pipeline.
+The native judge result includes classifier metadata when Jev provides it.
+Jev sends this request to `https://opencode.ai/inference/systemone/v1/systemone`
+with the public free-tier credential. It returns typed answers through the judge
+model pipeline.
 
 ## Compatibility limits
 

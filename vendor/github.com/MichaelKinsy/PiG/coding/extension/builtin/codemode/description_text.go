@@ -21,7 +21,8 @@ func describeGlobals(models bool) string {
 		"- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.",
 	}
 	if models {
-		lines = append(lines, "- `models`: classifiers and image generation."+"")
+		lines = append(lines, "- `models`: inspect models with `getModelsOfType`, `getAvailableOfType`, and `getModelOfType`; generate images with `await models.generateImages(model, context)`.",
+			"  Judge state with `await models.judge({state: {...}, questions: {check: {type: \"bool\", instructions: \"...\", criteria: {true: \"...\", false: \"...\"}}}})`. Questions may use `bool`, `choice` with label-to-meaning criteria, or `score` with ordered string levels; add `images` when needed. Read each answer as `{type, value, classifier?}`; native models may provide classifier metadata. The configured `judge` role and its fallbacks choose the judge model. Scripts cannot select its model or role, and `models.classify` is unavailable.")
 	}
 	return strings.Join(lines, "\n")
 }

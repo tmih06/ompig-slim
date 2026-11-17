@@ -199,7 +199,10 @@ in `.pi/settings.json`, unless an agent directory override is supplied.
 
 The built-in role names are `default`, `smol`, `slow`, `vision`, `plan`, `commit`,
 `tiny`, `memory`, `task`, `advisor`, `widget`, `compact`, `image`, `web`, `speech`,
-`dictation`, and `judge`. Assign `compact` to use that model for automatic and manual
+`dictation`, and `judge`. Codemode's `models.judge` and automatic thinking use the
+configured `judge` role, including its `retry.fallbackChains.judge` candidates.
+Judge inference can use native judge models or chat models; codemode scripts cannot
+select a model or role. Assign `compact` to use that model for automatic and manual
 compaction; when it is unassigned, compaction uses the active session model.
 Compaction follows configured fallback chains after same-model retries fail, without
 changing the active chat model, role, or thinking level. Custom names start with a

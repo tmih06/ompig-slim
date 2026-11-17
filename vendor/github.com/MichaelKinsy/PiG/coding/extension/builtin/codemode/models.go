@@ -17,7 +17,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/usagetotals"
 )
 
-// maxConcurrentModelCalls is how many `models.classify()` and `models.generateImages()` calls one script may have in
+// maxConcurrentModelCalls is how many `models.judge()` and `models.generateImages()` calls one script may have in
 // flight; `Promise.all` over many items queues the rest.
 //
 // upstream: execute.ts MAX_CONCURRENT_MODEL_CALLS
@@ -30,8 +30,11 @@ type modelRuntime interface {
 	GetModelsOfType(modelType ai.ModelType, provider ...string) []ai.AnyModel
 	GetAvailableOfType(ctx context.Context, modelType ai.ModelType, provider ...string) ([]ai.AnyModel, error)
 	GetModelOfType(modelType ai.ModelType, provider, id string) ai.AnyModel
-	Classify(ctx context.Context, model *ai.ClassifierModel, request ai.ClassifierContext, options ...ai.ModelsClassifierOptions) ai.ClassifierResult
 	GenerateImages(ctx context.Context, model *ai.ImageModel, request ai.ImagesContext, options ...ai.ModelsImagesOptions) ai.AssistantImages
+}
+
+type judgeModelRuntime interface {
+	Judge(ctx context.Context, request ai.ClassifierContext) ai.JudgeResult
 }
 
 // modelRuntimeOf is the registry of the tool context, when it has the typed operations.
@@ -54,50 +57,119 @@ type limiter struct {
 	mu      sync.Mutex
 	limit   int
 	active  int
-	waiting []chan struct{}
+	waiting []*limiterWaiter
 }
 
-func (l *limiter) run(call func()) {
+type limiterWaiter struct{ ready chan struct{} }
+
+func (l *limiter) run(ctx context.Context, call func()) bool {
+	if !l.acquire(ctx) {
+		return false
+	}
+	defer l.release()
+	if ctx.Err() != nil {
+		return false
+	}
+	call()
+	return true
+}
+
+func (l *limiter) acquire(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	l.mu.Lock()
-	if l.active >= l.limit {
-		wake := make(chan struct{})
-		l.waiting = append(l.waiting, wake)
-		l.mu.Unlock()
-		// The releasing call kept active counted for this waiter.
-		<-wake
-	} else {
+	if l.active < l.limit {
 		l.active++
 		l.mu.Unlock()
+		return true
 	}
-	defer func() {
+	waiter := &limiterWaiter{ready: make(chan struct{})}
+	l.waiting = append(l.waiting, waiter)
+	l.mu.Unlock()
+	select {
+	case <-waiter.ready:
+		return true
+	case <-ctx.Done():
 		l.mu.Lock()
-		if len(l.waiting) > 0 {
-			wake := l.waiting[0]
-			l.waiting = l.waiting[1:]
-			close(wake)
-		} else {
-			l.active--
+		for i, queued := range l.waiting {
+			if queued == waiter {
+				l.waiting = append(l.waiting[:i], l.waiting[i+1:]...)
+				l.mu.Unlock()
+				return false
+			}
 		}
 		l.mu.Unlock()
-	}()
-	call()
+		// The slot was handed to this waiter just as its context was cancelled.
+		l.release()
+		return false
+	}
 }
 
-// modelGlobals are `models.*` for scripts: the model registry methods documented in docs/codemode.md. Classifier and
-// image calls appear as nested call rows so the renderer shows them, and their usage joins the result's. Rows show only
-// the model, never prompts or image data.
+func (l *limiter) release() {
+	l.mu.Lock()
+	if len(l.waiting) > 0 {
+		waiter := l.waiting[0]
+		l.waiting = l.waiting[1:]
+		close(waiter.ready)
+	} else {
+		l.active--
+	}
+	l.mu.Unlock()
+}
+
+// modelGlobals are `models.*` for scripts: the model registry methods documented in docs/codemode.md. Judge and image
+// calls appear as nested call rows so the renderer shows them, and their usage joins the result's. Rows show only the
+// model or role, never prompts or image data.
 //
 // Ports packages/coding-agent/src/extensions/codemode/execute.ts (createModelGlobals).
 func (r *run) modelGlobals(models modelRuntime) []sandbox.Tool {
 	limit := &limiter{limit: maxConcurrentModelCalls}
 	var callCount int
 
-	// runModelCall resolves the script's model by provider and id only, checks the context, then runs the call as a
-	// nested call row. A script-supplied baseUrl or headers must never receive the credentials.
-	//
-	// upstream: execute.ts createModelGlobals runModelCall
-	runModelCall := func(name string, modelType ai.ModelType, args []json.RawMessage, checkContext func(json.RawMessage) error, call func(resolved ai.AnyModel) modelCallResult) (modelCallResult, error) {
-		model, context := argOrUndefined(args, 0), argOrUndefined(args, 1)
+	runLimitedCall := func(ctx context.Context, name, callArgs string, call func() modelCallResult) modelCallResult {
+		r.mu.Lock()
+		callCount++
+		record := &NestedCall{ID: fmt.Sprintf("%s/%s/%d", r.toolCallID, name, callCount), Name: name, Args: callArgs, Status: StatusRunning}
+		r.calls = append(r.calls, record)
+		r.mu.Unlock()
+		r.publish()
+		startedAt := time.Now()
+		var result modelCallResult
+		started := limit.run(ctx, func() { result = call() })
+		if !started {
+			message := "model call was cancelled before it started"
+			if cause := context.Cause(ctx); cause != nil {
+				message = cause.Error()
+			}
+			result = modelCallResult{stopReason: "aborted", errorMessage: message}
+		}
+		duration := millisSince(startedAt)
+		r.update(record, func(c *NestedCall) {
+			c.DurationMs = &duration
+			switch result.stopReason {
+			case "stop":
+				c.Status = StatusOK
+			case "aborted":
+				c.Status = StatusCancelled
+			default:
+				c.Status = StatusError
+			}
+			if result.errorMessage != "" {
+				c.Error = truncateText(result.errorMessage, errorPreviewChars)
+			}
+			if result.usage != nil {
+				c.Cost = &result.usage.Cost.Total
+			}
+		})
+		if result.usage != nil {
+			r.addModelUsage(*result.usage)
+		}
+		return result
+	}
+
+	runModelCall := func(ctx context.Context, name string, modelType ai.ModelType, args []json.RawMessage, checkContext func(json.RawMessage) error, call func(resolved ai.AnyModel) modelCallResult) (modelCallResult, error) {
+		model, requestContext := argOrUndefined(args, 0), argOrUndefined(args, 1)
 		listHint := fmt.Sprintf("List the %s models you can use with models.getAvailableOfType(%q).", modelType, string(modelType))
 		provider, okProvider := stringArg(field(model, "provider"))
 		id, okID := stringArg(field(model, "id"))
@@ -119,39 +191,15 @@ func (r *run) modelGlobals(models modelRuntime) []sandbox.Tool {
 			}
 			return modelCallResult{}, fmt.Errorf("Unknown %s model %q. %s", modelType, ref, listHint)
 		}
-		if err := checkContext(context); err != nil {
+		if err := checkContext(requestContext); err != nil {
 			return modelCallResult{}, err
 		}
 
-		r.mu.Lock()
-		callCount++
-		record := &NestedCall{ID: fmt.Sprintf("%s/%s/%d", r.toolCallID, name, callCount), Name: name, Args: resolved.ProviderID() + "/" + resolved.ModelID(), Status: StatusRunning}
-		r.calls = append(r.calls, record)
-		r.mu.Unlock()
-		r.publish()
-		startedAt := time.Now()
-		var result modelCallResult
-		limit.run(func() { result = call(resolved) })
-		duration := millisSince(startedAt)
-		r.update(record, func(c *NestedCall) {
-			c.DurationMs = &duration
-			switch result.stopReason {
-			case "stop":
-				c.Status = StatusOK
-			case "aborted":
-				c.Status = StatusCancelled
-			default:
-				c.Status = StatusError
-			}
-			if result.errorMessage != "" {
-				c.Error = truncateText(result.errorMessage, errorPreviewChars)
-			}
-			if result.usage != nil {
-				c.Cost = &result.usage.Cost.Total
-			}
+		result := runLimitedCall(ctx, name, resolved.ProviderID()+"/"+resolved.ModelID(), func() modelCallResult {
+			return call(resolved)
 		})
-		if result.usage != nil {
-			r.addModelUsage(*result.usage)
+		if result.value == nil && modelType == ai.ModelTypeImage {
+			result.value = ai.ImageErrorResult(resolved.(*ai.ImageModel), context.Cause(ctx), true)
 		}
 		return result, nil
 	}
@@ -203,30 +251,33 @@ func (r *run) modelGlobals(models modelRuntime) []sandbox.Tool {
 			}
 			return toModelInfo(model)
 		},
-		"models.classify": func(ctx context.Context, args []json.RawMessage) (any, error) {
-			var request ai.ClassifierContext
-			result, err := runModelCall("models.classify", ai.ModelTypeClassifier, args, func(context json.RawMessage) error {
-				if err := checkClassifierContext(context); err != nil {
-					return err
-				}
-				// A checked context always decodes: ai.ClassifierContext reads only the members checkClassifierContext checked.
-				if json.Unmarshal(context, &request) != nil {
-					request = ai.ClassifierContext{}
-				}
-				return nil
-			}, func(resolved ai.AnyModel) modelCallResult {
-				classifier, _ := resolved.(*ai.ClassifierModel)
-				classified := models.Classify(ctx, classifier, request)
-				return modelCallResult{value: classified, stopReason: string(classified.StopReason), errorMessage: classified.ErrorMessage, usage: classified.Usage}
-			})
-			if err != nil {
+		"models.judge": func(ctx context.Context, args []json.RawMessage) (any, error) {
+			if len(args) != 1 {
+				return nil, fmt.Errorf("models.judge() expects exactly one context argument, got %d", len(args))
+			}
+			if err := checkJudgeContext(args[0]); err != nil {
 				return nil, err
+			}
+			var request ai.ClassifierContext
+			if err := json.Unmarshal(args[0], &request); err != nil {
+				return nil, fmt.Errorf("models.judge() could not read its context: %w", err)
+			}
+			judge, ok := models.(judgeModelRuntime)
+			if !ok {
+				return nil, fmt.Errorf("models.judge() is unavailable in this model registry")
+			}
+			result := runLimitedCall(ctx, "models.judge", "@judge", func() modelCallResult {
+				judged := judge.Judge(ctx, request)
+				return modelCallResult{value: judged, stopReason: string(judged.StopReason), errorMessage: judged.ErrorMessage, usage: judged.Usage}
+			})
+			if result.value == nil {
+				return ai.JudgeResult{Answers: map[string]ai.JudgeAnswer{}, StopReason: ai.JudgeStopReasonAborted, ErrorMessage: result.errorMessage}, nil
 			}
 			return result.value, nil
 		},
 		"models.generateImages": func(ctx context.Context, args []json.RawMessage) (any, error) {
 			var request ai.ImagesContext
-			result, err := runModelCall("models.generateImages", ai.ModelTypeImage, args, func(context json.RawMessage) error {
+			result, err := runModelCall(ctx, "models.generateImages", ai.ModelTypeImage, args, func(context json.RawMessage) error {
 				if err := checkImagesContext(context); err != nil {
 					return err
 				}
@@ -272,12 +323,12 @@ func (r *run) modelGlobals(models modelRuntime) []sandbox.Tool {
 }
 
 // modelGlobalNames are the `models` globals in upstream's declaration order (execute.ts createModelGlobals implementations).
-var modelGlobalNames = []string{"models.getModelsOfType", "models.getAvailableOfType", "models.getModelOfType", "models.classify", "models.generateImages"}
+var modelGlobalNames = []string{"models.getModelsOfType", "models.getAvailableOfType", "models.getModelOfType", "models.judge", "models.generateImages"}
 
 // modelTypes is upstream MODEL_TYPES, in its order.
 var modelTypes = []ai.ModelType{ai.ModelTypeChat, ai.ModelTypeImage, ai.ModelTypeClassifier}
 
-// modelCallResult holds the fields of ClassifierResult and AssistantImages that a nested call row reports, and the
+// modelCallResult holds the fields of JudgeResult and AssistantImages that a nested call row reports, and the
 // value the script receives.
 //
 // upstream: execute.ts ModelCallResult

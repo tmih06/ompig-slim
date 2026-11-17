@@ -59,7 +59,7 @@ func TestAutoThinkingUsesJudgeWithoutChangingPreference(t *testing.T) {
 	if s.ConfiguredThinkingLevel() != "auto" {
 		t.Fatal("auto not retained")
 	}
-	if judges := s.autoThinkingJudges(); len(judges) == 0 {
+	if judges := s.modelRuntime.judgeCandidates(); len(judges) == 0 {
 		t.Fatalf("no judge candidates: available=%v", services.ModelRuntime().GetAvailableSnapshot())
 	}
 	s.applyAutoThinking(context.Background(), "rename the specified local constant")

@@ -84,6 +84,11 @@ func (runtime *ModelRuntime) classify(ctx context.Context, model *ai.ClassifierM
 	return provider.Classify(ctx, requestModel, request, requestOptions)
 }
 
+// Judge resolves the configured judge role and tries its candidates without exposing model selectors to callers.
+func (registry *ModelRegistry) Judge(ctx context.Context, request ai.ClassifierContext) ai.JudgeResult {
+	return registry.runtime.Judge(ctx, request)
+}
+
 // Classify classifies structured state with request-time authentication. It never fails: failures are error or aborted results (model-registry.ts classify).
 func (registry *ModelRegistry) Classify(ctx context.Context, model *ai.ClassifierModel, request ai.ClassifierContext, options ...ai.ModelsClassifierOptions) ai.ClassifierResult {
 	return registry.runtime.Classify(ctx, model, request, options...)

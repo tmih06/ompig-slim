@@ -2,8 +2,8 @@
 // other tools. The script runs in the sandbox of package codemode (docs/specs/builtin-codemode-tool-search.md).
 //
 // Scripts use `tools`, `ALL_TOOLS`, `text()`, `image()`, `exit()`, `store()`/`load()`, `console.*`, and
-// `return <value>`, may start with a `// @options:` line, and reach the model catalog, classifiers, and image models
-// through `models.*`. Results start with a "Script completed" or "Script failed" header.
+// `return <value>`, may start with a `// @options:` line, and reach the model catalog, configured judge role, and
+// image models through `models.*`. Results start with a "Script completed" or "Script failed" header.
 //
 // Scripts can call the agent loop's nested tools: active `direct` tools and every `codemode` or `deferred` tool, except
 // transcript-stateful tools such as `todo`. Nested calls run through the agent loop's tool pipeline

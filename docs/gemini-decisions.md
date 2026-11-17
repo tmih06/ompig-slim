@@ -1,16 +1,15 @@
 # Gemini Decisions
 
-`google/gemini-decision-1` is a native classifier for closed-set judgments. It uses Google's [Decisions API](https://aistudio.google.com/docs/decisions-api), not Gemini text generation. In `/model`, filter by **judge** and assign Gemini Decision 1 to a judge role. It cannot be selected as the chat model.
+`google/gemini-decision-1` is a native classifier for closed-set judgments. It uses Google's [Decisions API](https://aistudio.google.com/docs/decisions-api), not Gemini text generation. In `/model`, filter by **judge** and assign Gemini Decision 1 to the `judge` role. It cannot be selected as the chat model. Codemode selects it automatically when it is the configured judge; scripts cannot choose a model or role.
 
 ## Use Gemini Decision 1 in codemode
 
-`models.getModelOfType` returns the model object that `models.classify` requires. Pass the object, not a `provider/id` string.
+`models.judge(context)` replaces `models.classify(model, context)` in codemode.
+Assign the model to the `judge` role outside the script. The Go classifier APIs
+remain available.
 
 ```js
-const judge = await models.getModelOfType("classifier", "google", "gemini-decision-1");
-if (!judge) throw new Error("Gemini Decision 1 is not registered");
-
-const result = await models.classify(judge, {
+const result = await models.judge({
 	state: { answer: "4", expected: "4" },
 	questions: {
 		correct: {
@@ -33,14 +32,15 @@ const result = await models.classify(judge, {
 
 if (result.stopReason !== "stop") throw new Error(result.errorMessage);
 return {
-	correct: result.answers.correct.probability,
-	action: result.answers.action.choice,
-	actionProbabilities: result.answers.action.probabilities,
-	quality: result.answers.quality.score,
+	correct: result.answers.correct.value,
+	correctProbability: result.answers.correct.classifier?.probability,
+	action: result.answers.action.value,
+	actionProbabilities: result.answers.action.classifier?.probabilities,
+	quality: result.answers.quality.value,
 };
 ```
 
-The model registry records `models.classify` as a nested model call. Its usage and estimated cost join the codemode result.
+The model registry records `models.judge` as a nested model call. Its usage and estimated cost join the codemode result.
 
 ## Configure Google authentication
 
@@ -50,13 +50,9 @@ The built-in model uses `https://generativelanguage.googleapis.com/v1beta/decisi
 
 ## Read the result
 
-The result keeps the existing classifier types:
+Each answer has a `type` and a scalar `value`: booleans are true when the native probability is at least 0.5, choices contain a selected key, and scores contain a number within the rubric. Native classifier models add a `classifier` object with available probabilities or confidence; chat-model answers do not fabricate this metadata. The result includes the chosen provider and model, combined usage for every attempted candidate, and a `stopReason`.
 
-- A bool answer contains the probability that the answer is true.
-- A choice answer contains the selected key, its confidence, and probabilities keyed by option. The probability slice returned to Go callers follows the criteria order in the request.
-- A score answer contains the probability-weighted score and confidence. The result does not include per-level probabilities or the score legend.
-
-Gemini Decision 1 does not generate explanations. Its bool confidence is not a separate result field. Check `stopReason` before reading answers. Errors and cancellation return no answers and set `stopReason` to `error` or `aborted`.
+Gemini Decision 1 does not generate explanations. Check `stopReason` before reading answers. Errors and cancellation return no answers and set `stopReason` to `error` or `aborted`.
 
 The catalog lists a 262,144-token context window, `$0.10` per million input tokens, and no output-token cost. Cost values are estimates from the catalog and can change.
 

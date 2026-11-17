@@ -137,36 +137,47 @@ func memberValues(raw json.RawMessage) []json.RawMessage {
 	return values
 }
 
-// classifierContextShape is upstream CLASSIFIER_CONTEXT_SHAPE.
-const classifierContextShape = `{ state: { ... }, images?: [{ type: "image", data: <base64>, mimeType }], questions: { <id>: { type: "choice", instructions, criteria: { <label>: <meaning> } } | { type: "score", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: "bool", instructions, criteria: { true: <meaning>, false: <meaning> } } } }`
+const judgeContextShape = `{ state: { ... }, questions: { <id>: { type: "bool", instructions, criteria: { true: <meaning>, false: <meaning> } } | { type: "choice", instructions, criteria: { <label>: <meaning> } } | { type: "score", instructions, criteria: [<lowest level>, ..., <highest level>] } }, images?: [{ type: "image", data: <base64>, mimeType }] }`
 
-// checkClassifierContext checks a script's classifier context, so mistakes fail with the expected shape instead of a
-// provider error.
-//
-// upstream: execute.ts checkClassifierContext
-func checkClassifierContext(context json.RawMessage) error {
+func checkJudgeContext(context json.RawMessage) error {
 	fail := func(problem string) error {
-		return fmt.Errorf("models.classify() %s. Expected context: %s.", problem, classifierContextShape)
+		return fmt.Errorf("models.judge() %s. Expected context: %s.", problem, judgeContextShape)
 	}
 	if !isRecord(context) {
-		return fail("expects a context object as its second argument, got " + describeValue(context))
+		return fail("expects a context object as its only argument, got " + describeValue(context))
 	}
-	if state := field(context, "state"); !isRecord(state) {
+	contextObject := objectOf(context)
+	if contextObject == nil {
+		return fail("expects a valid context object")
+	}
+	for _, key := range contextObject.Keys() {
+		if key != "state" && key != "questions" && key != "images" {
+			return fail("does not accept context." + key + "; model and role selectors are configured outside the script")
+		}
+	}
+	state, _ := contextObject.Get("state")
+	if !isRecord(state) {
 		return fail("context.state must be an object, got " + describeValue(state))
 	}
-	// images is optional (execute.ts checkClassifierContext): an array of image blocks.
-	if images := field(context, "images"); images != nil {
+	if images, _ := contextObject.Get("images"); images != nil {
 		var blocks []json.RawMessage
 		if jsonKind(images) != '[' || json.Unmarshal(images, &blocks) != nil {
 			return fail("context.images must be an array, got " + describeValue(images))
 		}
 		for index, block := range blocks {
-			if blockType, _ := stringArg(field(block, "type")); !isRecord(block) || blockType != "image" || jsonKind(field(block, "data")) != '"' || jsonKind(field(block, "mimeType")) != '"' {
+			image := objectOf(block)
+			if image == nil {
+				return fail(fmt.Sprintf("context.images[%d] must be an image block, got %s", index, describeValue(block)))
+			}
+			blockType, _ := image.Get("type")
+			data, _ := image.Get("data")
+			mimeType, _ := image.Get("mimeType")
+			if name, _ := stringArg(blockType); name != "image" || jsonKind(data) != '"' || jsonKind(mimeType) != '"' {
 				return fail(fmt.Sprintf("context.images[%d] must be an image block, got %s", index, describeValue(block)))
 			}
 		}
 	}
-	questions := field(context, "questions")
+	questions, _ := contextObject.Get("questions")
 	object := objectOf(questions)
 	if object == nil || object.Len() == 0 {
 		return fail("context.questions must map question IDs to questions, got " + describeValue(questions))
@@ -174,14 +185,17 @@ func checkClassifierContext(context json.RawMessage) error {
 	for _, id := range object.Keys() {
 		question, _ := object.Get(id)
 		at := "context.questions." + id
-		if !isRecord(question) {
+		questionObject := objectOf(question)
+		if questionObject == nil {
 			return fail(at + " must be a question object, got " + describeValue(question))
 		}
-		if jsonKind(field(question, "instructions")) != '"' {
+		instructions, _ := questionObject.Get("instructions")
+		if jsonKind(instructions) != '"' {
 			return fail(at + ".instructions must be a string")
 		}
-		criteria := field(question, "criteria")
-		questionType, _ := stringArg(field(question, "type"))
+		criteria, _ := questionObject.Get("criteria")
+		typeValue, _ := questionObject.Get("type")
+		questionType, _ := stringArg(typeValue)
 		switch questionType {
 		case "choice":
 			if !isRecord(criteria) || !isStrings(memberValues(criteria)) {
@@ -193,11 +207,17 @@ func checkClassifierContext(context json.RawMessage) error {
 				return fail(at + ` is a "score" question, so criteria must list the levels as strings, lowest first`)
 			}
 		case "bool":
-			if !isRecord(criteria) || jsonKind(field(criteria, "true")) != '"' || jsonKind(field(criteria, "false")) != '"' {
+			criteriaObject := objectOf(criteria)
+			if criteriaObject == nil {
+				return fail(at + ` is a "bool" question, so criteria must be { true: string, false: string }`)
+			}
+			trueMeaning, _ := criteriaObject.Get("true")
+			falseMeaning, _ := criteriaObject.Get("false")
+			if jsonKind(trueMeaning) != '"' || jsonKind(falseMeaning) != '"' {
 				return fail(at + ` is a "bool" question, so criteria must be { true: string, false: string }`)
 			}
 		default:
-			return fail(at + `.type must be "choice", "score", or "bool", got ` + jsonStringify(field(question, "type")))
+			return fail(at + `.type must be "choice", "score", or "bool", got ` + jsonStringify(typeValue))
 		}
 	}
 	return nil

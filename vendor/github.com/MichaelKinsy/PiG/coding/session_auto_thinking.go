@@ -10,7 +10,6 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // autoThinkingQuestion is OMP's rubric, kept verbatim so difficulty meanings do
@@ -96,7 +95,7 @@ func (s *Session) applyAutoThinking(ctx context.Context, prompt string) {
 			replacement = ", except that a request meeting the max conditions takes max"
 		}
 		question.Instructions = strings.ReplaceAll(question.Instructions, "{{#if withMax}}, except that a request meeting the max conditions takes max{{/if}}", replacement)
-		for _, candidate := range s.autoThinkingJudges() {
+		for _, candidate := range s.modelRuntime.judgeCandidates() {
 			if classifyCtx.Err() != nil {
 				break
 			}
@@ -115,60 +114,17 @@ func (s *Session) applyAutoThinking(ctx context.Context, prompt string) {
 	s.notifyReplicatedState()
 }
 
-// autoThinkingJudges follows the live judge role, its explicit fallback tail, then
-// OMP's built-in priority list. Missing auth and unavailable candidates are skipped.
-func (s *Session) autoThinkingJudges() []ai.AnyModel {
-	config := s.SettingsManager().Get().Config
-	// Filter providers before materializing their catalogs. An unavailable
-	// provider cannot judge; decoding the complete catalog inside the four-second
-	// budget can otherwise consume the entire budget before the first request.
-	var all []ai.AnyModel
-	registry := s.services.Registry()
-	for _, provider := range registry.BrowserProviderIDs() {
-		if s.modelRuntime.HasConfiguredAuth(provider) {
-			all = append(all, registry.GetProviderAllModelData(provider)...)
-		}
-	}
-	pool := []modelroles.Candidate{}
-	for _, model := range all {
-		pool = append(pool, modelroles.Candidate{Provider: model.ProviderID(), ID: model.ModelID(), Kind: string(model.ModelType())})
-	}
-	patterns := []string{"@judge"}
-	if chain, ok := s.SettingsManager().ModelFallbackChains()["judge"]; ok {
-		patterns = append(patterns, chain...)
-	} else {
-		patterns = append(patterns, modelroles.RoleDefaults("judge")...)
-	}
-	seen := map[string]bool{}
-	var out []ai.AnyModel
-	for _, pattern := range patterns {
-		selector, err := config.ResolveAvailable(pattern, "", pool)
-		if err != nil {
-			continue
-		}
-		base, _ := modelroles.Split(selector)
-		if seen[base] {
-			continue
-		}
-		seen[base] = true
-		for _, model := range all {
-			if model.ProviderID()+"/"+model.ModelID() == base {
-				out = append(out, model)
-				break
-			}
-		}
-	}
-	return out
-}
-
 // askAutoThinkingJudge uses native choice classifiers where available and a
 // constrained chat answer otherwise. Usage is audited outside conversation context.
-func (s *Session) askAutoThinkingJudge(ctx context.Context, candidate ai.AnyModel, prompt string, question, bucket autoQuestion, levels []ai.ModelThinkingLevel) ai.ModelThinkingLevel {
+func (s *Session) askAutoThinkingJudge(ctx context.Context, candidate judgeModelCandidate, prompt string, question, bucket autoQuestion, levels []ai.ModelThinkingLevel) ai.ModelThinkingLevel {
 	attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	choice := ""
-	switch model := candidate.(type) {
+	switch model := candidate.model.(type) {
 	case *ai.ClassifierModel:
+		if candidate.selector.Upstream != "" {
+			return ""
+		}
 		local := model.Provider == "local" || model.Provider == "llama-cpp" || model.Provider == "lm-studio"
 		q := question
 		labels := []string{}
@@ -207,15 +163,17 @@ func (s *Session) askAutoThinkingJudge(ctx context.Context, candidate ai.AnyMode
 			}
 		}
 	case *ai.Model:
-		if bound := s.modelRuntime.GetModel(model.ProviderID(), model.ID); bound != nil {
-			model = bound
+		bound, err := s.modelRuntime.bindJudgeChatModel(candidate)
+		if err != nil {
+			return ""
 		}
+		model = bound
 		var instructions strings.Builder
 		instructions.WriteString(question.Instructions + "\nReturn exactly one supported level, with no other text.\n")
 		for _, level := range levels {
 			instructions.WriteString(string(level) + ": " + question.Criteria[string(level)] + "\n")
 		}
-		stream := s.modelRuntime.StreamSimple(attempt, model, ai.Context{SystemPrompt: instructions.String(), Messages: []ai.Message{ai.UserMessage{Content: ai.UserText(prompt), Timestamp: time.Now().UnixMilli()}}}, ai.StreamOptions{MaxTokens: 256, Thinking: ai.ThinkingOff.ReasoningOption()})
+		stream := s.modelRuntime.StreamSimple(attempt, model, ai.Context{SystemPrompt: instructions.String(), Messages: []ai.Message{ai.UserMessage{Content: ai.UserText(prompt), Timestamp: time.Now().UnixMilli()}}}, ai.StreamOptions{MaxTokens: 256, Thinking: judgeCandidateThinking(candidate).ReasoningOption()})
 		result := stream.Result()
 		if result == nil || result.StopReason == ai.StopReasonError || result.StopReason == ai.StopReasonAborted {
 			return ""
