@@ -402,13 +402,13 @@ func WithJSValues(raw json.RawMessage, base SessionEntryBase) SessionEntryBase {
 }
 
 // decodeMember decodes data into the entry type T and sets its base members to base, which carries the record; a RawEntry when the members do
-// not decode.
+// not decode. strictBase validated data, or lenientBase encoded it.
 func decodeMember[T SessionEntry, PT interface {
 	*T
 	setBase(SessionEntryBase)
 }](data json.RawMessage, base SessionEntryBase) SessionEntry {
 	var entry T
-	if json.Unmarshal(data, &entry) != nil {
+	if json.UnmarshalTrusted(data, &entry) != nil {
 		return RawEntry{base}
 	}
 	PT(&entry).setBase(base)

@@ -54,7 +54,7 @@ func (m *AgentMessage) decodeLax(data []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := m.decode(sanitized); err != nil {
+	if _, err := m.decode(sanitized, json.UnmarshalTrusted); err != nil {
 		return false, err
 	}
 	return nullContent, nil

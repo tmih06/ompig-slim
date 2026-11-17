@@ -27,6 +27,7 @@ class ResumeModel(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Record arrival, validate history, and return an immediate SSE answer."""
+        self.server.requests += 1
         self.server.requested = time.perf_counter()
         body = self.rfile.read(int(self.headers["Content-Length"]))
         messages = json.loads(body)["messages"]
@@ -84,7 +85,7 @@ def write_session(path, cwd, turns, kept_turns=None):
                 parent = "compacted"
 
 
-def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
+def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None, profile_dir=None):
     """Time real edits and the first request, isolated from profiles and credentials.
 
     Direct resume starts at exec; picker resume starts when /resume is entered
@@ -102,6 +103,7 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
         write_session(path, root, turns, kept_turns)
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ResumeModel)
         server.turns, server.requested, server.failures = turns, None, []
+        server.requests = 0
         server.first_turn = turns - kept_turns if kept_turns is not None else 0
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -112,6 +114,8 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
             "enableInstallTelemetry": False, "compaction": {"enabled": False}}))
         env = isolated_env(root, agent)
         env.update(PIG_STARTUP_TRACE="1", TERM="xterm-256color")
+        if profile_dir:
+            env.update(PIG_PROFILE="cpu,allocs,trace", PIG_PROFILE_DIR=str(profile_dir.resolve()))
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
         started = time.perf_counter()
@@ -125,6 +129,7 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
         captured = bytearray()
         terminal_bytes = 0
         checkpoints, checkpoint_seen, trace_tail = [], set(), b""
+        query_tail = b""
         typed = submitted = picker_opened = selected = False
         editable = ready = completed = None
         try:
@@ -137,6 +142,10 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
                     if not data:
                         break
                     terminal_bytes += len(data)
+                    query_scan = query_tail + data
+                    for _ in range(query_scan.count(b"\x1b[c")):
+                        os.write(master, b"\x1b[?1;2c")
+                    query_tail = query_scan[-2:]
                     # Keep token searches bounded: rescanning the accumulated
                     # scrollback on every PTY packet would throttle the child
                     # and measure this reader instead of resume latency.
@@ -205,8 +214,9 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
             server.shutdown()
             server.server_close()
             thread.join()
-        if completed is None or server.requested is None or server.failures:
+        if completed is None or server.requests != 1 or server.requested is None or server.failures or process.returncode != 0:
             raise AssertionError(f"resume failed: editable={editable is not None}, ready={ready is not None}, "
+                                 f"requests={server.requests}, exit={process.returncode}, "
                                  f"history failures={server.failures}; terminal tail={bytes(captured[-3000:])!r}")
         return {"mode": mode, "via_picker": via_picker, "turns": turns, "kept_turns": kept_turns,
                 "session_bytes": path.stat().st_size,
@@ -215,6 +225,7 @@ def measure(binary, mode, turns, timeout, via_picker=False, kept_turns=None):
                 "request_ms": round((server.requested - started) * 1000, 2),
                 "completed_ms": round((completed - started) * 1000, 2),
                 "terminal_bytes": terminal_bytes,
+                "requests": server.requests, "history_verified": True, "exit_code": process.returncode,
                 "checkpoints": checkpoints}
 
 
@@ -229,16 +240,24 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--max-ms", type=float, help="Fail if the first model request exceeds this elapsed time")
+    parser.add_argument("--compare", type=Path, help="Alternate runs with this second binary")
+    parser.add_argument("--profile-dir", type=Path, help="Write attribution profiles; do not compare profiled timings")
     args = parser.parse_args()
     if min(args.turns, args.runs, args.timeout) <= 0:
         parser.error("turns, runs and timeout must be positive")
     if args.kept_turns is not None and not 1 <= args.kept_turns <= args.turns:
         parser.error("kept-turns must be between 1 and turns")
+    binaries = [args.binary.resolve()]
+    if args.compare:
+        binaries.append(args.compare.resolve())
     for run in range(args.runs):
-        result = measure(args.binary.resolve(), args.mode, args.turns, args.timeout, args.via_picker, args.kept_turns)
-        print(json.dumps({"run": run + 1, **result}), flush=True)
-        if args.max_ms is not None and result["request_ms"] > args.max_ms:
-            raise SystemExit(f"resume-to-request exceeded {args.max_ms} ms")
+        for binary in binaries:
+            result = measure(binary, args.mode, args.turns, args.timeout, args.via_picker,
+                             args.kept_turns, args.profile_dir)
+            print(json.dumps({"run": run + 1, "binary": str(binary),
+                              "profiled": bool(args.profile_dir), **result}), flush=True)
+            if args.max_ms is not None and result["request_ms"] > args.max_ms:
+                raise SystemExit(f"resume-to-request exceeded {args.max_ms} ms")
 
 
 if __name__ == "__main__":

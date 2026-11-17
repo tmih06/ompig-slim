@@ -531,11 +531,11 @@ func (m *AgentMessage) UnmarshalJSON(data []byte) error {
 	if !canonical {
 		var err error
 		if text, err = jsonstringify.Canonicalize(data); err != nil {
-			_, err = m.decode(data)
+			_, err = m.decode(data, json.Unmarshal)
 			return err
 		}
 	}
-	nullContent, err := m.decode(text)
+	nullContent, err := m.decode(text, json.UnmarshalTrusted)
 	if err != nil {
 		nullContent, err = m.decodeLax(text)
 	}
@@ -612,9 +612,9 @@ func equalUpToGoEscapes(encoded, canonical []byte) bool {
 }
 
 // decode decodes data into m and reports whether its content member is null or missing.
-func (m *AgentMessage) decode(data []byte) (bool, error) {
+func (m *AgentMessage) decode(data []byte, unmarshal func([]byte, any) error) (bool, error) {
 	var wire agentMessageWire
-	if err := json.Unmarshal(data, &wire); err != nil && !numberOutsideIntegerField(err) {
+	if err := unmarshal(data, &wire); err != nil && !numberOutsideIntegerField(err) {
 		return false, fmt.Errorf("AgentMessage: %w", err)
 	}
 	nullContent := len(wire.Content) == 0 || string(wire.Content) == "null"
@@ -888,7 +888,7 @@ func unmarshalAgentContent(data []byte) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.TextContent{Text: text}}, nil
 	}
 	var raws []json.RawMessage
-	if err := json.Unmarshal(data, &raws); err != nil {
+	if err := json.UnmarshalTrusted(data, &raws); err != nil {
 		return nil, fmt.Errorf("AgentMessage content: %w", err)
 	}
 	content := make([]ai.ContentBlock, 0, len(raws))
@@ -896,14 +896,14 @@ func unmarshalAgentContent(data []byte) ([]ai.ContentBlock, error) {
 		var probe struct {
 			Type string `json:"type"`
 		}
-		if err := json.Unmarshal(raw, &probe); err != nil {
+		if err := json.UnmarshalTrusted(raw, &probe); err != nil {
 			return nil, fmt.Errorf("AgentMessage content[%d]: %w", i, err)
 		}
 		var block ai.ContentBlock
 		switch probe.Type {
 		case "text":
 			var value ai.TextContent
-			if err := json.Unmarshal(raw, &value); err != nil {
+			if err := json.UnmarshalTrusted(raw, &value); err != nil {
 				return nil, err
 			}
 			block = value
@@ -918,13 +918,13 @@ func unmarshalAgentContent(data []byte) ([]ai.ContentBlock, error) {
 			block = ai.ImageContent{Data: value.Data, MimeType: value.MIMEType}
 		case "thinking":
 			var value ai.ThinkingContent
-			if err := json.Unmarshal(raw, &value); err != nil {
+			if err := json.UnmarshalTrusted(raw, &value); err != nil {
 				return nil, err
 			}
 			block = value
 		case "toolCall":
 			var value ai.ToolCall
-			if err := json.Unmarshal(raw, &value); err != nil {
+			if err := json.UnmarshalTrusted(raw, &value); err != nil {
 				return nil, err
 			}
 			block = value

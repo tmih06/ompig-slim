@@ -2,6 +2,7 @@ package coding
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
@@ -56,8 +57,12 @@ func ResolveCliModel(options ResolveCliModelOptions) ResolveCliModelResult {
 	// An exact provider/id needs no cross-provider ambiguity or fuzzy search.
 	// GetModel preserves configured overlays and virtual models; a miss (including
 	// thinking suffixes) still uses the full resolver and its diagnostics.
-	if options.ModelRuntime != nil && options.CliProvider != "" && options.CliModel != "" {
-		if model := options.ModelRuntime.GetModel(options.CliProvider, options.CliModel); model != nil {
+	provider, id := options.CliProvider, options.CliModel
+	if provider == "" {
+		provider, id, _ = strings.Cut(id, "/")
+	}
+	if options.ModelRuntime != nil && provider != "" && id != "" {
+		if model := options.ModelRuntime.GetModel(provider, id); model != nil {
 			return ResolveCliModelResult{Model: model}
 		}
 	}

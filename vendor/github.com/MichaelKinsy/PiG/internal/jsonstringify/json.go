@@ -27,6 +27,10 @@ func AppendCanonical(dst, raw []byte) ([]byte, error) {
 	if IsCanonical(raw) {
 		return append(dst, raw...), nil
 	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) == nil && compact.Len() < len(raw) && IsCanonical(compact.Bytes()) {
+		return append(dst, compact.Bytes()...), nil
+	}
 	canonical, err := canonicalize(raw)
 	if err != nil {
 		return dst, err

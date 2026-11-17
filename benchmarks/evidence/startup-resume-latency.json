@@ -1,0 +1,668 @@
+{
+  "baseline_commit": "980109586b8c25bcf54ef58656c4c014abe9c9ac",
+  "baseline_binary_sha256": "bde82ca60ed44093c7d3a146b9192df733730f577da13b271a5120d0dd8f8159",
+  "changed_binary_sha256": "130a182e36384c75fb06bc22e7cc22a983f67ad405b55b6e5370b1ffb50eb476",
+  "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+  "toolchain": "go version go1.27.4 linux/amd64",
+  "method": "Alternate production binaries in isolated real PTYs. Fresh fixture profiles per sample. Terminal capability replies enabled for both sides. Resume verifies every retained turn in the first loopback inference request.",
+  "limitations": [
+    "Shared host has 14 cores and unrelated CPU-heavy processes. Earlier contended runs were inconclusive and are not pooled with these runs.",
+    "Local saved-default startup has no measurable improvement.",
+    "Resume fixture has one saved session, 1000 turns and about 6.6 MB of JSONL. Compacted fixture has 3000 turns and keeps 12.",
+    "Remote broker startup retains live credential and preference synchronization. No latency improvement is claimed.",
+    "Some direct-resume, regular-mode and compacted ranges overlap. The in-app fullscreen picker has separated ready-to-request ranges."
+  ],
+  "results": {
+    "explicit_role_startup": {
+      "baseline": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 323.83,
+            "min": 286.97,
+            "max": 425.1,
+            "samples": [
+              286.97,
+              306.05,
+              323.83,
+              399.08,
+              425.1
+            ]
+          },
+          "initialized_ms": {
+            "median": 325.73,
+            "min": 287.96,
+            "max": 427.14,
+            "samples": [
+              287.96,
+              307.08,
+              325.73,
+              401.04,
+              427.14
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 55.66,
+            "min": 44.54,
+            "max": 61.09,
+            "samples": [
+              44.54,
+              51.29,
+              61.09,
+              57.06,
+              55.66
+            ]
+          },
+          "initialized_ms": {
+            "median": 56.87,
+            "min": 46.44,
+            "max": 62.15,
+            "samples": [
+              46.44,
+              52.36,
+              62.15,
+              59.92,
+              56.87
+            ]
+          }
+        }
+      }
+    },
+    "saved_default_startup": {
+      "baseline": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 49.03,
+            "min": 42.07,
+            "max": 51.45,
+            "samples": [
+              51.45,
+              49.64,
+              49.03,
+              42.07,
+              42.69
+            ]
+          },
+          "initialized_ms": {
+            "median": 50.08,
+            "min": 43.07,
+            "max": 52.5,
+            "samples": [
+              52.5,
+              50.63,
+              50.08,
+              43.07,
+              43.67
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 54.95,
+            "min": 42.0,
+            "max": 57.6,
+            "samples": [
+              55.07,
+              57.6,
+              42.0,
+              50.22,
+              54.95
+            ]
+          },
+          "initialized_ms": {
+            "median": 56.4,
+            "min": 43.03,
+            "max": 58.67,
+            "samples": [
+              57.51,
+              58.67,
+              43.03,
+              51.19,
+              56.4
+            ]
+          }
+        }
+      }
+    },
+    "fullscreen_resume": {
+      "baseline": {
+        "runs": 7,
+        "metrics": {
+          "editable_ms": {
+            "median": 167.55,
+            "min": 127.65,
+            "max": 260.91,
+            "samples": [
+              248.81,
+              127.65,
+              177.02,
+              260.91,
+              143.13,
+              157.78,
+              167.55
+            ]
+          },
+          "ready_ms": {
+            "median": 326.18,
+            "min": 272.63,
+            "max": 483.57,
+            "samples": [
+              463.11,
+              272.63,
+              340.92,
+              483.57,
+              292.99,
+              306.31,
+              326.18
+            ]
+          },
+          "request_ms": {
+            "median": 380.48,
+            "min": 322.08,
+            "max": 549.11,
+            "samples": [
+              516.04,
+              322.08,
+              398.32,
+              549.11,
+              338.84,
+              354.09,
+              380.48
+            ]
+          },
+          "completed_ms": {
+            "median": 438.94,
+            "min": 375.11,
+            "max": 617.93,
+            "samples": [
+              588.47,
+              375.11,
+              483.54,
+              617.93,
+              394.73,
+              405.42,
+              438.94
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 7,
+        "metrics": {
+          "editable_ms": {
+            "median": 116.32,
+            "min": 108.2,
+            "max": 133.84,
+            "samples": [
+              124.49,
+              108.2,
+              133.84,
+              116.32,
+              116.77,
+              113.01,
+              116.17
+            ]
+          },
+          "ready_ms": {
+            "median": 256.97,
+            "min": 251.05,
+            "max": 307.14,
+            "samples": [
+              272.08,
+              251.05,
+              307.14,
+              256.69,
+              252.57,
+              256.97,
+              267.48
+            ]
+          },
+          "request_ms": {
+            "median": 304.94,
+            "min": 294.06,
+            "max": 361.38,
+            "samples": [
+              313.32,
+              296.54,
+              361.38,
+              299.0,
+              294.06,
+              304.94,
+              311.77
+            ]
+          },
+          "completed_ms": {
+            "median": 357.16,
+            "min": 342.82,
+            "max": 441.13,
+            "samples": [
+              359.17,
+              347.0,
+              441.13,
+              346.39,
+              342.82,
+              357.16,
+              362.75
+            ]
+          }
+        }
+      }
+    },
+    "fullscreen_resume_picker": {
+      "baseline": {
+        "runs": 7,
+        "metrics": {
+          "editable_ms": {
+            "median": 344.88,
+            "min": 317.01,
+            "max": 383.72,
+            "samples": [
+              336.51,
+              318.78,
+              376.79,
+              344.88,
+              317.01,
+              383.72,
+              363.62
+            ]
+          },
+          "ready_ms": {
+            "median": 341.48,
+            "min": 314.27,
+            "max": 379.78,
+            "samples": [
+              332.1,
+              315.37,
+              371.54,
+              341.48,
+              314.27,
+              379.78,
+              360.56
+            ]
+          },
+          "request_ms": {
+            "median": 384.89,
+            "min": 357.84,
+            "max": 430.29,
+            "samples": [
+              381.39,
+              359.71,
+              418.79,
+              384.89,
+              357.84,
+              430.29,
+              407.94
+            ]
+          },
+          "completed_ms": {
+            "median": 443.75,
+            "min": 406.66,
+            "max": 510.77,
+            "samples": [
+              441.29,
+              412.6,
+              475.05,
+              443.75,
+              406.66,
+              510.77,
+              468.84
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 7,
+        "metrics": {
+          "editable_ms": {
+            "median": 279.14,
+            "min": 257.38,
+            "max": 308.05,
+            "samples": [
+              257.38,
+              300.63,
+              279.18,
+              265.09,
+              258.76,
+              308.05,
+              279.14
+            ]
+          },
+          "ready_ms": {
+            "median": 275.98,
+            "min": 251.74,
+            "max": 305.2,
+            "samples": [
+              251.74,
+              294.99,
+              276.58,
+              261.11,
+              256.46,
+              305.2,
+              275.98
+            ]
+          },
+          "request_ms": {
+            "median": 316.98,
+            "min": 298.48,
+            "max": 346.29,
+            "samples": [
+              299.05,
+              341.37,
+              316.98,
+              307.18,
+              298.48,
+              346.29,
+              317.91
+            ]
+          },
+          "completed_ms": {
+            "median": 367.46,
+            "min": 349.33,
+            "max": 399.35,
+            "samples": [
+              350.51,
+              397.41,
+              369.13,
+              356.84,
+              349.33,
+              399.35,
+              367.46
+            ]
+          }
+        }
+      }
+    },
+    "regular_resume": {
+      "baseline": {
+        "runs": 5,
+        "metrics": {
+          "editable_ms": {
+            "median": 150.79,
+            "min": 134.58,
+            "max": 181.52,
+            "samples": [
+              150.79,
+              148.31,
+              181.52,
+              134.58,
+              154.6
+            ]
+          },
+          "ready_ms": {
+            "median": 566.44,
+            "min": 475.54,
+            "max": 593.87,
+            "samples": [
+              578.29,
+              543.29,
+              593.87,
+              475.54,
+              566.44
+            ]
+          },
+          "request_ms": {
+            "median": 607.27,
+            "min": 514.2,
+            "max": 652.92,
+            "samples": [
+              622.17,
+              587.5,
+              652.92,
+              514.2,
+              607.27
+            ]
+          },
+          "completed_ms": {
+            "median": 661.91,
+            "min": 560.95,
+            "max": 729.09,
+            "samples": [
+              676.88,
+              635.49,
+              729.09,
+              560.95,
+              661.91
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 5,
+        "metrics": {
+          "editable_ms": {
+            "median": 95.03,
+            "min": 89.23,
+            "max": 119.17,
+            "samples": [
+              89.23,
+              119.17,
+              95.03,
+              92.19,
+              103.64
+            ]
+          },
+          "ready_ms": {
+            "median": 447.63,
+            "min": 425.42,
+            "max": 556.78,
+            "samples": [
+              425.42,
+              556.78,
+              447.63,
+              433.15,
+              474.19
+            ]
+          },
+          "request_ms": {
+            "median": 478.64,
+            "min": 463.12,
+            "max": 604.98,
+            "samples": [
+              463.12,
+              604.98,
+              478.64,
+              477.17,
+              515.68
+            ]
+          },
+          "completed_ms": {
+            "median": 532.06,
+            "min": 508.6,
+            "max": 658.99,
+            "samples": [
+              508.6,
+              658.99,
+              532.06,
+              525.18,
+              564.76
+            ]
+          }
+        }
+      }
+    },
+    "compacted_resume": {
+      "baseline": {
+        "runs": 5,
+        "metrics": {
+          "editable_ms": {
+            "median": 70.09,
+            "min": 64.54,
+            "max": 87.65,
+            "samples": [
+              64.54,
+              70.09,
+              87.65,
+              81.24,
+              67.16
+            ]
+          },
+          "ready_ms": {
+            "median": 174.99,
+            "min": 143.37,
+            "max": 211.17,
+            "samples": [
+              148.8,
+              174.99,
+              211.17,
+              193.62,
+              143.37
+            ]
+          },
+          "request_ms": {
+            "median": 185.72,
+            "min": 151.53,
+            "max": 224.98,
+            "samples": [
+              157.1,
+              185.72,
+              224.98,
+              210.37,
+              151.53
+            ]
+          },
+          "completed_ms": {
+            "median": 515.52,
+            "min": 446.13,
+            "max": 674.51,
+            "samples": [
+              446.13,
+              515.52,
+              674.51,
+              584.54,
+              463.26
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 5,
+        "metrics": {
+          "editable_ms": {
+            "median": 83.08,
+            "min": 72.54,
+            "max": 100.04,
+            "samples": [
+              72.54,
+              79.04,
+              83.08,
+              100.04,
+              84.2
+            ]
+          },
+          "ready_ms": {
+            "median": 144.71,
+            "min": 134.84,
+            "max": 185.08,
+            "samples": [
+              134.84,
+              144.71,
+              148.01,
+              185.08,
+              140.76
+            ]
+          },
+          "request_ms": {
+            "median": 157.36,
+            "min": 148.56,
+            "max": 196.94,
+            "samples": [
+              148.56,
+              157.36,
+              160.39,
+              196.94,
+              150.53
+            ]
+          },
+          "completed_ms": {
+            "median": 313.74,
+            "min": 211.56,
+            "max": 331.87,
+            "samples": [
+              313.74,
+              317.35,
+              331.87,
+              211.56,
+              295.74
+            ]
+          }
+        }
+      }
+    },
+    "broker_startup_150ms_rtt": {
+      "baseline": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 923.21,
+            "min": 920.89,
+            "max": 933.89,
+            "samples": [
+              933.89,
+              922.78,
+              923.21,
+              920.89,
+              923.93
+            ]
+          },
+          "initialized_ms": {
+            "median": 924.48,
+            "min": 921.85,
+            "max": 936.92,
+            "samples": [
+              936.92,
+              924.4,
+              924.48,
+              921.85,
+              925.15
+            ]
+          }
+        }
+      },
+      "changed": {
+        "runs": 5,
+        "metrics": {
+          "typing_ms": {
+            "median": 925.58,
+            "min": 923.15,
+            "max": 935.3,
+            "samples": [
+              925.9,
+              935.3,
+              923.64,
+              925.58,
+              923.15
+            ]
+          },
+          "initialized_ms": {
+            "median": 926.89,
+            "min": 923.97,
+            "max": 936.08,
+            "samples": [
+              927.04,
+              936.08,
+              924.47,
+              926.89,
+              923.97
+            ]
+          }
+        }
+      }
+    }
+  },
+  "verification": [
+    "GOFLAGS=-tags=pigjson_verify OMPIG_CHECK_CACHE=/tmp/ompig-check-cycle-roles make check passed",
+    "make smoke passed, including isolated startup and both resume entry paths",
+    "Focused race tests passed",
+    "FuzzCanonicalProof passed 229739 executions in 11 seconds",
+    "Python benchmark and smoke shard unit tests passed"
+  ]
+}

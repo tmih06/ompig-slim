@@ -240,6 +240,65 @@ python3 scripts/benchmark.py --slim ./bin/ompig-slim --only ompig-slim \
 
 Not applied: new catalog wire formats and broader fuzzy/default-selection indexes (*hypothesis*); exact selection no longer needs them, and they add generated-data/compatibility cost. Longer broker credential/quota caching remains deliberately out of scope because it weakens live sibling logout/block visibility. Results measure synthetic harness overhead, not provider latency or universal performance.
 
+### Startup and resume measurements
+
+Use isolated profiles when measuring startup. The default measurement reads your
+normal profile unless you pass `--isolated` or an explicit `--agent-dir`.
+
+```sh
+python3 scripts/measure-startup.py ./bin/ompig-slim --isolated --runs 5
+python3 scripts/measure-startup.py ./bin/ompig-slim --isolated --model @default --runs 5
+python3 scripts/measure-resume.py ./bin/ompig-slim --turns 1000 --runs 5
+```
+
+Both scripts accept `--compare /path/to/other-binary` and alternate the binaries
+for each repetition. `--profile-dir /tmp/startup-profiles` captures CPU,
+allocation, and execution profiles for attribution. Keep profiled runs separate
+from latency comparisons. The PTY answers terminal capability queries so a
+synthetic terminal timeout does not inflate initialization time.
+
+Exact provider-qualified CLI selections, including resolved `@role` values,
+use the runtime lookup before listing the full catalog. Fuzzy references,
+thinking suffixes, and misses retain the full resolver and its diagnostics.
+
+Resume validates each enclosing JSON value before decoding nested message
+fields. Nested decoding reuses that validation. Whitespace-only formatting
+changes use a compacted representation when it passes the existing canonical
+proof. Duplicate keys, numeric spellings, surrogate escapes, and unknown fields
+retain the existing semantic rewrite and lossless message behavior.
+
+These changes do not skip model-context restoration or transcript rendering.
+Long sessions still require parsing their active context and rendering saved
+messages. Regular mode also replays native terminal scrollback. Remote broker
+reads, extensions, and project discovery can add startup latency beyond the
+isolated fixture.
+
+An alternating-binary comparison against commit `980109586` produced these
+median elapsed times. Local startup used five runs per binary; fullscreen
+resume used seven and verified all 1,000 saved turns in the first continuation.
+
+| Scenario | Before | After |
+| --- | ---: | ---: |
+| Explicit `@default`, first rendered edit | 323.83 ms | 55.66 ms |
+| Saved default, first rendered edit | 49.03 ms | 54.95 ms |
+| `/resume` picker, first rendered edit | 344.88 ms | 279.14 ms |
+| `/resume` picker, first inference request | 384.89 ms | 316.98 ms |
+
+Explicit startup ranges were 286.97–425.10 ms before and 44.54–61.09 ms after.
+Picker-to-request ranges were 357.84–430.29 ms before and 298.48–346.29 ms
+after. Saved-default startup ranges overlap; it has no demonstrated gain.
+A broker fixture adding 150 ms per request remained approximately 925 ms to
+editable startup. Its live credential and profile reads are still required.
+Direct resume, regular-mode replay, and compacted-session comparisons have
+overlapping ranges; do not treat their median differences as precise speedups.
+
+The host also ran unrelated CPU-heavy workloads. Earlier runs had spreads
+larger than the apparent gain and were excluded rather than pooled. Run-level
+samples, binary hashes, environment, limitations, and verification results are
+in [the comparison evidence](../benchmarks/evidence/startup-resume-latency.json).
+The remaining resume profile is dominated by JSON decoding and transcript
+rendering, not a timer that can safely be removed.
+
 ### Resume-to-work latency
 
 `scripts/measure-resume.py` measures a real terminal opening an old session,

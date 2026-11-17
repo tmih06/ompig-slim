@@ -45,6 +45,42 @@ func mustJSON(tb testing.TB, value string) []byte {
 	return out
 }
 
+func TestCanonicalWhitespacePreservesJSONSemantics(t *testing.T) {
+	for _, source := range []string{
+		` { "role": "user", "content": "keep spaces and \\n text", "timestamp": 1 } `,
+		"{\n\t\"content\": [ { \"type\": \"text\", \"text\": \"é 😀\" } ]\n}",
+		`{ "value": 1.0, "negativeZero": -0, "exponent": 1e2 }`,
+		`{ "a": 1, "a": 2, "nested": { "2": 2, "1": 1 } }`,
+		`{ "text": "\u0061", "surrogate": "\ud800", "pair": "\ud83d\ude00" }`,
+		`[ true, false, null, { "data": "<>&" } ]`,
+	} {
+		want, err := canonicalize([]byte(source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst := []byte("prefix:")
+		got, err := AppendCanonical(dst, []byte(source))
+		if err != nil || !bytes.Equal(got, append([]byte("prefix:"), want...)) {
+			t.Fatalf("canonicalize %q = %q, %v; want %q", source, got, err, want)
+		}
+	}
+}
+
+func BenchmarkSpacedSession(b *testing.B) {
+	raw := []byte(`{ "role": "toolResult", "toolCallId": "read-1", "toolName": "read", "content": [ { "type": "text", "text": ` + string(mustJSON(b, strings.Repeat("historical read output\n", 160))) + ` } ], "timestamp": 1 }`)
+	want, err := canonicalize(raw)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := Canonicalize(raw)
+		if err != nil || !bytes.Equal(got, want) {
+			b.Fatalf("canonicalization changed the record: %v", err)
+		}
+	}
+}
+
 // TestCanonicalStrings protects token boundaries, escape handling, UTF-8 and
 // surrogate pairing when the scanner skips long unescaped source-text runs.
 func TestCanonicalStrings(t *testing.T) {
