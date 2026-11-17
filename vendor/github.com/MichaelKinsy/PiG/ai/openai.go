@@ -1832,7 +1832,7 @@ func (p *openAIProvider) streamResponse(ctx context.Context, request *http.Reque
 	return builder.responseTurn(func() error {
 		if resp.StatusCode != http.StatusOK {
 			body, _ := readWebText(resp.Body)
-			return openAIHTTPError(resp.StatusCode, body)
+			return openAIHTTPError(resp.StatusCode, body, resp.Header)
 		}
 		if err := observeProviderResponse(ctx, opts, resp, &Model{ID: p.cfg.Model, ProviderMeta: ProviderMetadata{ProviderID: p.cfg.ProviderID, API: APIOpenAICompletions}}); err != nil {
 			return err

@@ -31,13 +31,17 @@ type providerError struct {
 	body    any
 	message string
 	prefix  []string
+	// resetHint is a display-only suffix for a free-tier quota 429. It is appended
+	// after normalization because the formatter replaces the message with the body.
+	resetHint string
 }
 
 // ProviderStatus is the HTTP status of the response the error reports; a retry policy reads it.
 func (err *providerError) ProviderStatus() *int { return err.status }
 
 func (err *providerError) Error() string {
-	return FormatProviderError(NormalizeProviderError(err), err.prefix...)
+	text := FormatProviderError(NormalizeProviderError(err), err.prefix...)
+	return text + err.resetHint
 }
 
 // NormalizeProviderError extracts supported error metadata without serializing unread response streams or SDK wrapper objects.

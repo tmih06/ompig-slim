@@ -103,10 +103,13 @@ without tools. Jev requests do not use the chat preamble.
 
 Requests have a five-minute timeout and cancel with the caller's context. The
 client does not follow redirects. Quota and inference errors use the standard
-runtime error and retry policy. OpenCode controls availability, quotas, routing,
-and billing. This experimental compatibility client is not an official
-OpenCode client. Gateway changes can break it. Review the service's terms before
-use.
+runtime error and retry policy. When the gateway rejects a free model with a
+`FreeUsageLimitError` 429, the error also shows the time left until the allowance
+resets. That countdown comes from the gateway's `Retry-After` header, the same
+value the OpenCode client uses. A response without a usable `Retry-After` shows
+the plain quota error. OpenCode controls availability, quotas, routing, and
+billing. This experimental compatibility client is not an official OpenCode
+client. Gateway changes can break it. Review the service's terms before use.
 
 ## Verify the implementation
 

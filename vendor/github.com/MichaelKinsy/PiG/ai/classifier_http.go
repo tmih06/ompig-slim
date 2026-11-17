@@ -51,7 +51,11 @@ func (e *ClassifierHTTPError) Name() string {
 
 // providerError is the error the shared provider error formatter reads.
 func (e *ClassifierHTTPError) providerError() *providerError {
-	return &providerError{status: e.Status, body: e.Body, message: e.Message}
+	status := 0
+	if e.Status != nil {
+		status = *e.Status
+	}
+	return &providerError{status: e.Status, body: e.Body, message: e.Message, resetHint: freeUsageResetSuffix(status, []byte(e.Body), e.Headers)}
 }
 
 func classifierHTTPError(label string, status int, headers http.Header, body string) *ClassifierHTTPError {

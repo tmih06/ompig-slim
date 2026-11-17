@@ -139,7 +139,7 @@ func generateOpenRouterImages(ctx context.Context, model ImageModel, imagesCtx I
 			return generateOpenRouterImages(ctx, model, imagesCtx, options, out, apiKey, true)
 		}
 		out.StopReason = ImagesStopReasonError
-		out.ErrorMessage = openAIHTTPError(resp.StatusCode, data).Error()
+		out.ErrorMessage = openAIHTTPError(resp.StatusCode, data, resp.Header).Error()
 		return out
 	}
 	if dedicated {
