@@ -161,6 +161,7 @@ func loadOMPCatalog(provider string) *ompCatalog {
 	loader, _ := ompCatalogLoads.LoadOrStore(provider, sync.OnceValue(func() *ompCatalog {
 		var records []json.RawMessage
 		decodeOMPCatalogFile("omp_catalog_data/"+provider+".json.gz", &records)
+		records = append(records, ompCatalogAdditions(provider)...)
 		catalog := &ompCatalog{chatByID: map[string]int{}}
 		for _, record := range records {
 			var row ompCatalogRow

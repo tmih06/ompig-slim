@@ -30,15 +30,18 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 		t.Fatal("metadata index leaked into provider roster")
 	}
 	total := 0
+	localRows := 0
 	kinds := map[ModelType]int{}
 	for provider, want := range manifest.Providers {
 		catalog := loadOMPCatalog(provider)
 		if catalog == nil {
 			t.Fatal("missing provider", provider)
 		}
+		additions := len(ompCatalogAdditions(provider))
+		localRows += additions
 		rows := append(slices.Clone(catalog.chat), catalog.other...)
-		if len(rows) != want {
-			t.Fatalf("%s: decoded=%d want=%d", provider, len(rows), want)
+		if len(rows) != want+additions {
+			t.Fatalf("%s: decoded=%d want=%d", provider, len(rows), want+additions)
 		}
 		for _, row := range rows {
 			if row.Provider != provider || row.ID == "" {
@@ -52,7 +55,7 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 		}
 		total += len(rows)
 	}
-	if total != 5949 || kinds[ModelTypeChat] != 5703 {
+	if total != 5949+localRows || kinds[ModelTypeChat] != 5703+localRows {
 		t.Fatal(total, kinds)
 	}
 	for _, kind := range []ModelType{"tiny", "judge", "image", "search", "tts", "stt", "embedding", "rerank", "video"} {
