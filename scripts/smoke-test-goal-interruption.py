@@ -21,9 +21,7 @@ import time
 
 calls = []
 lock = threading.Lock()
-hold = threading.Event()
 gate = threading.Event()
-gate.set()
 quota_error = "--quota" in sys.argv
 
 
@@ -46,9 +44,8 @@ class Model(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(wire)
             return
-        # Hold chosen requests so a human control can land mid-run.
-        if hold.is_set():
-            gate.clear()
+        # Keep the third turn running until Escape has cancelled it.
+        if n == 3:
             gate.wait(30)
         text = f"REPLY_{n}"
         chunks = [
@@ -164,7 +161,8 @@ def main(binary):
                     return
                 wait_requests(3, 15)
                 first = snapshot()
-                assert first, "the goal started no turn"
+                assert len(first) == 3, \
+                    f"expected the held third goal turn, got {len(first)} requests"
                 assert all(has_poke(c) for c in first[1:]), "an active goal did not continue"
 
                 # 2. Escape while a continuation is running. The editor gives the
@@ -185,6 +183,8 @@ def main(binary):
                 pump(4)
                 assert len(snapshot()) == after_escape, \
                     f"Escape left a continuation running: {len(snapshot()) - after_escape} more turns"
+
+                gate.set()
 
                 # 3. An ordinary question must not resume the paused goal.
                 os.write(master, "what is the status?\r".encode())
