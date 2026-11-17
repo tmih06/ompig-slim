@@ -1,0 +1,537 @@
+[
+  {
+    "name": "go-defer-loop",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "for item := range items {\n defer item.Close()\n}",
+      "for i := 0; i < count; i++ { defer cleanup(i) }"
+    ],
+    "misses": [
+      "defer cleanup()\nfor item := range items { use(item) }",
+      "for item := range items { processAndClose(item) }"
+    ]
+  },
+  {
+    "name": "go-http-client-timeout",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "client := &http.Client{}",
+      "client := http.Client{\n}"
+    ],
+    "misses": [
+      "client := &http.Client{Timeout: 10 * time.Second}",
+      "client := sharedClient"
+    ]
+  },
+  {
+    "name": "go-ignored-json-error",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "_ = json.Unmarshal(data, &result)",
+      "_ =\n json.Unmarshal(raw, &config)"
+    ],
+    "misses": [
+      "if err := json.Unmarshal(data, &result); err != nil { return err }",
+      "return json.Unmarshal(data, &result)"
+    ]
+  },
+  {
+    "name": "go-ioutil",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "import \"io/ioutil\"",
+      "import (\n \"io/ioutil\"\n)"
+    ],
+    "misses": [
+      "import \"io\"",
+      "import \"os\""
+    ]
+  },
+  {
+    "name": "go-join-hostport",
+    "paths": [
+      "file.go"
+    ],
+    "matches": [
+      "fmt.Sprintf(\"%s:%d\", host, port)",
+      "address := fmt.Sprintf(\"%s:%d\", host, port)"
+    ],
+    "misses": [
+      "net.JoinHostPort(host, port)",
+      "fmt.Sprintf(\"%s-%d\", name, id)"
+    ]
+  },
+  {
+    "name": "go-rand-v2",
+    "paths": [
+      "file.go"
+    ],
+    "matches": [
+      "import \"math/rand\"",
+      "import rand \"math/rand\""
+    ],
+    "misses": [
+      "import \"math/rand/v2\"",
+      "import \"crypto/rand\""
+    ]
+  },
+  {
+    "name": "go-regexp-loop",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "for _, value := range values {\n ok, _ := regexp.MatchString(\"fixed\", value)\n}",
+      "for i := 0; i < n; i++ { re := regexp.MustCompile(pattern) }"
+    ],
+    "misses": [
+      "re := regexp.MustCompile(\"fixed\")\nfor _, value := range values { re.MatchString(value) }",
+      "for i := 0; i < n; i++ { work() }\nre := regexp.MustCompile(pattern)"
+    ]
+  },
+  {
+    "name": "go-sql-format",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "db.Query(fmt.Sprintf(\"SELECT * FROM users WHERE id=%s\", id))",
+      "db.ExecContext(ctx, fmt.Sprintf(\"DELETE FROM users WHERE id=%s\", id))"
+    ],
+    "misses": [
+      "db.Query(\"SELECT * FROM users WHERE id = ?\", id)",
+      "query := fmt.Sprintf(\"table_%d\", validatedPartition)"
+    ]
+  },
+  {
+    "name": "go-tls-skip-verify",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "tls.Config{InsecureSkipVerify: true}",
+      "config.InsecureSkipVerify = true"
+    ],
+    "misses": [
+      "tls.Config{InsecureSkipVerify: false}",
+      "tls.Config{RootCAs: trustedRoots}"
+    ]
+  },
+  {
+    "name": "go-waitgroup-add",
+    "paths": [
+      "nested/file.go"
+    ],
+    "matches": [
+      "go func() { wg.Add(1); defer wg.Done(); work() }()",
+      "go func(value int) { group.Add(1); use(value) }(v)"
+    ],
+    "misses": [
+      "wg.Add(1)\ngo func() { defer wg.Done(); work() }()",
+      "wg.Go(func() { work() })"
+    ]
+  },
+  {
+    "name": "js-async-foreach",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "items.forEach(async item => { await save(item); });",
+      "items.forEach(\n async function(item) { await save(item); });"
+    ],
+    "misses": [
+      "for (const item of items) { await save(item); }",
+      "items.forEach(item => saveSynchronously(item));"
+    ]
+  },
+  {
+    "name": "js-async-promise-executor",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "new Promise(async (resolve) => { resolve(await load()); })",
+      "new Promise<string>(async function(resolve) { resolve(await load()); })"
+    ],
+    "misses": [
+      "new Promise((resolve, reject) => readFile(path, (err, data) => err ? reject(err) : resolve(data)))",
+      "async function loadValue() { return await load(); }"
+    ]
+  },
+  {
+    "name": "js-empty-catch",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "try { run(); } catch {}",
+      "try { run(); } catch (error) {\n}"
+    ],
+    "misses": [
+      "try { run(); } catch (error) { throw new Error(\"run failed\", { cause: error }); }",
+      "try { optionalCleanup(); } catch { /* Expected best-effort cleanup failure. */ }"
+    ]
+  },
+  {
+    "name": "js-json-clone",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "const clone = JSON.parse(JSON.stringify(value));",
+      "return JSON.parse(\n JSON.stringify(value));"
+    ],
+    "misses": [
+      "const clone = structuredClone(value);",
+      "const parsed = JSON.parse(serializedInput);"
+    ]
+  },
+  {
+    "name": "js-map-parseint",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "values.map(parseInt)",
+      "values.map(Number.parseInt)"
+    ],
+    "misses": [
+      "values.map(value => parseInt(value, 10))",
+      "values.map(Number)"
+    ]
+  },
+  {
+    "name": "js-reduce-spread",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "items.reduce((acc, item) => [...acc, item], [])",
+      "items.reduce((result, item) => ({...result, [item.id]: item}), {})"
+    ],
+    "misses": [
+      "items.reduce((sum, value) => sum + value, 0)",
+      "const result = []; for (const item of items) { result.push(item); }"
+    ]
+  },
+  {
+    "name": "js-sync-io",
+    "paths": [
+      "nested/file.js",
+      "nested/file.jsx",
+      "nested/file.mjs",
+      "nested/file.cjs",
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "const data = fs.readFileSync(path);",
+      "const result = execSync(command);"
+    ],
+    "misses": [
+      "const data = await fs.promises.readFile(path);",
+      "execFile(command, args, callback);"
+    ]
+  },
+  {
+    "name": "py-bare-except",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "try:\n    run()\nexcept:\n    recover()",
+      "except :\n    raise"
+    ],
+    "misses": [
+      "except ValueError:\n    recover()",
+      "except Exception as error:\n    raise"
+    ]
+  },
+  {
+    "name": "py-dynamic-exec",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "value = eval(payload)",
+      "exec(source, globals_dict)"
+    ],
+    "misses": [
+      "value = json.loads(payload)",
+      "value = ast.literal_eval(bounded_input)",
+      "logger.info(\"eval(input) is forbidden\")"
+    ]
+  },
+  {
+    "name": "py-mutable-default",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "def append(value, items=[]):\n    items.append(value)",
+      "async def load(cache: dict = {}):\n    return cache",
+      "def lookup(seen=set()):\n    return seen"
+    ],
+    "misses": [
+      "def append(value, items=None):\n    if items is None: items = []",
+      "def lookup(keys=()):\n    return keys"
+    ]
+  },
+  {
+    "name": "py-pickle-load",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "value = pickle.loads(payload)",
+      "value = pickle.load(stream)"
+    ],
+    "misses": [
+      "value = json.loads(payload)",
+      "payload = pickle.dumps(value)"
+    ]
+  },
+  {
+    "name": "py-requests-timeout",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "response = requests.get(url)",
+      "response = requests.post(url, data=payload)"
+    ],
+    "misses": [
+      "response = requests.get(url, timeout=10)",
+      "response = requests.get(url, **options)",
+      "response = requests.get(build_url(), timeout=10)"
+    ]
+  },
+  {
+    "name": "py-subprocess-shell",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "subprocess.run(command, shell=True)",
+      "subprocess.Popen(\n command,\n shell = True\n)"
+    ],
+    "misses": [
+      "subprocess.run([program, argument], check=True)",
+      "subprocess.run(command, shell=False)"
+    ]
+  },
+  {
+    "name": "py-swallowed-exception",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "except Exception:\n    pass",
+      "except BaseException as error: pass"
+    ],
+    "misses": [
+      "except FileNotFoundError:\n    pass",
+      "except Exception as error:\n    raise RuntimeError(\"load failed\") from error"
+    ]
+  },
+  {
+    "name": "py-yaml-load",
+    "paths": [
+      "nested/file.py"
+    ],
+    "matches": [
+      "value = yaml.load(payload, Loader=yaml.Loader)",
+      "value = yaml.load(payload)"
+    ],
+    "misses": [
+      "value = yaml.safe_load(payload)",
+      "value = yaml.load(payload, Loader=yaml.SafeLoader)",
+      "value = yaml.load(payload, Loader=yaml.CSafeLoader)"
+    ]
+  },
+  {
+    "name": "rs-box-leak",
+    "paths": [
+      "file.rs"
+    ],
+    "matches": [
+      "Box::leak(value)",
+      "let value = Box::leak(Box::new(data));"
+    ],
+    "misses": [
+      "Arc::new(value)",
+      "Box::new(value)"
+    ]
+  },
+  {
+    "name": "rs-collect-count",
+    "paths": [
+      "nested/file.rs"
+    ],
+    "matches": [
+      "let count = iter.collect::<Vec<_>>().len();",
+      "let count = values.filter(predicate).collect::<Vec<u32>>()\n.len();"
+    ],
+    "misses": [
+      "let count = iter.count();",
+      "let values = iter.collect::<Vec<_>>(); use_values(values);"
+    ]
+  },
+  {
+    "name": "rs-mem-forget",
+    "paths": [
+      "nested/file.rs"
+    ],
+    "matches": [
+      "std::mem::forget(value);",
+      "mem::forget(handle);"
+    ],
+    "misses": [
+      "drop(value);",
+      "let value = ManuallyDrop::new(value);"
+    ]
+  },
+  {
+    "name": "rs-unchecked-utf8",
+    "paths": [
+      "nested/file.rs"
+    ],
+    "matches": [
+      "let text = unsafe { str::from_utf8_unchecked(bytes) };",
+      "let text = unsafe { String::from_utf8_unchecked(bytes) };"
+    ],
+    "misses": [
+      "let text = str::from_utf8(bytes)?;",
+      "let text = String::from_utf8(bytes)?;"
+    ]
+  },
+  {
+    "name": "rs-uninitialized",
+    "paths": [
+      "nested/file.rs"
+    ],
+    "matches": [
+      "let value: u32 = unsafe { std::mem::uninitialized() };",
+      "let value = unsafe { mem::uninitialized::<u32>() };"
+    ],
+    "misses": [
+      "let value = MaybeUninit::<u32>::uninit();",
+      "let value = 0u32;"
+    ]
+  },
+  {
+    "name": "rs-unwrap-unchecked",
+    "paths": [
+      "nested/file.rs"
+    ],
+    "matches": [
+      "let value = unsafe { option.unwrap_unchecked() };",
+      "let value = unsafe { result.unwrap_unchecked() };"
+    ],
+    "misses": [
+      "let value = result?;",
+      "if let Some(value) = option { use_value(value); }"
+    ]
+  },
+  {
+    "name": "ts-bare-catch",
+    "paths": [
+      "file.ts",
+      "file.tsx"
+    ],
+    "matches": [
+      "catch (_error) {}",
+      "catch (_) {}"
+    ],
+    "misses": [
+      "catch (error) { log(error); }",
+      "catch { recover(); }"
+    ]
+  },
+  {
+    "name": "ts-check-suppression",
+    "paths": [
+      "nested/file.ts",
+      "nested/file.tsx",
+      "nested/file.mts",
+      "nested/file.cts"
+    ],
+    "matches": [
+      "// @ts-ignore\nconst value = source.missing;",
+      "/* @ts-nocheck */"
+    ],
+    "misses": [
+      "// @ts-expect-error: Deliberate invalid-input test.\nrun(42);",
+      "const marker = \"@ts-ignore\";"
+    ]
+  },
+  {
+    "name": "ts-no-any",
+    "paths": [
+      "file.ts",
+      "nested/file.tsx"
+    ],
+    "matches": [
+      "const value: any = input;",
+      "const value = input as any;"
+    ],
+    "misses": [
+      "// const value: any = input;",
+      "const value: unknown = input;",
+      "const anyValue = input;"
+    ]
+  }
+]

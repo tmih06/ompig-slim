@@ -1,6 +1,8 @@
 package streamingrules
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,48 +11,82 @@ import (
 )
 
 func TestBuiltinRules(t *testing.T) {
-	rules, warnings := loadRules(t.TempDir(), t.TempDir(), readSettings(nil))
-	if len(warnings) != 0 || len(rules) != 6 {
-		t.Fatalf("rules=%d warnings=%v", len(rules), warnings)
+	data, err := os.ReadFile("testdata/builtin-cases.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range []struct {
-		name, file, text string
-		want             bool
-	}{
-		{"go-ioutil", "nested/file.go", `import "io/ioutil"`, true},
-		{"go-ioutil", "file.md", `import "io/ioutil"`, false},
-		{"go-ioutil", "file.go", `import "io"`, false},
-		{"go-rand-v2", "file.go", `import "math/rand"`, true},
-		{"go-rand-v2", "file.go", `import "math/rand/v2"`, false},
-		{"go-join-hostport", "file.go", `fmt.Sprintf("%s:%d", host, port)`, true},
-		{"go-join-hostport", "file.go", `net.JoinHostPort(host, port)`, false},
-		{"ts-no-any", "nested/file.ts", "const value: any = input;", true},
-		{"ts-no-any", "file.tsx", "const value = input as any;", true},
-		{"ts-no-any", "file.ts", "// const value: any = input;", false},
-		{"ts-no-any", "file.ts", "const value: unknown = input;", false},
-		{"ts-bare-catch", "file.ts", "catch (_error) {}", true},
-		{"ts-bare-catch", "file.ts", "catch (error) { log(error); }", false},
-		{"rs-box-leak", "file.rs", "Box::leak(value)", true},
-		{"rs-box-leak", "file.rs", "Arc::new(value)", false},
-	} {
-		t.Run(test.name+"/"+test.text, func(t *testing.T) {
-			for _, rule := range rules {
-				if rule.name != test.name {
-					continue
+	var fixtures []struct {
+		Name    string   `json:"name"`
+		Paths   []string `json:"paths"`
+		Matches []string `json:"matches"`
+		Misses  []string `json:"misses"`
+	}
+	if err := json.Unmarshal(data, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	rules, warnings := loadRules(t.TempDir(), t.TempDir(), readSettings(nil))
+	if len(warnings) != 0 || len(rules) != len(fixtures) || len(rules) == 0 {
+		t.Fatalf("rules=%d fixtures=%d warnings=%v", len(rules), len(fixtures), warnings)
+	}
+	byName := map[string]*rule{}
+	for _, rule := range rules {
+		byName[rule.name] = rule
+	}
+	seen := map[string]bool{}
+	for _, fixture := range fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			rule := byName[fixture.Name]
+			if rule == nil || seen[fixture.Name] {
+				t.Fatal("missing rule or duplicate fixture", fixture.Name)
+			}
+			seen[fixture.Name] = true
+			if rule.interrupt || !rule.builtin || rule.summary == "" || len([]rune(rule.summary)) > 160 {
+				t.Fatal("builtin must be advisory with a concise summary", rule)
+			}
+			if len(fixture.Paths) == 0 || len(fixture.Matches) < 2 || len(fixture.Misses) < 2 {
+				t.Fatal("rule needs file scopes and positive and negative examples")
+			}
+			for _, file := range fixture.Paths {
+				for _, want := range []bool{true, false} {
+					examples := fixture.Matches
+					if !want {
+						examples = fixture.Misses
+					}
+					for i, text := range examples {
+						t.Run(fmt.Sprintf("%s/%t/%d", file, want, i), func(t *testing.T) {
+							for _, tool := range []string{"write", "edit"} {
+								args := map[string]any{"path": file, "content": text, "edits": []any{map[string]any{"oldText": "old", "newText": text}}}
+								matched := false
+								for _, snapshot := range toolSnapshots(tool, args) {
+									matched = matched || rule.matches(snapshot)
+								}
+								if matched != want {
+									t.Fatalf("%s match=%v want=%v for %q", tool, matched, want, text)
+								}
+							}
+						})
+					}
 				}
-				if rule.interrupt || !rule.builtin {
-					t.Fatal("builtin must be advisory")
-				}
-				if got := rule.matches(snapshot{tool: "write", path: test.file, text: test.text}); got != test.want {
-					t.Fatalf("match=%v want=%v", got, test.want)
-				}
-				if rule.matches(snapshot{tool: "read", path: test.file, text: test.text}) {
+				if rule.matches(snapshot{tool: "read", path: file, text: fixture.Matches[0]}) {
 					t.Fatal("matched read output")
 				}
-				return
+				for _, snapshot := range toolSnapshots("edit", map[string]any{"path": file, "edits": []any{map[string]any{"oldText": fixture.Matches[0], "newText": ""}}}) {
+					if rule.matches(snapshot) {
+						t.Fatal("matched deleted code")
+					}
+				}
 			}
-			t.Fatal("rule not found")
+			for _, file := range []string{"example.md", "example.txt", fixture.Paths[0] + ".bak"} {
+				if rule.matches(snapshot{tool: "write", path: file, text: fixture.Matches[0]}) {
+					t.Fatal("matched a file outside its scope", file)
+				}
+			}
 		})
+	}
+	for name := range byName {
+		if !seen[name] {
+			t.Error("untested bundled rule", name)
+		}
 	}
 }
 

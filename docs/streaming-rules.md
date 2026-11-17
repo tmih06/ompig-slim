@@ -7,20 +7,74 @@ It is not a linter or a security boundary.
 
 ## Bundled checks
 
-Six advisory rules load by default.
+34 advisory rules load by default. Each has a short summary for its rule-poke
+card, corrective guidance, and exceptions. The [catalog research](research/streaming-rule-catalog.md)
+records primary sources and the detection limits of the additions.
+
+### Go
 
 | Rule | Pattern |
 |---|---|
 | `go-ioutil` | Deprecated `io/ioutil` imports |
 | `go-rand-v2` | Legacy `math/rand` imports |
 | `go-join-hostport` | `fmt.Sprintf("%s:%d", ...)` network addresses |
+| `go-regexp-loop` | Regex compilation or package-level matching near the start of a loop |
+| `go-defer-loop` | Deferred cleanup near the start of a loop |
+| `go-waitgroup-add` | A launched closure whose first statement calls `Add` |
+| `go-http-client-timeout` | An empty `http.Client{}` literal |
+| `go-tls-skip-verify` | Explicit `InsecureSkipVerify: true` or assignment |
+| `go-ignored-json-error` | Explicitly discarded `json.Unmarshal` errors |
+| `go-sql-format` | Direct formatted arguments to Query or Exec methods |
+
+### JavaScript and TypeScript
+
+The `js-` rules cover `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, and
+`.cts` files. The two original `ts-` rules retain their `.ts` and `.tsx` scopes.
+`ts-check-suppression` also covers `.mts` and `.cts`.
+
+| Rule | Pattern |
+|---|---|
 | `ts-no-any` | TypeScript `: any` annotations and `as any` assertions |
 | `ts-bare-catch` | Underscore-prefixed catch bindings |
-| `rs-box-leak` | Rust `Box::leak` calls |
+| `ts-check-suppression` | `@ts-ignore` and `@ts-nocheck` comment directives |
+| `js-async-promise-executor` | An async callback passed to `new Promise` |
+| `js-async-foreach` | An async callback passed directly to `.forEach` |
+| `js-empty-catch` | A whitespace-only catch body |
+| `js-sync-io` | Selected synchronous filesystem, process, compression, and crypto calls |
+| `js-reduce-spread` | A direct arrow reducer that spreads its own accumulator |
+| `js-json-clone` | `JSON.parse(JSON.stringify(...))` |
+| `js-map-parseint` | A bare parseInt callback passed to `.map` |
+
+### Python
+
+| Rule | Pattern |
+|---|---|
+| `py-mutable-default` | Simple mutable defaults in single-line function signatures |
+| `py-bare-except` | A bare except header |
+| `py-swallowed-exception` | A broad exception handler followed directly by pass |
+| `py-subprocess-shell` | Direct subprocess calls with `shell=True` |
+| `py-pickle-load` | `pickle.load` and `pickle.loads` |
+| `py-yaml-load` | Simple `yaml.load` calls without an explicit safe loader |
+| `py-requests-timeout` | Simple direct Requests calls without an explicit timeout |
+| `py-dynamic-exec` | Unqualified eval or exec calls at a statement boundary |
+
+### Rust
+
+| Rule | Pattern |
+|---|---|
+| `rs-box-leak` | `Box::leak` calls |
+| `rs-mem-forget` | Qualified `mem::forget` calls |
+| `rs-unwrap-unchecked` | Unchecked unwrap calls |
+| `rs-uninitialized` | Qualified `mem::uninitialized` calls |
+| `rs-collect-count` | An explicit Vec collection immediately followed by len |
+| `rs-unchecked-utf8` | Unchecked str or String UTF-8 conversion calls |
 
 A match asks the model to check the code, consider exceptions, and fix a real
 violation. It does not block the write. Regex checks can match quoted examples,
-comments, and valid compatibility code.
+comments, and valid compatibility code. They cannot resolve types, aliases,
+input trust, nested syntax, or application workload. Some patterns deliberately
+cover only simple forms. These checks complement compiler diagnostics, linters,
+security analysis, and application benchmarks rather than replacing them.
 
 ## Rule files
 
@@ -156,3 +210,7 @@ existing anti-pattern. It also checks persisted reminders and once-per-run deliv
 The `--tui` scenarios check painted poke cards and pattern summaries after a
 forced redraw in both fullscreen and regular TUI modes. They cover blocking,
 nested codemode calls, persisted display-only entries, and session resume.
+Catalog scenarios exercise multiple new rules per language, unchanged writes,
+once-per-run delivery, and global or per-rule disabling. The unit coverage matrix
+in `internal/streamingrules/testdata/builtin-cases.json` requires matching and
+non-matching examples for every bundled rule, including file-scope and deletion controls.

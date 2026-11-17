@@ -23,6 +23,8 @@ next provider request, saved reminders, and the actual files written.
 With `--tui`, it also checks distinct rule-poke cards and pattern summaries after
 a forced redraw in both fullscreen and regular mode. The scenarios cover nested
 codemode calls, display-only persistence, and rendering after session resume.
+Catalog scenarios check new Go, JavaScript/TypeScript, Python, and Rust rules,
+including batched pokes, repeated writes, and disabling all or selected built-ins.
 
 ## Gotchas
 

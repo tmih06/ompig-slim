@@ -11,6 +11,68 @@ import tempfile
 import threading
 
 
+CATALOG = {
+    "catalog-go": {
+        "path": "catalog.go",
+        "content": 'package probe\nimport ("crypto/tls"; "encoding/json")\nvar config = tls.Config{InsecureSkipVerify: true}\nfunc decode(data []byte) { var result any; _ = json.Unmarshal(data, &result) }\n',
+        "rules": {
+            "go-tls-skip-verify": "TLS certificate verification is disabled. Restore verification or prove the custom verifier.",
+            "go-ignored-json-error": "A JSON decode error is discarded. Handle invalid input before using the result.",
+        },
+    },
+    "catalog-js": {
+        "path": "catalog.ts",
+        "content": 'const job = new Promise(async (resolve) => { resolve(await load()); });\nitems.forEach(async item => { await save(item); });\nconst all = items.reduce((acc, item) => [...acc, item], []);\n',
+        "rules": {
+            "js-async-promise-executor": "An async Promise executor can lose errors. Use an async function or a synchronous executor.",
+            "js-async-foreach": "Array.forEach does not await async callbacks. Make completion and failure handling explicit.",
+            "js-reduce-spread": "Spreading a growing reduce accumulator repeatedly can cause quadratic copying.",
+        },
+    },
+    "catalog-py": {
+        "path": "catalog.py",
+        "content": 'def append(value, items=[]):\n    items.append(value)\n    return items\nresponse = requests.get(url)\n',
+        "rules": {
+            "py-mutable-default": "A mutable default argument is shared between Python calls. Allocate per call when state should be fresh.",
+            "py-requests-timeout": "A Requests call has no explicit timeout. Verify a bounded network wait.",
+        },
+    },
+    "catalog-rs": {
+        "path": "catalog.rs",
+        "content": 'fn example(bytes: &[u8]) {\n    let text = unsafe { std::str::from_utf8_unchecked(bytes) };\n    let count = (0..10).collect::<Vec<_>>().len();\n}\n',
+        "rules": {
+            "rs-unchecked-utf8": "Unchecked UTF-8 conversion requires valid bytes. Validate external data before creating strings.",
+            "rs-collect-count": "Collecting a Vec only to count it allocates unnecessarily. Check whether Iterator.count preserves semantics.",
+        },
+    },
+}
+TUI_CATALOG = tuple(CATALOG)
+CATALOG["catalog-disabled"] = {**CATALOG["catalog-go"], "ttsr": {"builtinRules": False}}
+CATALOG["catalog-one-disabled"] = {**CATALOG["catalog-go"], "ttsr": {"disabledRules": ["go-tls-skip-verify"]}}
+
+
+def verify_catalog(root, scenario, requests):
+    case = CATALOG[scenario]
+    settings = case.get("ttsr", {})
+    active = {name: summary for name, summary in case["rules"].items()
+              if settings.get("builtinRules", True) and name not in settings.get("disabledRules", [])}
+    assert len(requests) == 3, (scenario, len(requests))
+    for name in case["rules"]:
+        assert reminder_count(requests[0], name) == 0, "rule leaked into initial prompt"
+        for request in requests[1:]:
+            assert reminder_count(request, name) == (1 if name in active else 0), (scenario, name, request)
+    for target in (case["path"], "second-" + case["path"]):
+        assert (root / target).read_text() == case["content"], "advisory rule changed or blocked source"
+    entries = [json.loads(line) for file in (root / "agent/sessions").rglob("*.jsonl") for line in file.read_text().splitlines()]
+    pokes = [entry for entry in entries if entry.get("customType") == "streaming-rule-poke"]
+    assert len(pokes) == (1 if active else 0), (scenario, pokes)
+    if pokes:
+        assert pokes[0]["type"] == "custom" and not pokes[0]["data"]["blocked"], pokes
+        assert {rule["name"]: rule["summary"] for rule in pokes[0]["data"]["rules"]} == active, pokes
+    assert all("streaming-rule-poke" not in json.dumps(request["messages"]) for request in requests), "poke entered model context"
+    return active
+
+
 class Fixture(http.server.BaseHTTPRequestHandler):
     stage = 0
     scenario = ""
@@ -25,7 +87,10 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         cls.requests_seen.append(body)
         stage = cls.stage
         cls.stage += 1
-        if stage == 0:
+        if cls.scenario in CATALOG and stage < 2:
+            case = CATALOG[cls.scenario]
+            name, args = "write", {"path": ("second-" if stage else "") + case["path"], "content": case["content"]}
+        elif stage == 0:
             if cls.scenario == "custom":
                 name, args = "write", {"path": "blocked.go", "content": "BAD_CODE"}
             elif cls.scenario == "nested":
@@ -72,7 +137,7 @@ def run_tui(binary):
     thread.start()
     try:
         for mode in ("fullscreen", "regular"):
-            for scenario in ("builtin", "custom", "nested", "removal"):
+            for scenario in ("builtin", "custom", "nested", "removal", *TUI_CATALOG):
                 with tempfile.TemporaryDirectory(prefix=f"ompig-rules-ui-{mode}-") as directory:
                     root = Path(directory)
                     (root / ".git").mkdir()
@@ -87,10 +152,14 @@ def run_tui(binary):
                             (root / "old.go").write_text('package main\nimport "io/ioutil"\n')
                         session.wait_ready()
                         window, _, frame = session.command("Exercise streaming rules.", seconds=10)
-                        expected = 3 if scenario in ("builtin", "custom") else 2
+                        expected = 3 if scenario in ("builtin", "custom") or scenario in CATALOG else 2
                         assert len(Fixture.requests_seen) == expected, (mode, scenario, len(Fixture.requests_seen), session.tail())
                         ui.expect(frame, ["STREAMING_RULES_OK"], scenario, mode, window)
-                        if scenario in ("builtin", "nested"):
+                        if scenario in CATALOG:
+                            active = verify_catalog(root, scenario, Fixture.requests_seen)
+                            ui.expect(frame, ["◇ Rule poke", "Reminder sent", *active, *active.values()], scenario, mode, window)
+                            assert frame.count("◇ Rule poke") == 1, (mode, scenario, frame)
+                        elif scenario in ("builtin", "nested"):
                             ui.expect(frame, ["◇ Rule poke", "Reminder sent", "go-ioutil", "Deprecated io/ioutil import. Use io and os."], scenario, mode, window)
                             assert frame.count("◇ Rule poke") == 1, (mode, scenario, frame)
                             target = "nested.go" if scenario == "nested" else "first.go"
@@ -145,7 +214,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for scenario in ("builtin", "custom", "nested", "disabled", "removal"):
+        for scenario in ("builtin", "custom", "nested", "disabled", "removal", *CATALOG):
             with tempfile.TemporaryDirectory(prefix="ompig-streaming-rules-") as directory:
                 root = Path(directory)
                 agent = root / "agent"
@@ -157,6 +226,8 @@ def main():
                 settings = {"quietStartup": True, "enableInstallTelemetry": False, "extensionsAutoUpgrade": False}
                 if scenario == "disabled":
                     settings["ttsr"] = {"enabled": False}
+                elif scenario in CATALOG:
+                    settings["ttsr"] = CATALOG[scenario].get("ttsr", {})
                 (agent / "settings.json").write_text(json.dumps(settings))
                 if scenario == "custom":
                     rules = root / ".pi/rules"
@@ -177,9 +248,12 @@ def main():
                 result = subprocess.run(command, cwd=root, env=env, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=45)
                 assert result.returncode == 0 and "STREAMING_RULES_OK" in result.stdout, (scenario, result.stdout, result.stderr)
                 requests = Fixture.requests_seen
-                assert len(requests) == (3 if scenario in ("builtin", "custom") else 2), (scenario, len(requests))
+                assert len(requests) == (3 if scenario in ("builtin", "custom") or scenario in CATALOG else 2), (scenario, len(requests))
                 assert reminder_count(requests[0], "go-ioutil") == 0, "rule leaked into the initial prompt"
-                if scenario in ("builtin", "nested"):
+                if scenario in CATALOG:
+                    verify_catalog(root, scenario, requests)
+                    assert "◇ Rule poke" not in result.stdout, "display-only poke appeared in print mode"
+                elif scenario in ("builtin", "nested"):
                     assert reminder_count(requests[1], "go-ioutil") == 1, (scenario, requests[1])
                     target = "nested.go" if scenario == "nested" else "first.go"
                     assert '"io/ioutil"' in (root / target).read_text(), "advisory rule blocked a write"
