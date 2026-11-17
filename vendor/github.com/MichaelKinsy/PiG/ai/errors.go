@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
@@ -19,29 +20,27 @@ const MaxProviderErrorBodyChars = 4000
 
 // NormalizedProviderError separates a provider's HTTP status and body from its error message.
 type NormalizedProviderError struct {
-	Status             *int    `json:"status,omitempty"`
-	Body               *string `json:"body,omitempty"`
-	Message            string  `json:"message"`
-	MessageCarriesBody bool    `json:"messageCarriesBody"`
+	Status             *int          `json:"status,omitempty"`
+	Body               *string       `json:"body,omitempty"`
+	Message            string        `json:"message"`
+	MessageCarriesBody bool          `json:"messageCarriesBody"`
+	UsageResetAfter    time.Duration `json:"-"`
 }
 
 // providerError carries the raw error fields owned by the HTTP adapters. Native SDK errors retain their own types.
 type providerError struct {
-	status  *int
-	body    any
-	message string
-	prefix  []string
-	// resetHint is a display-only suffix for a free-tier quota 429. It is appended
-	// after normalization because the formatter replaces the message with the body.
-	resetHint string
+	status          *int
+	body            any
+	message         string
+	prefix          []string
+	usageResetAfter time.Duration
 }
 
 // ProviderStatus is the HTTP status of the response the error reports; a retry policy reads it.
 func (err *providerError) ProviderStatus() *int { return err.status }
 
 func (err *providerError) Error() string {
-	text := FormatProviderError(NormalizeProviderError(err), err.prefix...)
-	return text + err.resetHint
+	return FormatProviderError(NormalizeProviderError(err), err.prefix...)
 }
 
 // NormalizeProviderError extracts supported error metadata without serializing unread response streams or SDK wrapper objects.
@@ -55,7 +54,7 @@ func NormalizeProviderError(value any) NormalizedProviderError {
 		if status != nil {
 			status = new(*status)
 		}
-		return NormalizedProviderError{Status: status, Body: body, Message: own.message, MessageCarriesBody: body == nil || strings.Contains(own.message, *body)}
+		return NormalizedProviderError{Status: status, Body: body, Message: own.message, MessageCarriesBody: body == nil || strings.Contains(own.message, *body), UsageResetAfter: own.usageResetAfter}
 	}
 	err, ok := value.(error)
 	if !ok {
@@ -97,17 +96,19 @@ func providerErrorBody(value any) *string {
 	return new(TruncateErrorText(text, MaxProviderErrorBodyChars))
 }
 
-// FormatProviderError adds body/status only when they are not already carried by the message. Omit prefix to return the unprefixed provider error.
+// FormatProviderError adds body/status only when they are not already in the message, then appends any usage reset countdown. Omit prefix to return the unprefixed provider error.
 func FormatProviderError(norm NormalizedProviderError, prefix ...string) string {
 	message := norm.Message
 	if !norm.MessageCarriesBody && norm.Status != nil && norm.Body != nil {
 		message = *norm.Body
 	}
 	if len(prefix) > 0 && norm.Status != nil {
-		return fmt.Sprintf("%s (%d): %s", prefix[0], *norm.Status, message)
+		message = fmt.Sprintf("%s (%d): %s", prefix[0], *norm.Status, message)
+	} else if !norm.MessageCarriesBody && norm.Status != nil && norm.Body != nil {
+		message = fmt.Sprintf("%d: %s", *norm.Status, message)
 	}
-	if !norm.MessageCarriesBody && norm.Status != nil && norm.Body != nil {
-		return fmt.Sprintf("%d: %s", *norm.Status, message)
+	if norm.UsageResetAfter > 0 {
+		message += " (resets in " + formatResetDelay(norm.UsageResetAfter) + ")"
 	}
 	return message
 }

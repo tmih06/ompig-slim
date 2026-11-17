@@ -55,7 +55,7 @@ func (e *ClassifierHTTPError) providerError() *providerError {
 	if e.Status != nil {
 		status = *e.Status
 	}
-	return &providerError{status: e.Status, body: e.Body, message: e.Message, resetHint: freeUsageResetSuffix(status, []byte(e.Body), e.Headers)}
+	return &providerError{status: e.Status, body: e.Body, message: e.Message, usageResetAfter: freeUsageResetAfter(status, []byte(e.Body), e.Headers)}
 }
 
 func classifierHTTPError(label string, status int, headers http.Header, body string) *ClassifierHTTPError {
@@ -68,6 +68,16 @@ func classifierTimeoutError(timeoutMs int) *ClassifierHTTPError {
 
 // classifierErrorMessage is formatProviderError(normalizeProviderError(error), `${label} error`).
 func classifierErrorMessage(err error, label string) string {
+	if exceeded, ok := errors.AsType[*providerRetryDelayError](err); ok {
+		if request, ok := errors.AsType[*ClassifierHTTPError](exceeded.cause); ok {
+			provider := request.providerError()
+			if provider.usageResetAfter > 0 {
+				message := FormatProviderError(NormalizeProviderError(provider), label+" error")
+				return exceeded.head + ". " + message
+			}
+		}
+		return exceeded.Error()
+	}
 	if request, ok := errors.AsType[*ClassifierHTTPError](err); ok {
 		return FormatProviderError(NormalizeProviderError(request.providerError()), label+" error")
 	}

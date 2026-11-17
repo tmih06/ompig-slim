@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -24,8 +23,9 @@ func openAIRequestError(ctx context.Context, err error, prefix string) error {
 	}
 	// retryProviderRequest throws validateServerRetryDelayMs's error with the SDK error's own message appended.
 	if exceeded, ok := errors.AsType[*providerRetryDelayError](err); ok && exceeded.status != 0 {
-		if sdkErr, ok := errors.AsType[*providerError](openAIHTTPError(exceeded.status, exceeded.body, nil)); ok {
-			return &nodeTransportError{message: exceeded.head + ". " + sdkErr.message, cause: wrapped}
+		if sdkErr, ok := errors.AsType[*providerError](openAIHTTPError(exceeded.status, exceeded.body, exceeded.headers)); ok {
+			message := FormatProviderError(NormalizedProviderError{Message: exceeded.head + ". " + sdkErr.message, UsageResetAfter: sdkErr.usageResetAfter})
+			return &nodeTransportError{message: message, cause: wrapped}
 		}
 	}
 	if _, ok := errors.AsType[*providerRequestTimeoutError](err); ok {
@@ -55,28 +55,19 @@ func openAIHTTPError(status int, raw []byte, headers http.Header, prefix ...stri
 	} else {
 		message = fmt.Sprintf("%d %s", status, message)
 	}
-	return &providerError{status: new(status), body: sdkError, message: message, prefix: prefix, resetHint: freeUsageResetSuffix(status, raw, headers)}
+	return &providerError{status: new(status), body: sdkError, message: message, prefix: prefix, usageResetAfter: freeUsageResetAfter(status, raw, headers)}
 }
 
-// freeUsageResetSuffix surfaces the free-tier reset carried by a gateway 429's
-// Retry-After header. OpenCode sends the wait as the whole reset window, so the
-// value is the time left until the allowance refills. Every other response keeps
-// Pi's error text byte for byte.
-func freeUsageResetSuffix(status int, body []byte, headers http.Header) string {
+func freeUsageResetAfter(status int, body []byte, headers http.Header) time.Duration {
 	if status != http.StatusTooManyRequests ||
 		!bytes.Contains(body, []byte("FreeUsageLimitError")) && !bytes.Contains(body, []byte("GoUsageLimitError")) {
-		return ""
+		return 0
 	}
-	delay := retryAfterFromHeaders(headers)
-	if delay <= 0 {
-		return ""
-	}
-	return " (resets in " + formatResetDelay(delay) + ")"
+	return retryAfterFromHeaders(headers)
 }
 
-// formatResetDelay renders a coarse countdown in the prompt quota's units.
 func formatResetDelay(delay time.Duration) string {
-	minutes := int(math.Floor(delay.Minutes()))
+	minutes := int(delay / time.Minute)
 	switch {
 	case minutes < 60:
 		return fmt.Sprintf("%dm", max(1, minutes))

@@ -129,18 +129,19 @@ func isRetryableProviderResponse(status int, headers http.Header) bool {
 	return status == 408 || status == 409 || status == 429 || status >= 500
 }
 
-// providerRetryDelayError is validateServerRetryDelayMs's failure: "Server requested Ns retry delay (max: Ms)" followed by the provider error's
-// message. A transport-level retry has only the status line and the body, so it records them for the API module to compose that message the way
-// its SDK does.
+// providerRetryDelayError is validateServerRetryDelayMs's failure: "Server requested Ns retry delay (max: Ms)" followed by the provider error's message.
 type providerRetryDelayError struct {
-	head string
-	tail string
-	// status and body are the failed response's, set by retryTransport.
-	status int
-	body   []byte
+	head    string
+	tail    string
+	status  int
+	headers http.Header
+	body    []byte
+	cause   error
 }
 
 func (err *providerRetryDelayError) Error() string { return err.head + ". " + err.tail }
+
+func (err *providerRetryDelayError) Unwrap() error { return err.cause }
 
 // validateServerRetryDelay ports validateServerRetryDelayMs: a server-requested
 // delay above the cap fails the request with the requested delay surfaced, so
@@ -282,6 +283,9 @@ func RetryProviderRequest[T any](ctx context.Context, request func() (T, error),
 		retriesRemaining--
 		delay, delayErr := providerRetryDelay(headers, retryIndex, maxRetryDelayMs, failure.Error())
 		if delayErr != nil {
+			if exceeded, ok := errors.AsType[*providerRetryDelayError](delayErr); ok {
+				exceeded.cause = err
+			}
 			return zero, delayErr
 		}
 		if abortableSleep(ctx, delay) != nil {
@@ -358,6 +362,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if delayErr != nil {
 			if exceeded, ok := errors.AsType[*providerRetryDelayError](delayErr); ok && resp != nil {
 				exceeded.status = resp.StatusCode
+				exceeded.headers = resp.Header.Clone()
 			}
 			// The SDK error used by Pi's retry policy already carries the response body.
 			if resp != nil && resp.Body != nil {

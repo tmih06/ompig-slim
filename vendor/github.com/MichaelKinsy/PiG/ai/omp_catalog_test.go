@@ -136,6 +136,42 @@ func TestOMPChatIndexesPreserveProviderPrecedence(t *testing.T) {
 	}
 }
 
+func TestOpenCodeGoHy4FlashFreeCatalogContract(t *testing.T) {
+	const modelID = "hy4-flash-free"
+	listed := 0
+	for _, model := range ListModels("opencode-go") {
+		if model.ID == modelID {
+			listed++
+		}
+	}
+	if listed != 1 {
+		t.Fatalf("OpenCode Go listing has %d %s entries, want 1", listed, modelID)
+	}
+	model, ok := LookupModelExact("opencode-go/" + modelID)
+	if !ok {
+		t.Fatal("exact lookup did not find OpenCode Go Hy4 Flash Free")
+	}
+	if model.Provider != "opencode-go" || model.ID != modelID || model.API != APIOpenAICompletions || model.BaseURL != "https://opencode.ai/inference/go/v1" {
+		t.Fatalf("model identity or endpoint = %+v", model)
+	}
+	if model.Kind != "chat" || !model.Reasoning || !slices.Equal(model.Capabilities, []string{"text", "image"}) {
+		t.Fatalf("model capabilities = %+v", model)
+	}
+	if model.ContextWindow != 1048576 || model.MaxOutputTokens != 65536 {
+		t.Fatalf("model limits = %d/%d", model.ContextWindow, model.MaxOutputTokens)
+	}
+	if model.InputCostPerMTokens != 0 || model.OutputCostPerMTokens != 0 || model.CacheReadCost != 0 || model.CacheWriteCost != 0 || len(model.Tiers) != 0 {
+		t.Fatalf("model pricing is not zero: %+v", model)
+	}
+	wantThinking := ThinkingLevelMap{
+		"off": new("none"), "minimal": nil, "low": nil, "medium": nil,
+		"high": new("high"), "xhigh": nil, "max": nil,
+	}
+	if !reflect.DeepEqual(model.ThinkingLevelMap, wantThinking) {
+		t.Fatalf("reasoning map = %s, want %s", SafeJsonStringify(model.ThinkingLevelMap), SafeJsonStringify(wantThinking))
+	}
+}
+
 // TestOMPMetricsRemainRefreshable distinguishes bundled metadata from an
 // explicit user override so public catalog refreshes can update stale scores.
 func TestOMPMetricsRemainRefreshable(t *testing.T) {
