@@ -9,8 +9,8 @@ package ai
 //     (HTTP 410 once expired, 429 when polled too often).
 //  3. POST /api/vibe/sign-in/{process_id}/exchange { exchange_token, code_verifier } -> { api_key }
 //
-// The minted key is a regular Mistral API key billed against the plan's Vibe Code quota, so the
-// login stores it as a plain API-key credential.
+// The minted key is billed against the plan's Vibe Code quota. Keep the user identity alongside
+// it so the OAuth credential store can distinguish accounts and label them with their email.
 
 import (
 	"context"
@@ -46,12 +46,13 @@ const (
 // mistralVibeOAuthProvider implements Mistral's browser PKCE sign-in. The console origin and client
 // are injectable so a test can drive the protocol.
 type mistralVibeOAuthProvider struct {
-	client *http.Client
-	origin string
+	client  *http.Client
+	origin  string
+	apiBase string
 }
 
 func newMistralVibeOAuthProvider() mistralVibeOAuthProvider {
-	return mistralVibeOAuthProvider{client: &http.Client{}, origin: mistralConsoleOrigin}
+	return mistralVibeOAuthProvider{client: &http.Client{}, origin: mistralConsoleOrigin, apiBase: "https://api.mistral.ai/v1"}
 }
 
 func (mistralVibeOAuthProvider) ID() string           { return "mistral" }
@@ -110,7 +111,54 @@ func (p mistralVibeOAuthProvider) LoginContext(ctx context.Context, callbacks OA
 	if err != nil {
 		return OAuthCredentials{}, err
 	}
-	return ompKeyCredential(key), nil
+	credentials := p.keyCredential(ctx, key)
+	if err := ompCancelled(ctx); err != nil {
+		return OAuthCredentials{}, err
+	}
+	return credentials, nil
+}
+
+// keyCredential follows Vibe's /users/me identity lookup. Identity is optional: a failed lookup
+// must not discard a minted key or collapse distinct keys into one anonymous OAuth account.
+func (p mistralVibeOAuthProvider) keyCredential(ctx context.Context, key string) OAuthCredentials {
+	credentials := ompKeyCredential(key)
+	credentials.AccountID = "key:" + hashSecret(key)
+	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, p.apiBase+"/users/me", nil)
+	if err != nil {
+		return credentials
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	client := *p.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return credentials
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return credentials
+	}
+	payload, ok := ompReadJSONBody(resp)
+	if !ok {
+		return credentials
+	}
+	id, ok := ompJSONString(payload, "id")
+	if !ok || strings.TrimSpace(id) == "" {
+		return credentials
+	}
+	credentials.AccountID = id
+	if workspace, ok := payload["workspace"].(map[string]any); ok {
+		if workspaceID, ok := ompJSONString(workspace, "id"); ok && workspaceID != "" {
+			credentials.AccountID += "|workspace:" + workspaceID
+		}
+	}
+	if email, ok := ompJSONString(payload, "email"); ok && strings.TrimSpace(email) != "" {
+		encoded, _ := json.Marshal(email)
+		credentials.Extra = map[string]json.RawMessage{"email": encoded}
+	}
+	return credentials
 }
 
 // mistralPKCE is generatePKCE of registry/oauth/pkce.ts: a 96-byte verifier, base64url encoded,

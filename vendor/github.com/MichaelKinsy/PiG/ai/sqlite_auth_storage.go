@@ -1133,6 +1133,11 @@ func startsAnotherAccount(row *credentialRow, next Credential) bool {
 	}
 	before := deriveAccountKey(*stored)
 	after := deriveAccountKey(next)
+	// Older Mistral browser logins have no identity claims. A newly minted key must not
+	// overwrite that still-valid account just because its original identity is unknown.
+	if row.Provider == "mistral" && before == nil && after != nil && stored.Access != next.Access {
+		return true
+	}
 	return before != nil && after != nil && *before != *after
 }
 

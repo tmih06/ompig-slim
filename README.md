@@ -100,6 +100,10 @@ overrides still apply. macOS calls the Alt key Option. Terminal key mappings can
 intercept shortcuts before the application receives them. Ctrl+Z requests process
 suspension; native Windows reports that suspension is unsupported.
 
+Mistral browser sign-in supports multiple accounts and displays the account email when available.
+Repeat `/login` for each account; list them with `ompig-slim auth accounts --provider mistral` and
+switch with `ompig-slim auth use mistral '<account-key>'`. See [Mistral account identity](docs/mistral-account-identity.md).
+
 Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
 `/export` `/hotkeys` `/quit`. On interactive exit, `/quit` leaves the logo, session message and tool-call
 counts, token usage, and recorded cost in your terminal. Saved sessions include a resume command.
