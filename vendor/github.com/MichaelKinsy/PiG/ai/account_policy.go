@@ -5,7 +5,6 @@ package ai
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -49,8 +48,8 @@ func AccountPolicyModelID(modelID string) string {
 }
 
 // AccountMeetsModelPlan reports whether a known Codex plan satisfies the catalog requirement
-// for modelID. A nil result means the plan cannot be read (an unparseable token or an unknown
-// tier): the account stays probeable, ranked after every known-eligible account.
+// for modelID. A nil result means the effective plan cannot be read or has an unknown
+// tier: the account stays probeable, ranked after every known-eligible account.
 //
 // Codex OAuth credentials (browser logins and JSON imports) carry a plan;
 // every other provider and every API key is eligible.
@@ -69,7 +68,7 @@ func AccountMeetsModelPlan(provider, modelID string, credential Credential) *boo
 	if requirement == "none" {
 		return new(true)
 	}
-	plan, ok := codexPlanClaim(credential.Access)
+	plan, ok := codexAccountPlan(credential)
 	if !ok {
 		return nil
 	}
@@ -86,44 +85,17 @@ func AccountMeetsModelPlan(provider, modelID string, credential Credential) *boo
 	return nil
 }
 
-// codexPlanClaim reads payload["https://api.openai.com/auth"].chatgpt_plan_type from the
-// stored OAuth access token. Stored JWT claims are an external boundary, not an entitlement
-// guarantee from the backend, so every failure reports "unknown" rather than "eligible".
-func codexPlanClaim(access string) (string, bool) {
-	parts := strings.Split(access, ".")
-	if len(parts) < 2 {
-		return "", false
-	}
-	decoded, err := decodeJWTPayload(parts[1])
-	if err != nil {
-		return "", false
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(decoded, &payload); err != nil {
-		return "", false
-	}
-	authRaw, ok := payload["https://api.openai.com/auth"]
-	if !ok {
-		return "", false
-	}
-	var claims map[string]json.RawMessage
-	if err := json.Unmarshal(authRaw, &claims); err != nil {
-		return "", false
-	}
-	planRaw, ok := claims["chatgpt_plan_type"]
-	if !ok {
-		return "", false
-	}
-	var planValue any
-	if err := json.Unmarshal(planRaw, &planValue); err != nil {
-		return "", false
-	}
-	plan, ok := planValue.(string)
-	if !ok {
-		return "", false
+// codexAccountPlan prefers the access-token plan, falling back to the orgName
+// metadata login retains from the ID token when access/refresh tokens omit it.
+// Neither source guarantees backend entitlement; unreadable plans stay unknown.
+func codexAccountPlan(credential Credential) (string, bool) {
+	plan := codexClaimString(codexJWTProfile(credential.Access), codexJWTClaimPath, "chatgpt_plan_type")
+	if jsstring.Trim(plan) == "" {
+		plan = stringClaim(credential, "orgName")
 	}
 	normalized := codexPlanSeparators.ReplaceAllString(jsstring.ToLower(jsstring.Trim(plan)), "_")
-	return strings.TrimPrefix(normalized, "chatgpt_"), true
+	normalized = strings.TrimPrefix(normalized, "chatgpt_")
+	return normalized, normalized != ""
 }
 
 // decodeJWTPayload decodes a base64url JWT segment the way atob does after the caller's

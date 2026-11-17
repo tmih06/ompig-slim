@@ -64,7 +64,7 @@ func accountPlanPriority(providerID, modelID string, credential Credential) acco
 		return accountPlanIneligible
 	}
 	if isCodexAccountProvider(providerID) && credential.Type == CredentialOAuth {
-		plan, _ := codexPlanClaim(credential.Access)
+		plan, _ := codexAccountPlan(credential)
 		if slices.Contains(strings.Split(plan, "_"), "free") {
 			return accountPlanFree
 		}

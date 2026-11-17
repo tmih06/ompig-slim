@@ -48,6 +48,7 @@ func codexClaimString(claims map[string]any, namespace, key string) string {
 
 // enrichCodexProfile extracts account/email/plan from access then ID-token
 // claims. A login records the workspace and plan for OMP-compatible identity.
+// Refreshes also retain the latest plan so later tokens may omit that claim.
 // It does not validate identity: refresh responses may legitimately omit claims.
 func enrichCodexProfile(c OAuthCredentials, idToken string, login bool) OAuthCredentials {
 	access, id := codexJWTProfile(c.Access), codexJWTProfile(idToken)
@@ -66,7 +67,7 @@ func enrichCodexProfile(c OAuthCredentials, idToken string, login bool) OAuthCre
 	if login && account != "" {
 		c.Extra["orgId"], _ = json.Marshal(account)
 	}
-	if login && plan != "" {
+	if plan != "" {
 		c.Extra["orgName"], _ = json.Marshal(plan)
 	}
 	return c
@@ -79,9 +80,9 @@ func codexProfileString(c OAuthCredentials, key string) string {
 	return value
 }
 
-// preserveCodexProfile keeps the selected workspace/organization stable across
-// refreshes and fills an omitted email/account from stored metadata. Clone the
-// extras so the refreshed credential never mutates its caller's owned maps.
+// preserveCodexProfile keeps the selected workspace stable across refreshes and
+// fills omitted email/account/plan claims from stored metadata. Clone the extras
+// so the refreshed credential never mutates its caller's owned maps.
 func preserveCodexProfile(refreshed, stored OAuthCredentials) OAuthCredentials {
 	refreshed.Extra = cloneCredentialExtra(refreshed.Extra)
 	if refreshed.Extra == nil {
@@ -90,11 +91,18 @@ func preserveCodexProfile(refreshed, stored OAuthCredentials) OAuthCredentials {
 	if refreshed.AccountID == "" {
 		refreshed.AccountID = stored.AccountID
 	}
-	for _, key := range []string{"email", "orgId", "orgName"} {
+	for _, key := range []string{"email", "orgId"} {
 		old := codexProfileString(stored, key)
 		if old != "" && (key != "email" || codexProfileString(refreshed, key) == "") {
 			refreshed.Extra[key], _ = json.Marshal(old)
 		}
+	}
+	plan, known := codexAccountPlan(Credential{Access: refreshed.Access, Extra: refreshed.Extra})
+	if !known {
+		plan, known = codexAccountPlan(Credential{Access: stored.Access, Extra: stored.Extra})
+	}
+	if known {
+		refreshed.Extra["orgName"], _ = json.Marshal(plan)
 	}
 	return refreshed
 }

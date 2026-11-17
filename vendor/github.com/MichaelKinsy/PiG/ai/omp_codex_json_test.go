@@ -75,6 +75,36 @@ func TestCodexJSONImport(t *testing.T) {
 	}
 }
 
+func TestCodexJSONImportKeepsPlanForRouting(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct{ name, accessPlan, idPlan, want string }{
+		{"access plan", "free", "", "free"},
+		{"ID plan", "", "free", "free"},
+		{"access wins", "plus", "free", "plus"},
+		{"no token plan", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			access := codexLoginJWT(fmt.Sprintf(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct","chatgpt_plan_type":%q}}`, tc.accessPlan))
+			id := codexLoginJWT(fmt.Sprintf(`{"https://api.openai.com/auth":{"chatgpt_account_id":"other-workspace","chatgpt_plan_type":%q},"email":"user@example.invalid"}`, tc.idPlan))
+			credential, err := parseCodexJSON(fmt.Sprintf(`{"accessToken":%q,"idToken":%q,"expiresIn":3600,"providerSpecificData":{"chatgptPlanType":"pro"}}`, access, id), now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if credential.AccountID != "acct" {
+				t.Fatal("profile extraction changed the validated workspace")
+			}
+			if got := codexProfileString(credential, "orgName"); got != tc.want {
+				t.Fatalf("stored plan = %q, want %q", got, tc.want)
+			}
+			for key := range credential.Extra {
+				if key != "email" && key != "orgName" {
+					t.Fatalf("import retained unexpected metadata: %s", key)
+				}
+			}
+		})
+	}
+}
+
 func TestCodexJSONImportKeepsEmailForAccountLabels(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	credential, err := parseCodexJSON(fmt.Sprintf(`{"accessToken":%q,"idToken":%q,"expiresIn":3600,"providerSpecificData":{"chatgptAccountId":"acct"}}`, codexJSONTestJWT("acct", now.Add(time.Hour)), codexJSONTestIDToken("User@Example.com", now.Add(time.Hour))), now)
@@ -314,6 +344,44 @@ func TestCodexJSONRefreshRotation(t *testing.T) {
 	saved, err := store.ReadAccount(t.Context(), codexJSONProviderID, key)
 	if err != nil || saved.Refresh != "rotated-fixture" || saved.AccountID != "acct" {
 		t.Fatalf("rotation not persisted: %+v %v", saved, err)
+	}
+}
+
+func TestCodexRefreshKeepsPlanForRouting(t *testing.T) {
+	for _, provider := range []string{"openai-codex", codexJSONProviderID} {
+		for _, tc := range []struct{ name, oldAccessPlan, oldStoredPlan, newPlan, want string }{
+			{"stored plan", "", "free", "", "free"},
+			{"previous access plan", "free", "", "", "free"},
+			{"new access wins", "plus", "plus", "free", "free"},
+		} {
+			t.Run(provider+"/"+tc.name, func(t *testing.T) {
+				access := codexLoginJWT(fmt.Sprintf(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct","chatgpt_plan_type":%q}}`, tc.newPlan))
+				withCodexJSONTokenServer(t, 200, fmt.Sprintf(`{"access_token":%q,"refresh_token":"rotated-fixture","expires_in":3600}`, access))
+				store, _ := openTestStore(t)
+				old := oauthCredential("acct", "user@example.invalid", time.Now().Add(-time.Hour))
+				old.Access = codexLoginJWT(fmt.Sprintf(`{"https://api.openai.com/auth":{"chatgpt_plan_type":%q}}`, tc.oldAccessPlan))
+				if tc.oldStoredPlan != "" {
+					old.Extra["orgName"], _ = json.Marshal(tc.oldStoredPlan)
+				}
+				key := deriveAccountKey(old)
+				if _, err := store.SaveAccount(t.Context(), provider, key, old); err != nil {
+					t.Fatal(err)
+				}
+				auth, _ := BuiltinProviderAuth(provider)
+				if _, err := ResolveProviderAuth(t.Context(), provider, auth, store, AuthContext{}, WithAccountKey(AuthResolutionOverrides{}, key)); err != nil {
+					t.Fatal(err)
+				}
+				saved, err := store.ReadAccount(t.Context(), provider, key)
+				if err != nil || saved == nil || credentialClaim(*saved, "orgName") != tc.want {
+					t.Fatalf("refresh lost the effective %s plan: %v", tc.want, err)
+				}
+				for field := range saved.Extra {
+					if field != "email" && field != "orgName" {
+						t.Fatalf("refresh retained unexpected metadata: %s", field)
+					}
+				}
+			})
+		}
 	}
 }
 

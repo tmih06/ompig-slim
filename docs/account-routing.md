@@ -23,6 +23,21 @@ Round-robin distributes assignments, not tokens or requests. One busy session
 can consume more quota than several quiet sessions. A single session does not
 proactively use every account or start every account's provider-side quota window.
 
+## Codex plan claims and usage
+
+Plan checks and priority use the current access-token plan first, falling back
+to the stored plan (`orgName`) when the token omits it. Browser logins and JSON
+imports retain the latest access/ID-token plan across refreshes without keeping
+ID tokens or the source import JSON. This preserves Free priority for models
+such as GPT-6 Luna even when Plus is selected or has a durable assignment.
+Unknown plans are not assumed to be Free, and paid-only models still exclude
+known Free accounts. If an older login/import discarded its only plan claim,
+sign in or import it again. Browser Codex and Codex JSON keep separate pools.
+
+Usage views report the account accepted for the session's model. Before any
+route is confirmed, the usage hub can still show the provider's selected
+account; it is not a prediction of the next request's account.
+
 ## Stickiness and fallback
 
 Assignments and cursors persist in namespaced records in the existing SQLite

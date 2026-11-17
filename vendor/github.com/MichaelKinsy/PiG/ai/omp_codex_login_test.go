@@ -192,6 +192,20 @@ func TestOMPCodexTokenProfileFallback(t *testing.T) {
 	if auth.Headers == nil || *auth.Headers["ChatGPT-Account-Id"] != "workspace-fixture" {
 		t.Fatal("ID-token workspace not forwarded")
 	}
+	store, _ := openTestStore(t)
+	freeKey, plusKey := "free", "plus"
+	if _, err := store.SaveAccount(t.Context(), "openai-codex", &freeKey, credential); err != nil {
+		t.Fatal(err)
+	}
+	plus := Credential{Type: CredentialOAuth, Access: codexLoginJWT(`{"https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}`)}
+	if _, err := store.SaveAccount(t.Context(), "openai-codex", &plusKey, plus); err != nil {
+		t.Fatal(err)
+	}
+	luna := &Model{ID: "gpt-6-luna", ProviderMeta: ProviderMetadata{ProviderID: "openai-codex"}}
+	key, present, err := NewAccountRouter(store).ResolveAccount(t.Context(), luna, AccountRouteRequest{})
+	if err != nil || !present || key == nil || *key != freeKey {
+		t.Fatalf("ID-token Free plan did not outrank selected Plus: key=%v present=%v error=%v", key, present, err)
+	}
 	unicodeToken := codexLoginJWT(`{"https://api.openai.com/auth":{"chatgpt_account_id":"workspace-💡"}}`)
 	if CodexAccountID(unicodeToken) != "workspace-💡" {
 		t.Fatal("JWT not decoded as UTF-8/base64url")

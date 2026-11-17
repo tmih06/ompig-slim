@@ -6,6 +6,7 @@ package ai_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -189,6 +190,41 @@ func TestAccountMeetsModelPlan(t *testing.T) {
 	}
 	if meets := ai.AccountMeetsModelPlan("openai-codex", "gpt-6.1-sol", ai.Credential{Type: ai.CredentialAPIKey, Key: "sk-test"}); meets == nil || !*meets {
 		t.Fatalf("an API key is always eligible, got %v", meets)
+	}
+}
+
+func TestAccountMeetsModelPlanWithStoredPlan(t *testing.T) {
+	for _, provider := range []string{"openai-codex", "codex-json"} {
+		for _, tc := range []struct {
+			name, access, stored string
+			paid, spark          *bool
+		}{
+			{"stored free", codexToken(""), `" ChatGPT-Free "`, new(false), new(false)},
+			{"stored plus", "opaque-fixture", `"ChatGPT Plus"`, new(true), new(false)},
+			{"stored pro", codexToken(""), `"pro"`, new(true), new(true)},
+			{"access plus wins", codexToken("plus"), `"free"`, new(true), new(false)},
+			{"access free wins", codexToken("free"), `"pro"`, new(false), new(false)},
+			{"unknown access wins", codexToken("future-plan"), `"pro"`, nil, nil},
+			{"missing plan", "opaque-fixture", `null`, nil, nil},
+			{"mistyped plan", codexToken(""), `42`, nil, nil},
+			{"unknown stored plan", codexToken(""), `"professional"`, nil, nil},
+		} {
+			t.Run(provider+"/"+tc.name, func(t *testing.T) {
+				credential := ai.Credential{Type: ai.CredentialOAuth, Access: tc.access, Extra: map[string]json.RawMessage{"orgName": json.RawMessage(tc.stored)}}
+				for _, model := range []struct {
+					id   string
+					want *bool
+				}{{"gpt-6.1-sol", tc.paid}, {"gpt-5.6-spark", tc.spark}} {
+					got := ai.AccountMeetsModelPlan(provider, model.id, credential)
+					if got == nil && model.want == nil {
+						continue
+					}
+					if got == nil || model.want == nil || *got != *model.want {
+						t.Fatalf("eligibility for %s = %v, want %v", model.id, got, model.want)
+					}
+				}
+			})
+		}
 	}
 }
 

@@ -53,8 +53,8 @@ var errCodexJSONExpired = errors.New("Codex JSON token expired or revoked; impor
 func isCodexAccountProvider(id string) bool { return id == "openai-codex" || id == codexJSONProviderID }
 
 // parseCodexJSON imports request/refresh material and non-secret account identity.
-// It never persists the input object, idToken, or subscription metadata; only the
-// email claim needed for account labels is retained.
+// It never persists the input object or idToken; only the email and plan claims
+// needed for account labels and routing are retained.
 // Absolute expiry wins over expiresIn; JWT expiry caps either claimed lifetime.
 // JWT claims are metadata, not signature verification or proof of entitlement.
 func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
@@ -120,12 +120,12 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 	if expiry.IsZero() || !expiry.After(now) {
 		return OAuthCredentials{}, errors.New("Codex JSON: missing or expired token expiry")
 	}
-	credential := OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}
-	// Keep only the non-secret email claim so account pickers can distinguish
-	// imported accounts without retaining the source JSON or its ID token. The
-	// token's verified address outranks the JSON's own `email` field, which an
-	// import source may fill with a placeholder: the claim is the label rotation
-	// notices and the usage tab show for the account.
+	credential := enrichCodexProfile(OAuthCredentials{Access: data.Access, Refresh: data.Refresh, Expires: expiry.UnixMilli(), AccountID: account}, data.IDToken, true)
+	// Keep the validated workspace and only the non-secret email/plan metadata.
+	credential.AccountID = account
+	delete(credential.Extra, "orgId")
+	// Token claims outrank the JSON's own email, which may be a placeholder.
+	// Account labels and routing must survive tokens that later omit claims.
 	email := CodexAccountEmail(data.Access)
 	if email == "" {
 		claims := codexJWTProfile(data.IDToken)
@@ -139,7 +139,6 @@ func parseCodexJSON(input string, now time.Time) (OAuthCredentials, error) {
 		email = strings.ToLower(strings.TrimSpace(data.Email))
 	}
 	if email != "" {
-		credential.Extra = map[string]json.RawMessage{}
 		credential.Extra["email"], _ = json.Marshal(email)
 	}
 	return credential, nil
@@ -237,20 +236,9 @@ func (codexJSONOAuthProvider) RefreshTokenContext(ctx context.Context, c OAuthCr
 	if account := CodexAccountID(refreshed.Access); account != "" && account != c.AccountID {
 		return OAuthCredentials{}, errors.New("Codex JSON refresh account mismatch; credentials retained")
 	}
+	refreshed = preserveCodexProfile(refreshed, c)
 	refreshed.AccountID = c.AccountID
-	// JSON accounts retain only the non-secret email label, not the richer
-	// profile the shared token endpoint adds for browser logins. A minted token
-	// can omit its profile claim, so keep the stored address: dropping it would
-	// rename the account in rotation notices and the usage tab after a refresh.
-	email := codexProfileString(refreshed, "email")
-	if email == "" {
-		email = codexProfileString(c, "email")
-	}
-	refreshed.Extra = nil
-	if email != "" {
-		refreshed.Extra = map[string]json.RawMessage{}
-		refreshed.Extra["email"], _ = json.Marshal(email)
-	}
+	delete(refreshed.Extra, "orgId")
 	return refreshed, nil
 }
 
