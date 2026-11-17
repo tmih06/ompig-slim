@@ -53,3 +53,20 @@ func TestQuitSummaryWithoutPersistenceOrUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestQuitSummaryCostNeverRoundsToZero(t *testing.T) {
+	for _, tc := range []struct {
+		cost float64
+		want string
+	}{
+		{0.0004, "Cost      $<0.001"},
+		{0.001, "Cost      $0.001"},
+		{4.5, "Cost      $4.500"},
+	} {
+		got := widthx.StripTerminalSequences(renderQuitSummary(
+			SessionAccounting{Tokens: SessionTokenStats{Cost: tc.cost}}, ""))
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("cost %v: missing %q:\n%s", tc.cost, tc.want, got)
+		}
+	}
+}

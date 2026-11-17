@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/tui"
 )
 
@@ -35,7 +36,13 @@ func renderQuitSummary(stats SessionAccounting, resume string) string {
 		formatTokens(tokens.Input+tokens.CacheRead+tokens.CacheWrite), formatTokens(tokens.CacheRead),
 		formatTokens(tokens.CacheWrite), formatTokens(tokens.Output))
 	if tokens.Cost > 0 {
-		fmt.Fprintf(&b, "Cost      $%.3f\n", tokens.Cost)
+		// Same three decimals as /session and the footer. A sub-millicent cost
+		// rounds to zero there, which would report a paid session as free.
+		cost := jsstring.ToFixed(tokens.Cost, 3)
+		if cost == "0.000" {
+			cost = "<0.001"
+		}
+		fmt.Fprintf(&b, "Cost      $%s\n", cost)
 	}
 	if resume != "" {
 		fmt.Fprintf(&b, "Resume    %s\n", resume)
