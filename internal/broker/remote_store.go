@@ -15,6 +15,7 @@ type remoteStore struct{ client *Client }
 
 var _ ai.ApplicationCredentialStore = (*remoteStore)(nil)
 var _ ai.RemoteOAuthCredentialStore = (*remoteStore)(nil)
+var _ ai.AccountSessionStore = (*remoteStore)(nil)
 
 // snapshot fetches current enabled accounts through the client's short-lived
 // shared view; the response never has refreshes.
@@ -97,6 +98,18 @@ func (s *remoteStore) SaveAccount(ctx context.Context, provider string, key *str
 	var result []ai.CredentialAccountInfo
 	err := s.operation(ctx, vaultRequest{Operation: "save", Provider: provider, AccountKey: key, Credential: &credential}, &result)
 	return result, err
+}
+
+// ResolveSessionAccount coordinates assignments on the host without a local credential mirror.
+func (s *remoteStore) ResolveSessionAccount(ctx context.Context, provider string, route ai.AccountSessionRoute, reserve bool) (*ai.AccountSelection, error) {
+	var result *ai.AccountSelection
+	err := s.client.request(ctx, "POST", "/v1/credential", "", vaultRequest{Operation: "session-account", Provider: provider, Route: &route, Reserve: reserve}, &result)
+	return result, err
+}
+
+// SetSessionAccount makes a fallback sticky across clients and restarts.
+func (s *remoteStore) SetSessionAccount(ctx context.Context, provider string, route ai.AccountSessionRoute, key *string) error {
+	return s.client.request(ctx, "POST", "/v1/credential", "", vaultRequest{Operation: "set-session-account", Provider: provider, Route: &route, AccountKey: key}, nil)
 }
 
 // SelectAccount persists selection on the host for all connected clients.

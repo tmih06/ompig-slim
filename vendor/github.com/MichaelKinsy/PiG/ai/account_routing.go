@@ -34,7 +34,8 @@ type AccountRotation struct {
 
 // AccountRouteRequest is what one request tells the router about itself.
 type AccountRouteRequest struct {
-	// SessionID pins a session's successes per model within the router's plan priority.
+	// SessionID keeps assignments sticky per model within the router's plan priority.
+	// Assignments are durable when the store implements AccountSessionStore.
 	SessionID string
 	// APIKeySet reports that the request carries an explicit key. An explicit key is the caller's
 	// account decision: routing is bypassed so it is never rotated past.
@@ -45,8 +46,8 @@ type AccountRouteRequest struct {
 // a routed attempt: an explicit nil key addresses the identity-less account, which is not the
 // provider's selected one.
 type AccountSelection struct {
-	AccountKey    *string
-	AccountKeySet bool
+	AccountKey    *string `json:"accountKey"`
+	AccountKeySet bool    `json:"accountKeySet"`
 }
 
 // AccountObserve receives the provider response of the current attempt, so a rejection can be
@@ -255,11 +256,16 @@ type accountFailure struct {
 }
 
 // Candidates returns the accounts one request may use, best first: eligible Codex free-tier
-// accounts, then other eligible accounts. Within each group, the session's pinned account
-// precedes the provider's selected account, then row order. Accounts whose Codex plan
+// accounts, then other eligible accounts. Within each group, the session's assignment
+// precedes the provider's selected account, then row order. Durable stores preview
+// the next round-robin assignment without reserving it. Accounts whose Codex plan
 // cannot serve the model are dropped up front; accounts whose plan cannot be read follow every
 // known-eligible account. It returns nil when the router does not route this request.
 func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request AccountRouteRequest) ([]*CredentialAccountInfo, error) {
+	return r.candidates(ctx, model, request, false)
+}
+
+func (r *AccountRouter) candidates(ctx context.Context, model AnyModel, request AccountRouteRequest, reserve bool) ([]*CredentialAccountInfo, error) {
 	if !r.Pooled() || request.APIKeySet || model == nil {
 		return nil, nil
 	}
@@ -286,6 +292,16 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 		return nil, nil
 	}
 	pinned, pinnedSet := r.PeekAccountKey(providerID, request.SessionID, modelID)
+	if store, ok := r.sessionStore(request); ok {
+		selection, err := store.ResolveSessionAccount(ctx, providerID, AccountSessionRoute{SessionID: request.SessionID, ModelID: modelID}, reserve)
+		if err != nil {
+			return nil, err
+		}
+		pinnedSet = selection != nil
+		if pinnedSet {
+			pinned = selection.AccountKey
+		}
+	}
 	// Explicit selection is a preference, not permission to send an ineligible account; the sort
 	// is stable, so rows keep their order within a rank.
 	slices.SortStableFunc(accounts, func(left, right *CredentialAccountInfo) int {
@@ -307,18 +323,13 @@ func (r *AccountRouter) Candidates(ctx context.Context, model AnyModel, request 
 		if credential == nil {
 			continue
 		}
-		meets := AccountMeetsModelPlan(providerID, modelID, *credential)
-		switch {
-		case meets == nil:
+		switch accountPlanPriority(providerID, modelID, *credential) {
+		case accountPlanFree:
+			freeTier = append(freeTier, account)
+		case accountPlanEligible:
+			eligible = append(eligible, account)
+		case accountPlanUnknown:
 			unknown = append(unknown, account)
-		case *meets:
-			// Personal runtime policy: preserve paid quota when a free account can serve this model, even after a paid fallback established affinity.
-			plan, _ := codexPlanClaim(credential.Access)
-			if slices.Contains(strings.Split(plan, "_"), "free") {
-				freeTier = append(freeTier, account)
-			} else {
-				eligible = append(eligible, account)
-			}
 		}
 	}
 	eligible = append(freeTier, eligible...)

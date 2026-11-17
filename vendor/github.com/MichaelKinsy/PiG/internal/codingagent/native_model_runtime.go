@@ -92,6 +92,10 @@ func (store registryCredentials) AccountCount() (int, error) {
 // key overlay: a runtime key is one provider's override, not an account the pool may route to.
 type registryCredentialAccounts struct{ registry *ModelRegistry }
 
+func (store registryCredentialAccounts) UnwrapCredentialStore() ai.CredentialStore {
+	return store.store()
+}
+
 func (store registryCredentialAccounts) Read(ctx context.Context, id string) (*ai.Credential, error) {
 	return (registryCredentials{store.registry}).Read(ctx, id)
 }

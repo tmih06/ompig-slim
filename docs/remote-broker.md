@@ -3,7 +3,8 @@
 The broker owns a **canonical SQLite credential vault and OAuth refresher**, like
 oh-my-pi's auth broker. Clients receive access credentials, never real refresh
 tokens, and still call providers directly. This is not an inference gateway:
-prompts, responses, tools, sessions and workspaces do not pass through it.
+prompts, responses, tools, session contents and workspaces do not pass through it.
+Account routing sends session and model IDs to coordinate sticky account assignments.
 Portable preferences synchronize separately with revision checks.
 
 ## Deploy
@@ -126,7 +127,10 @@ mutations invalidate that view immediately; another client's credential changes
 become visible on the next fetch after expiry. Failed fetches never serve an
 expired view. Account metadata and quota reads remain live, and read-only quota
 checks do not discard unchanged credentials. Account selection, logout and quota
-blocks persist on the broker and are visible to every client. Login still runs
+blocks persist on the broker and are visible to every client. Session assignments
+and round-robin cursors also persist there and coordinate all clients. See
+[account routing](account-routing.md) for eligibility, stickiness, and reset behavior.
+Upgrade clients and the broker together for session-assignment support. Login still runs
 the browser/device flow on the client, then uploads the result to the broker
 before returning. Subsequent refreshes run only on the broker.
 
@@ -204,7 +208,8 @@ not a fallback to stored local secrets.
 | `models.json`, `models.yml`, `models.yaml` | Copied unchanged, including embedded keys and custom endpoints |
 | Stored accounts, selection, quota blocks | Owned by broker SQLite, accessed via vault APIs |
 | Refresh leases | Internal broker SQLite coordination, never client-owned |
-| Sessions, project `.pi`, tools, workspaces, logs | Local, never uploaded |
+| Session contents, project `.pi`, tools, workspaces, logs | Local, never uploaded |
+| Session assignments and routing cursors | Owned by broker SQLite; clients send session and model IDs, not session contents |
 | Profile `themes/*.json` | Bidirectional per-file sync, including deletion |
 | Skills, extensions, MCP state, other files | Not synchronized |
 
@@ -267,7 +272,7 @@ restart, then update clients.
 | Route | Contract |
 | --- | --- |
 | `GET /v1/snapshot` | Live enabled accounts with access credentials; OAuth refresh replaced by `__OMPIG_REMOTE_REFRESH__` |
-| `POST /v1/credential` | `operation`: `save`, `modify`, `import`, `select`, `delete-account`, `delete`, `blocked`, `block`, `clear-blocks`. `delete-account` accepts a null/omitted `accountKey` to remove only the identity-less row; `select` requires a string key. |
+| `POST /v1/credential` | `operation`: `save`, `modify`, `import`, `select`, `delete-account`, `delete`, `blocked`, `block`, `clear-blocks`, `session-account`, `set-session-account`. `delete-account` accepts a null/omitted `accountKey` to remove only the identity-less row; `select` requires a string key. |
 | `POST /v1/credential/refresh` | Exact provider/account and observed credential; host refreshes and returns redacted result |
 | `GET /v1/themes` | Direct profile theme names, used for discovery |
 | `GET/PUT /v1/items/{name}` | Allowlisted preferences or `themes/<filename>.json`; writes require `If-Match` |
@@ -277,6 +282,12 @@ Vault requests use `provider`, nullable `accountKey`, and operation-specific
 CAS against `expected`; conflicts return 412 without replaying callbacks.
 `explicit` distinguishes an exact nil identity from the provider's selection.
 Quota blocks use longest-deadline-wins. `import` only inserts missing identities.
+`session-account` accepts `route` with nonempty `sessionId` and `modelId` for
+any provider. With `reserve: true`, it atomically reserves an assignment. With
+`reserve: false`, it previews without writing. It returns an account selection
+with `accountKey` and `accountKeySet`, or null when every candidate is unavailable.
+`set-session-account` persists an exact fallback using `route` and nullable
+`accountKey`. Neither operation returns credentials or changes global selection.
 The broker exposes no credential-document or client lease routes.
 
 Trusted direct clients can read access tokens and API keys, not refresh tokens.

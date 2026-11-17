@@ -159,7 +159,7 @@ var ompAuthDDL = []string{
 		updated_at INTEGER NOT NULL DEFAULT (` + sqliteNow + `)
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_provider ON auth_credentials(provider)`,
-	// OMP's generic key/value store. Only used here to record which account is selected; OMP prunes
+	// OMP's generic key/value store holds selection and session routing records. OMP prunes
 	// it by expiry, so this store writes a far-future expiry to keep its own keys alive.
 	`CREATE TABLE IF NOT EXISTS cache (
 		key TEXT PRIMARY KEY,
@@ -417,6 +417,9 @@ func selectionKey(providerID string) string { return "omp-slim:auth-active:" + p
 // prunes that table by expiry, so a namespaced key is inert to it; if the row is ever pruned, Read
 // falls back to OMP's default (the oldest enabled account).
 func (s *SQLiteAuthStorage) setSelected(ctx context.Context, q querier, providerID string, credentialID int64) error {
+	if _, err := q.ExecContext(ctx, "DELETE FROM cache WHERE key GLOB ?", sessionCachePrefix(providerID)+"*"); err != nil {
+		return err
+	}
 	_, err := q.ExecContext(ctx, `INSERT INTO cache (key, value, expires_at) VALUES (?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`,
 		selectionKey(providerID), strconv.FormatInt(credentialID, 10), time.Now().Unix()+selectionCacheLifetime)

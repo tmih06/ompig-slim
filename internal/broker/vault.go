@@ -25,15 +25,17 @@ type vaultEntry struct {
 // vaultRequest addresses accounts by their stable provider/identity, not a
 // client-local SQLite id. Explicit distinguishes nil identity from selection.
 type vaultRequest struct {
-	Operation  string         `json:"operation"`
-	Provider   string         `json:"provider"`
-	AccountKey *string        `json:"accountKey"`
-	Explicit   bool           `json:"explicit"`
-	Credential *ai.Credential `json:"credential,omitempty"`
-	Expected   *ai.Credential `json:"expected,omitempty"`
-	Scope      string         `json:"scope,omitempty"`
-	Scopes     []string       `json:"scopes,omitempty"`
-	UntilMs    int64          `json:"untilMs,omitempty"`
+	Operation  string                  `json:"operation"`
+	Provider   string                  `json:"provider"`
+	AccountKey *string                 `json:"accountKey"`
+	Explicit   bool                    `json:"explicit"`
+	Credential *ai.Credential          `json:"credential,omitempty"`
+	Expected   *ai.Credential          `json:"expected,omitempty"`
+	Scope      string                  `json:"scope,omitempty"`
+	Scopes     []string                `json:"scopes,omitempty"`
+	UntilMs    int64                   `json:"untilMs,omitempty"`
+	Route      *ai.AccountSessionRoute `json:"route,omitempty"`
+	Reserve    bool                    `json:"reserve,omitempty"`
 }
 
 // redact returns a credential with its OAuth refresh replaced by a non-secret
@@ -151,6 +153,16 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 				safe := redact(*updated)
 				result = safe
 			}
+		}
+	case "session-account", "set-session-account":
+		if request.Route == nil || request.Route.SessionID == "" || request.Route.ModelID == "" {
+			http.Error(w, "invalid session route", 400)
+			return
+		}
+		if request.Operation == "session-account" {
+			result, err = s.vault.ResolveSessionAccount(ctx, request.Provider, *request.Route, request.Reserve)
+		} else {
+			err = s.vault.SetSessionAccount(ctx, request.Provider, *request.Route, request.AccountKey)
 		}
 	case "select":
 		if request.AccountKey == nil {

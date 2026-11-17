@@ -178,6 +178,9 @@ a Herdr server restart.
 | Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
+All providers distribute initial session assignments across eligible accounts and keep each session/model assignment
+sticky across restarts. Broker clients share the same assignment cursor. See [account routing](docs/account-routing.md).
+
 Codex account labels and usage views prefer the access-token email, including for existing JSON imports,
 so they match `/usage reset`. Stored email metadata is the fallback when the token has no email.
 
