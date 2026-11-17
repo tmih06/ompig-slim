@@ -195,7 +195,10 @@ in `.pi/settings.json`, unless an agent directory override is supplied.
 The built-in role names are `default`, `smol`, `slow`, `vision`, `plan`, `commit`,
 `tiny`, `memory`, `task`, `advisor`, `widget`, `compact`, `image`, `web`, `speech`,
 `dictation`, and `judge`. Assign `compact` to use that model for automatic and manual
-compaction; when it is unassigned, compaction uses the active session model. Custom names start with a letter and may include digits, `_`, and `-`.
+compaction; when it is unassigned, compaction uses the active session model.
+Compaction follows configured fallback chains after same-model retries fail, without
+changing the active chat model, role, or thinking level. Custom names start with a
+letter and may include digits, `_`, and `-`.
 Unassigned roles resolve through the available catalog and built-in priorities;
 missing task/plan assignments inherit Default. A role is distinct from its
 physical model, even when several roles select the same model.

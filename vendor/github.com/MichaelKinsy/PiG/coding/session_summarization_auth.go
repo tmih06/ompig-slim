@@ -11,6 +11,7 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/compaction"
+	"github.com/MichaelKinsy/PiG/internal/modelroles"
 )
 
 // Ports packages/coding-agent/src/core/agent-session.ts (_getSummarizationRequestAuth).
@@ -26,22 +27,147 @@ type summarizationRequest struct {
 	thinkingLevel ai.ModelThinkingLevel
 }
 
+type compactionFallbackState struct {
+	current    modelroles.Selector
+	effort     ai.ModelThinkingLevel
+	ownerRole  string
+	ownerChain string
+	tried      map[string]struct{}
+}
+
 func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.CompactionPreparation, model *ai.Model, customInstructions, reason string) (compaction.CompactionResult, error) {
 	compactionModel, err := s.compactionModel(model)
 	if err != nil {
 		return compaction.CompactionResult{}, err
 	}
-	request, err := s.prepareSummarizationRequest(ctx, compactionModel)
+
+	config, chains, _, lookup := s.fallbackContext()
+	settings := s.SettingsManager().Get()
+	ownerRole := s.ActiveModelRole()
+	compactAssigned := settings.ModelRoles["compact"] != ""
+	if compactAssigned {
+		ownerRole = "compact"
+	}
+	current := modelroles.Selector{
+		Provider: providerID(compactionModel),
+		ID:       compactionModel.ID,
+		Upstream: ai.ModelUpstreamRoute(compactionModel),
+	}
+	effort := s.ThinkingLevel()
+	if compactAssigned {
+		selector, resolveErr := s.SettingsManager().ResolveModelRole("@compact")
+		if resolveErr != nil {
+			return compaction.CompactionResult{}, resolveErr
+		}
+		_, configuredEffort := modelroles.Split(selector)
+		if configuredEffort != "" && configuredEffort != "auto" && configuredEffort != "inherit" {
+			effort = ai.ModelThinkingLevel(configuredEffort)
+		}
+	}
+	effort = ai.ClampThinkingLevel(compactionModel, effort)
+	current.Thinking = string(effort)
+	if !compactAssigned {
+		if _, configured := chains["compact"]; configured {
+			ownerRole = "compact"
+		}
+	}
+	ownerChain := modelroles.ResolveChainKey(config, chains, ownerRole, current.String(), lookup)
+	state := compactionFallbackState{
+		current:    current,
+		effort:     effort,
+		ownerRole:  ownerRole,
+		ownerChain: ownerChain,
+		tried:      map[string]struct{}{current.String(): {}},
+	}
+	request, err := s.prepareSummarizationRequest(ctx, compactionModel, state.effort)
 	if err != nil {
 		return compaction.CompactionResult{}, err
 	}
-	retry, retryCallbacks := s.summarizationRetryOptions("compaction", reason, compactionModelLabel(request.model))
-	// upstream compact(preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, this.agent.streamFunction, env, retry, callbacks, sessionId): request.completer holds the Agent's stream function.
-	streamFn := request.streamFn
-	if streamFn == nil {
-		streamFn = compaction.CompleterStreamFn(request.completer)
+	state.effort = request.thinkingLevel
+	state.current.Thinking = string(state.effort)
+	state.tried[state.current.String()] = struct{}{}
+
+	for {
+		retry, retryCallbacks := s.summarizationRetryOptions("compaction", reason, compactionModelLabel(request.model))
+		// upstream compact(preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, this.agent.streamFunction, env, retry, callbacks, sessionId): request.completer holds the Agent's stream function.
+		streamFn := request.streamFn
+		if streamFn == nil {
+			streamFn = compaction.CompleterStreamFn(request.completer)
+		}
+		result, compactErr := compaction.Compact(ctx, prep, request.model, request.apiKey, request.headers, customInstructions, request.thinkingLevel, streamFn, request.env, retry, retryCallbacks, "")
+		if compactErr == nil || ctx.Err() != nil || errors.Is(compactErr, context.Canceled) || errors.Is(compactErr, context.DeadlineExceeded) || ai.IsContextOverflow(ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: compactErr.Error()}, 0) {
+			return result, compactErr
+		}
+		policy := s.SettingsManager().Get().Retry
+		if !s.SettingsManager().GetRetryEnabled() || policy != nil && policy.ModelFallback != nil && !*policy.ModelFallback {
+			return result, compactErr
+		}
+		usageLimit := isModelUsageLimit(compactErr.Error())
+		if policy != nil && (policy.FallbackOn == "usage-limit" && !usageLimit || policy.FallbackOn == "except-usage-limit" && usageLimit) {
+			return result, compactErr
+		}
+
+		keys := []string{}
+		if state.ownerChain != "" {
+			keys = append(keys, state.ownerChain)
+		}
+		modelChain := modelroles.ResolveChainKey(config, chains, state.ownerRole, state.current.String(), lookup)
+		if modelChain != "" && modelChain != state.ownerChain {
+			keys = append(keys, modelChain)
+		}
+		found := false
+		for _, key := range keys {
+			for _, candidate := range s.fallbackCandidates(key, state.current.String(), false) {
+				target := s.modelRuntime.GetModel(candidate.Provider, candidate.ID)
+				if target == nil {
+					continue
+				}
+				if candidate.Upstream != "" {
+					target, err = ai.WithModelUpstreamRoute(target, candidate.Upstream)
+					if err != nil {
+						continue
+					}
+				}
+				effort := state.effort
+				if candidate.Thinking != "" && candidate.Thinking != "auto" && candidate.Thinking != "inherit" {
+					effort = ai.ModelThinkingLevel(candidate.Thinking)
+				}
+				effort = ai.ClampThinkingLevel(target, effort)
+				candidate.Thinking = string(effort)
+				identity := candidate.String()
+				if _, exists := state.tried[identity]; exists {
+					continue
+				}
+				state.tried[identity] = struct{}{}
+				if authErr := s.checkModelAuth(ctx, target); authErr != nil {
+					if ctx.Err() != nil {
+						return result, authErr
+					}
+					continue
+				}
+				nextRequest, prepareErr := s.prepareSummarizationRequest(ctx, target, effort)
+				if prepareErr != nil {
+					if ctx.Err() != nil || errors.Is(prepareErr, context.Canceled) || errors.Is(prepareErr, context.DeadlineExceeded) {
+						return result, prepareErr
+					}
+					continue
+				}
+				state.current = candidate
+				state.effort = nextRequest.thinkingLevel
+				state.current.Thinking = string(state.effort)
+				state.tried[state.current.String()] = struct{}{}
+				request = nextRequest
+				found = true
+				break
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return result, compactErr
+		}
 	}
-	return compaction.Compact(ctx, prep, request.model, request.apiKey, request.headers, customInstructions, request.thinkingLevel, streamFn, request.env, retry, retryCallbacks, "")
 }
 
 // compactionModel returns the assigned compact role model when one exists. An
@@ -87,8 +213,11 @@ func withoutDeletedHeaders(headers ai.ProviderHeaders) map[string]string {
 }
 
 // prepareSummarizationRequest resolves the summary model and its request auth (agent-session.ts:560 _getSummarizationRequestAuth).
-func (s *Session) prepareSummarizationRequest(ctx context.Context, model *ai.Model) (summarizationRequest, error) {
+func (s *Session) prepareSummarizationRequest(ctx context.Context, model *ai.Model, thinkingLevels ...ai.ModelThinkingLevel) (summarizationRequest, error) {
 	thinking := s.ThinkingLevel()
+	if len(thinkingLevels) > 0 {
+		thinking = thinkingLevels[0]
+	}
 	// Pi's getAuth rejects with the signal's reason when the signal is already aborted (resolve.ts:33-44), before any request exists. A caller-owned Go provider has no getAuth: it is not called once the signal has aborted, with the same reason (pinned by TestCompactCancelsSynchronouslyFromStartEvent).
 	if ctx.Err() != nil {
 		return summarizationRequest{model: model, thinkingLevel: thinking}, abortSignalReason(ctx)
