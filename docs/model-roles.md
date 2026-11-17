@@ -291,7 +291,8 @@ Recovery retains logical role and auto-thinking state, checks destinations befor
 asking permission to use a quota reserve, and never wraps a chain. Starting at a
 chain tail still permits progress after that tail. Signed-thinking failures defer
 unsafe cross-model switches until the next prompt. Failed attempts stay in audit
-history but are excluded from outgoing context.
+history but are excluded from outgoing context. For subagents, the Agent Hub shows
+the active provider and model after fallback, while retaining the logical role.
 
 Missing credentials can prewalk a chain before a request. Quota-aware prewalking
 uses the relevant provider's managed-account snapshot; ambient keys and unknown

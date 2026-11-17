@@ -30,6 +30,14 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         child = any("<active_agent name=" in str(m.get("content", ""))
                     for m in body["messages"] if m["role"] in ("system", "developer"))
+        if child and body["model"] == "ui-primary":
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            self.wfile.write(json.dumps({"error": {"message": "Model unavailable", "type": "not_found"}}).encode())
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Connection", "close")
@@ -87,10 +95,13 @@ def run(binary, mode):
             (root / ".pi" / "subagents.json").write_text(json.dumps({"enabled": True}))
             (agent / "models.json").write_text(json.dumps({"providers": {"ui-fixture": {
                 "api": "openai-completions", "baseUrl": f"http://127.0.0.1:{server.server_port}/v1",
-                "apiKey": "local-fixture", "models": [{"id": "ui-fixture", "reasoning": True}]}}}))
+                "apiKey": "local-fixture", "models": [
+                    {"id": "ui-primary", "reasoning": True}, {"id": "ui-fixture", "reasoning": True}]}}}))
             (agent / "settings.json").write_text(json.dumps({"quietStartup": True, "tuiMode": mode,
                 "enableInstallTelemetry": False, "extensionsAutoUpgrade": False,
-                "modelRoles": {"default": "ui-fixture/ui-fixture", "slow": "ui-fixture/ui-fixture"},
+                "modelRoles": {"default": "ui-fixture/ui-fixture", "slow": "ui-fixture/ui-primary"},
+                "retry": {"maxRetries": 0, "modelFallback": True, "fallbackOn": "any",
+                          "fallbackChains": {"slow": ["ui-fixture/ui-fixture"]}},
                 "modelTags": {"slow": {"color": "error"}}}))
             env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_AUTH_TOKEN", "_OAUTH_TOKEN"))}
             env.update(HOME=directory, PIG_HOME=directory, PI_HOME=directory, PI_OFFLINE="1",
@@ -138,6 +149,7 @@ def run(binary, mode):
                 os.write(master, b"\x1ba")
                 hub = wait(b"Agent Hub")
                 assert b"named-ui-worker" in plain(hub), "hub lost the subagent name"
+                assert b"ui-fixture/ui-fixture" in plain(hub), "hub must show the active fallback model, not ui-primary"
                 hub_role = re.findall(role_pattern, hub)
                 assert parent_role[-1] in hub_role, "hub role color differs from the main role catalog color"
                 ModelServer.advance[0].set()
@@ -152,7 +164,7 @@ def run(binary, mode):
                 wait(b"THOUGHT_WIDGET_FOURTH")
                 assert not ModelServer.finished.is_set(), "proof ran after child completion"
                 ModelServer.finished.set()
-                print(f"{mode}: named tree row, catalog role color, live hub/inspector/main thinking before completion: OK")
+                print(f"{mode}: fallback model in hub, named tree row, catalog role color, live hub/inspector/main thinking before completion: OK")
             finally:
                 ModelServer.finished.set()
                 for event in ModelServer.advance:

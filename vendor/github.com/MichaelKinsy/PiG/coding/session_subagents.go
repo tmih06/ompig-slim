@@ -21,7 +21,15 @@ import (
 
 func (s *Session) Subagents() *subagents.Manager { return s.subagents }
 
-type subagentSession struct{ *Session }
+type subagentSession struct {
+	*Session
+	stopObserving func()
+}
+
+func (s subagentSession) Close() error {
+	s.stopObserving()
+	return s.Session.Close()
+}
 
 func (s subagentSession) Subscribe(fn func(agent.AgentEvent)) func() {
 	return s.Session.Subscribe(AgentSessionEventListener(fn))
@@ -300,8 +308,15 @@ func (s *Session) createSubagent(ctx context.Context, inv subagents.Invocation) 
 		}
 		child.refreshContext()
 	}
-	s.subagents.SetInvocation(inv.ID, model.Provider.ID(), model.ID, model.Capabilities.ContextWindow, string(child.ThinkingLevel()))
-	return subagentSession{child}, nil
+	manager := s.subagents
+	updateInvocation := func() {
+		state := child.agent.State()
+		model := state.Model()
+		manager.SetInvocation(inv.ID, model.Provider.ID(), model.ID, model.Capabilities.ContextWindow, string(state.ThinkingLevel()))
+	}
+	stopObserving := child.ObserveReplicatedState(updateInvocation)
+	updateInvocation()
+	return subagentSession{Session: child, stopObserving: stopObserving}, nil
 }
 
 type subagentStructuredTool struct {
