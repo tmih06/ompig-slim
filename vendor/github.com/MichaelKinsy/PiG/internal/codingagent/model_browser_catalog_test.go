@@ -21,6 +21,11 @@ func TestBrowserCatalogContainsEveryOMPIdentity(t *testing.T) {
 		for _, model := range ai.OMPOtherCatalog(provider) {
 			expected[model.ModelID()] = string(model.ModelType())
 		}
+		for _, model := range ai.GetBuiltinClassifierModels(provider) {
+			if model.API == ai.ClassifierAPIGeminiDecisions {
+				expected[model.ID] = "judge"
+			}
+		}
 		actual := map[string]string{}
 		for _, model := range registry.GetProviderAllModelData(provider) {
 			item := hubCatalogItem(model)

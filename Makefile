@@ -53,6 +53,7 @@ smoke-built:
 	python3 scripts/measure-model-menu.py ./bin/ompig-slim --stale-cycle --runs 1
 	python3 scripts/smoke-test-opencode-free.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codemode-binary.py ./bin/ompig-slim
+	python3 scripts/smoke-test-gemini-decisions.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagents-binary.py ./bin/ompig-slim
 	python3 scripts/smoke-test-subagent-ui.py ./bin/ompig-slim
 	python3 scripts/smoke-test-web-tools-binary.py ./bin/ompig-slim

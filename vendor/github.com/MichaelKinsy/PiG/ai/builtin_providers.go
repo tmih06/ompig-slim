@@ -76,6 +76,8 @@ func builtinClassifiers(provider string) ProviderClassifierMap {
 		return ProviderClassifierMap{ClassifierAPICloudflareWorkersAISystemOne: CloudflareClassifier(CloudflareWorkersAISystemOneAPI())}
 	case "openai": //portlint:allow providerliteral the built-in registry entry for providers/openai.ts:31 `classifiers: { "openai-decisions": ... }`
 		return ProviderClassifierMap{ClassifierAPIOpenAIDecisions: OpenAIDecisionsAPI()}
+	case "google": //portlint:allow providerliteral Gemini Decisions is a Google Developer API classifier
+		return ProviderClassifierMap{ClassifierAPIGeminiDecisions: GeminiDecisionsAPI()}
 	}
 	return nil
 }

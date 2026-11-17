@@ -169,7 +169,7 @@ a Herdr server restart.
 | Tools | `read` (files, dirs, URLs, GitHub issue/PR links and `issue://N` / `pr://N` with automatic repository detection), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
 | Prompt | Completed slash commands use distinct colors; `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
 | Loop guard | [Corrective steers](docs/loop-guard.md) after five identical tool-call turns or three recurring deterministic failures on the same target |
-| Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints |
+| Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints; [Gemini Decisions classification](docs/gemini-decisions.md) |
 | Routing | Roles, fallback chains for chat and compaction, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
 | Subagents | `Agent` with fixed `@task`, `@smol` and `@slow` [roles](docs/model-roles.md#subagent-roles-and-tools), `get_subagent_result`, `steer_subagent`, workflows, Agent Hub, [explicit child outcomes](docs/subagents.md) |

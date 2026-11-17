@@ -148,6 +148,11 @@ func classifierPost(ctx context.Context, options ClassifierOptions, label, targe
 // timeout per attempt, and provider retries. It returns the response body, which is valid JSON; failures are errors.
 // noRetryStatuses lists HTTP statuses that fail at once although they are normally retried.
 func PostClassifierRequest(ctx context.Context, label, target string, model ClassifierModel, payload any, options ClassifierOptions, noRetryStatuses []int) (json.RawMessage, error) {
+	authDefaults := ProviderHeadersFromStrings(map[string]string{"authorization": "Bearer " + options.APIKey, "content-type": "application/json"})
+	return postClassifierRequest(ctx, label, target, model, payload, options, authDefaults, noRetryStatuses)
+}
+
+func postClassifierRequest(ctx context.Context, label, target string, model ClassifierModel, payload any, options ClassifierOptions, authDefaults ProviderHeaders, noRetryStatuses []int) (json.RawMessage, error) {
 	if options.APIKey == "" {
 		return nil, fmt.Errorf("No API key for provider: %s", model.Provider)
 	}
@@ -164,7 +169,7 @@ func PostClassifierRequest(ctx context.Context, label, target string, model Clas
 	if err != nil {
 		return nil, err
 	}
-	headers := providerHeadersToRecord(identityProviderHeaders(ClientIdentityTarget{Provider: model.Provider, BaseURL: model.BaseURL}, options.Identity), ProviderHeadersFromStrings(map[string]string{"authorization": "Bearer " + options.APIKey, "content-type": "application/json"}), ProviderHeadersFromStrings(model.Headers), options.Headers)
+	headers := providerHeadersToRecord(identityProviderHeaders(ClientIdentityTarget{Provider: model.Provider, BaseURL: model.BaseURL}, options.Identity), authDefaults, ProviderHeadersFromStrings(model.Headers), options.Headers)
 	response, err := retryClassifierRequest(ctx, options, func() (classifierResponse, error) {
 		response, err := classifierPost(ctx, options, label, target, headers, body)
 		if err == nil {

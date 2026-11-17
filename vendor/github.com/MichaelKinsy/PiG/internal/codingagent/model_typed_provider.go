@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/internal/pigstrip"
 )
 
 var builtinImageModels struct {
@@ -57,6 +58,8 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 	}
 	images := builtinImageModelsOf(id)
 	classifiers := builtinClassifierModelsOf(id)
+	implementations := ai.BuiltinClassifiers(id)
+	strippedAPIs := pigstrip.IDs(pigstrip.ListAPIs)
 	if !hasChat && len(images) == 0 && len(classifiers) == 0 {
 		return nil
 	}
@@ -78,8 +81,14 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 		replace := func(model ai.AnyModel) {
 			if ai.HasOMPCatalog(id) {
 				source := ai.OMPCatalogModel(id, model.ModelID())
-				if source == nil || source.ModelType() == ai.ModelTypeChat {
+				if source != nil && source.ModelType() == ai.ModelTypeChat {
 					return
+				}
+				if source == nil {
+					classifier, ok := model.(*ai.ClassifierModel)
+					if !ok || classifier.API != ai.ClassifierAPIGeminiDecisions || implementations[classifier.API] == nil || slices.Contains(strippedAPIs, string(classifier.API)) {
+						return
+					}
 				}
 			}
 			for i, old := range all {
@@ -98,7 +107,7 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 		}
 		return all, nil
 	}
-	if implementations := ai.BuiltinClassifiers(id); len(implementations) > 0 {
+	if len(implementations) > 0 {
 		base.Classify = func(ctx context.Context, model *ai.ClassifierModel, request ai.ClassifierContext, options ai.ClassifierOptions) (ai.ClassifierResult, error) {
 			implementation := implementations[model.API]
 			if implementation == nil || implementation.Classify == nil {
