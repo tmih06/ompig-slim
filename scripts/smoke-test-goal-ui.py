@@ -201,7 +201,7 @@ def expect_fresh(window, after, tokens, label, mode):
 class Session:
     """One isolated profile driving the real binary over a pseudo-terminal."""
 
-    def __init__(self, binary, mode, port, root):
+    def __init__(self, binary, mode, port, root, extra_args=()):
         self.mode, self.width = mode, 120
         agent = root / "agent"
         agent.mkdir()
@@ -222,7 +222,7 @@ class Session:
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, self.width, 0, 0))
         self.process = subprocess.Popen(
             [str(binary), "--no-extensions", "--provider", "goal-ui", "--model", "goal-ui",
-             "--no-context-files", "--no-skills", "--offline"],
+             "--no-context-files", "--no-skills", "--offline", *extra_args],
             stdin=slave, stdout=slave, stderr=slave, cwd=root, env=env, start_new_session=True)
         os.close(slave)
         self.captured = bytearray()

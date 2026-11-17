@@ -29,6 +29,12 @@ packages/ai/src/utils/tool-call-loop-guard.ts and
 packages/coding-agent/src/prompts/system/tool-call-loop-redirect.md.
 The upstream copyright and permission notice are reproduced in LICENSE.
 
+The tool-focused streaming rules and bundled style checks adapt
+can1357/oh-my-pi at commit 1bdbf6d242d99ca62bdf2feeff4519ff992f647d (MIT),
+from packages/coding-agent/src/discovery/builtin-rules and the TTSR
+matching and injection lifecycle. The upstream copyright and permission
+notice are reproduced in LICENSE.
+
 This project is not an official release of PiG, Pi, or oh-my-pi. Their
 maintainers do not endorse this personal distribution. Other dependency
 license notices remain alongside their sources in vendor/. Release archives

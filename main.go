@@ -25,6 +25,7 @@ import (
 	goalext "ompig-slim/internal/goalext"
 	"ompig-slim/internal/loopguard"
 	"ompig-slim/internal/selfupdate"
+	"ompig-slim/internal/streamingrules"
 	"ompig-slim/internal/workdesk"
 	"ompig-slim/prompts"
 )
@@ -128,6 +129,9 @@ func main() {
 		SyncedDocuments:      syncedDocuments,
 		SyncConflicts:        syncConflicts,
 		ExtensionFactories: []extension.InlineExtension{
+			extension.NamedInlineExtension{
+				Name: "streaming-rules", Factory: streamingrules.Extension(coding.DefaultAgentDir()), Hidden: true,
+			},
 			extension.NamedInlineExtension{
 				Name: "tool-call-loop-guard", Factory: loopguard.Extension, Hidden: true,
 			},

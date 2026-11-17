@@ -50,6 +50,8 @@ smoke-built:
 	python3 scripts/smoke-test-mistral-usage.py ./bin/ompig-slim
 	python3 scripts/smoke-test-mistral-content.py ./bin/ompig-slim
 	python3 scripts/smoke-test-todo-arguments.py ./bin/ompig-slim
+	python3 scripts/smoke-test-streaming-rules.py ./bin/ompig-slim
+	python3 scripts/smoke-test-streaming-rules.py ./bin/ompig-slim --tui
 	python3 scripts/measure-model-menu.py ./bin/ompig-slim --legacy-settings --runs 1
 	python3 scripts/measure-model-menu.py ./bin/ompig-slim --stale-cycle --runs 1
 	python3 scripts/smoke-test-opencode-free.py ./bin/ompig-slim
