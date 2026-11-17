@@ -149,6 +149,11 @@ target changes the task override without switching the main model. Choices that
 cannot fit the existing context are marked before selection. Closing/cancelling
 the picker restores the editor and does not write an assignment.
 
+The session picker and cycle footer use the runtime's published model and auth
+snapshots. Opening the picker and displaying a subscription marker do not read
+credentials. Selection still validates current credentials off the UI loop, so
+an unavailable broker can delay confirmation without freezing input.
+
 ### Roles are the only model-selection system
 
 The legacy scoped-model feature is removed, not migrated. `enabledModels` in old

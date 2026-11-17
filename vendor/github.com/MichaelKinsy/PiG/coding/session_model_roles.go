@@ -40,6 +40,11 @@ func branchModelRole(branch []icodingagent.SessionEntry, model *ai.Model) string
 // backends. Model roles, the picker and subagents share this unfiltered catalog.
 func (s *Session) AvailableModelSnapshot() []*ai.Model { return s.modelRuntime.GetAvailableSnapshot() }
 
+// IsUsingSubscription reads published auth metadata without credential I/O.
+func (s *Session) IsUsingSubscription(provider string) bool {
+	return s.modelRuntime.IsUsingSubscription(provider)
+}
+
 // ActiveModelRole reports the logical selection, not the provider reached by fallback.
 func (s *Session) ActiveModelRole() string {
 	if role := s.activeModelRole.Load(); role != nil {

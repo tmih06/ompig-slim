@@ -11,8 +11,12 @@ import (
 // availableModelItems uses the runtime's available catalog, including account-specific model filters. Each item keeps the enriched
 // model it was read from so the selectors can show catalog metric columns and the selected model's fact block.
 func (m *InteractiveMode) availableModelItems() []tui.ModelSelectorItem {
-	registry := m.modelRegistryOrDefault()
-	models := registry.GetAvailableModelData()
+	var models []*ai.Model
+	if handle := m.opts.SessionHandle; handle != nil {
+		models = handle.AvailableModelSnapshot()
+	} else {
+		models = m.modelRegistryOrDefault().GetAvailableModelData()
+	}
 	var items []tui.ModelSelectorItem
 	disabled := []string{}
 	if m.opts.SettingsManager != nil {

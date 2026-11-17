@@ -44,6 +44,7 @@ smoke-built:
 	python3 scripts/smoke-test-durable.py ./bin/ompig-slim
 	python3 scripts/test-model-menu.py
 	python3 scripts/smoke-test-model-menu.py ./bin/ompig-slim
+	python3 scripts/measure-model-switch.py ./bin/ompig-slim --runs 1 --rtt-ms 20 --check-ui
 	python3 scripts/smoke-test-logout.py ./bin/ompig-slim
 	python3 scripts/smoke-test-quit.py ./bin/ompig-slim
 	python3 scripts/smoke-test-info-widgets.py ./bin/ompig-slim

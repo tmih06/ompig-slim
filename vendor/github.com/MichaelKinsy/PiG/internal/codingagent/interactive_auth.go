@@ -811,6 +811,9 @@ func (m *InteractiveMode) footerUsingSubscription(model *ai.Model) bool {
 	if providerID == "kimi-coding" {
 		return true
 	}
+	if handle, ok := m.opts.SessionHandle.(interface{ IsUsingSubscription(string) bool }); ok {
+		return handle.IsUsingSubscription(providerID)
+	}
 	if !ai.IsOAuthSubscriptionProvider(providerID) {
 		return false
 	}

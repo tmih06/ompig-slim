@@ -46,10 +46,17 @@ func (m *InteractiveMode) switchModelForRole(ctx context.Context, spec, roleOver
 			effort = ai.ModelThinkingLevel(level)
 		}
 	}
-	newModel, err := m.opts.ModelBuilder(spec)
-	if err != nil {
-		finish(err)
-		return
+	var newModel *ai.Model
+	if provider, id, qualified := strings.Cut(spec, "/"); qualified && m.opts.ModelLookup != nil {
+		newModel = m.opts.ModelLookup(provider, id)
+	}
+	if newModel == nil {
+		var err error
+		newModel, err = m.opts.ModelBuilder(spec)
+		if err != nil {
+			finish(err)
+			return
+		}
 	}
 	showModel := func() {
 		m.opts.Model = newModel
