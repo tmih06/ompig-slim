@@ -460,3 +460,53 @@ func TestPromptQuotaReadsMistralVibeCredits(t *testing.T) {
 		t.Fatalf("the prompt quota named the provider: %q", label)
 	}
 }
+
+type previewUsageService struct{ t *testing.T }
+
+func (s previewUsageService) FetchSnapshot(context.Context, bool) (ai.UsageSnapshot, error) {
+	return ai.UsageSnapshot{}, nil
+}
+
+func (s previewUsageService) ActiveAccount(_ context.Context, _ string, key ...*string) (ai.UsageActiveAccount, bool) {
+	if len(key) != 1 || key[0] == nil || *key[0] != "free" {
+		s.t.Fatalf("usage board did not pass the previewed account: %v", key)
+	}
+	return ai.UsageActiveAccount{}, false
+}
+
+func TestUsageDashboardPreviewsThePendingRoute(t *testing.T) {
+	model := &ai.Model{ID: "gpt-6-luna", ProviderMeta: ai.ProviderMetadata{ProviderID: "openai-codex"}}
+	m := &InteractiveMode{
+		opts: InteractiveModeOptions{Model: model, SessionHandle: promptQuotaTestResolver{resolve: func(context.Context, *ai.Model) (*string, bool, error) {
+			return new("free"), true, nil
+		}}},
+	}
+	service := previewUsageService{t: t}
+	account, ok := m.resolveUsageActiveAccount(context.Background(), service, "openai-codex")
+	if !ok || account.AccountKey == nil || *account.AccountKey != "free" {
+		t.Fatalf("resolved account = %+v, ok=%v", account, ok)
+	}
+}
+
+type fallbackUsageService struct{}
+
+func (fallbackUsageService) FetchSnapshot(context.Context, bool) (ai.UsageSnapshot, error) {
+	return ai.UsageSnapshot{}, nil
+}
+
+func (fallbackUsageService) ActiveAccount(context.Context, string, ...*string) (ai.UsageActiveAccount, bool) {
+	return ai.UsageActiveAccount{AccountID: "selected-account"}, true
+}
+
+func TestUsageDashboardDoesNotShowSelectedAccountWhenPreviewFails(t *testing.T) {
+	model := &ai.Model{ID: "gpt-6-luna", ProviderMeta: ai.ProviderMetadata{ProviderID: "openai-codex"}}
+	m := &InteractiveMode{
+		opts: InteractiveModeOptions{Model: model, SessionHandle: promptQuotaTestResolver{resolve: func(context.Context, *ai.Model) (*string, bool, error) {
+			return nil, false, errors.New("remote broker unavailable")
+		}}},
+	}
+	account, ok := m.resolveUsageActiveAccount(context.Background(), fallbackUsageService{}, "openai-codex")
+	if ok {
+		t.Fatalf("failed preview displayed a session account: %+v", account)
+	}
+}

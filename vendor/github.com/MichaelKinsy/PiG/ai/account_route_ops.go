@@ -29,7 +29,7 @@ func (r *AccountRouter) StreamRoutes(ctx context.Context, model AnyModel, reques
 }
 
 func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessageEventStream, model AnyModel, request AccountRouteRequest, open AccountAttemptStream) {
-	accounts, err := r.candidates(ctx, model, request, true)
+	candidates, err := r.candidates(ctx, model, request, true)
 	if err != nil {
 		if context.Cause(ctx) != nil {
 			err = AbortReason(ctx)
@@ -37,7 +37,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 		pushAccountSetupError(outer, model, err)
 		return
 	}
-	if accounts == nil {
+	if candidates == nil {
 		// An unpooled request still consumes its provider through the bounded attempt reader, so a
 		// provider that closes without resolving a result cannot hang the consumer here.
 		observed := newObservedResponse()
@@ -60,7 +60,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 	var lastSetupError error
 	var earliest *int64
 	var previous *accountFailure
-	for _, account := range accounts {
+	for _, account := range candidates.accounts {
 		if context.Cause(ctx) != nil {
 			pushAccountSetupError(outer, model, AbortReason(ctx))
 			return
@@ -77,7 +77,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 		if previous != nil {
 			r.reportRotation(model.ProviderID(), model.ModelID(), *previous, account, request)
 		}
-		if err := r.setSessionAccount(ctx, model, account, request); err != nil {
+		if err := r.setSessionAccount(ctx, model, account, request, candidates.usage); err != nil {
 			pushAccountSetupError(outer, model, err)
 			return
 		}
@@ -328,11 +328,11 @@ func routeAccountResult[T any](
 	adapt func(T) accountOneShotOutcome,
 ) (T, error) {
 	var zero T
-	accounts, err := router.candidates(ctx, model, request, true)
+	candidates, err := router.candidates(ctx, model, request, true)
 	if err != nil {
 		return zero, err
 	}
-	if accounts == nil {
+	if candidates == nil {
 		return attempt(ctx, AccountSelection{}, nil, false)
 	}
 	var last T
@@ -340,7 +340,7 @@ func routeAccountResult[T any](
 	var lastError error
 	var previous *accountFailure
 	var earliest *int64
-	for _, account := range accounts {
+	for _, account := range candidates.accounts {
 		if err := context.Cause(ctx); err != nil {
 			return zero, err
 		}
@@ -355,7 +355,7 @@ func routeAccountResult[T any](
 		if previous != nil {
 			router.reportRotation(model.ProviderID(), model.ModelID(), *previous, account, request)
 		}
-		if err := router.setSessionAccount(ctx, model, account, request); err != nil {
+		if err := router.setSessionAccount(ctx, model, account, request, candidates.usage); err != nil {
 			return zero, err
 		}
 		defer router.trackAccountAttempt(model, account, request)()

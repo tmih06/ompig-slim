@@ -87,6 +87,15 @@ func (m *InteractiveMode) showUsageDashboard() {
 			if service == nil {
 				return tui.UsageDashboardSnapshot{}, nil
 			}
+			var snapshot ai.UsageSnapshot
+			var err error
+			if progressive, ok := service.(interface {
+				FetchSnapshotProgress(context.Context, bool, func(ai.UsageSnapshot)) (ai.UsageSnapshot, error)
+			}); ok {
+				snapshot, err = progressive.FetchSnapshotProgress(ctx, force, func(snapshot ai.UsageSnapshot) { push(tui.NewUsageDashboardSnapshot(snapshot)) })
+			} else {
+				snapshot, err = service.FetchSnapshot(ctx, force)
+			}
 			if provider != "" {
 				account, ok := m.resolveUsageActiveAccount(ctx, service, provider)
 				activeAccountMu.Lock()
@@ -97,15 +106,6 @@ func (m *InteractiveMode) showUsageDashboard() {
 					activeAccount = nil
 				}
 				activeAccountMu.Unlock()
-			}
-			var snapshot ai.UsageSnapshot
-			var err error
-			if progressive, ok := service.(interface {
-				FetchSnapshotProgress(context.Context, bool, func(ai.UsageSnapshot)) (ai.UsageSnapshot, error)
-			}); ok {
-				snapshot, err = progressive.FetchSnapshotProgress(ctx, force, func(snapshot ai.UsageSnapshot) { push(tui.NewUsageDashboardSnapshot(snapshot)) })
-			} else {
-				snapshot, err = service.FetchSnapshot(ctx, force)
 			}
 			return tui.NewUsageDashboardSnapshot(snapshot), err
 		},
@@ -218,6 +218,26 @@ func (m *InteractiveMode) usageAccountKey(provider string) (*string, bool) {
 func (m *InteractiveMode) resolveUsageActiveAccount(ctx context.Context, service UsageQuotaService, provider string) (ai.UsageActiveAccount, bool) {
 	key, present := m.usageAccountKey(provider)
 	if !present {
+		// The usage board opens before the next prompt is sent. Preview the same
+		// model-scoped route instead of displaying the provider's selected account.
+		// The latter may be Plus even when routing is about to choose Free.
+		if resolver, ok := m.opts.SessionHandle.(interface {
+			ResolveUsageAccount(context.Context, *ai.Model) (*string, bool, error)
+		}); ok && m.opts.Model != nil && m.opts.Model.ProviderID() == provider {
+			key, present, err := resolver.ResolveUsageAccount(ctx, m.opts.Model)
+			if err != nil {
+				return ai.UsageActiveAccount{}, false
+			}
+			if present {
+				account, ok := service.ActiveAccount(ctx, provider, key)
+				if ok {
+					return account, true
+				}
+				// The router's account key is authoritative even when the
+				// usage service cannot read a matching credential/report.
+				return ai.UsageActiveAccount{AccountKey: key}, true
+			}
+		}
 		return service.ActiveAccount(ctx, provider)
 	}
 	return service.ActiveAccount(ctx, provider, key)

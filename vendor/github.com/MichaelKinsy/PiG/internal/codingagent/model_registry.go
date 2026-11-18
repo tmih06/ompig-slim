@@ -352,13 +352,16 @@ type ModelRegistry struct {
 	nativeRegistrations []string
 
 	// credentialStore, when non-nil, provides stored credential lookup for HasConfiguredAuth and GetAvailable filtering.
-	credentialStore ai.CredentialStore
+	credentialStore           ai.CredentialStore
+	credentialStoreGeneration atomic.Uint64
 	// accountRouter routes requests across a provider's stored accounts. It has its own lock so
 	// acquiring it never orders against mu and nativeMu.
-	accountRouterMu sync.Mutex
-	accountRouter   *ai.AccountRouter
-	onChange        *modelRegistryChangeListener
-	observers       []*modelRegistryChangeListener
+	accountRouterMu               sync.Mutex
+	accountRouter                 *ai.AccountRouter
+	accountUsageService           *UsageService
+	accountUsageServiceGeneration uint64
+	onChange                      *modelRegistryChangeListener
+	observers                     []*modelRegistryChangeListener
 
 	// runtimeCredentials overlays non-persistent API keys (--api-key) on
 	// credentialStore; they outrank stored and ambient credentials. It is
@@ -1221,12 +1224,14 @@ func (r *ModelRegistry) SetCredentialStore(store ai.CredentialStore) {
 	r.mu.Lock()
 	r.credentialStore = store
 	r.runtimeCredentials.Store(nil)
+	r.credentialStoreGeneration.Add(1)
 	r.mu.Unlock()
 	// The request router follows the store: an account pinned over the previous store must never
 	// outlive it. Updating the existing router in place also updates a collection that captured it
 	// when it was created. accountRouterMu is taken after r.mu is released, so the two locks never
 	// nest.
 	r.accountRouterMu.Lock()
+	r.accountUsageService = nil
 	if r.accountRouter != nil {
 		r.accountRouter.SetStore(registryCredentialAccounts{registry: r})
 	}

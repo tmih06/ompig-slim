@@ -1,22 +1,19 @@
 package ai
 
-import (
-	"context"
-	"slices"
-	"strings"
-)
+import "context"
 
 // AccountSessionRoute identifies a sticky assignment within one provider.
 type AccountSessionRoute struct {
-	SessionID string `json:"sessionId"`
-	ModelID   string `json:"modelId"`
+	SessionID string                `json:"sessionId"`
+	ModelID   string                `json:"modelId"`
+	Usage     []AccountSessionUsage `json:"usage,omitempty"`
 }
 
 // AccountSessionStore coordinates session assignments at the credential owner.
 // Stores without this capability retain selected-account routing.
 type AccountSessionStore interface {
 	// ResolveSessionAccount previews the next assignment without writing when reserve is false.
-	// Reserving atomically reuses a valid pin or advances the shared round-robin cursor.
+	// Reserving atomically reuses a valid pin or advances the shared assignment cursor.
 	// A nil result means no account is currently eligible and unblocked.
 	ResolveSessionAccount(context.Context, string, AccountSessionRoute, bool) (*AccountSelection, error)
 	// SetSessionAccount records a fallback before its request starts, without advancing the cursor.
@@ -39,9 +36,10 @@ func (r *AccountRouter) sessionStore(request AccountRouteRequest) (AccountSessio
 	return nil, false
 }
 
-func (r *AccountRouter) setSessionAccount(ctx context.Context, model AnyModel, account *CredentialAccountInfo, request AccountRouteRequest) error {
+func (r *AccountRouter) setSessionAccount(ctx context.Context, model AnyModel, account *CredentialAccountInfo, request AccountRouteRequest, usage []AccountSessionUsage) error {
 	if store, ok := r.sessionStore(request); ok {
-		return store.SetSessionAccount(ctx, model.ProviderID(), AccountSessionRoute{SessionID: request.SessionID, ModelID: model.ModelID()}, account.AccountKey)
+		route := AccountSessionRoute{SessionID: request.SessionID, ModelID: model.ModelID(), Usage: usage}
+		return store.SetSessionAccount(ctx, model.ProviderID(), route, account.AccountKey)
 	}
 	return nil
 }
@@ -56,7 +54,15 @@ const (
 )
 
 func accountPlanPriority(providerID, modelID string, credential Credential) accountPlanRank {
-	meets := AccountMeetsModelPlan(providerID, modelID, credential)
+	return accountPlanPriorityWithUsage(providerID, modelID, credential, nil)
+}
+
+func accountPlanPriorityWithUsage(providerID, modelID string, credential Credential, usage *AccountSessionUsage) accountPlanRank {
+	usagePlan := ""
+	if usage != nil {
+		usagePlan = usage.Plan
+	}
+	meets := accountMeetsModelPlan(providerID, modelID, credential, usagePlan)
 	if meets == nil {
 		return accountPlanUnknown
 	}
@@ -65,7 +71,10 @@ func accountPlanPriority(providerID, modelID string, credential Credential) acco
 	}
 	if isCodexAccountProvider(providerID) && credential.Type == CredentialOAuth {
 		plan, _ := codexAccountPlan(credential)
-		if slices.Contains(strings.Split(plan, "_"), "free") {
+		if normalized, ok := NormalizeCodexAccountPlan(usagePlan); ok {
+			plan = normalized
+		}
+		if codexAccountPlanTierOf(plan) == codexAccountPlanFree {
 			return accountPlanFree
 		}
 	}

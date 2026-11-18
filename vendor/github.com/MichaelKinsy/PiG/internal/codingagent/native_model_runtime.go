@@ -223,6 +223,8 @@ func (r *ModelRegistry) AccountRouter() *ai.AccountRouter {
 	defer r.accountRouterMu.Unlock()
 	if r.accountRouter == nil {
 		r.accountRouter = ai.NewAccountRouter(registryCredentialAccounts{registry: r})
+		r.accountRouter.SetSessionUsageSource(r.accountSessionUsage)
+		r.accountRouter.SetSessionUsageInvalidator(r.invalidateAccountSessionUsage)
 	}
 	return r.accountRouter
 }

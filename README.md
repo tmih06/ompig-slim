@@ -179,11 +179,13 @@ a Herdr server restart.
 | Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
 | State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
 
-All providers distribute initial session assignments across eligible accounts and keep each session/model assignment
-sticky across restarts. Broker clients share the same assignment cursor. See [account routing](docs/account-routing.md).
+Account assignments stay sticky per provider, session, and model across restarts.
+Broker clients share assignment state. See [account routing](docs/account-routing.md).
 
 Codex routing prefers eligible, unblocked Free accounts before paid accounts, even when Plus is selected.
-If an access token omits the plan, routing uses the plan saved from an earlier access or ID token.
+Fresh usage reports identify plans when tokens omit them or contain an older plan.
+New assignments prefer the account with the most quota left in its shortest model-relevant rolling window.
+Offline or failed usage probes retain token-based plan checks and round-robin assignment.
 
 Codex account labels and usage views prefer the access-token email, including for existing JSON imports,
 so they match `/usage reset`. Stored email metadata is the fallback when the token has no email.

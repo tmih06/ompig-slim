@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,7 +24,7 @@ const (
 	// UsageRequestTimeout is the upstream default request budget.
 	UsageRequestTimeout = 10 * time.Second
 	// UsageReportTTL is the upstream report TTL before refresh.
-	UsageReportTTL = 5 * time.Minute
+	UsageReportTTL = ai.AccountSessionUsageFreshness
 	// usageFailureCoolDown is the per-credential cool-down after a failure.
 	usageFailureCoolDown = 10 * time.Second
 	// UsageLastGoodRetention is how long a failed probe may serve its last good
@@ -67,16 +68,19 @@ type UsageServiceOptions struct {
 	AutoResetProviderDefault func(providerID string) bool
 	// SetAutoResetProviderDefault persists the provider default for new accounts.
 	SetAutoResetProviderDefault func(providerID string, enabled bool) error
+	// DisableAutoReset keeps observational routing preflights from redeeming resets.
+	DisableAutoReset bool
 }
 
-// UsageService is the per-runtime quota service behind a usage dashboard.
+// UsageService caches quota reports for the usage dashboard or account routing.
 type UsageService struct {
 	options   UsageServiceOptions
 	providers []*ai.UsageProvider
 
-	mu       sync.Mutex
-	cache    map[string]*usageCacheEntry
-	inFlight map[string]*usageSharedProbe
+	mu         sync.Mutex
+	cache      map[string]*usageCacheEntry
+	cacheEpoch map[string]uint64
+	inFlight   map[string]*usageSharedProbe
 
 	// resetRedeemMu guards redeemInFlight, the per-account redemption slots that
 	// keep one account from spending two saved resets at once.
@@ -117,6 +121,7 @@ type usageProbeResult struct {
 type usageSharedProbe struct {
 	done       chan struct{}
 	result     usageProbeResult
+	cacheEpoch uint64
 	waiters    atomic.Int64
 	settled    atomic.Bool
 	cancel     context.CancelFunc
@@ -148,10 +153,11 @@ func NewUsageService(options UsageServiceOptions) *UsageService {
 		providers = ai.DefaultUsageProviders()
 	}
 	return &UsageService{
-		options:   options,
-		providers: providers,
-		cache:     map[string]*usageCacheEntry{},
-		inFlight:  map[string]*usageSharedProbe{},
+		options:    options,
+		providers:  providers,
+		cache:      map[string]*usageCacheEntry{},
+		cacheEpoch: map[string]uint64{},
+		inFlight:   map[string]*usageSharedProbe{},
 	}
 }
 
@@ -188,17 +194,17 @@ type usageSnapshotLabel struct {
 // published immediately without network when force is false. The caller owns
 // push and receives no calls after this method returns.
 func (service *UsageService) FetchSnapshotProgress(ctx context.Context, force bool, push func(ai.UsageSnapshot)) (ai.UsageSnapshot, error) {
-	return service.fetchSnapshot(ctx, force, push, "")
+	return service.fetchSnapshot(ctx, force, push, "", false, false)
 }
 
 // FetchProviderSnapshot shares the dashboard cache and account probe logic but
 // never contacts unrelated providers during a model's usage-aware preflight.
 func (service *UsageService) FetchProviderSnapshot(ctx context.Context, provider string, force bool) (ai.UsageSnapshot, error) {
-	return service.fetchSnapshot(ctx, force, nil, provider)
+	return service.fetchSnapshot(ctx, force, nil, provider, false, false)
 }
 
 // fetchSnapshot owns cancellation, parallel account probes and ordered reporting.
-func (service *UsageService) fetchSnapshot(ctx context.Context, force bool, push func(ai.UsageSnapshot), provider string) (ai.UsageSnapshot, error) {
+func (service *UsageService) fetchSnapshot(ctx context.Context, force bool, push func(ai.UsageSnapshot), provider string, strictStoreErrors, oauthOnly bool) (ai.UsageSnapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -212,6 +218,14 @@ func (service *UsageService) fetchSnapshot(ctx context.Context, force bool, push
 	var labels []usageSnapshotLabel
 	for _, probe := range probes {
 		if provider != "" && probe.provider != provider {
+			continue
+		}
+		if oauthOnly {
+			for i := range probe.accounts {
+				if probe.accounts[i].Type == ai.CredentialOAuth {
+					labels = append(labels, usageSnapshotLabel{probe: probe, account: &probe.accounts[i]})
+				}
+			}
 			continue
 		}
 		if len(probe.accounts) == 0 {
@@ -245,7 +259,7 @@ func (service *UsageService) fetchSnapshot(ctx context.Context, force bool, push
 			if label.account == nil {
 				result, err = service.fetchAmbient(workCtx, label.probe, force)
 			} else {
-				result, err = service.fetchAccount(workCtx, label.probe, *label.account, force)
+				result, err = service.fetchAccount(workCtx, label.probe, *label.account, force, strictStoreErrors)
 			}
 			responses <- response{index, result, err}
 		})
@@ -473,11 +487,14 @@ func (service *UsageService) readCredentialFor(ctx context.Context, providerID s
 // fetchAccount probes one stored account, refreshing only that account's OAuth
 // token near expiry or once after a broker-owned/Codex JSON usage 401. Retirement
 // is owned by auth resolution; permission failures alone never remove credentials.
-func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProviderProbe, account ai.CredentialAccountInfo, force bool) (usageProbeResult, error) {
+func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProviderProbe, account ai.CredentialAccountInfo, force, strictStoreErrors bool) (usageProbeResult, error) {
 	credential, err := service.readCredentialFor(ctx, probe.provider, account.AccountKey)
 	if err != nil {
 		if ctx.Err() != nil {
 			return usageProbeResult{}, context.Cause(ctx)
+		}
+		if strictStoreErrors {
+			return usageProbeResult{}, err
 		}
 		return usageProbeResult{reason: err.Error()}, nil
 	}
@@ -510,6 +527,9 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 				if ctx.Err() != nil {
 					return usageProbeResult{}, context.Cause(ctx)
 				}
+				if strictStoreErrors {
+					return usageProbeResult{}, readErr
+				}
 				return usageProbeResult{reason: readErr.Error()}, nil
 			}
 			if refreshed == nil {
@@ -531,6 +551,9 @@ func (service *UsageService) fetchAccount(ctx context.Context, probe *usageProvi
 		if readErr != nil {
 			if ctx.Err() != nil {
 				return usageProbeResult{}, context.Cause(ctx)
+			}
+			if strictStoreErrors {
+				return usageProbeResult{}, readErr
 			}
 			return usageProbeResult{reason: readErr.Error()}, nil
 		}
@@ -558,8 +581,12 @@ func (service *UsageService) refreshUsageAccount(ctx context.Context, provider s
 }
 
 func usageAccountResult(result usageProbeResult, accountKey *string) usageProbeResult {
-	if result.report != nil && accountKey != nil {
-		report := usageWithAccountKey(*result.report, *accountKey)
+	if result.report != nil {
+		report := usageWithAccountKey(*result.report, accountKey)
+		report.AccountKeySet = true
+		if accountKey != nil {
+			report.AccountKey = new(*accountKey)
+		}
 		result.report = &report
 	}
 	return result
@@ -606,16 +633,19 @@ func usageCacheKey(target usageProbeTarget, identity string) string {
 	return target.provider + "\x00" + target.baseURL + "\x00" + identity
 }
 
-// usageWithAccountKey stamps the store account key on a report.
-func usageWithAccountKey(report ai.UsageReport, accountKey string) ai.UsageReport {
-	if current, ok := report.Metadata["accountKey"].(string); ok && current == accountKey {
+// usageWithAccountKey preserves the display label for a stored named account.
+func usageWithAccountKey(report ai.UsageReport, accountKey *string) ai.UsageReport {
+	if accountKey == nil {
+		return report
+	}
+	if current, ok := report.Metadata["accountKey"].(string); ok && current == *accountKey {
 		return report
 	}
 	metadata := make(map[string]any, len(report.Metadata)+1)
 	for key, value := range report.Metadata {
 		metadata[key] = value
 	}
-	metadata["accountKey"] = accountKey
+	metadata["accountKey"] = *accountKey
 	report.Metadata = metadata
 	return report
 }
@@ -647,7 +677,14 @@ func (service *UsageService) fetchCached(ctx context.Context, key string, target
 	}()
 	select {
 	case <-shared.done:
-		return shared.result, nil
+		service.mu.Lock()
+		invalidated := service.cacheEpoch[key] != shared.cacheEpoch
+		result := shared.result
+		service.mu.Unlock()
+		if invalidated {
+			return usageProbeResult{}, nil
+		}
+		return result, nil
 	case <-ctx.Done():
 		return usageProbeResult{}, context.Cause(ctx)
 	}
@@ -677,17 +714,17 @@ func (service *UsageService) sharedProbe(key string, target usageProbeTarget, ca
 	if cached := service.cache[key]; !force && cached != nil && cached.cacheVersion == cacheVersion && cached.expiresAt.After(service.now()) {
 		done := make(chan struct{})
 		close(done)
-		ready := &usageSharedProbe{done: done, result: usageProbeResult{report: cached.report, reason: cached.reason, unsupported: cached.unsupported}}
+		ready := &usageSharedProbe{done: done, cacheEpoch: service.cacheEpoch[key], result: usageProbeResult{report: cached.report, reason: cached.reason, unsupported: cached.unsupported}}
 		ready.settled.Store(true)
 		ready.waiters.Store(1)
 		return ready
 	}
 	probeCtx, cancel := context.WithCancel(context.Background())
-	entry := &usageSharedProbe{done: make(chan struct{}), cancel: cancel}
+	entry := &usageSharedProbe{done: make(chan struct{}), cacheEpoch: service.cacheEpoch[key], cancel: cancel}
 	entry.waiters.Store(1)
 	service.inFlight[key] = entry
 	go func() {
-		result := service.probe(probeCtx, key, target, cacheVersion)
+		result := service.probe(probeCtx, key, target, cacheVersion, entry.cacheEpoch)
 		entry.result = result
 		entry.settled.Store(true)
 		service.mu.Lock()
@@ -728,7 +765,7 @@ func (service *UsageService) maybeAutoReset(ctx context.Context, target usagePro
 }
 
 // probe performs one upstream fetch, caching the report or last-good fallback.
-func (service *UsageService) probe(ctx context.Context, key string, target usageProbeTarget, cacheVersion int) usageProbeResult {
+func (service *UsageService) probe(ctx context.Context, key string, target usageProbeTarget, cacheVersion int, cacheEpoch uint64) usageProbeResult {
 	params := ai.UsageFetchParams{
 		Provider:   target.provider,
 		Credential: target.credential,
@@ -745,7 +782,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 			reason:       reason,
 			unsupported:  true,
 			cacheVersion: cacheVersion,
-		})
+		}, cacheEpoch)
 		return usageProbeResult{reason: reason, unsupported: true}
 	}
 	service.mu.Lock()
@@ -778,7 +815,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 			// A rejected credential must not keep rendering stale quota as
 			// healthy. Purging the cache says nothing about the credential's
 			// lifecycle: only the auth resolver may retire the account.
-			service.purge(key)
+			service.purgeIfCurrent(key, cacheEpoch)
 			return usageProbeResult{reason: reason, authRejected: httpErr.Status == 401}
 		}
 	} else if report == nil {
@@ -787,7 +824,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 	now := service.now()
 	if report != nil {
 		ai.AttributeUsageReport(report, target.credential)
-		if service.maybeAutoReset(requestCtx, target, report) {
+		if !service.options.DisableAutoReset && service.maybeAutoReset(requestCtx, target, report) {
 			// Do not cache the exhausted pre-reset report. The next request must
 			// observe the newly restored quota rather than spend the same credit again.
 			return usageProbeResult{report: report}
@@ -798,7 +835,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 			expiresAt:    now.Add(ttl),
 			lastGood:     &usageLastGood{report: *report, fetchedAt: now},
 			cacheVersion: cacheVersion,
-		})
+		}, cacheEpoch)
 		return usageProbeResult{report: report}
 	}
 	var lastGood *ai.UsageReport
@@ -817,7 +854,7 @@ func (service *UsageService) probe(ctx context.Context, key string, target usage
 		lastGood:     previous,
 		cacheVersion: cacheVersion,
 	}
-	service.store(key, entry)
+	service.store(key, entry, cacheEpoch)
 	return usageProbeResult{report: lastGood, reason: reason}
 }
 
@@ -827,17 +864,49 @@ func usageJitter(random float64, base time.Duration) time.Duration {
 }
 
 // store caches one probe entry.
-func (service *UsageService) store(key string, entry *usageCacheEntry) {
+func (service *UsageService) store(key string, entry *usageCacheEntry, cacheEpoch uint64) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	service.cache[key] = entry
+	if service.cacheEpoch[key] == cacheEpoch {
+		service.cache[key] = entry
+	}
 }
 
-// purge drops a cache entry, for a rejected credential.
-func (service *UsageService) purge(key string) {
+// purgeIfCurrent drops a rejected credential's entry without deleting a newer probe's result.
+func (service *UsageService) purgeIfCurrent(key string, cacheEpoch uint64) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	delete(service.cache, key)
+	if service.cacheEpoch[key] == cacheEpoch {
+		delete(service.cache, key)
+	}
+}
+
+func (service *UsageService) invalidateUsageCachePrefix(prefix string) {
+	service.mu.Lock()
+	keys := map[string]struct{}{}
+	for key := range service.cache {
+		if strings.HasPrefix(key, prefix) {
+			keys[key] = struct{}{}
+		}
+	}
+	var cancel []context.CancelFunc
+	for key, shared := range service.inFlight {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		keys[key] = struct{}{}
+		shared.contextErr = context.Canceled
+		delete(service.inFlight, key)
+		cancel = append(cancel, shared.cancel)
+	}
+	for key := range keys {
+		service.cacheEpoch[key]++
+		delete(service.cache, key)
+	}
+	service.mu.Unlock()
+	for _, cancelProbe := range cancel {
+		cancelProbe()
+	}
 }
 
 // defaultUsageRandom is the cache jitter source, matching Math.random.

@@ -3,6 +3,7 @@ package ai_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +68,62 @@ func TestUsageRouteLearnsProviderAccessForUnlistedModel(t *testing.T) {
 	}
 	if key, present := router.PeekRoutedAccountKey("openai-codex", request.SessionID, model.ID); !present || key == nil || *key != "free" {
 		t.Fatal("accepted free route was not confirmed")
+	}
+}
+
+func TestUsageRouteReportsExhaustedEligibleAccountsAsUnavailable(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("free"), true), accountInfo("openai-codex", keyOf("plus"), false))
+	store.put("openai-codex", keyOf("free"), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken("free")})
+	store.put("openai-codex", keyOf("plus"), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken("plus")})
+	now := time.Now()
+	freeReset := now.Add(17*time.Minute + 30*time.Second).UnixMilli()
+	freeSecondaryReset := now.Add(67 * time.Minute).UnixMilli()
+	plusReset := now.Add(47 * time.Minute).UnixMilli()
+	router := ai.NewAccountRouter(store)
+	router.SetSessionUsageSource(func(context.Context, string, string) ([]ai.AccountSessionUsage, error) {
+		return []ai.AccountSessionUsage{
+			{AccountKey: keyOf("free"), AccountKeySet: true, FetchedAt: now.UnixMilli(), Plan: "free", Windows: []ai.AccountSessionUsageWindow{{ID: "primary", Exhausted: true, ResetsAt: &freeReset}, {ID: "secondary", Exhausted: true, ResetsAt: &freeSecondaryReset}}},
+			{AccountKey: keyOf("plus"), AccountKeySet: true, FetchedAt: now.UnixMilli(), Plan: "plus", Windows: []ai.AccountSessionUsageWindow{{ID: "primary", Exhausted: true, ResetsAt: &plusReset}}},
+		}, nil
+	})
+	var attempts int
+	_, err := router.ImagesRoutes(t.Context(), okModel("openai-codex", "future-model"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (ai.AssistantImages, error) {
+		attempts++
+		return ai.AssistantImages{StopReason: ai.ImagesStopReasonStop}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "temporarily unavailable") {
+		t.Fatalf("exhausted eligible accounts returned %v", err)
+	}
+	if !strings.Contains(err.Error(), "Try again in ~47 min") || strings.Contains(err.Error(), "Sign in") {
+		t.Fatalf("quota error omitted the earliest reset or advised sign-in: %v", err)
+	}
+	if attempts != 0 {
+		t.Fatalf("quota preflight attempted the provider %d times", attempts)
+	}
+}
+
+func TestUsageRouteChecksPlanBeforeExhaustion(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("openai-codex", keyOf("free"), true))
+	store.put("openai-codex", keyOf("free"), ai.Credential{Type: ai.CredentialOAuth, Access: codexToken("free")})
+	now := time.Now()
+	resetAt := now.Add(time.Hour).UnixMilli()
+	router := ai.NewAccountRouter(store)
+	router.SetSessionUsageSource(func(context.Context, string, string) ([]ai.AccountSessionUsage, error) {
+		return []ai.AccountSessionUsage{{
+			AccountKey: keyOf("free"), AccountKeySet: true, FetchedAt: now.UnixMilli(), Plan: "free",
+			Windows: []ai.AccountSessionUsageWindow{{ID: "primary", Exhausted: true, ResetsAt: &resetAt}},
+		}}, nil
+	})
+	var attempts int
+	_, err := router.ImagesRoutes(t.Context(), okModel("openai-codex", "gpt-6.1-sol"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (ai.AssistantImages, error) {
+		attempts++
+		return ai.AssistantImages{StopReason: ai.ImagesStopReasonStop}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "No stored account meets the plan requirement") || !strings.Contains(err.Error(), "Sign in with an eligible account") {
+		t.Fatalf("plan-ineligible account changed its error: %v", err)
+	}
+	if strings.Contains(err.Error(), "temporarily unavailable") || attempts != 0 {
+		t.Fatalf("plan-ineligible account was mislabeled or attempted: %v attempts=%d", err, attempts)
 	}
 }
 

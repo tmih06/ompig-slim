@@ -583,6 +583,20 @@ func TestUsageReportMarksOnlyTheKeyedAccountActive(t *testing.T) {
 	}
 }
 
+func TestUsageReportShowsPendingAccountWithoutUsageReport(t *testing.T) {
+	key := "free-account"
+	output := plainLines(strings.Split(RenderUsageReports(UsageReportOptions{
+		Reports: []ai.UsageReport{{Provider: "openai-codex", Limits: []ai.UsageLimit{usageTestLimit("openai-codex", "acct-plus", "7d", "Weekly", ai.UsageAmount{UsedFraction: new(0.2), Unit: ai.UsageUnitPercent}, ai.UsageStatusOK)}}},
+		NowMs:   time.Now().UnixMilli(), Width: 100,
+		ResolveActiveAccount: func(string) *ai.UsageActiveAccount {
+			return &ai.UsageActiveAccount{AccountKey: &key}
+		},
+	}), "\n"))
+	if !strings.Contains(output, "in use by this session:") || !strings.Contains(output, key) {
+		t.Fatalf("pending account was omitted:\n%s", output)
+	}
+}
+
 func TestUsageReportDisambiguatesCodexWorkspaces(t *testing.T) {
 	now := time.Now().UnixMilli()
 	workspace := func(orgID string) ai.UsageReport {

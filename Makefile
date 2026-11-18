@@ -2,7 +2,7 @@ GO ?= go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-extensions
+.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
@@ -40,6 +40,7 @@ smoke: build
 # CI extracts a verified release binary before calling this build-free target.
 smoke-built:
 	python3 scripts/smoke-test-account-routing.py ./bin/ompig-slim
+	python3 scripts/smoke-test-codex-account-policy.py ./bin/ompig-slim
 	python3 scripts/measure-startup.py ./bin/ompig-slim --isolated --model @default --runs 1
 	python3 scripts/measure-resume.py ./bin/ompig-slim --turns 40 --runs 1
 	python3 scripts/measure-resume.py ./bin/ompig-slim --turns 40 --via-picker --runs 1
@@ -106,6 +107,9 @@ test-broker-container: build
 # this checkout, then drives synchronization, credentials and connection setup.
 test-broker-cluster: build
 	python3 scripts/test-broker-cluster.py --binary ./bin/ompig-slim
+
+test-broker-codex-usage: build build-broker
+	python3 scripts/smoke-test-broker-codex-usage.py ./bin/ompig-slim ./bin/ompig-slim-broker
 
 # Install the pinned baselines first; benchmark never rebuilds the measured CLI.
 benchmark:

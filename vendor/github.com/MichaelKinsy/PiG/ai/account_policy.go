@@ -22,7 +22,8 @@ var jsSpaceBody = jsSpaceClass[1 : len(jsSpaceClass)-1]
 var (
 	codexProPlan  = lazyregexp.New(`(?:^|_)pro(?:_|$)`)
 	codexPaidPlan = lazyregexp.New(`(?:^|_)(?:plus|business|team|enterprise|edu|education|teacher|teachers|health|gov|government)(?:_|$)`)
-	codexFreePlan = lazyregexp.New(`(?:^|_)(?:free|go)(?:_|$)`)
+	codexFreePlan = lazyregexp.New(`(?:^|_)free(?:_|$)`)
+	codexGoPlan   = lazyregexp.New(`(?:^|_)go(?:_|$)`)
 )
 
 // codexPlanSeparators folds the space and hyphen runs of a plan tier into one underscore, as
@@ -54,6 +55,10 @@ func AccountPolicyModelID(modelID string) string {
 // Codex OAuth credentials (browser logins and JSON imports) carry a plan;
 // every other provider and every API key is eligible.
 func AccountMeetsModelPlan(provider, modelID string, credential Credential) *bool {
+	return accountMeetsModelPlan(provider, modelID, credential, "")
+}
+
+func accountMeetsModelPlan(provider, modelID string, credential Credential, usagePlan string) *bool {
 	if !isCodexAccountProvider(provider) || credential.Type != CredentialOAuth {
 		return new(true)
 	}
@@ -69,20 +74,58 @@ func AccountMeetsModelPlan(provider, modelID string, credential Credential) *boo
 		return new(true)
 	}
 	plan, ok := codexAccountPlan(credential)
+	if normalized, recognized := NormalizeCodexAccountPlan(usagePlan); recognized {
+		plan, ok = normalized, true
+	}
 	if !ok {
 		return nil
 	}
+	switch codexAccountPlanTierOf(plan) {
+	case codexAccountPlanPro:
+		return new(true)
+	case codexAccountPlanPaid, codexAccountPlanPaidLite:
+		return new(requirement == "paid")
+	case codexAccountPlanFree, codexAccountPlanGo:
+		return new(false)
+	default:
+		return nil
+	}
+}
+
+// NormalizeCodexAccountPlan returns the canonical spelling of a recognized
+// Codex plan for routing facts. Unknown plans remain eligible only where the
+// model has no catalog plan requirement.
+func NormalizeCodexAccountPlan(plan string) (string, bool) {
+	normalized := normalizeCodexAccountPlan(plan)
+	return normalized, codexAccountPlanTierOf(normalized) != codexAccountPlanUnknown
+}
+
+type codexAccountPlanTier uint8
+
+const (
+	codexAccountPlanUnknown codexAccountPlanTier = iota
+	codexAccountPlanFree
+	codexAccountPlanPaid
+	codexAccountPlanPro
+	codexAccountPlanPaidLite
+	codexAccountPlanGo
+)
+
+func codexAccountPlanTierOf(plan string) codexAccountPlanTier {
 	switch {
 	case plan == "prolite" || plan == "pro_lite":
-		return new(requirement == "paid")
+		return codexAccountPlanPaidLite
 	case codexProPlan.MatchString(plan):
-		return new(true)
+		return codexAccountPlanPro
 	case codexPaidPlan.MatchString(plan):
-		return new(requirement == "paid")
+		return codexAccountPlanPaid
 	case codexFreePlan.MatchString(plan):
-		return new(false)
+		return codexAccountPlanFree
+	case codexGoPlan.MatchString(plan):
+		return codexAccountPlanGo
+	default:
+		return codexAccountPlanUnknown
 	}
-	return nil
 }
 
 // codexAccountPlan prefers the access-token plan, falling back to the orgName
@@ -93,9 +136,13 @@ func codexAccountPlan(credential Credential) (string, bool) {
 	if jsstring.Trim(plan) == "" {
 		plan = stringClaim(credential, "orgName")
 	}
-	normalized := codexPlanSeparators.ReplaceAllString(jsstring.ToLower(jsstring.Trim(plan)), "_")
-	normalized = strings.TrimPrefix(normalized, "chatgpt_")
+	normalized := normalizeCodexAccountPlan(plan)
 	return normalized, normalized != ""
+}
+
+func normalizeCodexAccountPlan(plan string) string {
+	normalized := codexPlanSeparators.ReplaceAllString(jsstring.ToLower(jsstring.Trim(plan)), "_")
+	return strings.TrimPrefix(normalized, "chatgpt_")
 }
 
 // decodeJWTPayload decodes a base64url JWT segment the way atob does after the caller's

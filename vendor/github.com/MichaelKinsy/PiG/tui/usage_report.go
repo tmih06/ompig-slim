@@ -596,6 +596,11 @@ func RenderUsageReports(options UsageReportOptions) string {
 		if activeReport != nil {
 			label := formatUsageReportLabel(*activeReport, providerReports, indexOfUsageReport(providerReports, *activeReport))
 			lines = append(lines, "  "+theme.Fg(string(ThemeColorAccent), "in use by this session:")+" "+SanitizeDisplayLine(label))
+		} else if label := ActiveAccountLabel(activeAccount); label != "" {
+			// The routed account can be known before its usage report is
+			// available. Still show the account being attempted rather than
+			// silently omitting the session identity.
+			lines = append(lines, "  "+theme.Fg(string(ThemeColorAccent), "in use by this session:")+" "+label)
 		}
 		for _, account := range group.UnavailableAccounts {
 			label := SanitizeDisplayLine(account.Label)

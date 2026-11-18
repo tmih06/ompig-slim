@@ -38,9 +38,8 @@ func (m *InteractiveMode) promptQuotaModelChanged() {
 	if m.editor != nil {
 		m.editor.Invalidate()
 	}
-	if m.backgroundCtx != nil {
-		m.refreshPromptQuotaAccount(m.backgroundCtx)
-	}
+	// The usage dashboard resolves the model route after it has refreshed the
+	// provider snapshot. Avoid probing credentials during a model picker change.
 }
 
 func (m *InteractiveMode) refreshPromptQuotaAccount(ctx context.Context) {

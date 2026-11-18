@@ -548,16 +548,8 @@ func resetCreditByID(list *ai.UsageResetCredits, creditID string) *ai.UsageReset
 // just spent a reset, so the next read fetches the reset window instead of
 // serving the pre-reset numbers for the rest of the TTL.
 func (service *UsageService) invalidateUsageAfterReset(providerID string, account ai.CredentialAccountInfo) {
-	credential, err := service.readCredentialFor(context.Background(), providerID, account.AccountKey)
-	if err != nil || credential == nil {
-		return
-	}
-	target := usageProbeTarget{
-		provider:   providerID,
-		baseURL:    service.providerBaseURL(providerID),
-		credential: ai.UsageCredentialFromStored(credential),
-	}
-	service.purge(usageCacheKey(target, "store:"+usageAccountKeyText(account.AccountKey)+":"+ai.UsageCacheIdentity(target.credential)))
+	prefix := providerID + "\x00" + service.providerBaseURL(providerID) + "\x00store:" + usageAccountKeyText(account.AccountKey) + ":"
+	service.invalidateUsageCachePrefix(prefix)
 }
 
 // copyAccountKey copies a nullable account key, preserving "set to nil" as an

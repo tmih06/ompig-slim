@@ -17,7 +17,11 @@ func sessionCachePrefix(providerID string) string {
 }
 
 func sessionCacheKey(providerID string, route AccountSessionRoute) string {
-	identity, _ := json.Marshal(route)
+	// Usage changes must not alter the durable session/model pin identity.
+	identity, _ := json.Marshal(struct {
+		SessionID string `json:"sessionId"`
+		ModelID   string `json:"modelId"`
+	}{SessionID: route.SessionID, ModelID: route.ModelID})
 	return fmt.Sprintf("%spin:%x", sessionCachePrefix(providerID), sha256.Sum256(identity))
 }
 
@@ -82,6 +86,10 @@ func sessionRows(ctx context.Context, q querier, providerID string, route Accoun
 	return accounts, rows.Err()
 }
 
+func usageSessionCursorKey(providerID string, rank accountPlanRank) string {
+	return sessionCachePrefix(providerID) + "usage-cursor:" + strconv.Itoa(int(rank))
+}
+
 // ResolveSessionAccount keeps previews read-only and serializes reservations across processes.
 func (s *SQLiteAuthStorage) ResolveSessionAccount(ctx context.Context, providerID string, route AccountSessionRoute, reserve bool) (*AccountSelection, error) {
 	if err := validateSessionRoute(providerID, route); err != nil {
@@ -95,19 +103,34 @@ func (s *SQLiteAuthStorage) ResolveSessionAccount(ctx context.Context, providerI
 		}
 		best := accountPlanIneligible
 		var candidates []credentialRow
+		usageByRow := make(map[int64]*AccountSessionUsage, len(rows))
+		usageAware := false
+		now := time.Now()
 		for _, row := range rows {
 			credential := rowCredential(&row)
 			if credential == nil {
 				continue
 			}
-			rank := accountPlanPriority(providerID, route.ModelID, *credential)
+			var accountKey *string
+			if row.IdentityKey.Valid {
+				accountKey = &row.IdentityKey.String
+			}
+			usage := accountSessionUsageFor(route, accountKey, now)
+			if accountSessionUsageExhausted(usage) {
+				continue
+			}
+			rank := accountPlanPriorityWithUsage(providerID, route.ModelID, *credential, usage)
 			if rank == accountPlanIneligible || rank > best {
 				continue
 			}
 			if rank < best {
-				best, candidates = rank, nil
+				best, candidates, usageAware = rank, nil, false
 			}
 			candidates = append(candidates, row)
+			if usage != nil {
+				usageByRow[row.ID] = usage
+				usageAware = true
+			}
 		}
 		if len(candidates) == 0 {
 			return nil
@@ -130,6 +153,22 @@ func (s *SQLiteAuthStorage) ResolveSessionAccount(ctx context.Context, providerI
 			}
 		}
 		cursorKey := sessionCachePrefix(providerID) + "cursor:" + strconv.Itoa(int(best))
+		if usageAware {
+			cursorKey = usageSessionCursorKey(providerID, best)
+			preferred := candidates[:0]
+			bestRemaining := -1.0
+			for _, row := range candidates {
+				remaining := shortestWindowRemaining(usageByRow[row.ID])
+				if remaining > bestRemaining {
+					bestRemaining = remaining
+					preferred = preferred[:0]
+				}
+				if remaining == bestRemaining {
+					preferred = append(preferred, row)
+				}
+			}
+			candidates = preferred
+		}
 		cursor, err := readRouteID(ctx, q, cursorKey)
 		if err != nil {
 			return err
@@ -192,7 +231,15 @@ func (s *SQLiteAuthStorage) SetSessionAccount(ctx context.Context, providerID st
 		}
 		row := rows[0]
 		credential := rowCredential(&row)
-		if credential == nil || accountPlanPriority(providerID, route.ModelID, *credential) == accountPlanIneligible {
+		if credential == nil {
+			return errors.New("session account is no longer available")
+		}
+		var accountKey *string
+		if row.IdentityKey.Valid {
+			accountKey = &row.IdentityKey.String
+		}
+		usage := accountSessionUsageFor(route, accountKey, time.Now())
+		if accountSessionUsageExhausted(usage) || accountPlanPriorityWithUsage(providerID, route.ModelID, *credential, usage) == accountPlanIneligible {
 			return errors.New("session account is no longer available")
 		}
 		return writeRouteID(ctx, tx, sessionCacheKey(providerID, route), row.ID)

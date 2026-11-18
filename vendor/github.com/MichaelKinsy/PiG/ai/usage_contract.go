@@ -125,6 +125,9 @@ type UsageReport struct {
 	Notes        []string           `json:"notes,omitempty"`
 	Metadata     map[string]any     `json:"metadata,omitempty"`
 	Raw          any                `json:"raw,omitempty"`
+	// AccountKeySet and AccountKey retain the nullable stored identity without changing serialized reports.
+	AccountKey    *string `json:"-"`
+	AccountKeySet bool    `json:"-"`
 }
 
 // UsageLogger is the optional logger handed to usage fetchers.

@@ -128,7 +128,10 @@ become visible on the next fetch after expiry. Failed fetches never serve an
 expired view. Account metadata and quota reads remain live, and read-only quota
 checks do not discard unchanged credentials. Account selection, logout and quota
 blocks persist on the broker and are visible to every client. Session assignments
-and round-robin cursors also persist there and coordinate all clients. See
+and allocation state also persist there and coordinate all clients. Clients
+include narrow plan and quota-window observations in assignment requests. Usage
+fetches remain on the client, while the host chooses and reserves the account
+inside its SQLite transaction. See
 [account routing](account-routing.md) for eligibility, stickiness, and reset behavior.
 Upgrade clients and the broker together for session-assignment support. Login still runs
 the browser/device flow on the client, then uploads the result to the broker
