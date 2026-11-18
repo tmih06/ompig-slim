@@ -57,7 +57,8 @@ func (m *Models) Refresh(ctx context.Context, options ...ModelsRefreshOptions) M
 			continue
 		}
 		run := func() error {
-			stored, credentialErr := readProviderCredential(signal, m.credentials, provider.ID)
+			overrides := ApplyAccountRequest(signal, AuthResolutionOverrides{})
+			stored, credentialErr := readProviderCredentialForOverrides(signal, m.credentials, provider.ID, overrides)
 			if err := m.runProviderRefreshPhase(provider, stored, false, nil, generation, signal); err != nil {
 				return err
 			}
@@ -67,7 +68,7 @@ func (m *Models) Refresh(ctx context.Context, options ...ModelsRefreshOptions) M
 			if !allowNetwork || signal.Err() != nil {
 				return nil
 			}
-			credential, err := m.resolveRefreshCredential(signal, provider, stored)
+			credential, err := m.resolveRefreshCredential(signal, provider, stored, overrides)
 			if err != nil || credential == nil {
 				return err
 			}
@@ -105,16 +106,24 @@ func (m *Models) Refresh(ctx context.Context, options ...ModelsRefreshOptions) M
 }
 
 func (m *Models) runProviderRefreshPhase(provider *ModelsProvider, credential *Credential, allowNetwork bool, force *bool, generation uint64, signal context.Context) error {
-	stored, err := ReadModelsStoreSnapshot(signal, m.modelsStore, provider.ID)
-	if err != nil {
-		return err
+	storeKey := provider.ID
+	if provider.ModelCatalog != nil {
+		storeKey = provider.ModelCatalog.Scope(provider.BaseURL, credential).StoreKey
+	}
+	var stored *ModelsStoreEntry
+	var err error
+	if storeKey != "" {
+		stored, err = ReadModelsStoreSnapshot(signal, m.modelsStore, storeKey)
+		if err != nil {
+			return err
+		}
 	}
 	return provider.RefreshModels(RefreshModelsContext{Credential: credential, Stored: stored, AllowNetwork: allowNetwork, Force: force, Signal: signal, BaseURL: provider.BaseURL, Publish: func(publication ModelsPublication) (bool, error) {
-		return m.publishProviderModels(provider.ID, generation, signal, publication)
+		return m.publishProviderModels(provider.ID, storeKey, generation, signal, publication)
 	}})
 }
 
-func (m *Models) publishProviderModels(providerID string, generation uint64, signal context.Context, publication ModelsPublication) (bool, error) {
+func (m *Models) publishProviderModels(providerID, storeKey string, generation uint64, signal context.Context, publication ModelsPublication) (bool, error) {
 	m.mu.Lock()
 	previous := m.publicationChains[providerID]
 	done := make(chan struct{})
@@ -141,10 +150,10 @@ func (m *Models) publishProviderModels(providerID string, generation uint64, sig
 			return modelsOperationResult[bool]{}
 		}
 		var err error
-		if publication.Persist != nil {
-			err = m.modelsStore.Write(signal, providerID, publication.Persist.Clone())
-		} else if publication.PersistSet {
-			err = m.modelsStore.Delete(signal, providerID)
+		if publication.Persist != nil && storeKey != "" {
+			err = m.modelsStore.Write(signal, storeKey, publication.Persist.Clone())
+		} else if publication.PersistSet && storeKey != "" {
+			err = m.modelsStore.Delete(signal, storeKey)
 		}
 		if err != nil {
 			return modelsOperationResult[bool]{err: err}
@@ -181,7 +190,7 @@ func (m *Models) publishProviderModels(providerID string, generation uint64, sig
 	}
 }
 
-func (m *Models) resolveRefreshCredential(ctx context.Context, provider *ModelsProvider, stored *Credential) (*Credential, error) {
+func (m *Models) resolveRefreshCredential(ctx context.Context, provider *ModelsProvider, stored *Credential, overrides AuthResolutionOverrides) (*Credential, error) {
 	if stored != nil && stored.Type == CredentialOAuth {
 		oauth := provider.Auth.OAuth
 		if oauth == nil {
@@ -195,7 +204,7 @@ func (m *Models) resolveRefreshCredential(ctx context.Context, provider *ModelsP
 		}
 		// A refresh that has started survives cancellation or a superseding model refresh, so a rotated refresh token is always persisted. A newer refresh then sees the fresh credential.
 		// upstream: packages/ai/src/models.ts:resolveRefreshCredential
-		return refreshStoredOAuthCredential(ctx, m.credentials, provider.ID, oauth, func(current Credential) bool { return float64(nowMillis()) >= current.ExpiresMillis() }, AuthResolutionOverrides{})
+		return refreshStoredOAuthCredential(ctx, m.credentials, provider.ID, oauth, func(current Credential) bool { return float64(nowMillis()) >= current.ExpiresMillis() }, overrides)
 	}
 	apiKey := provider.Auth.APIKey
 	if apiKey == nil {

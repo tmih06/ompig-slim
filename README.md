@@ -76,9 +76,16 @@ cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
 | `ompig-slim -c` / `-r` / `--session <id>` | continue the last session, pick one, open by id |
 | `ompig-slim --model openai/gpt-4o:high` | pick `provider/id` with a thinking level |
 | `ompig-slim --model @review` | run on a saved [model role](docs/model-roles.md) |
-| `ompig-slim --list-models` | list selectable models, including your own ([custom models](docs/custom-models.md)) |
+| `ompig-slim --list-models` | refresh and list available models, including [custom models](docs/custom-models.md) |
 | `ompig-slim @src/a.ts "explain"` | attach files or images to the prompt |
 | `ompig-slim --tools read,grep,find` | restrict the tool set for one run ([selection rules](docs/tool-selection.md)) |
+
+Model lists refresh automatically. Codex and Codex JSON use the signed-in accounts'
+provider roster. Other supported providers learn new models from the public catalog.
+Interactive startup uses cached lists while discovery runs in the background.
+Use `--offline` to skip discovery or `update --models` to force a refresh.
+See [model discovery and offline behavior](docs/model-discovery.md).
+ClinePass does not list `cline-free/` promotions reserved for Cline's IDE extension and CLI.
 
 | Key | Action |
 |---|---|

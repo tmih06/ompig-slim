@@ -148,24 +148,75 @@ func publicChatModel(provider string, template ai.GeneratedModel, row ai.ModelCa
 // withPublicCatalog lists shared-source additions through the same provider
 // used by typed lookup and request binding. No new Stream or auth implementation
 // is created, and user models still override these rows during composition.
+func unionModelCatalogSnapshots(snapshots []ai.ModelsCatalogSnapshot) []*ai.Model {
+	models := []*ai.Model{}
+	seen := map[string]struct{}{}
+	for _, snapshot := range snapshots {
+		for _, model := range snapshot.Models {
+			if _, exists := seen[model.ID]; exists {
+				continue
+			}
+			seen[model.ID] = struct{}{}
+			models = append(models, model)
+		}
+	}
+	return models
+}
+
 func (r *ModelRegistry) withPublicCatalog(provider string, base *ai.ModelsProvider) *ai.ModelsProvider {
 	if base == nil {
 		return nil
 	}
 	wrapped := *base
-	wrapped.GetModels = func() ([]*ai.Model, error) {
-		models, err := base.GetModels()
-		if err != nil {
-			return nil, err
+	if base.ModelCatalog != nil {
+		wrapped.GetModels = func() ([]*ai.Model, error) {
+			snapshots := base.ModelCatalog.Snapshots(wrapped.BaseURL)
+			if len(snapshots) > 0 {
+				return unionModelCatalogSnapshots(snapshots), nil
+			}
+			return append(plainModelData(builtinChatCatalog(provider)), r.publicCatalogAdditions(provider)...), nil
 		}
-		return append(slices.Clone(models), r.publicCatalogAdditions(provider)...), nil
-	}
-	wrapped.GetAllModels = func() ([]ai.AnyModel, error) {
-		models, err := allProviderModels(base)
-		if err != nil {
-			return nil, err
+		wrapped.GetAllModels = func() ([]ai.AnyModel, error) {
+			models, err := allProviderModels(base)
+			if err != nil {
+				return nil, err
+			}
+			models = slices.DeleteFunc(models, func(model ai.AnyModel) bool { return ai.IsModelType(model, ai.ModelTypeChat) })
+			snapshots := base.ModelCatalog.Snapshots(wrapped.BaseURL)
+			if len(snapshots) > 0 {
+				return append(models, ai.AnyModels(unionModelCatalogSnapshots(snapshots))...), nil
+			}
+			models = append(models, ai.AnyModels(plainModelData(builtinChatCatalog(provider)))...)
+			return append(models, ai.AnyModels(r.publicCatalogAdditions(provider))...), nil
 		}
-		return append(slices.Clone(models), ai.AnyModels(r.publicCatalogAdditions(provider))...), nil
+		wrapped.FilterModels = func(_ []*ai.Model, credential *ai.Credential) []*ai.Model {
+			scope := base.ModelCatalog.Scope(wrapped.BaseURL, credential)
+			for _, snapshot := range base.ModelCatalog.Snapshots(wrapped.BaseURL) {
+				if snapshot.ScopeID == scope.ID {
+					return snapshot.Models
+				}
+			}
+			return append(plainModelData(builtinChatCatalog(provider)), r.publicCatalogAdditions(provider)...)
+		}
+		wrapped.FilterAllModels = func(models []ai.AnyModel, credential *ai.Credential) []ai.AnyModel {
+			filtered := slices.DeleteFunc(slices.Clone(models), func(model ai.AnyModel) bool { return ai.IsModelType(model, ai.ModelTypeChat) })
+			return append(filtered, ai.AnyModels(wrapped.FilterModels(nil, credential))...)
+		}
+	} else {
+		wrapped.GetModels = func() ([]*ai.Model, error) {
+			models, err := base.GetModels()
+			if err != nil {
+				return nil, err
+			}
+			return append(slices.Clone(models), r.publicCatalogAdditions(provider)...), nil
+		}
+		wrapped.GetAllModels = func() ([]ai.AnyModel, error) {
+			models, err := allProviderModels(base)
+			if err != nil {
+				return nil, err
+			}
+			return append(slices.Clone(models), ai.AnyModels(r.publicCatalogAdditions(provider))...), nil
+		}
 	}
 	return &wrapped
 }

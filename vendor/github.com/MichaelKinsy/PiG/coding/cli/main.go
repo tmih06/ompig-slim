@@ -1276,7 +1276,20 @@ func Main(args []string, options *MainOptions) {
 	}
 	if flags.ListModels != "" || flags.ListModelsAll {
 		codingagent.ReportDiagnostics(metadataDiagnostics)
-		printModelList(build.Services.Registry().ModelRegistry, flags.ListModels)
+		registry := build.Services.Registry().ModelRegistry
+		refreshCtx, cancelRefresh := context.WithTimeout(ctx, 15*time.Second)
+		force := true
+		refresh := registry.RefreshCatalogs(refreshCtx, codingagent.CatalogRefreshOptions{
+			AllowNetwork: codingagent.ModelNetworkEnabled(),
+			Force:        &force,
+		})
+		cancelRefresh()
+		if refresh.Aborted {
+			fmt.Fprintln(os.Stderr, chalkYellow("Warning: model refresh timed out; showing cached models."))
+		} else if len(refresh.Errors) > 0 {
+			fmt.Fprintln(os.Stderr, chalkYellow(fmt.Sprintf("Warning: could not refresh %d model catalogs; showing cached models.", len(refresh.Errors))))
+		}
+		printModelList(registry, flags.ListModels)
 		exitProcess(0)
 	}
 	// RPC owns stdin as JSONL. Other modes read piped input before runtime diagnostics, and metadata commands above never consume it.

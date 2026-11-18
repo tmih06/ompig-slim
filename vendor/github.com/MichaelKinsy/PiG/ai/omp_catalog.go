@@ -171,6 +171,10 @@ func loadOMPCatalog(provider string) *ompCatalog {
 			if row.Provider != provider || row.ID == "" {
 				panic("invalid OMP catalog identity")
 			}
+			// Cline reserves these promotions for its IDE extension and CLI.
+			if provider == string(KnownProviderClinePass) && strings.HasPrefix(row.ID, "cline-free/") {
+				continue
+			}
 			kind := row.Kind
 			if kind == "" {
 				kind = "chat"

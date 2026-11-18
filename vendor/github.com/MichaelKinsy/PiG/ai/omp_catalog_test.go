@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,7 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 	}
 	total := 0
 	localRows := 0
+	excludedChat := 0
 	kinds := map[ModelType]int{}
 	for provider, want := range manifest.Providers {
 		catalog := loadOMPCatalog(provider)
@@ -40,6 +42,16 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 		additions := len(ompCatalogAdditions(provider))
 		localRows += additions
 		rows := append(slices.Clone(catalog.chat), catalog.other...)
+		if provider == "cline-pass" {
+			var bundled []ompCatalogRow
+			decodeOMPCatalogFile("omp_catalog_data/cline-pass.json.gz", &bundled)
+			for _, row := range bundled {
+				if strings.HasPrefix(row.ID, "cline-free/") {
+					excludedChat++
+				}
+			}
+			want -= excludedChat
+		}
 		if len(rows) != want+additions {
 			t.Fatalf("%s: decoded=%d want=%d", provider, len(rows), want+additions)
 		}
@@ -55,13 +67,29 @@ func TestOMPCatalogMatchesManifest(t *testing.T) {
 		}
 		total += len(rows)
 	}
-	if total != 5949+localRows || kinds[ModelTypeChat] != 5703+localRows {
+	if total != 5949+localRows-excludedChat || kinds[ModelTypeChat] != 5703+localRows-excludedChat {
 		t.Fatal(total, kinds)
 	}
 	for _, kind := range []ModelType{"tiny", "judge", "image", "search", "tts", "stt", "embedding", "rerank", "video"} {
 		if kinds[kind] == 0 {
 			t.Fatal("missing kind", kind)
 		}
+	}
+}
+
+func TestClinePassCatalogExcludesProductOnlyModels(t *testing.T) {
+	const restricted = "cline-free/nemotron-3.5-super-vl"
+	if _, ok := LookupModelExact("cline-pass/" + restricted); ok {
+		t.Errorf("ClinePass lookup accepted product-only model %s", restricted)
+	}
+	models := ListModels("cline-pass")
+	for _, model := range models {
+		if strings.HasPrefix(model.ID, "cline-free/") {
+			t.Errorf("ClinePass listed product-only model %s", model.ID)
+		}
+	}
+	if !slices.ContainsFunc(models, func(model GeneratedModel) bool { return model.ID == "deepseek-v4-pro" }) {
+		t.Error("ClinePass dropped an existing subscription model")
 	}
 }
 

@@ -399,10 +399,11 @@ type ModelRegistry struct {
 	registrationRefresh registrationRefresh
 
 	// remoteMu guards the remote catalog overlay state (remote_catalog_registry.go).
-	remoteMu         sync.Mutex
-	catalogBaseURL   string
-	remoteCollection *ai.Models
-	remoteOverlays   map[string]*remoteCatalogOverlay
+	remoteMu                      sync.Mutex
+	interactiveCatalogRefreshDone bool
+	catalogBaseURL                string
+	remoteCollection              *ai.Models
+	remoteOverlays                map[string]*remoteCatalogOverlay
 	// remoteBaseURLs is the base URL override each provider in remoteCollection was registered with.
 	remoteBaseURLs map[string]string
 

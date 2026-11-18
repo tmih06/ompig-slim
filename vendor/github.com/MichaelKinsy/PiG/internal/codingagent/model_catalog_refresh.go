@@ -10,6 +10,7 @@ type activeModelCatalogRefresh struct {
 	done    chan struct{}
 	result  CatalogRefreshResult
 	waiters int
+	force   bool
 }
 
 type modelCatalogRefreshCoordinator struct {
@@ -35,7 +36,7 @@ func (c *modelCatalogRefreshCoordinator) refresh(ctx context.Context, registry *
 	active := c.activeByRuntime[registry]
 	if active == nil {
 		operationCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-		active = &activeModelCatalogRefresh{cancel: cancel, done: make(chan struct{})}
+		active = &activeModelCatalogRefresh{cancel: cancel, done: make(chan struct{}), force: registry.claimInteractiveCatalogRefresh()}
 		if c.activeByRuntime == nil {
 			c.activeByRuntime = make(map[*ModelRegistry]*activeModelCatalogRefresh)
 		}
@@ -67,7 +68,8 @@ func (c *modelCatalogRefreshCoordinator) run(ctx context.Context, registry *Mode
 	if registry.refreshContext(ctx, nil).Aborted {
 		active.result = CatalogRefreshResult{Aborted: true, Errors: map[string]error{}}
 	} else {
-		active.result = registry.RefreshCatalogs(ctx, CatalogRefreshOptions{AllowNetwork: ModelNetworkEnabled()})
+		force := active.force
+		active.result = registry.RefreshCatalogs(ctx, CatalogRefreshOptions{AllowNetwork: ModelNetworkEnabled(), Force: &force})
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

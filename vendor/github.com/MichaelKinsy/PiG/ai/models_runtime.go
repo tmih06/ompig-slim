@@ -16,6 +16,7 @@ type ModelsProvider struct {
 	Auth          ProviderAuth
 	GetModels     func() ([]*Model, error)
 	RefreshModels func(RefreshModelsContext) error
+	ModelCatalog  ModelsCatalogOwner
 	FilterModels  func([]*Model, *Credential) []*Model
 	// GetAllModels lists models of every type. Providers with only chat models may leave it nil.
 	GetAllModels func() ([]AnyModel, error)
@@ -32,6 +33,26 @@ type ModelsProvider struct {
 }
 
 type ModelsStreamFunction func(context.Context, *Model, TranscriptContext, StreamOptions) (*AssistantMessageEventStream, error)
+
+// ModelsCatalogOwner owns credential-scoped dynamic model snapshots while provider state is composed and persisted.
+type ModelsCatalogOwner interface {
+	Scope(baseURL string, credential *Credential) ModelsCatalogScope
+	Snapshots(baseURL string) []ModelsCatalogSnapshot
+	RetainScopes(baseURL string, scopeIDs []string)
+	ModelAvailability(baseURL string, credential *Credential, modelID string) (known, available bool)
+}
+
+// ModelsCatalogScope identifies one credential and endpoint without exposing either value.
+type ModelsCatalogScope struct {
+	ID       string
+	StoreKey string
+}
+
+// ModelsCatalogSnapshot is one successfully published roster, including an empty roster.
+type ModelsCatalogSnapshot struct {
+	ScopeID string
+	Models  []*Model
+}
 
 type DeferredFetchOptions struct {
 	StreamOptions

@@ -40,6 +40,13 @@ func (r *ModelRegistry) GetProviderModelData(id string) []*ai.Model {
 			baseline = append(baseline, model.(*ai.Model))
 		}
 	}
+	if provider := r.codexDiscoveryProvider(id); provider != nil {
+		if snapshots := provider.ModelCatalog.Snapshots(provider.BaseURL); len(snapshots) > 0 {
+			if models, err := provider.GetModels(); err == nil {
+				baseline = models
+			}
+		}
+	}
 	r.mu.RLock()
 	radius := r.radiusProviderLocked(id)
 	r.mu.RUnlock()
@@ -96,7 +103,7 @@ func (r *ModelRegistry) isPlainGenerated(id string) bool {
 		_, configured = r.config.Providers[id]
 	}
 	r.mu.RUnlock()
-	return radius == nil && !registered && !configured
+	return radius == nil && !registered && !configured && r.codexDiscoveryProvider(id) == nil
 }
 
 // plainModelData builds the models of a plain bundled catalog in catalog order.

@@ -107,6 +107,7 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 		}
 		return all, nil
 	}
+	base = ai.WithCodexModelDiscovery(base)
 	if len(implementations) > 0 {
 		base.Classify = func(ctx context.Context, model *ai.ClassifierModel, request ai.ClassifierContext, options ai.ClassifierOptions) (ai.ClassifierResult, error) {
 			implementation := implementations[model.API]
@@ -214,6 +215,10 @@ func (r *ModelRegistry) GetProviderAllModelData(id string) []ai.AnyModel {
 	models, err := allProviderModels(provider)
 	if err != nil {
 		return nil
+	}
+	if r.codexDiscoveryProvider(id) != nil {
+		other := slices.DeleteFunc(models, func(model ai.AnyModel) bool { return ai.IsModelType(model, ai.ModelTypeChat) })
+		models = append(ai.AnyModels(r.GetProviderModelData(id)), other...)
 	}
 	return r.enrichAnyModelData(models)
 }

@@ -225,8 +225,48 @@ func (r *ModelRegistry) AccountRouter() *ai.AccountRouter {
 		r.accountRouter = ai.NewAccountRouter(registryCredentialAccounts{registry: r})
 		r.accountRouter.SetSessionUsageSource(r.accountSessionUsage)
 		r.accountRouter.SetSessionUsageInvalidator(r.invalidateAccountSessionUsage)
+		r.accountRouter.SetModelAvailability(func(model ai.AnyModel, credential *ai.Credential) (bool, bool) {
+			providerID := model.ProviderID()
+			if r.GetProvider(providerID) != nil {
+				return false, true
+			}
+			provider := r.codexDiscoveryProvider(providerID)
+			if provider == nil {
+				return false, true
+			}
+			if r.isConfiguredProviderModel(providerID, model.ModelID()) && !r.isDiscoveredCatalogModel(provider, model.ModelID()) {
+				return false, true
+			}
+			return provider.ModelCatalog.ModelAvailability(provider.BaseURL, credential, model.ModelID())
+		})
 	}
 	return r.accountRouter
+}
+
+func (r *ModelRegistry) isDiscoveredCatalogModel(provider *ai.ModelsProvider, modelID string) bool {
+	for _, snapshot := range provider.ModelCatalog.Snapshots(provider.BaseURL) {
+		if slices.ContainsFunc(snapshot.Models, func(model *ai.Model) bool { return model.ID == modelID }) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *ModelRegistry) isConfiguredProviderModel(providerID, modelID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if dynamic, ok := r.dynamic[providerID]; ok {
+		if _, found := findModelDefinition(dynamic.Models, modelID); found {
+			return true
+		}
+	}
+	if r.config != nil {
+		if configured, ok := r.config.Providers[providerID]; ok {
+			_, found := findModelDefinition(configured.Models, modelID)
+			return found
+		}
+	}
+	return false
 }
 
 // ClearAccountProvider drops the runtime's successful-request affinity for a provider after an
