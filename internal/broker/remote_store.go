@@ -41,9 +41,11 @@ func (s *remoteStore) read(ctx context.Context, provider string, key *string, ex
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, entry := range entries {
+	for i := range entries {
+		entry := &entries[i]
 		if entry.Info.ProviderID == provider && (explicit && sameKey(entry.Info.AccountKey, key) || !explicit && entry.Info.Active) {
-			return &entry.Credential, entry.Info.AccountKey, nil
+			credential := entry.Credential
+			return &credential, entry.Info.AccountKey, nil
 		}
 	}
 	return nil, nil, nil

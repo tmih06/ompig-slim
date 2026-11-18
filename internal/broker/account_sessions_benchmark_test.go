@@ -4,22 +4,48 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
 )
 
 func BenchmarkSessionRouting(b *testing.B) {
-	for _, count := range []int{2, 64} {
-		b.Run(fmt.Sprintf("accounts=%d", count), func(b *testing.B) {
+	for _, tc := range []struct {
+		provider string
+		count    int
+	}{{"fixture", 2}, {"fixture", 64}, {"codex-json", 2}, {"codex-json", 64}} {
+		count := tc.count
+		name := fmt.Sprintf("accounts=%d", count)
+		if tc.provider == "codex-json" {
+			name = fmt.Sprintf("codex/accounts=%d", count)
+		}
+		b.Run(name, func(b *testing.B) {
 			client, host, traffic := delayedBroker(b, 0)
+			var facts []ai.AccountSessionUsage
 			for i := range count {
 				key := fmt.Sprintf("account-%03d", i)
-				if _, err := host.vault.SaveAccount(b.Context(), "fixture", &key, ai.Credential{Type: ai.CredentialAPIKey, Key: key}); err != nil {
+				credential := ai.Credential{Type: ai.CredentialAPIKey, Key: key}
+				if tc.provider == "codex-json" {
+					credential = ai.Credential{Type: ai.CredentialOAuth, Access: key, Expires: time.Now().Add(time.Hour).UnixMilli()}
+					facts = append(facts, ai.AccountSessionUsage{
+						AccountKey: &key, AccountKeySet: true, FetchedAt: time.Now().UnixMilli(), Plan: "free",
+						Windows: []ai.AccountSessionUsageWindow{
+							{ID: "primary", RemainingFraction: new(float64(i+1) / float64(count)), DurationMs: new((5 * time.Hour).Milliseconds())},
+							{ID: "secondary", RemainingFraction: new(0.75), DurationMs: new((7 * 24 * time.Hour).Milliseconds())},
+						},
+					})
+				}
+				if _, err := host.vault.SaveAccount(b.Context(), tc.provider, &key, credential); err != nil {
 					b.Fatal(err)
 				}
 			}
 			router := ai.NewAccountRouter(&remoteStore{client: client})
-			model := &ai.Model{ID: "fixture-model", ProviderMeta: ai.ProviderMetadata{ProviderID: "fixture"}}
+			if len(facts) > 0 {
+				router.SetSessionUsageSource(func(context.Context, string, string) ([]ai.AccountSessionUsage, error) {
+					return facts, nil
+				})
+			}
+			model := &ai.Model{ID: "fixture-model", ProviderMeta: ai.ProviderMetadata{ProviderID: tc.provider}}
 			request := ai.AccountRouteRequest{SessionID: "sticky-session"}
 			attempts := 0
 			attempt := func(_ context.Context, selection ai.AccountSelection, _ ai.AccountObserve, _ bool) (ai.AssistantImages, error) {

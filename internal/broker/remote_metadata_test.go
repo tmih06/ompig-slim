@@ -42,8 +42,6 @@ func TestRemoteMetadataCountsAccountsNotProviders(t *testing.T) {
 	}
 }
 
-// TestRemoteCredentialReadsShareAStartupSnapshot guards the startup availability
-// path against fetching the complete credential payload once per provider read.
 func TestRemoteModifyPreservesBrokerOwnedRefreshForMetadata(t *testing.T) {
 	client, _, server := testClients(t)
 	host := server.Config.Handler.(*Store)
@@ -62,6 +60,26 @@ func TestRemoteModifyPreservesBrokerOwnedRefreshForMetadata(t *testing.T) {
 	saved, err := host.vault.ReadAccount(ctx, "fixture", &key)
 	if err != nil || saved == nil || saved.Refresh != "private-refresh" || !ai.CredentialAutoResetEnabled(*saved) {
 		t.Fatalf("metadata edit lost broker credential: %+v %v", saved, err)
+	}
+}
+
+func TestRemoteReadDoesNotChangeCachedCredential(t *testing.T) {
+	client, _, server := testClients(t)
+	host := server.Config.Handler.(*Store)
+	store := &remoteStore{client: client}
+	ctx := t.Context()
+	key := "account"
+	if _, err := host.vault.SaveAccount(ctx, "fixture", &key, ai.Credential{Type: ai.CredentialAPIKey, Key: "original"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.ReadAccount(ctx, "fixture", &key)
+	if err != nil || first == nil || first.Key != "original" {
+		t.Fatal("initial read failed", err)
+	}
+	first.Key = "changed locally"
+	second, err := store.ReadAccount(ctx, "fixture", &key)
+	if err != nil || second == nil || second.Key != "original" {
+		t.Fatal("editing the returned credential changed the cached value", err)
 	}
 }
 

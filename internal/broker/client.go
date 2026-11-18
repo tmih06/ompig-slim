@@ -88,21 +88,22 @@ const snapshotCacheTTL = time.Second
 // across the request makes concurrent provider availability checks single-flight;
 // the TTL also joins sequential checks in the same startup pass. Mutations
 // invalidate the view, while the short bound preserves live broker semantics for
-// changes made by another client.
+// changes made by another client. The returned slice is read-only: refreshes
+// replace it rather than reusing its backing array.
 func (c *Client) snapshot(ctx context.Context) ([]vaultEntry, error) {
 	c.snapshotMu.Lock()
 	defer c.snapshotMu.Unlock()
 	if c.snapshotLoad && time.Since(c.snapshotAt) < snapshotCacheTTL {
-		return append([]vaultEntry(nil), c.snapshotData...), nil
+		return c.snapshotData, nil
 	}
 	var entries []vaultEntry
 	if err := c.request(ctx, "GET", "/v1/snapshot", "", nil, &entries); err != nil {
 		return nil, err
 	}
-	c.snapshotData = append(c.snapshotData[:0], entries...)
+	c.snapshotData = entries
 	c.snapshotAt = time.Now()
 	c.snapshotLoad = true
-	return append([]vaultEntry(nil), c.snapshotData...), nil
+	return entries, nil
 }
 
 // invalidateSnapshot prevents a successful local mutation from returning the
