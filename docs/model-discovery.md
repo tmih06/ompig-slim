@@ -16,6 +16,9 @@ decides which models the signed-in accounts can select. The public catalog can
 supply missing metadata, but it cannot authorize subscription models.
 The two providers retain separate credential and catalog namespaces.
 
+The ClinePass catalog omits `cline-free/` promotions. [Cline reserves those
+models for its IDE extension and CLI](https://docs.cline.bot/getting-started/free-models#api-access).
+
 A successful native roster replaces the previous roster. Models removed by the
 provider stop appearing. An empty successful response is an empty roster, not
 a request to restore bundled models. Explicit custom model definitions still
