@@ -157,11 +157,6 @@ func detectCapabilitiesFromEnvironment(tmuxForwardsHyperlink func() bool, goos s
 	if os.Getenv("HERDR_ENV") == "1" && os.Getenv("HERDR_KITTY_GRAPHICS") == "1" {
 		return TerminalCapabilities{Images: ImageProtocolKitty, TrueColor: true, Hyperlinks: true}
 	}
-	// Herdr forwards OSC 8 hyperlinks and supports the Kitty graphics protocol. Check it before
-	// outer-terminal detection because variables like KITTY_WINDOW_ID can leak into its panes.
-	if termProgram == "herdr" {
-		return TerminalCapabilities{Images: ImageProtocolKitty, TrueColor: hasTrueColorHint, Hyperlinks: true}
-	}
 	// Rex supports OSC 8 hyperlinks and only partially implements the Kitty graphics protocol
 	// (no Unicode placeholders), but enough to support Pi.
 	// Ports packages/tui/src/terminal-image.ts detectCapabilitiesFromEnvironment (396ecd7b).

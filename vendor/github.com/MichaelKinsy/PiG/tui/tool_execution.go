@@ -721,9 +721,15 @@ func (c *ToolExecutionComponent) renderImages(width int) []string {
 	}
 	caps := GetCapabilities()
 	if caps.Images == "" {
-		// Pi builds no Image component without a terminal image protocol; the fallback text is part of the
-		// result text instead (render-utils getTextOutput, tool-execution.ts:356).
-		return nil
+		var out []string
+		for _, img := range c.ImageBlocks {
+			if img.Data == "" || img.MIMEType == "" {
+				continue
+			}
+			fallback := NewImage(img.Data, img.MIMEType, ImageTheme{FallbackColor: func(s string) string { return fg(ActiveTheme().ToolOutput, s) }}, ImageOptions{MaxWidthCells: c.ImageWidthCells}, nil)
+			out = append(out, fallback.Render(width)...)
+		}
+		return out
 	}
 	previousImages, previousSources := c.imageComponents, c.imageSources
 	c.imageComponents, c.imageSources = nil, nil
