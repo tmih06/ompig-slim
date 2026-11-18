@@ -171,7 +171,7 @@ func (r promptQuotaTestResolver) ResolveUsageAccount(ctx context.Context, model 
 	return r.resolve(ctx, model)
 }
 
-func TestPromptQuotaModelSwitchResolvesTierAndRejectsLateResults(t *testing.T) {
+func TestPromptQuotaRefreshResolvesTierAndRejectsLateResults(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	m := &InteractiveMode{
 		backgroundCtx: ctx,
@@ -208,6 +208,10 @@ func TestPromptQuotaModelSwitchResolvesTierAndRejectsLateResults(t *testing.T) {
 		t.Helper()
 		m.opts.Model = &ai.Model{ID: id, ProviderMeta: ai.ProviderMetadata{ProviderID: "test"}}
 		m.promptQuotaModelChanged()
+		if selection := m.promptQuota.selection; selection != nil && selection.model == id {
+			t.Fatalf("model switch started a route preview for %q", id)
+		}
+		m.refreshPromptQuotaAccount(ctx)
 		if label := m.promptQuotaLabel(100); label != "" {
 			t.Fatalf("pending route displayed default account quota: %q", label)
 		}
@@ -218,7 +222,7 @@ func TestPromptQuotaModelSwitchResolvesTierAndRejectsLateResults(t *testing.T) {
 			}
 			return r
 		case <-time.After(2 * time.Second):
-			t.Fatal("model switch did not resolve its account")
+			t.Fatal("quota refresh did not resolve the model's account")
 			return request{}
 		}
 	}
