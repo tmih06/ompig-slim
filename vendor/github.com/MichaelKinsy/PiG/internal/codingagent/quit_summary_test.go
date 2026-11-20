@@ -21,7 +21,7 @@ func TestQuitSummary(t *testing.T) {
 		for _, want := range []string{
 			"-slim", "Session summary", "Messages  2 user, 3 assistant, 1 tool calls",
 			"Tokens    ↑ 6.0k (cached 2.0k, cache write 3.0k) · ↓ 500",
-			"Cost      $0.123", "Resume    ompig-slim --session example",
+			"Cost      $0.123", "To resume this session:\nompig-slim --session example\n",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("summary missing %q:\n%s", want, got)
@@ -47,7 +47,7 @@ func TestQuitSummaryWithoutPersistenceOrUsage(t *testing.T) {
 			t.Fatalf("summary missing %q:\n%s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"Resume", "Cost", "NaN", "Inf"} {
+	for _, unwanted := range []string{"To resume this session:", "Cost", "NaN", "Inf"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("summary contains %q:\n%s", unwanted, got)
 		}

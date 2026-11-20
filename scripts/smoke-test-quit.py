@@ -115,6 +115,15 @@ def run(binary, server, mode, persisted, populated, custom=False):
             if mode == "fullscreen":
                 assert 0 <= captured.rfind(b"\x1b[?1049l") < summary_at, \
                     "summary printed inside alternate screen"
+            before_summary = captured[:summary_at]
+            protocols = [(b"\x1b[?2004h", b"\x1b[?2004l"), (b"\x1b[>7u", b"\x1b[<u")]
+            if mode == "fullscreen":
+                protocols.extend((f"\x1b[?{code}h".encode(), f"\x1b[?{code}l".encode())
+                                 for code in (1000, 1002, 1003, 1006))
+            for enable, reset in protocols:
+                if enable in before_summary:
+                    assert before_summary.rfind(reset) > before_summary.rfind(enable), \
+                        f"terminal mode {enable!r} was not reset before the summary"
             if populated:
                 for expected in ("1 user, 1 assistant, 0 tool calls", "↑ 1.0k", "cached 200", "↓ 500", "$0.004"):
                     assert expected in summary, f"missing {expected!r}: {summary}"
@@ -123,13 +132,13 @@ def run(binary, server, mode, persisted, populated, custom=False):
                 assert "↑ 0" in summary and "↓ 0" in summary, summary
                 assert "Cost" not in summary, summary
             if persisted:
-                match = re.search(r"Resume\s+(ompig-slim .*--session \S+)", summary)
+                match = re.search(r"^To resume this session:\r?\n(ompig-slim .*--session \S+)\r?$", summary, re.MULTILINE)
                 assert match, summary
                 command = shlex.split(match.group(1))
                 if custom:
                     assert command[command.index("--session-dir") + 1] == str(root / "custom sessions"), summary
             else:
-                assert "Resume" not in summary, summary
+                assert "To resume this session:" not in summary, summary
             print(f"PASS: /quit {mode}, persisted={persisted}, populated={populated}, custom={custom}")
             print(summary.strip())
         finally:
