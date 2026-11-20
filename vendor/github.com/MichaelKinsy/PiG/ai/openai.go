@@ -86,6 +86,8 @@ type OpenAICompat struct {
 	MaxTokensField                              string `json:"maxTokensField,omitempty"`
 	RequiresToolResultName                      *bool  `json:"requiresToolResultName,omitempty"`
 	RequiresAssistantAfterToolResult            *bool  `json:"requiresAssistantAfterToolResult,omitempty"`
+	RequiresNonNullAssistantContent             *bool  `json:"requiresNonNullAssistantContent,omitempty"`
+	RequiresToolsWithToolHistory                *bool  `json:"requiresToolsWithToolHistory,omitempty"`
 	RequiresThinkingAsText                      *bool  `json:"requiresThinkingAsText,omitempty"`
 	RequiresReasoningContentOnAssistantMessages *bool  `json:"requiresReasoningContentOnAssistantMessages,omitempty"`
 	SupportsOpenAIGrammarTools                  *bool  `json:"supportsOpenAIGrammarTools,omitempty"`
@@ -138,6 +140,7 @@ type OpenAICompat struct {
 	// x-session-id. Empty = auto-detect (openrouter base URL => "openrouter",
 	// else "openai"). Replaces the pre-0.81 sendSessionIdHeader flag.
 	SessionAffinityFormat SessionAffinityFormat `json:"sessionAffinityFormat,omitempty"`
+	PromptCacheKeyMode    string                `json:"promptCacheKeyMode,omitempty"`
 	// SupportsToolSearch indicates the model supports client-executed tool
 	// search for deferred tools (OpenAI Responses). Default: false.
 	SupportsToolSearch      *bool `json:"supportsToolSearch,omitempty"`
@@ -288,6 +291,7 @@ func (anchors toolAnchors) anchored(systemIndex int) bool {
 // Mirrors upstream openai-completions.ts convertMessages (lines 680-870).
 func (p *openAIProvider) convertMessagesWithCompat(msgs []Message, grammarProps map[string]string, instructionRole string, anchors toolAnchors, isReasoning bool) ([]oaiMessage, error) {
 	requiresAssistant := p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresAssistantAfterToolResult }, false)
+	requiresNonNullContent := p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresNonNullAssistantContent }, false)
 	requiresName := p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresToolResultName }, false)
 	requiresThinkingAsText := p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresThinkingAsText }, false)
 	requiresReasoningContent := p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresReasoningContentOnAssistantMessages }, false)
@@ -298,6 +302,7 @@ func (p *openAIProvider) convertMessagesWithCompat(msgs []Message, grammarProps 
 		grammarProps:                     grammarProps,
 		thinkingAsText:                   requiresThinkingAsText,
 		requiresAssistantAfterToolResult: requiresAssistant,
+		requiresNonNullAssistantContent:  requiresNonNullContent,
 		instructionRole:                  instructionRole,
 		systemTools: func(systemIndex int, message SystemMessage) ([]oaiTool, error) {
 			if !anchors.anchored(systemIndex) || len(message.ToolsAdded) == 0 {
@@ -714,6 +719,7 @@ type completionsConvertOptions struct {
 	grammarProps                     map[string]string
 	thinkingAsText                   bool
 	requiresAssistantAfterToolResult bool
+	requiresNonNullAssistantContent  bool
 	// requiresToolResultName adds the tool result's tool name to its message.
 	requiresToolResultName bool
 	// reasoningContentOnAssistant sets an empty reasoning_content on assistant messages that carry none (compat.requiresReasoningContentOnAssistantMessages with a reasoning model).
@@ -810,7 +816,7 @@ func convertCompletionsMessages(messages []Message, options completionsConvertOp
 			}
 		case AssistantMessage:
 			converted := oaiMessage{Role: "assistant"}
-			if options.requiresAssistantAfterToolResult {
+			if options.requiresAssistantAfterToolResult || options.requiresNonNullAssistantContent {
 				converted.Content = ""
 			}
 			var textParts []oaiContentPart
@@ -1253,9 +1259,7 @@ func normalizeCompletionsToolCallID(id, providerID string) string {
 }
 
 // hasToolHistory reports whether the transcript, before the provider's message transformation drops error and aborted turns, already references
-// tools via a tool result or an assistant tool call. Mirrors upstream openai-completions.ts
-// hasToolHistory: some OpenAI-compatible proxies (Anthropic via LiteLLM) require
-// the tools param to be present, even empty, once the history references tools.
+// tools via a tool result or an assistant tool call.
 func hasToolHistory(transcript TranscriptContext) bool {
 	for i := range transcript.Len() {
 		switch message := transcript.At(i).(type) {
@@ -1272,11 +1276,7 @@ func hasToolHistory(transcript TranscriptContext) bool {
 	return false
 }
 
-// resolveRequestTools returns the value for the request `tools` field, mirroring
-// upstream openai-completions.ts:729-737: the converted tools when any are
-// present, an explicit empty array when the conversation has tool history so
-// Anthropic-via-proxy backends accept the request, otherwise nil so the field is
-// omitted (some compatible backends reject `tools: []` outright).
+// resolveRequestTools converts the declared tools and sends an empty array for tool history only when the backend requires it.
 func (p *openAIProvider) resolveRequestTools(transcript TranscriptContext, tools []ToolSchema) (*[]oaiTool, error) {
 	if len(tools) > 0 {
 		converted, err := p.convertTools(tools)
@@ -1285,7 +1285,7 @@ func (p *openAIProvider) resolveRequestTools(transcript TranscriptContext, tools
 		}
 		return &converted, nil
 	}
-	if hasToolHistory(transcript) {
+	if hasToolHistory(transcript) && p.compatBool(func(c *OpenAICompat) *bool { return c.RequiresToolsWithToolHistory }, false) {
 		return &[]oaiTool{}, nil
 	}
 	return nil, nil
@@ -1707,7 +1707,13 @@ func (p *openAIProvider) Stream(ctx context.Context, transcript TranscriptContex
 	// Prompt-cache body fields and session-affinity headers have independent provider gates.
 	cacheRetention := resolveCompletionsCacheRetention(opts.CacheRetention, mergeProviderEnv(p.cfg.Env, opts.Env))
 	longCache := cacheRetention == CacheRetentionLong && p.supportsLongCacheRetention()
-	if opts.SessionID != "" && (isOpenAIDirectURL(p.cfg.BaseURL) && cacheRetention != CacheRetentionNone || longCache) {
+	// promptCacheKeyMode "auto" sends the key for OpenAI's own API and for any long-cache provider; "enabled" forces it (openai-completions.ts:820-830).
+	promptCacheKeyMode := p.compat().PromptCacheKeyMode
+	if promptCacheKeyMode == "" {
+		promptCacheKeyMode = "auto"
+	}
+	supportsPromptCacheKey := promptCacheKeyMode == "enabled" || promptCacheKeyMode == "auto" && (isOpenAIDirectURL(p.cfg.BaseURL) || longCache)
+	if opts.SessionID != "" && cacheRetention != CacheRetentionNone && supportsPromptCacheKey {
 		sid := ClampOpenAIPromptCacheKey(opts.SessionID)
 		req.PromptCacheKey = &sid
 	}

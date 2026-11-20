@@ -472,9 +472,13 @@ func (s *SettingsList) HandleInput(data string) {
 		s.cancelled = true
 		s.done = true
 	case s.searchEnabled:
-		// Every other key belongs to the search Input, and the list refilters after it even when the value is unchanged.
+		// Every other key belongs to the search Input. Only a changed query re-filters, so moving the
+		// caret inside the field keeps the row the arrows selected.
+		previous := s.searchInput.GetValue()
 		s.searchInput.HandleInput(data)
-		s.applyFilter()
+		if s.searchInput.GetValue() != previous {
+			s.applyFilter()
+		}
 	}
 	s.Invalidate()
 }

@@ -468,18 +468,28 @@ func readRenderCall(args json.RawMessage, _ extension.Theme, context extension.T
 // file's language, the first ten lines while collapsed, and the truncation
 // warning.
 func readRenderResult(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
-	if _, isURL := tools.ReadURLDetailsOf(renderResultValue(result).Details); isURL {
-		// fetch.ts renderReadUrlResult keeps a bounded head of the document in
-		// view while collapsed and the whole rendering when expanded.
-		value := renderResultValue(result)
-		render := makeWebFetchBodyRenderer(value.Text())
+	value := renderResultValue(result)
+	theme := tui.ActiveTheme()
+	if details, isURL := tools.ReadURLDetailsOf(detailsObject(value.Details)); isURL {
+		render := makeReadURLBodyRenderer(value.Text(), details.ImageUnsupportedByModel)
 		return linesComponent{render: func(width int) []string { return render(width, options.Expanded) }}
 	}
-	if !options.Expanded && !context.IsError && !richCard(context) {
+	var unsupported string
+	switch details := detailsObject(value.Details).(type) {
+	case *tools.ReadDetails:
+		if details != nil {
+			unsupported = details.ImageUnsupportedByModel
+		}
+	case map[string]any:
+		unsupported, _ = details["imageUnsupportedByModel"].(string)
+	}
+	warning := readImageWarning(unsupported, theme)
+	if !options.Expanded && !context.IsError {
+		if warning != "" {
+			return tui.NewPaddedText(warning, 0, 0, nil)
+		}
 		return richEmptyBody()
 	}
-	theme := tui.ActiveTheme()
-	value := renderResultValue(result)
 	rawPath, _ := stringArg(context.Args, "file_path", "path")
 	output := toolResultTextOutput(value, context.ShowImages)
 	lang := ""
@@ -497,11 +507,6 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 	}
 	lines := trimTrailingEmptyLines(rendered)
 	display := lines
-	// read.ts describeResult draws an inline card: while collapsed the row is
-	// only `Read <path>:<range>`, and the content is disclosed on Ctrl+O.
-	if richCard(context) && !options.Expanded && !context.IsError {
-		return richEmptyBody()
-	}
 	if !options.Expanded && len(lines) > builtInPreviewLines {
 		display = lines[:builtInPreviewLines]
 	}
@@ -537,7 +542,17 @@ func readRenderResult(result extension.AgentToolResult, options extension.ToolRe
 		}
 		text += "\n" + themeFg(theme.Warning, warning)
 	}
+	if warning != "" {
+		text += "\n" + warning
+	}
 	return tui.NewPaddedText(text, 0, 0, nil)
+}
+
+func readImageWarning(model string, theme *tui.Theme) string {
+	if model == "" {
+		return ""
+	}
+	return themeFg(theme.Warning, "["+shellTextOutput(model)+" does not support images; it saw a placeholder instead]")
 }
 
 func readTruncation(details any) *tools.TruncationResult {

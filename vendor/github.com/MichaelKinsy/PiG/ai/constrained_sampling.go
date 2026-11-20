@@ -230,6 +230,9 @@ func makeJSONSchemaNodeStrict(value any, order schemaObjectOrder, path string, i
 			return strictSchemaError(key + " schemas are unsupported")
 		}
 	}
+	if _, hasType := schema["type"]; !hasType && !hasJSONSchemaKey(schema, "anyOf") && !hasJSONSchemaKey(schema, "enum") {
+		return strictSchemaError("schemas without a type are unsupported")
+	}
 	if isUnsupportedKeyword != nil {
 		for _, key := range orderedSchemaKeys(schema, order, path) {
 			if isUnsupportedKeyword(key, schema[key]) {

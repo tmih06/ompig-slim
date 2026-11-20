@@ -74,16 +74,20 @@ type Session struct {
 	tools                   []agent.AgentTool
 	toolRegistryMu          sync.RWMutex
 	toolRegistry            sessionToolRegistry
-	// pendingToolNames are tools of the restored or reloaded loadout that are not registered yet, such as tools of MCP servers that are still connecting, in insertion order. They are activated when they are registered, and dropped when SetActiveToolsByName deactivates a tool or the next agent run starts. toolRegistryMu guards them.
+	// pendingToolNames are tools of the restored or reloaded loadout that are not registered yet, such as tools of MCP servers that are still connecting, in insertion order. They are activated when they are registered, and dropped when SetActiveToolsByName deactivates a restored tool or the next agent run starts. toolRegistryMu guards them.
 	//
 	// upstream: agent-session.ts _pendingToolNames
 	pendingToolNames []string
-	modelRuntime     *ModelRuntime
-	modelRegistry    *ModelRegistry
-	sessionDir       string
-	noSession        bool
-	runnerMu         sync.RWMutex
-	runner           *inproc.Runner // extension runner for event dispatch
+	// restoredToolNames are the tools the current branch restored as active, before tools registered after that loadout were added. Deactivating one replaces the restored loadout and drops its pending tools. toolRegistryMu guards them.
+	//
+	// upstream: agent-session.ts _restoredToolNames
+	restoredToolNames map[string]struct{}
+	modelRuntime      *ModelRuntime
+	modelRegistry     *ModelRegistry
+	sessionDir        string
+	noSession         bool
+	runnerMu          sync.RWMutex
+	runner            *inproc.Runner // extension runner for event dispatch
 	// sharedRunner is the Runtime- or Clone-source-owned runner this Session borrowed; its owner invalidates it.
 	sharedRunner *inproc.Runner
 	// extensionHost is the extension host of the Runtime that created the Session (Session.ExtensionHost).
@@ -1766,7 +1770,7 @@ func (s *Session) LastAssistantText() *string {
 			continue
 		}
 		a := msg.Assistant
-		if a.StopReason == "aborted" && len(a.Content) == 0 {
+		if a.StopReason != ai.StopReasonStop && len(a.Content) == 0 {
 			continue
 		}
 		var sb strings.Builder

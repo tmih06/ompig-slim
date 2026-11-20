@@ -201,6 +201,7 @@ func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bo
 }
 
 func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEntry, trim, populateHistory bool) {
+	m.cacheWarmingUsage = nil
 	// Selection coordinates point into the transcript being replaced (upstream interactive-mode.ts renderSessionEntries, #9311).
 	if m.altScreen != nil {
 		m.altScreen.ResetTextSelection()
@@ -493,6 +494,9 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 	// Render from pre-parsed branch entries (from the latest compaction
 	// boundary onward; see renderStart above).
 	for _, pe := range rendered {
+		if pe.entry.Base().Type != "usage" {
+			m.cacheWarmingUsage = nil
+		}
 		switch pe.entry.Base().Type {
 		case "message":
 			if pe.hasAgent {
@@ -524,6 +528,8 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 		case "usage":
 			if usage, ok := decodeUsageEntry(pe.entry.Raw()); ok && usage.Kind == "cache_warm" {
 				m.addCacheWarmingUsage(usage)
+			} else {
+				m.cacheWarmingUsage = nil
 			}
 		}
 	}

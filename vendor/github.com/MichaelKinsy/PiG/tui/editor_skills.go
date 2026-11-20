@@ -205,6 +205,17 @@ func (e *Editor) commandSlashContext(before string) bool {
 	return true
 }
 
+func (e *Editor) commandNameContext(before string) bool {
+	return e.commandSlashContext(before) && !strings.Contains(widthx.JSTrimStart(before), " ")
+}
+
+func (e *Editor) completionSubmitsCommand(prefix, value string) bool {
+	if !strings.HasPrefix(prefix, "/") || strings.HasPrefix(value, "skill:") {
+		return false
+	}
+	return e.commandNameContext(jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1]))
+}
+
 // skillSlashContext keeps slash completion active after prose or a previous skill.
 func (e *Editor) skillSlashContext(before string) bool {
 	_, ok := trailingSkillSlash(before)

@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -323,6 +324,130 @@ func SetCapabilities(caps TerminalCapabilities) {
 // IsImageLine reports whether the line contains Kitty or iTerm2 image protocol bytes.
 // Mirrors upstream terminal-image.ts isImageLine().
 func IsImageLine(line string) bool { return widthx.IsImageLine(line) }
+
+type imageLineExtent struct {
+	firstRow int
+	lastRow  int
+	startCol int
+	endCol   int
+}
+
+func getImageLineExtent(line string) (imageLineExtent, bool) {
+	if match := kittyGraphicPattern.FindStringSubmatch(line); match != nil {
+		controls := match[1]
+		imageStart := strings.Index(line, kittyPrefix)
+		columns, knownWidth := kittyControlValue(controls, "c")
+		if !knownWidth {
+			if metadata, ok := getRegisteredKittyImageMetadataFromControls(controls); ok {
+				columns, knownWidth = metadata.Columns, true
+			}
+		}
+		rows, ok := GetKittyImagePlacementRows(line)
+		if !ok {
+			rows = 1
+		}
+		endCol := int(^uint(0) >> 1)
+		if knownWidth && columns > 0 {
+			endCol = widthx.VisibleWidth(line[:imageStart]) + columns
+		}
+		return imageLineExtent{
+			firstRow: 0,
+			lastRow:  rows - 1,
+			startCol: widthx.VisibleWidth(line[:imageStart]),
+			endCol:   endCol,
+		}, true
+	}
+
+	const iterm2Prefix = "\x1b]1337;File="
+	imageStart := strings.Index(line, iterm2Prefix)
+	if imageStart < 0 {
+		return imageLineExtent{}, false
+	}
+	before := line[:imageStart]
+	moveUp := 0
+	moveUpStart := len(before)
+	if strings.HasSuffix(before, "A") {
+		if start := strings.LastIndex(before, "\x1b["); start >= 0 {
+			if rows, err := strconv.Atoi(before[start+2 : len(before)-1]); err == nil && rows > 0 {
+				moveUp, moveUpStart = rows, start
+			}
+		}
+	}
+	startCol := widthx.VisibleWidth(before[:moveUpStart])
+	endCol := int(^uint(0) >> 1)
+	attributes := line[imageStart+len(iterm2Prefix):]
+	if bell := strings.IndexByte(attributes, '\x07'); bell >= 0 {
+		attributes = attributes[:bell]
+	}
+	if widthStart := strings.Index(attributes, "width="); widthStart >= 0 {
+		value := attributes[widthStart+len("width="):]
+		if end := strings.IndexAny(value, ";:"); end >= 0 {
+			if columns, err := strconv.Atoi(value[:end]); err == nil && columns > 0 {
+				endCol = startCol + columns
+			}
+		}
+	}
+	return imageLineExtent{firstRow: -moveUp, lastRow: 0, startCol: startCol, endCol: endCol}, true
+}
+
+func kittyControlValue(controls, key string) (int, bool) {
+	for control := range strings.SplitSeq(controls, ",") {
+		value, ok := strings.CutPrefix(control, key+"=")
+		if !ok {
+			continue
+		}
+		parsed, err := strconv.Atoi(value)
+		return parsed, err == nil
+	}
+	return 0, false
+}
+
+func stripImageSequences(line string) string {
+	for start := strings.Index(line, kittyPrefix); start >= 0; start = strings.Index(line, kittyPrefix) {
+		end := strings.Index(line[start+len(kittyPrefix):], "\x1b\\")
+		if end < 0 {
+			break
+		}
+		end += start + len(kittyPrefix) + len("\x1b\\")
+		line = line[:start] + line[end:]
+	}
+	const iterm2Prefix = "\x1b]1337;File="
+	for start := strings.Index(line, iterm2Prefix); start >= 0; start = strings.Index(line, iterm2Prefix) {
+		imageStart := start
+		if strings.HasSuffix(line[:start], "A") {
+			if moveUpStart := strings.LastIndex(line[:start], "\x1b["); moveUpStart >= 0 {
+				if _, err := strconv.Atoi(line[moveUpStart+2 : start-1]); err == nil {
+					imageStart = moveUpStart
+				}
+			}
+		}
+		end := strings.IndexByte(line[start+len(iterm2Prefix):], '\x07')
+		if end < 0 {
+			break
+		}
+		end += start + len(iterm2Prefix) + 1
+		line = line[:imageStart] + line[end:]
+	}
+	return line
+}
+
+func hideImagesUnderOverlay(lines []string, overlay OverlayBounds, viewportStart int) {
+	if overlay.Height == 0 {
+		return
+	}
+	start := max(0, viewportStart-GetMaxKittyImageRows())
+	for index := start; index < len(lines); index++ {
+		extent, ok := getImageLineExtent(lines[index])
+		if !ok {
+			continue
+		}
+		firstRow := index + extent.firstRow - viewportStart
+		lastRow := index + extent.lastRow - viewportStart
+		if firstRow < overlay.Row+overlay.Height && lastRow >= overlay.Row && extent.startCol < overlay.Col+overlay.Width && extent.endCol > overlay.Col {
+			lines[index] = stripImageSequences(lines[index])
+		}
+	}
+}
 
 func AllocateImageID() int {
 	return int(rand.Uint32()%0xfffffffe) + 1

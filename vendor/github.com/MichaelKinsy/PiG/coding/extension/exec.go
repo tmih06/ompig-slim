@@ -105,11 +105,10 @@ type execDrainHooksKey struct{}
 // Timeout, context cancellation, opts.Signal and output beyond opts.MaxBuffer
 // signal the child alone with SIGTERM (Process.Kill on Windows, where Node's
 // kill terminates the process), and execForceKillDelay later with SIGKILL if
-// the child has not exited by then. No descendant is signalled. The result's
-// code is the child's exit code; a child that a signal ended has none, and
-// upstream resolves it as 0 (`code ?? 0`). On Windows a child that the kill
-// ended has none either: libuv reports the signal it was sent instead of the
-// exit status 1, so the code is 0 there too.
+// the child has not exited by then. No descendant is signalled. A child that
+// exits from a signal reports 128 plus the signal number on Unix, as Pi does;
+// Windows reports 0 for a Pi-initiated termination because libuv exposes its
+// signal event without the TerminateProcess exit status.
 //
 // opts.MaxBuffer caps the bytes of stdout and stderr together (default 256 MiB,
 // capped by the runtime string limit; an invalid value fails the call, as
@@ -305,7 +304,7 @@ func ExecCommand(ctx context.Context, cwd, command string, args []string, opts *
 	case terminated:
 		result.Code = 0
 	default:
-		result.Code = max(state.ExitCode(), 0)
+		result.Code = processExitCode(state)
 	}
 	// A truncated result never reads as success.
 	if truncated && result.Code == 0 {

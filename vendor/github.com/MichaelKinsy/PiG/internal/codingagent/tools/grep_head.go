@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"strconv"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -139,10 +138,4 @@ func truncatedLineBytes(line string, maxChars int) (int, bool) {
 		units += width
 	}
 	return n + len(truncatedLineSuffix), true
-}
-
-// decimalBytes is the length of an integer line number as jsNumber writes it.
-func decimalBytes(n int) int {
-	var buf [24]byte
-	return len(strconv.AppendInt(buf[:0], int64(n), 10))
 }

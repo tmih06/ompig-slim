@@ -26,3 +26,10 @@ func prepareChildGroup(*exec.Cmd)              {}
 func attachChildGroup(*os.Process)             {}
 func releaseChildGroup(*os.Process)            {}
 func childGroupMayHoldOutput(*os.Process) bool { return true }
+
+func processExitCode(state *os.ProcessState) int {
+	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return max(state.ExitCode(), 0)
+}

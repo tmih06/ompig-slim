@@ -1229,9 +1229,13 @@ func buildMistralToolResultText(text string, hasImages, supportsImages, isError 
 }
 
 func (p *mistralProvider) convertTools(tools []ToolSchema) ([]mistralTool, error) {
+	supportsStrictMode := false
+	if compat := p.cfg.ModelMetadata; compat != nil && compat.ProviderMeta.Compat != nil && compat.ProviderMeta.Compat.SupportsStrictMode != nil {
+		supportsStrictMode = *compat.ProviderMeta.Compat.SupportsStrictMode
+	}
 	result := make([]mistralTool, len(tools))
 	for i, tool := range tools {
-		strict, err := resolveJSONSchemaStrictSampling(tool, true, nil)
+		strict, err := resolveJSONSchemaStrictSampling(tool, supportsStrictMode, nil)
 		if err != nil {
 			return nil, err
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -131,6 +132,7 @@ func (t *LsTool) Execute(ctx context.Context, _ string, rawParams json.RawMessag
 	if p.Limit != nil {
 		effectiveLimit = *p.Limit
 	}
+	effectiveLimit = math.Max(1, math.Floor(effectiveLimit))
 	ops := t.operations()
 	if exists, err := ops.Exists(dirPath); err != nil || !exists {
 		return lsError("Path not found: " + dirPath), nil

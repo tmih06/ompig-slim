@@ -30,6 +30,8 @@ func (m *InteractiveMode) installResizeHandler(ctx context.Context) func() {
 	}
 	winchCh := make(chan os.Signal, 1)
 	signal.Notify(winchCh, syscall.SIGWINCH)
+	suspendCh := make(chan os.Signal, 1)
+	signal.Notify(suspendCh, syscall.SIGTSTP)
 	go func() {
 		for {
 			select {
@@ -38,10 +40,22 @@ func (m *InteractiveMode) installResizeHandler(ctx context.Context) func() {
 			case <-winchCh:
 				invalidateSize()
 				m.onTerminalResize()
+			case <-suspendCh:
+				_ = m.postToMain(ctx, func() {
+					if ctx.Err() == nil && !m.suspended.Load() {
+						if err := m.handleSuspend(); err != nil {
+							m.inputLoopErr = err
+						}
+					}
+				})
 			}
 		}
 	}()
-	return func() { signal.Stop(winchCh); stopSize() }
+	return func() {
+		signal.Stop(winchCh)
+		signal.Stop(suspendCh)
+		stopSize()
+	}
 }
 
 // ignoreSuspendInterrupt changes dispatch-time listener state without discarding pending kernel signals. SIGINT delivered after resume cleanup follows the ordinary interrupt handler, as in Pi's process.removeListener path.
@@ -109,7 +123,10 @@ func (m *InteractiveMode) suspendOperations() suspendOperations {
 				m.tuiInst.Render()
 			}
 		},
-		kill:       func(pid int) error { return syscall.Kill(pid, syscall.SIGTSTP) },
+		kill: func(pid int) error {
+			// SIGTSTP is the suspend request. SIGSTOP parks the group without recursively invoking that handler.
+			return syscall.Kill(pid, syscall.SIGSTOP)
+		},
 		foreground: func() (bool, error) { return m.foregroundOrExit(tui.StdinInForeground) },
 	}
 }

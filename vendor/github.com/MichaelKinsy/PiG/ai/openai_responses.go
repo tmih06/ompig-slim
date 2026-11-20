@@ -146,11 +146,32 @@ const configurationUpdateRequestEffort = "medium"
 // items, or "" to send it as reasoning.effort. It needs the model's supportsMidConvoEffort compat and a requested level;
 // Sign in with ChatGPT rejects the items.
 func (p *openAIResponsesProvider) configurationUpdateEffort(compat responsesCompat, opts StreamOptions, apiKey string) string {
-	// Only the openai-responses module reads it; the Azure and Codex modules do not.
-	if p.api() != APIOpenAIResponses || !compat.SupportsMidConvoEffort || p.isChatGPTSignIn(apiKey) {
+	if !compat.SupportsMidConvoEffort || p.isChatGPTSignIn(apiKey) {
 		return ""
 	}
 	model := p.resolvedModel()
+	if p.api() == APIOpenAICodexResponses {
+		requested := cmp.Or(opts.ReasoningEffort, strings.TrimPrefix(string(opts.Thinking), string(ThinkingOff)))
+		if requested == "" {
+			return ""
+		}
+		if requested == "none" {
+			if off, ok := model.ThinkingLevelMap[ThinkingOff]; ok {
+				if off == nil {
+					return ""
+				}
+				return *off
+			}
+			return "none"
+		}
+		if mapped := model.ThinkingLevelMap[ModelThinkingLevel(requested)]; mapped != nil {
+			return *mapped
+		}
+		return requested
+	}
+	if p.api() != APIOpenAIResponses {
+		return ""
+	}
 	level := ModelThinkingLevel(opts.ReasoningEffort)
 	if level == "" && opts.Thinking != "" {
 		level = ClampThinkingLevel(model, ModelThinkingLevel(opts.Thinking))
@@ -193,6 +214,7 @@ type responsesCompat struct {
 	SupportsExplicitPromptCacheMode bool
 	SupportsToolSearch              bool
 	SupportsMidConvoEffort          bool
+	PromptCacheKeyMode              string
 }
 
 func getResponsesCompat(compat *OpenAIResponsesCompat, strictModeDefault bool) responsesCompat {
@@ -217,6 +239,7 @@ func getResponsesCompat(compat *OpenAIResponsesCompat, strictModeDefault bool) r
 	out.SupportsExplicitPromptCacheMode = compat.SupportsExplicitPromptCacheMode != nil && *compat.SupportsExplicitPromptCacheMode
 	out.SupportsToolSearch = compat.SupportsToolSearch != nil && *compat.SupportsToolSearch
 	out.SupportsMidConvoEffort = compat.SupportsMidConvoEffort != nil && *compat.SupportsMidConvoEffort
+	out.PromptCacheKeyMode = compat.PromptCacheKeyMode
 	return out
 }
 
@@ -1496,7 +1519,7 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 		req.Tools = convertedTools
 	}
 	omitUnsupportedFields := p.isChatGPTSignIn(apiKey)
-	if !p.cfg.Codex && !omitUnsupportedFields && opts.MaxTokens > 0 && (p.cfg.Compat == nil || p.cfg.Compat.SupportsMaxOutputTokens == nil || *p.cfg.Compat.SupportsMaxOutputTokens) {
+	if !omitUnsupportedFields && opts.MaxTokens > 0 && (p.cfg.Compat == nil || p.cfg.Compat.SupportsMaxOutputTokens == nil || *p.cfg.Compat.SupportsMaxOutputTokens) {
 		// OpenAI Responses rejects max_output_tokens below 16 (earendil-works/pi#6265).
 		req.MaxOutputTokens = max(opts.MaxTokens, openAIResponsesMinOutputTokens)
 	}
@@ -1564,7 +1587,8 @@ func (p *openAIResponsesProvider) Stream(ctx context.Context, transcript Transcr
 	if !p.cfg.Codex {
 		cacheRetention = string(resolveCompletionsCacheRetention(opts.CacheRetention, mergeProviderEnv(p.cfg.Env, opts.Env)))
 	}
-	if opts.SessionID != "" && cacheRetention != "none" {
+	if opts.SessionID != "" && compat.PromptCacheKeyMode != "disabled" &&
+		(p.api() == APIAzureOpenAIResponses || cacheRetention != "none") {
 		req.PromptCacheKey = ClampOpenAIPromptCacheKey(opts.SessionID)
 	}
 	// Retention and write policy do not depend on a session-affinity key.

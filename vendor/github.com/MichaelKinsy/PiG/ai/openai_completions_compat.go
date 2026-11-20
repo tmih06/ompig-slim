@@ -44,7 +44,7 @@ func detectOpenAICompletionsCompat(providerID, baseURL, modelID string) OpenAICo
 	useMaxTokens := has("chutes.ai") || isDeepSeek || isMoonshot || isCloudflareAIGateway || isTogether || isNvidia || isAntLing || isZai
 	//portlint:allow providerliteral detectCompat special-cases these providers by name and base URL in Pi (openai-completions.ts:1593-1694)
 	isGrok := providerID == "xai" || has("api.x.ai")
-	isOpenRouterDeveloperRoleModel := isOpenRouter && (strings.HasPrefix(modelID, "anthropic/") || strings.HasPrefix(modelID, "openai/"))
+	isOpenAI := providerID == "openai" || has("api.openai.com")
 
 	maxTokensField := "max_completion_tokens"
 	if useMaxTokens {
@@ -74,7 +74,7 @@ func detectOpenAICompletionsCompat(providerID, baseURL, modelID string) OpenAICo
 	}
 	return OpenAICompat{
 		SupportsStore:                               new(!isNonStandard),
-		SupportsDeveloperRole:                       new(isOpenRouterDeveloperRoleModel || (!isNonStandard && !isOpenRouter)),
+		SupportsDeveloperRole:                       new(isOpenAI),
 		SupportsReasoningEffort:                     new(!isGrok && !isZai && !isMoonshot && !isTogether && !isCloudflareAIGateway && !isNvidia && !isAntLing),
 		SupportsUsageInStreaming:                    new(true),
 		SupportsFinishReason:                        new(true),

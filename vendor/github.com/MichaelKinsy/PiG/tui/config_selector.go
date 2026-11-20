@@ -472,10 +472,13 @@ func (cs *ConfigSelectorComponent) HandleInput(data string) {
 			}
 		}
 	default:
-		// config-selector.ts:518-519: every key that reaches the search Input re-filters, so a key that
-		// leaves the query unchanged still resets the selection to the first item.
+		// Only a changed query re-filters, so moving the caret inside the search
+		// field keeps the row the arrows selected.
+		previous := cs.query()
 		cs.input.HandleInput(data)
-		cs.filterItems()
+		if cs.query() != previous {
+			cs.filterItems()
+		}
 	}
 	cs.Invalidate()
 }

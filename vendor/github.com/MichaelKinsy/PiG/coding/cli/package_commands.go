@@ -485,33 +485,83 @@ func runUpdateCommand(cwd string, sm *codingagent.SettingsManager, opts *package
 		fmt.Println(chalkDim(fmt.Sprintf("Extensions are skipped. Run %s update --extensions to update extensions.", codingagent.AppName)))
 	}
 	if opts.source != "" && !isSelfUpdateTarget(opts.source) {
-		if err := packageManagerFor(cwd, sm, packageProgressPrinter(os.Stdout)).Update(opts.source); err != nil {
+		if err := runPackageUpdate(os.Stdout, cwd, sm, opts.source); err != nil {
 			printCLIError("%v", err)
 			return 1
 		}
-		fmt.Println(chalkGreen("Updated " + opts.source))
 		return 0
 	}
 
 	// --extensions updates every package without touching pig itself.
 	if opts.extensionsOnly && !opts.allPackages {
-		if err := packageManagerFor(cwd, sm, packageProgressPrinter(os.Stdout)).Update(""); err != nil {
+		if err := runPackageUpdate(os.Stdout, cwd, sm, ""); err != nil {
 			printCLIError("%v", err)
 			return 1
 		}
-		fmt.Println(chalkGreen("Updated packages"))
 		return 0
 	}
 
 	if !opts.allPackages {
 		return runSelfUpdate(opts.force)
 	}
-	if err := packageManagerFor(cwd, sm, packageProgressPrinter(os.Stdout)).Update(""); err != nil {
+	if err := runPackageUpdate(os.Stdout, cwd, sm, ""); err != nil {
 		printCLIError("%v", err)
 		return 1
 	}
-	fmt.Println(chalkGreen("Updated packages"))
 	return runSelfUpdate(opts.force)
+}
+
+func runPackageUpdate(writer io.Writer, cwd string, sm *codingagent.SettingsManager, source string) error {
+	updatedPackages := []string(nil)
+	warningCount := 0
+	printer := packageProgressPrinter(writer)
+	progress := func(event packagemanager.ProgressEvent) {
+		if event.Action == "update" && event.Type == "result" && event.Message != nil {
+			updatedPackages = append(updatedPackages, *event.Message)
+			return
+		}
+		if event.Action == "update" && event.Type == "progress" && event.Message != nil && *event.Message != "" {
+			warningCount++
+		}
+		printer(event)
+	}
+	if err := packageManagerFor(cwd, sm, progress).Update(source); err != nil {
+		return err
+	}
+	printPackageUpdateSummary(writer, source, updatedPackages, warningCount, packagemanager.IsOfflineModeEnabled())
+	return nil
+}
+
+func printPackageUpdateSummary(writer io.Writer, source string, updatedPackages []string, warningCount int, offline bool) {
+	if offline {
+		fmt.Fprintln(writer, chalkYellow("Skipped package updates (offline mode)"))
+		return
+	}
+	if len(updatedPackages) == 0 {
+		if warningCount > 0 {
+			message := "No packages were updated, see the warnings above"
+			if source != "" {
+				message = source + " was not updated, see the warnings above"
+			}
+			fmt.Fprintln(writer, chalkYellow(message))
+			return
+		}
+		message := "Packages are already up to date"
+		if source != "" {
+			message = source + " is already up to date"
+		}
+		fmt.Fprintln(writer, chalkGreen(message))
+		return
+	}
+	count := len(updatedPackages)
+	plural := "s"
+	if count == 1 {
+		plural = ""
+	}
+	fmt.Fprintln(writer, chalkGreen(fmt.Sprintf("Updated %d package%s:", count, plural)))
+	for _, message := range updatedPackages {
+		fmt.Fprintf(writer, "  %s\n", message)
+	}
 }
 
 func listPackages(cwd string, sm *codingagent.SettingsManager) int {

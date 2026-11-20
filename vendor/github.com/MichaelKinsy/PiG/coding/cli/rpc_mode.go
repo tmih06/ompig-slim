@@ -792,12 +792,9 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
-			data, cancelled, err := replace(withRPCReplacementHold(replacementCtx, hold))
+			data, _, err := replace(withRPCReplacementHold(replacementCtx, hold))
 			if err != nil {
 				awaitHeadCompactionStarts()
-			}
-			if err == nil && !cancelled {
-				err = host.rebindAgain(ctx)
 			}
 			return data, err
 		})

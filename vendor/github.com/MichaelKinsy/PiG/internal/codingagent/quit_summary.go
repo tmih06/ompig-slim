@@ -45,7 +45,7 @@ func renderQuitSummary(stats SessionAccounting, resume string) string {
 		fmt.Fprintf(&b, "Cost      $%s\n", cost)
 	}
 	if resume != "" {
-		fmt.Fprintf(&b, "Resume    %s\n", resume)
+		fmt.Fprintf(&b, "To resume this session:\n%s\n", resume)
 	}
 	return b.String()
 }

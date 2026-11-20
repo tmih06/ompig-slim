@@ -29,3 +29,5 @@ func prepareChildGroup(cmd *exec.Cmd)                  { jobgroup.Suspend(cmd) }
 func attachChildGroup(process *os.Process)             { jobgroup.Attach(process) }
 func releaseChildGroup(process *os.Process)            { jobgroup.Release(process) }
 func childGroupMayHoldOutput(process *os.Process) bool { return jobgroup.MayHoldOutput(process) }
+
+func processExitCode(state *os.ProcessState) int { return max(state.ExitCode(), 0) }

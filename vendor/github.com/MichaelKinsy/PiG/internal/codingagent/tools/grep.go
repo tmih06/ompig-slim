@@ -3,10 +3,10 @@ package tools
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -16,7 +16,6 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
-	"github.com/MichaelKinsy/PiG/internal/nodefs"
 	"github.com/MichaelKinsy/PiG/internal/nodespawn"
 )
 
@@ -25,7 +24,7 @@ import (
 type grepParams struct {
 	Pattern    string   `json:"pattern"`
 	Path       string   `json:"path,omitempty"`
-	Glob       string   `json:"glob,omitempty"`       // file pattern filter (e.g. '*.ts')
+	Glob       string   `json:"glob,omitempty"`       // pattern relative to path (e.g. '*.ts' or 'src/**/*.ts')
 	IgnoreCase bool     `json:"ignoreCase,omitempty"` // case-insensitive search
 	Literal    bool     `json:"literal,omitempty"`    // treat pattern as literal string (--fixed-strings)
 	Context    *float64 `json:"context,omitempty"`    // lines of context around each match
@@ -45,12 +44,11 @@ type GrepTool struct {
 	Operations *GrepOperations
 }
 
-// GrepOperations is upstream's GrepOperations: pluggable path and file reads for the search path and the context lines.
-// Ports packages/coding-agent/src/core/tools/grep.ts.
+// GrepOperations provides the filesystem check used by grep.
 type GrepOperations struct {
 	// IsDirectory reports whether the path is a directory and fails when it does not exist.
 	IsDirectory func(absolutePath string) (bool, error)
-	// ReadFile reads a file for its context lines; nil streams the local file.
+	// ReadFile is retained for source compatibility; context comes from ripgrep events.
 	ReadFile func(absolutePath string) (string, error)
 }
 
@@ -69,20 +67,6 @@ func (t *GrepTool) operations() GrepOperations {
 	}
 }
 
-// openFile opens a matched file for its context lines. The local filesystem
-// streams the file; a custom ReadFile returns the whole text, as upstream's
-// readFile does.
-func (t *GrepTool) openFile(path string) (io.ReadCloser, error) {
-	if t.Operations == nil || t.Operations.ReadFile == nil {
-		return nodefs.OpenFile(path, os.O_RDONLY, 0)
-	}
-	text, err := t.Operations.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return io.NopCloser(strings.NewReader(text)), nil
-}
-
 func (t *GrepTool) Name() string  { return "grep" }
 func (t *GrepTool) Label() string { return "" }
 
@@ -93,7 +77,7 @@ func (t *GrepTool) Schema() ai.ToolSchema {
 	}, `{"type":"object","required":["pattern"],"properties":{
 		"pattern":{"type":"string","description":"Search pattern (regex or literal string)"},
 		"path":{"type":"string","description":"Directory or file to search (default: current directory)"},
-		"glob":{"type":"string","description":"Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"},
+		"glob":{"type":"string","description":"Filter files by glob pattern relative to path, e.g. 'src/**/*.ts'. Without '/', '*.ts' matches file names at any depth"},
 		"ignoreCase":{"type":"boolean","description":"Case-insensitive search (default: false)"},
 		"literal":{"type":"boolean","description":"Treat pattern as literal string instead of regex (default: false)"},
 		"context":{"type":"number","description":"Number of lines to show before and after each match (default: 0)"},
@@ -106,18 +90,16 @@ func (t *GrepTool) ExecutionMode() agent.ToolExecutionMode { return agent.ToolMo
 // grepDefaultLimit mirrors upstream DEFAULT_LIMIT.
 const grepDefaultLimit = 100
 
-// grepMatch is one rg "match" event.
+// grepMatch is one rg "match" or "context" event.
 type grepMatch struct {
 	filePath   string
 	lineNumber int
 	lineText   *string
+	isContext  bool
 }
 
-// Execute mirrors upstream grep.ts execute: resolve the path, stream
-// `rg --json` events with no line-length cap (upstream reads with
-// readline), stop rg at the match limit, surface rg's stderr on failure,
-// then format matches (with context lines read from the files) and apply
-// byte truncation and upstream's notices.
+// Execute resolves the search path, consumes ripgrep's match and context events,
+// and formats the output with upstream's truncation and limit notices.
 func (t *GrepTool) Execute(ctx context.Context, _ string, rawParams json.RawMessage, _ agent.ToolUpdateCallback) (agent.AgentToolResult, error) {
 	var p grepParams
 	if err := json.Unmarshal(rawParams, &p); err != nil {
@@ -151,13 +133,13 @@ func (t *GrepTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 
 	contextValue := 0.0
 	if p.Context != nil && *p.Context > 0 {
-		contextValue = *p.Context
+		contextValue = math.Min(math.Floor(*p.Context), 1<<53-1)
 	}
 	effectiveLimit := float64(grepDefaultLimit)
 	if p.Limit != nil {
 		effectiveLimit = *p.Limit
 	}
-	effectiveLimit = math.Max(1, effectiveLimit)
+	effectiveLimit = math.Max(1, math.Floor(effectiveLimit))
 
 	// --no-config: the tool contract (literal, glob, limit, ...) must not depend
 	// on ambient user config like RIPGREP_CONFIG_PATH.
@@ -169,11 +151,24 @@ func (t *GrepTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 		args = append(args, "--fixed-strings")
 	}
 	if p.Glob != "" {
-		args = append(args, "--glob", p.Glob)
+		args = append(args, "--glob", normalizeGrepGlob(p.Glob))
 	}
-	args = append(args, "--", p.Pattern, searchPath)
+	if contextValue > 0 {
+		args = append(args, "--context", jsNumber(contextValue))
+	}
+	searchTarget := searchPath
+	commandDir := cwd
+	if isDirectory {
+		searchTarget = "."
+		commandDir = searchPath
+	}
+	args = append(args, "--", p.Pattern, searchTarget)
 
-	matches, run, err := runRipgrep(ctx, rgPath, cwd, args, effectiveLimit)
+	f := grepFormatter{searchPath: searchPath, isDirectory: isDirectory}
+	joined := newHeadJoin(truncationLimits(DefaultMaxBytes, 1<<53-1))
+	run, err := runRipgrep(ctx, rgPath, commandDir, args, effectiveLimit, contextValue, func(m grepMatch) {
+		f.emitEvent(m, joined)
+	})
 	if err != nil {
 		// Upstream's catch rejects with an error spawn throws unchanged; only
 		// the child's error event adds the prefix.
@@ -200,16 +195,6 @@ func (t *GrepTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 		return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "No matches found"}}}, nil
 	}
 
-	f := grepFormatter{searchPath: searchPath, isDirectory: isDirectory, contextValue: contextValue, openFile: t.openFile}
-	defer f.close()
-
-	// No line limit: the match limit already capped rows.
-	// Number.MAX_SAFE_INTEGER is observable in the truncation details, even though only bytes cap this tool.
-	// The output is collected head-first: lines past the 50KB the result can show are counted, not built (#9276).
-	joined := newHeadJoin(truncationLimits(DefaultMaxBytes, 1<<53-1))
-	for _, m := range matches {
-		f.emitMatch(m, joined)
-	}
 	tr := joined.Result()
 	output := tr.Content
 	var notices []string
@@ -252,11 +237,10 @@ type ripgrepRun struct {
 	stderr            string
 }
 
-// runRipgrep streams rg's JSON events. Lines are read without a length cap
-// and the pipe is always drained, so a huge match line can neither stall rg
-// nor drop later matches; at the match limit rg is killed and the rest of
-// its output discarded.
-func runRipgrep(ctx context.Context, rgPath, dir string, args []string, limit float64) ([]grepMatch, ripgrepRun, error) {
+// runRipgrep consumes rg JSON events and stops only after observing a match
+// beyond the user's limit. It keeps trailing context for the last included
+// match, while context itself never consumes the match limit.
+func runRipgrep(ctx context.Context, rgPath, dir string, args []string, limit, contextValue float64, emit func(grepMatch)) (ripgrepRun, error) {
 	//nolint:gosec // G204 (class b): program is rg resolved by PiG's tools manager; args are fixed flags, then -- and the pattern and search path from the grep tool call, so the model cannot reach an rg option.
 	cmd := exec.CommandContext(ctx, rgPath, args...)
 	// Upstream's spawn has no cwd option, so on Windows libuv finds rg from
@@ -267,27 +251,55 @@ func runRipgrep(ctx context.Context, rgPath, dir string, args []string, limit fl
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, ripgrepRun{}, err
+		return ripgrepRun{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, ripgrepRun{}, err
+		return ripgrepRun{}, err
 	}
 	var run ripgrepRun
-	var matches []grepMatch
+	var lastFile string
+	var trailingContextEnd float64
+	limitHit := false
+	stopped := false
 	reader := bufio.NewReader(stdout)
+	push := func(m grepMatch, isMatch bool) {
+		if limitHit {
+			inWindow := m.filePath == lastFile && float64(m.lineNumber) <= trailingContextEnd
+			if inWindow {
+				m.isContext = true
+				emit(m)
+				lastFile = m.filePath
+			}
+			if isMatch {
+				run.matchLimitReached = true
+			}
+			if run.matchLimitReached && !(inWindow && float64(m.lineNumber) < trailingContextEnd) {
+				run.killedDueToLimit = true
+				stopped = true
+				_ = cmd.Process.Kill()
+			}
+			return
+		}
+		emit(m)
+		lastFile = m.filePath
+		if !isMatch {
+			return
+		}
+		run.matchCount++
+		if float64(run.matchCount) >= limit {
+			limitHit = true
+			trailingContextEnd = float64(m.lineNumber) + contextValue
+		}
+	}
 	for {
 		line, readErr := reader.ReadString('\n')
-		if jsstring.Trim(line) != "" && float64(run.matchCount) < limit {
-			if m, ok := parseRipgrepMatch(line); ok {
-				run.matchCount++
-				if m != nil {
-					matches = append(matches, *m)
+		if !stopped && jsstring.Trim(line) != "" {
+			m, isMatch := parseRipgrepEvent(line)
+			if m != nil {
+				if !filepath.IsAbs(m.filePath) {
+					m.filePath = filepath.Join(dir, filepath.FromSlash(m.filePath))
 				}
-				if float64(run.matchCount) >= limit {
-					run.matchLimitReached = true
-					run.killedDueToLimit = true
-					_ = cmd.Process.Kill()
-				}
+				push(*m, isMatch)
 			}
 		}
 		if readErr != nil {
@@ -299,54 +311,75 @@ func runRipgrep(ctx context.Context, rgPath, dir string, args []string, limit fl
 	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		run.exitCode = exitErr.ExitCode()
 	} else if waitErr != nil && !run.killedDueToLimit && ctx.Err() == nil {
-		return nil, run, waitErr
+		return run, waitErr
 	}
-	return matches, run, nil
+	return run, nil
 }
 
-// parseRipgrepMatch reports whether line is a "match" event, and returns the
-// match when it carries a path and line number (upstream skips others but
-// still counts them).
-func parseRipgrepMatch(line string) (*grepMatch, bool) {
+type rgJSONText struct {
+	Text  *string `json:"text"`
+	Bytes *string `json:"bytes"`
+}
+
+// parseRipgrepEvent parses a match or context event with its path and line text.
+func parseRipgrepEvent(line string) (*grepMatch, bool) {
 	var event struct {
 		Type string `json:"type"`
 		Data struct {
-			Path *struct {
-				Text *string `json:"text"`
-			} `json:"path"`
-			LineNumber *float64 `json:"line_number"`
-			Lines      *struct {
-				Text *string `json:"text"`
-			} `json:"lines"`
+			Path       *rgJSONText `json:"path"`
+			LineNumber *float64    `json:"line_number"`
+			Lines      *rgJSONText `json:"lines"`
 		} `json:"data"`
 	}
-	// upstream: coding-agent/src/core/tools/grep.ts:JSON.parse
-	if err := json.Unmarshal([]byte(line), &event); err != nil || event.Type != "match" {
+	if err := json.Unmarshal([]byte(line), &event); err != nil || (event.Type != "match" && event.Type != "context") {
 		return nil, false
 	}
+	isMatch := event.Type == "match"
 	d := event.Data
-	if d.Path == nil || d.Path.Text == nil || *d.Path.Text == "" || d.LineNumber == nil {
-		return nil, true
+	filePath := decodeRgJSONText(d.Path)
+	if filePath == "" || d.LineNumber == nil {
+		return nil, false
 	}
-	//portlint:allow numbers ripgrep reports a line number as a small positive integer, so the conversion cannot leave the int range
-	m := &grepMatch{filePath: *d.Path.Text, lineNumber: int(*d.LineNumber)}
+	//portlint:allow numbers ripgrep reports line numbers as positive integers within the range of int
+	m := &grepMatch{filePath: filePath, lineNumber: int(*d.LineNumber), isContext: !isMatch}
 	if d.Lines != nil {
-		m.lineText = d.Lines.Text
+		lineText := decodeRgJSONText(d.Lines)
+		m.lineText = &lineText
 	}
-	return m, true
+	return m, isMatch
 }
 
-// grepFormatter mirrors upstream's formatPath, getFileLines and formatBlock.
-// pig divergence (D151): context lines come from a window over the
-// matched file, not a whole-file array, so memory follows the context size and
-// not the file size.
+func decodeRgJSONText(data *rgJSONText) string {
+	if data == nil {
+		return ""
+	}
+	if data.Text != nil {
+		return *data.Text
+	}
+	if data.Bytes != nil {
+		decoded, err := base64.StdEncoding.DecodeString(*data.Bytes)
+		if err == nil {
+			return jsstring.FromUTF8(decoded)
+		}
+	}
+	return ""
+}
+
+func normalizeGrepGlob(glob string) string {
+	negation := ""
+	if strings.HasPrefix(glob, "!") {
+		negation, glob = "!", glob[1:]
+	}
+	for strings.HasPrefix(glob, "./") {
+		glob = strings.TrimPrefix(glob, "./")
+	}
+	return negation + glob
+}
+
+// grepFormatter formats rg's match and context events.
 type grepFormatter struct {
 	searchPath     string
 	isDirectory    bool
-	contextValue   float64
-	openFile       func(absolutePath string) (io.ReadCloser, error)
-	window         *grepLineWindow
-	windowPath     string
 	linesTruncated bool
 }
 
@@ -359,26 +392,6 @@ func (f *grepFormatter) formatPath(filePath string) string {
 	return filepath.Base(filePath)
 }
 
-// fileWindow returns the window for filePath. Matches of one file are
-// consecutive, so only the current file's window is kept; a match above the
-// window's first line reopens the file.
-func (f *grepFormatter) fileWindow(filePath string, firstLine float64) *grepLineWindow {
-	if f.window != nil && f.windowPath == filePath && firstLine >= float64(f.window.keepFrom) {
-		return f.window
-	}
-	f.close()
-	f.window = &grepLineWindow{open: func() (io.ReadCloser, error) { return f.openFile(filePath) }, keepFrom: 1}
-	f.windowPath = filePath
-	return f.window
-}
-
-func (f *grepFormatter) close() {
-	if f.window != nil {
-		f.window.close()
-		f.window = nil
-	}
-}
-
 func (f *grepFormatter) truncate(line string) string {
 	truncated := TruncateLine(line, GrepMaxLineLength)
 	text, wasTruncated := truncated.Text, truncated.WasTruncated
@@ -388,54 +401,29 @@ func (f *grepFormatter) truncate(line string) string {
 	return text
 }
 
-// emitMatch adds the output lines of one match to out (grep.ts:198-277). Once out holds every byte its result can show, a line is only measured: its length and whether its text was cut are what the result and the notice still read.
-func (f *grepFormatter) emitMatch(m grepMatch, out *headJoin) {
+// emitEvent adds one rg event to out. Once out holds every byte its result
+// can show, the line is only measured so output memory stays bounded.
+func (f *grepFormatter) emitEvent(m grepMatch, out *headJoin) {
 	relativePath := f.formatPath(m.filePath)
-	if f.contextValue == 0 && m.lineText != nil {
-		sanitized := strings.ReplaceAll(*m.lineText, "\r\n", "\n")
-		sanitized = strings.TrimSuffix(strings.ReplaceAll(sanitized, "\r", ""), "\n")
-		if out.full() && !strings.Contains(sanitized, "\n") {
-			out.AddLength(len(relativePath) + 1 + decimalBytes(m.lineNumber) + 2 + f.truncatedBytes(sanitized))
-			return
-		}
-		out.Add(fmt.Sprintf("%s:%d: %s", relativePath, m.lineNumber, f.truncate(sanitized)))
-		return
-	}
-	lineNumber := float64(m.lineNumber)
-	start, end := lineNumber, lineNumber
-	if f.contextValue > 0 {
-		start = math.Max(1, lineNumber-f.contextValue)
-		end = lineNumber + f.contextValue
-	}
-	w := f.fileWindow(m.filePath, start)
-	w.discardBefore(start)
-	total := w.countAtLeast(end)
-	if total == 0 {
-		out.Add(fmt.Sprintf("%s:%d: (unable to read file)", relativePath, m.lineNumber))
-		return
-	}
-	if f.contextValue > 0 {
-		end = math.Min(float64(total), end)
-	}
-	for current := start; current <= end; current++ {
-		lineText := ""
-		//portlint:allow numbers current is at most the end bound, which is at most the line count, so the conversion stays in range
-		if current == math.Trunc(current) && current >= 1 && int(current) <= total {
-			//portlint:allow numbers the guard above bounds current by the line count
-			lineText = w.line(int(current))
-		}
-		lineText = strings.ReplaceAll(lineText, "\r", "")
-		if out.full() && !strings.Contains(lineText, "\n") {
-			out.AddLength(len(relativePath) + 1 + numberBytes(current) + 2 + f.truncatedBytes(lineText))
-			continue
-		}
-		truncated := f.truncate(lineText)
-		if current == lineNumber {
-			out.Add(fmt.Sprintf("%s:%s: %s", relativePath, jsNumber(current), truncated))
+	lineText := ""
+	if m.lineText != nil {
+		lineText = *m.lineText
+		if strings.HasSuffix(lineText, "\r\n") {
+			lineText = strings.TrimSuffix(lineText, "\r\n")
 		} else {
-			out.Add(fmt.Sprintf("%s-%s- %s", relativePath, jsNumber(current), truncated))
+			lineText = strings.TrimSuffix(lineText, "\n")
 		}
 	}
+	separator := ":"
+	if m.isContext {
+		separator = "-"
+	}
+	prefix := fmt.Sprintf("%s%s%d%s ", relativePath, separator, m.lineNumber, separator)
+	if out.full() && !strings.Contains(lineText, "\n") {
+		out.AddLength(len(prefix) + f.truncatedBytes(lineText))
+		return
+	}
+	out.Add(prefix + f.truncate(lineText))
 }
 
 // truncatedBytes is len(f.truncate(line)), recording a cut line as f.truncate does.
@@ -445,15 +433,6 @@ func (f *grepFormatter) truncatedBytes(line string) int {
 		f.linesTruncated = true
 	}
 	return n
-}
-
-// numberBytes is len(jsNumber(v)) without the string for the whole line numbers grep writes.
-func numberBytes(v float64) int {
-	if v == math.Trunc(v) && math.Abs(v) < 1<<53 {
-		//portlint:allow numbers the guard admits only integral values below 2^53, which int holds exactly and jsNumber writes as plain decimals
-		return decimalBytes(int(v))
-	}
-	return len(jsNumber(v))
 }
 
 // GrepMaxLineLength matches upstream truncate.ts GREP_MAX_LINE_LENGTH.

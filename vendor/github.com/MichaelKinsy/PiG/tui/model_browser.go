@@ -216,8 +216,13 @@ func (b *ModelBrowser) HandleInput(data string) bool {
 	case MatchesKeyID(data, "pagedown"):
 		b.Move(b.rows, false)
 	default:
+		// Only a changed query re-ranks, so moving the caret inside the search
+		// field keeps the row the arrows selected.
+		previous := b.Query()
 		b.search.HandleInput(data)
-		b.filter()
+		if b.Query() != previous {
+			b.filter()
+		}
 	}
 	return true
 }

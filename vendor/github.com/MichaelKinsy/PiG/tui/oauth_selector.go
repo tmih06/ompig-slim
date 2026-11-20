@@ -166,11 +166,11 @@ func (s *OAuthSelectorComponent) applyFilter() {
 		}
 		return p.Name + " " + p.ID + " " + p.AuthType + " " + methodName
 	})
-	if s.cursor >= len(s.filtered) {
-		s.cursor = len(s.filtered) - 1
-	}
-	if s.cursor < 0 {
+	// A query moves the selection to the top row, so the best match is highlighted.
+	if query != "" {
 		s.cursor = 0
+	} else {
+		s.cursor = min(s.cursor, max(0, len(s.filtered)-1))
 	}
 }
 
@@ -282,8 +282,13 @@ func (s *OAuthSelectorComponent) HandleInput(data string) {
 		}
 	default:
 		if s.search != nil {
+			// Only a changed query re-filters, so moving the cursor inside the
+			// search field keeps the row the arrows selected.
+			previous := s.search.Text()
 			s.search.HandleInput(data)
-			s.applyFilter()
+			if s.search.Text() != previous {
+				s.applyFilter()
+			}
 		}
 	}
 	s.updateList()

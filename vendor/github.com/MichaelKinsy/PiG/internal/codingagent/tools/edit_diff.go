@@ -1,8 +1,7 @@
 // Package tools: edit-diff helpers.
 //
-// Ports packages/coding-agent/src/core/tools/edit-diff.ts:
-// line-ending detection, BOM stripping, fuzzy matching, and the
-// position-based multi-file edit application algorithm.
+// Ports packages/coding-agent/src/core/tools/edit-diff.ts: line-ending
+// normalization and preservation, fuzzy matching, and edit application.
 package tools
 
 import (
@@ -16,36 +15,76 @@ import (
 	"unicode/utf16"
 )
 
-// detectLineEnding returns "\r\n" if content uses CRLF, else "\n".
-// Matches upstream detectLineEnding.
-func detectLineEnding(content string) string {
-	crlfIdx := strings.Index(content, "\r\n")
-	lfIdx := strings.Index(content, "\n")
-	if lfIdx == -1 {
-		return "\n"
-	}
-	if crlfIdx == -1 {
-		return "\n"
-	}
-	if crlfIdx < lfIdx {
-		return "\r\n"
-	}
-	return "\n"
-}
-
-// normalizeToLF converts \r\n and stray \r to \n.
+// normalizeToLF converts CRLF and lone CR line endings to LF for matching.
 func normalizeToLF(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	return text
 }
 
-// restoreLineEndings converts \n back to the original ending.
-func restoreLineEndings(text, ending string) string {
-	if ending == "\r\n" {
-		return strings.ReplaceAll(text, "\n", "\r\n")
+// applyReplacementsToOriginal applies normalized offsets to original text so
+// bytes outside edited ranges, including their line endings, remain intact.
+func applyReplacementsToOriginal(originalContent string, replacements []matchedEdit) string {
+	crlfBefore := 0
+	nextCRLF := strings.Index(originalContent, "\r\n")
+	toOriginal := func(offset int) int {
+		for nextCRLF != -1 && nextCRLF-crlfBefore < offset {
+			crlfBefore++
+			next := strings.Index(originalContent[nextCRLF+2:], "\r\n")
+			if next < 0 {
+				nextCRLF = -1
+			} else {
+				nextCRLF += next + 2
+			}
+		}
+		return offset + crlfBefore
 	}
-	return text
+
+	var parts []string
+	endsWithCR := false
+	push := func(part string) {
+		if part == "" {
+			return
+		}
+		if endsWithCR && strings.HasPrefix(part, "\n") {
+			parts = append(parts, "\n")
+		}
+		parts = append(parts, part)
+		endsWithCR = strings.HasSuffix(part, "\r")
+	}
+	position := 0
+	for _, replacement := range replacements {
+		start := toOriginal(replacement.matchIndex)
+		push(originalContent[position:start])
+		ending := lineEndingAt(originalContent, start)
+		newText := replacement.newText
+		if ending != "\n" {
+			newText = strings.ReplaceAll(newText, "\n", ending)
+		}
+		push(newText)
+		position = toOriginal(replacement.matchIndex + replacement.matchLength)
+	}
+	push(originalContent[position:])
+	return strings.Join(parts, "")
+}
+
+func lineEndingAt(content string, offset int) string {
+	lineFeed := strings.Index(content[offset:], "\n")
+	if lineFeed >= 0 {
+		lineFeed += offset
+	} else {
+		lineFeed = strings.LastIndex(content[:offset], "\n")
+	}
+	if lineFeed < 0 {
+		if strings.Contains(content, "\r") {
+			return "\r"
+		}
+		return "\n"
+	}
+	if lineFeed > 0 && content[lineFeed-1] == '\r' {
+		return "\r\n"
+	}
+	return "\n"
 }
 
 // fuzzyMatchResult mirrors upstream FuzzyMatchResult.
@@ -119,8 +158,9 @@ type matchedEdit struct {
 
 // appliedEditsResult mirrors upstream AppliedEditsResult.
 type appliedEditsResult struct {
-	baseContent string
-	newContent  string
+	baseContent  string
+	newContent   string
+	replacements []matchedEdit
 }
 
 // applyEditsToNormalizedContent ports upstream's algorithm:
@@ -193,25 +233,19 @@ func applyEditsToNormalizedContent(normalizedContent string, edits []editEntry, 
 		}
 	}
 
-	// Upstream diffs against the original content. A fuzzy match rewrites
-	// only the lines its replacements touch, from the normalized base; every
-	// other line keeps its original bytes.
-	var newContent string
+	replacements := matched
 	if usedFuzzyAny {
 		var err error
-		newContent, err = applyReplacementsPreservingUnchangedLines(normalizedContent, baseContent, matched)
+		replacements, err = widenReplacementsToLines(normalizedContent, baseContent, matched)
 		if err != nil {
 			return appliedEditsResult{}, err
 		}
-	} else {
-		newContent = applyReplacements(baseContent, matched, 0)
 	}
-
+	newContent := applyReplacements(normalizedContent, replacements, 0)
 	if normalizedContent == newContent {
 		return appliedEditsResult{}, noChangeErr(path, len(normEdits))
 	}
-
-	return appliedEditsResult{baseContent: normalizedContent, newContent: newContent}, nil
+	return appliedEditsResult{baseContent: normalizedContent, newContent: newContent, replacements: replacements}, nil
 }
 
 // splitLinesWithEndings mirrors upstream splitLinesWithEndings
@@ -280,16 +314,13 @@ func applyReplacements(content string, replacements []matchedEdit, offset int) s
 	return result.String()
 }
 
-// applyReplacementsPreservingUnchangedLines mirrors the upstream function of
-// the same name: each replacement matched against baseContent (a normalized
-// view of originalContent) is widened to the lines it touches; those lines
-// are rewritten from the base, and all other lines are copied from the
-// original.
-func applyReplacementsPreservingUnchangedLines(originalContent, baseContent string, replacements []matchedEdit) (string, error) {
-	originalLines := splitLinesWithEndings(originalContent)
+// widenReplacementsToLines turns fuzzy replacements into ranges in the
+// normalized original, preserving untouched lines when they are applied.
+func widenReplacementsToLines(originalContent, baseContent string, replacements []matchedEdit) ([]matchedEdit, error) {
+	originalLines := getLineSpans(originalContent)
 	baseLines := getLineSpans(baseContent)
 	if len(originalLines) != len(baseLines) {
-		return "", errors.New("Cannot preserve unchanged lines because the base content has a different line count.")
+		return nil, errors.New("Cannot preserve unchanged lines because the base content has a different line count.")
 	}
 	type group struct {
 		startLine, endLine int
@@ -301,7 +332,7 @@ func applyReplacementsPreservingUnchangedLines(originalContent, baseContent stri
 	for _, r := range sorted {
 		startLine, endLine, err := getReplacementLineRange(baseLines, r)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if n := len(groups); n > 0 && startLine < groups[n-1].endLine {
 			current := groups[n-1]
@@ -311,17 +342,19 @@ func applyReplacementsPreservingUnchangedLines(originalContent, baseContent stri
 		}
 		groups = append(groups, &group{startLine: startLine, endLine: endLine, replacements: []matchedEdit{r}})
 	}
-	var b strings.Builder
-	originalLineIndex := 0
+	wide := make([]matchedEdit, 0, len(groups))
 	for _, g := range groups {
-		b.WriteString(strings.Join(originalLines[originalLineIndex:g.startLine], ""))
 		groupStart := baseLines[g.startLine].start
 		groupEnd := baseLines[g.endLine-1].end
-		b.WriteString(applyReplacements(baseContent[groupStart:groupEnd], g.replacements, groupStart))
-		originalLineIndex = g.endLine
+		originalStart := originalLines[g.startLine].start
+		originalEnd := originalLines[g.endLine-1].end
+		wide = append(wide, matchedEdit{
+			matchIndex:  originalStart,
+			matchLength: originalEnd - originalStart,
+			newText:     applyReplacements(baseContent[groupStart:groupEnd], g.replacements, groupStart),
+		})
 	}
-	b.WriteString(strings.Join(originalLines[originalLineIndex:], ""))
-	return b.String(), nil
+	return wide, nil
 }
 
 func editCandidates(content *fuzzyContent, oldText, path string, duplicate bool) string {

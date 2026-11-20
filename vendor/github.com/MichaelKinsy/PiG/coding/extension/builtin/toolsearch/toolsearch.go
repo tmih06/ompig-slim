@@ -10,10 +10,14 @@ package toolsearch
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
+	"net/url"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/internal/jsmath"
@@ -50,39 +54,73 @@ type Ranker interface {
 // Tokenize is Pi's tokenize: Unicode word segmentation of the NFC-normalized text with identifier boundaries, without English stop words and with singular forms (searchtext.Tokenize).
 func Tokenize(text string) []string { return searchtext.Tokenize(text) }
 
-// schemaText collects schema descriptions and property names, recursively.
-func schemaText(schema any, parts *[]string) {
+// schemaText collects schema descriptions and property names, recursively following local references.
+func schemaText(schema, root any, parts *[]string, seenRefs map[string]struct{}) {
 	object, ok := schema.(map[string]any)
 	if !ok {
 		return
+	}
+	if ref, ok := object["$ref"].(string); ok {
+		if _, seen := seenRefs[ref]; !seen {
+			if target, found := resolveSchemaRef(ref, root); found {
+				if _, isObject := target.(map[string]any); isObject {
+					seenRefs[ref] = struct{}{}
+					schemaText(target, root, parts, seenRefs)
+				}
+			}
+		}
 	}
 	if description, ok := object["description"].(string); ok {
 		*parts = append(*parts, description)
 	}
 	if properties, ok := object["properties"].(map[string]any); ok {
-		for _, name := range slices.Sorted(mapsKeys(properties)) {
+		for _, name := range slices.Sorted(maps.Keys(properties)) {
 			*parts = append(*parts, name)
-			schemaText(properties[name], parts)
+			schemaText(properties[name], root, parts, seenRefs)
 		}
 	}
-	schemaText(object["items"], parts)
+	schemaText(object["items"], root, parts, seenRefs)
 	for _, key := range []string{"anyOf", "oneOf", "allOf"} {
 		if variants, ok := object[key].([]any); ok {
 			for _, variant := range variants {
-				schemaText(variant, parts)
+				schemaText(variant, root, parts, seenRefs)
 			}
 		}
 	}
 }
 
-func mapsKeys(m map[string]any) func(yield func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
+// resolveSchemaRef follows a local JSON Pointer, decoding URI escapes and then JSON Pointer escapes.
+func resolveSchemaRef(ref string, root any) (any, bool) {
+	if ref == "#" {
+		return root, true
+	}
+	if !strings.HasPrefix(ref, "#/") {
+		return nil, false
+	}
+	current := root
+	for segment := range strings.SplitSeq(ref[2:], "/") {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || !utf8.ValidString(decoded) {
+			return nil, false
+		}
+		key := strings.ReplaceAll(strings.ReplaceAll(decoded, "~1", "/"), "~0", "~")
+		switch value := current.(type) {
+		case map[string]any:
+			var ok bool
+			if current, ok = value[key]; !ok {
+				return nil, false
 			}
+		case []any:
+			index, err := strconv.Atoi(key)
+			if err != nil || index < 0 || strconv.Itoa(index) != key || index >= len(value) {
+				return nil, false
+			}
+			current = value[index]
+		default:
+			return nil, false
 		}
 	}
+	return current, true
 }
 
 // CreateDocument builds the search texts of a tool: the description with the schema descriptions and property names, and separately the namespace name, description and instructions. The ranker reads the name from Name. BM25 counts terms, so the order of the parts does not matter.
@@ -90,7 +128,7 @@ func CreateDocument(tool extension.ToolInfo, namespace *extension.ToolNamespace)
 	parts := []string{tool.Description}
 	var parameters any
 	if len(tool.Parameters) > 0 && json.Unmarshal(tool.Parameters, &parameters) == nil {
-		schemaText(parameters, &parts)
+		schemaText(parameters, parameters, &parts, map[string]struct{}{"#": {}})
 	}
 	var namespaceText string
 	if namespace != nil {

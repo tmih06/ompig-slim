@@ -130,17 +130,18 @@ func clampPositiveInt(value float64) int {
 // web_fetch tool's Details shape, so a session replayed from an older file
 // still renders.
 type readURLDetails struct {
-	URL            string   `json:"url"`
-	Method         string   `json:"method"`
-	MediaType      string   `json:"mediaType,omitempty"`
-	Title          string   `json:"title,omitempty"`
-	Status         int      `json:"status,omitempty"`
-	Notes          []string `json:"notes,omitempty"`
-	TotalLines     int      `json:"totalLines,omitempty"`
-	StartLine      int      `json:"startLine,omitempty"`
-	EndLine        int      `json:"endLine,omitempty"`
-	Truncated      bool     `json:"truncated,omitempty"`
-	FullOutputPath string   `json:"fullOutputPath,omitempty"`
+	URL                     string   `json:"url"`
+	Method                  string   `json:"method"`
+	MediaType               string   `json:"mediaType,omitempty"`
+	Title                   string   `json:"title,omitempty"`
+	Status                  int      `json:"status,omitempty"`
+	Notes                   []string `json:"notes,omitempty"`
+	TotalLines              int      `json:"totalLines,omitempty"`
+	StartLine               int      `json:"startLine,omitempty"`
+	EndLine                 int      `json:"endLine,omitempty"`
+	Truncated               bool     `json:"truncated,omitempty"`
+	FullOutputPath          string   `json:"fullOutputPath,omitempty"`
+	ImageUnsupportedByModel string   `json:"imageUnsupportedByModel,omitempty"`
 	// Kind marks the read as a URL so the card renders it as a document.
 	Kind string `json:"kind"`
 }
@@ -263,8 +264,7 @@ func urlBody(result webtools.FetchResult, writeFullOutput func(body string) stri
 // URL from a filesystem path before choosing a reader.
 func IsReadableURLPath(value string) bool { return isReadableURLPath(value) }
 
-// renderReadURLImage returns the image as an attachment when the model accepts
-// images, and describes it otherwise.
+// renderReadURLImage retains the image for later requests, even when the current model sees a placeholder.
 func renderReadURLImage(ctx context.Context, result webtools.FetchResult, details *readURLDetails) agent.AgentToolResult {
 	env, _ := agent.ToolEnvironmentFrom(ctx)
 	supportsImages := env.SupportsImages == nil || *env.SupportsImages
@@ -279,13 +279,10 @@ func renderReadURLImage(ctx context.Context, result webtools.FetchResult, detail
 		text += "\n" + hints
 		details.Notes = append(details.Notes, hints)
 	}
-	content := []ai.ToolResultMessageContent{ai.TextContent{Text: text}}
-	if supportsImages {
-		content = append(content, ai.ImageContent{MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)})
-	} else {
-		text += "\n[Current model does not support images. The image will be omitted from this request.]"
-		content = []ai.ToolResultMessageContent{ai.TextContent{Text: text}}
+	if !supportsImages {
+		details.ImageUnsupportedByModel = env.Model
 	}
+	content := []ai.ToolResultMessageContent{ai.TextContent{Text: text}, ai.ImageContent{MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}}
 	return agent.AgentToolResult{Content: content, Details: details}
 }
 

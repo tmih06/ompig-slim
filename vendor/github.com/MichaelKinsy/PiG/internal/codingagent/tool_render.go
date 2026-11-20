@@ -3,6 +3,7 @@ package codingagent
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func toolBodyRendererForCall(call ai.ToolCall, result agent.AgentToolResult, too
 	case "read":
 		// A URL read keeps its own metadata: it is a document, not a file, and
 		// rebuilding file details over it would erase the fetch result.
-		if _, isURL := tools.ReadURLDetailsOf(result.Details); isURL {
+		if _, isURL := tools.ReadURLDetailsOf(detailsObject(result.Details)); isURL {
 			break
 		}
 		var details tools.ReadDetails
@@ -114,8 +115,8 @@ func toolBodyRenderer(toolName string, result agent.AgentToolResult, took *time.
 	case "read":
 		// `read` covers both sources. A URL returns a document rendering whose
 		// card keeps the head in view; a file keeps its per-file renderer.
-		if _, isURL := tools.ReadURLDetailsOf(result.Details); isURL {
-			return makeWebFetchBodyRenderer(result.Text())
+		if details, isURL := tools.ReadURLDetailsOf(detailsObject(result.Details)); isURL {
+			return makeReadURLBodyRenderer(result.Text(), details.ImageUnsupportedByModel)
 		}
 		d, ok := result.Details.(*tools.ReadDetails)
 		if !ok || d == nil {
@@ -125,7 +126,11 @@ func toolBodyRenderer(toolName string, result agent.AgentToolResult, took *time.
 			if result.IsError {
 				return renderReadError(result.Text(), width, expanded)
 			}
-			return renderReadLines(d, result.Text(), width, expanded)
+			rows := renderReadLines(d, result.Text(), width, expanded)
+			if warning := readImageWarning(d.ImageUnsupportedByModel, tui.ActiveTheme()); warning != "" {
+				rows = append(rows, tui.NewPaddedText(warning, 0, 0, nil).Render(width)...)
+			}
+			return rows
 		}
 	}
 
@@ -407,6 +412,18 @@ const webFetchPreviewLines = 10
 // ctrl+o with the rest of the body. Keeping them visible would mean either a
 // second preview or poking at the text to find them, and the expanded card
 // already shows them.
+func makeReadURLBodyRenderer(content, unsupportedModel string) func(int, bool) []string {
+	render := makeWebFetchBodyRenderer(content)
+	if unsupportedModel == "" {
+		return render
+	}
+	return func(width int, expanded bool) []string {
+		rows := render(width, expanded)
+		warning := tui.NewPaddedText(readImageWarning(unsupportedModel, tui.ActiveTheme()), 0, 0, nil)
+		return append(slices.Clone(rows), warning.Render(width)...)
+	}
+}
+
 func makeWebFetchBodyRenderer(content string) func(width int, expanded bool) []string {
 	output := jsTrim(shellTextOutput(content))
 	// The card renders every frame while the transcript is redrawn, and a

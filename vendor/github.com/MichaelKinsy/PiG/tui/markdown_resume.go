@@ -179,7 +179,13 @@ func (m *Markdown) layoutRows(rows []string, starts []int, lines []string, width
 	}
 	for _, line := range lines {
 		starts = append(starts, len(rows))
-		if widthx.IsImageLine(line) || (!strings.ContainsAny(line, "\r\n") && widthx.VisibleWidth(line) <= contentWidth) {
+		if widthx.IsImageLine(line) {
+			for row := range strings.SplitSeq(line, "\n") {
+				add(row)
+			}
+			continue
+		}
+		if !strings.ContainsAny(line, "\r\n") && widthx.VisibleWidth(line) <= contentWidth {
 			add(line)
 			continue
 		}

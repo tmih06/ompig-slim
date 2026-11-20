@@ -26,6 +26,8 @@ type SelectSubmenuComponent struct {
 	searchInput *TextInput
 	list        *FilterableList
 	listTitle   string
+	// listQuery is the query the current list was built from; a key that leaves it unchanged keeps the selection.
+	listQuery string
 	// description is the text under the title; a frontend session shows it.
 	description string
 	// OnSelectionChange runs with the highlighted value after every up or down key that reaches a non-empty list, even when the
@@ -90,6 +92,9 @@ func (s *SelectSubmenuComponent) buildSelectList(title string, items []SelectIte
 	list.MaxVisible = min(len(items), 10)
 	list.SetCursor(currentIdx)
 	s.items = items
+	if s.searchInput != nil {
+		s.listQuery = s.searchInput.Text()
+	}
 	if previous := s.list; previous != nil {
 		s.Replace(previous, list)
 	}
@@ -113,7 +118,13 @@ func (s *SelectSubmenuComponent) HandleInput(data string) {
 		return
 	}
 	s.searchInput.HandleInput(data)
-	items := FuzzyFilter(s.allOptions, s.searchInput.Text(), func(item SelectItem) string { return item.Label + " " + item.Description })
+	// Only a changed query rebuilds the list, so moving the caret inside the
+	// search field keeps the row the arrows selected.
+	query := s.searchInput.Text()
+	if query == s.listQuery {
+		return
+	}
+	items := FuzzyFilter(s.allOptions, query, func(item SelectItem) string { return item.Label + " " + item.Description })
 	s.buildSelectList(s.listTitle, items, "")
 }
 func (s *SelectSubmenuComponent) Done() bool      { return s.list.Done() }

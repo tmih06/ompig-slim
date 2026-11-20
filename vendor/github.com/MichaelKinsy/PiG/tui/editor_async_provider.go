@@ -79,6 +79,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 	queryLines, queryRow, queryCol := e.autocompleteView()
 	queryLines = slices.Clone(queryLines)
 	item, prefix := e.autocompleteItems[e.autocompleteCursor], e.autocompletePrefix
+	isSlashName := e.completionSubmitsCommand(prefix, item.Value)
 	e.AutocompleteCancel()
 	e.saveHistory()
 	e.lastAction = ""
@@ -104,8 +105,8 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
 				e.OnChange(e.Text())
 			}
 			if done != nil {
-				done(strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:"))
-			} else if strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:") {
+				done(isSlashName)
+			} else if isSlashName {
 				// Tab has no submit continuation: query arguments after applying the name.
 				// Skills remain prose tokens; refreshing here would reopen file completion.
 				e.refreshAutocomplete()
