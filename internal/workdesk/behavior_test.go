@@ -148,21 +148,13 @@ func TestValidationAndPrivacy(t *testing.T) {
 			t.Fatalf("accepted %v", args)
 		}
 	}
-	if err := os.Chmod(state, 0755); err != nil {
-		t.Fatal(err)
-	}
+	makeWidePath(t, state)
 	run := []string{"run", "--state", state, "--cwd", cwd, "--model", "desk-fixture/fixture", "--request-id", "private-1", "Finish"}
 	if err := workdesk.Run(context.Background(), run, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{state, filepath.Join(state, "job.json"), filepath.Join(state, "session.sqlite")} {
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm()&0077 != 0 {
-			t.Errorf("world/group readable state: %s (%v)", path, info.Mode().Perm())
-		}
+		assertPrivatePath(t, path)
 	}
 	conflicting := append([]string{}, run...)
 	conflicting[len(conflicting)-1] = "Different assignment"

@@ -39,13 +39,7 @@ func TestLoginPersistsLocalConnection(t *testing.T) {
 	if len(prompts) != 2 || prompts[0].Type() != "text" || prompts[1].Type() != "secret" {
 		t.Fatal("expected URL and masked secret prompts")
 	}
-	info, err := os.Stat(filepath.Join(a.dir, connectionFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("connection permissions %o", info.Mode().Perm())
-	}
+	assertPrivateFile(t, filepath.Join(a.dir, connectionFile))
 	saved, err := loadConnection(a.dir)
 	if err != nil || saved.URL != server.URL || saved.Secret != "sync-secret" {
 		t.Fatal("saved connection lost", err)

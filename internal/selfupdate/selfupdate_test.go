@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +15,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
-// archiveFor builds a gzipped tar in the release layout with the given members.
 func archiveFor(t *testing.T, members map[string]string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -77,7 +79,7 @@ func TestIsNewer(t *testing.T) {
 	}
 }
 
-func TestArchiveNameFor(t *testing.T) {
+func TestArtifactFor(t *testing.T) {
 	cases := []struct {
 		goos, goarch string
 		want         string
@@ -87,24 +89,30 @@ func TestArchiveNameFor(t *testing.T) {
 		{"linux", "arm64", "ompig-slim-linux-arm64.tar.gz", false},
 		{"darwin", "amd64", "ompig-slim-darwin-x64.tar.gz", false},
 		{"darwin", "arm64", "ompig-slim-darwin-arm64.tar.gz", false},
-		{"windows", "amd64", "", true},
+		{"windows", "amd64", "ompig-slim-windows-x64.zip", false},
+		{"windows", "arm64", "ompig-slim-windows-arm64.zip", false},
+		{"freebsd", "amd64", "", true},
 		{"linux", "riscv64", "", true},
 		{"linux", "386", "", true},
 	}
 	for _, testCase := range cases {
-		got, err := archiveNameFor(testCase.goos, testCase.goarch)
+		got, err := artifactFor(testCase.goos, testCase.goarch)
 		if testCase.err {
 			if err == nil {
-				t.Errorf("archiveNameFor(%s, %s) = %q, want an error", testCase.goos, testCase.goarch, got)
+				t.Errorf("artifactFor(%s, %s) = %v, want an error", testCase.goos, testCase.goarch, got)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("archiveNameFor(%s, %s): %v", testCase.goos, testCase.goarch, err)
+			t.Errorf("artifactFor(%s, %s): %v", testCase.goos, testCase.goarch, err)
 			continue
 		}
-		if got != testCase.want {
-			t.Errorf("archiveNameFor(%s, %s) = %q, want %q", testCase.goos, testCase.goarch, got, testCase.want)
+		member, format := "ompig-slim/ompig-slim", tarGzip
+		if testCase.goos == "windows" {
+			member, format = "ompig-slim/ompig-slim.exe", zipArchive
+		}
+		if want := (releaseArtifact{testCase.want, member, format}); got != want {
+			t.Errorf("artifactFor(%s, %s) = %v, want %v", testCase.goos, testCase.goarch, got, want)
 		}
 	}
 }
@@ -112,16 +120,13 @@ func TestArchiveNameFor(t *testing.T) {
 // releaseServer serves one tag's archive and checksum, plus the releases API.
 func releaseServer(t *testing.T, tag string, archive []byte, checksum string) *httptest.Server {
 	t.Helper()
-	name, err := archiveNameFor(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		t.Skip("no release archive for this platform")
-	}
+	name := nativeArtifact(t).name
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": tag})
 		case strings.HasSuffix(r.URL.Path, ".sha256"):
-			_, _ = io.WriteString(w, checksum+"  "+name+"\n")
+			_, _ = io.WriteString(w, checksum)
 		case strings.HasSuffix(r.URL.Path, name):
 			_, _ = w.Write(archive)
 		default:
@@ -133,15 +138,14 @@ func releaseServer(t *testing.T, tag string, archive []byte, checksum string) *h
 }
 
 func TestUpdateReplacesTheExecutable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the release archives cover Linux and macOS only")
-	}
-	archive := archiveFor(t, map[string]string{archiveMember: "#!/bin/sh\nif [ \"$1\" != \"--internal-stage-extension-sdks\" ]; then exit 2; fi\necho 2.0.0\n"})
+	artifact := nativeArtifact(t)
+	payload := fixturePayload(t, "#!/bin/sh\nif [ \"$1\" != \"--internal-stage-extension-sdks\" ]; then exit 2; fi\necho 2.0.0\n")
+	archive := nativeArchive(t, artifact.member, payload)
 	server := releaseServer(t, "v2.0.0", archive, digestOf(archive))
 
 	dir := t.TempDir()
-	executable := filepath.Join(dir, "ompig-slim")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\necho 1.0.0\n"), 0o755); err != nil {
+	executable := filepath.Join(dir, filepath.Base(artifact.member))
+	if err := os.WriteFile(executable, []byte("old executable"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -161,14 +165,14 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(replaced), "2.0.0") {
-		t.Fatalf("executable was not replaced: %q", replaced)
+	if !bytes.Equal(replaced, payload) {
+		t.Fatal("executable does not match the release payload")
 	}
 	info, err := os.Stat(executable)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o111 == 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("replaced executable is not executable: %v", info.Mode())
 	}
 	// The summary names both releases on one settled line.
@@ -185,16 +189,18 @@ func TestUpdateReplacesTheExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("left %d entries in the install directory, want 1", len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".ompig-slim-update-") {
+			t.Errorf("left staged executable %s in the install directory", entry.Name())
+		}
 	}
 }
 
 func TestUpdateIsANoOpWhenCurrent(t *testing.T) {
-	archive := archiveFor(t, map[string]string{archiveMember: "new"})
+	archive := nativeArchive(t, nativeArtifact(t).member, []byte("new"))
 	server := releaseServer(t, "v1.0.0", archive, digestOf(archive))
 	dir := t.TempDir()
-	executable := filepath.Join(dir, "ompig-slim")
+	executable := filepath.Join(dir, filepath.Base(nativeArtifact(t).member))
 	before := []byte("current")
 	if err := os.WriteFile(executable, before, 0o755); err != nil {
 		t.Fatal(err)
@@ -225,40 +231,68 @@ func TestUpdateIsANoOpWhenCurrent(t *testing.T) {
 }
 
 func TestUpdateRefusesABadChecksum(t *testing.T) {
-	archive := archiveFor(t, map[string]string{archiveMember: "new"})
-	server := releaseServer(t, "v2.0.0", archive, strings.Repeat("0", 64))
-	dir := t.TempDir()
-	executable := filepath.Join(dir, "ompig-slim")
-	before := []byte("current")
-	if err := os.WriteFile(executable, before, 0o755); err != nil {
+	artifact := nativeArtifact(t)
+	archive := nativeArchive(t, artifact.member, []byte("new"))
+	for _, tc := range []struct{ name, checksum, diagnostic string }{
+		{"mismatch", strings.Repeat("0", 64) + "  " + artifact.name + "\n", "checksum mismatch"},
+		{"empty", "", "not a SHA-256 digest"},
+		{"whitespace only", " \t\r\n", "not a SHA-256 digest"},
+		{"not hexadecimal", strings.Repeat("z", 64), "not a SHA-256 digest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := releaseServer(t, "v2.0.0", archive, tc.checksum)
+			exe := filepath.Join(t.TempDir(), filepath.Base(artifact.member))
+			if err := os.WriteFile(exe, []byte("current"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			code := Update(Options{
+				Version: "1.0.0", ExePath: exe,
+				DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
+				Client: server.Client(), Stderr: &stderr,
+			})
+			if code != 1 || !strings.Contains(stderr.String(), tc.diagnostic) {
+				t.Fatalf("Update = %d, stderr = %q", code, &stderr)
+			}
+			assertFileBytes(t, exe, []byte("current"))
+		})
+	}
+}
+
+func TestUpdateLeavesExecutableWhenSDKStagingFails(t *testing.T) {
+	t.Setenv("OMPIG_TEST_STAGE_FAILURE", "1")
+	artifact := nativeArtifact(t)
+	archive := nativeArchive(t, artifact.member, fixturePayload(t, "#!/bin/sh\nexit 42\n"))
+	server := releaseServer(t, "v2.0.0", archive, digestOf(archive))
+	exe := filepath.Join(t.TempDir(), filepath.Base(artifact.member))
+	if err := os.WriteFile(exe, []byte("current"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
+	var stderr bytes.Buffer
 	code := Update(Options{
-		Version: "1.0.0", ExePath: executable,
+		Version: "1.0.0", ExePath: exe,
 		DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
-		Client: server.Client(), Stdout: &stdout, Stderr: &stderr,
+		Client: server.Client(), Stderr: &stderr,
 	})
-	if code == 0 {
-		t.Fatalf("Update = 0, want a failure for a bad checksum")
+	if code != 1 || !strings.Contains(stderr.String(), "prepare replacement SDKs") || !strings.Contains(stderr.String(), "42") {
+		t.Fatalf("Update = %d, stderr = %q", code, &stderr)
 	}
-	if !strings.Contains(stderr.String(), "checksum mismatch") {
-		t.Fatalf("stderr = %q, want a checksum mismatch", stderr.String())
-	}
-	after, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(after, before) {
-		t.Fatalf("executable changed despite a bad checksum: %q", after)
+	assertFileBytes(t, exe, []byte("current"))
+}
+
+func assertFileBytes(t *testing.T, path string, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("%s does not contain expected bytes: %v", path, err)
 	}
 }
 
 func TestUpdateRefusesAnArchiveWithoutTheExecutable(t *testing.T) {
-	archive := archiveFor(t, map[string]string{"ompig-slim/README.md": "doc"})
+	archive := nativeArchive(t, "ompig-slim/README.md", []byte("doc"))
 	server := releaseServer(t, "v2.0.0", archive, digestOf(archive))
 	dir := t.TempDir()
-	executable := filepath.Join(dir, "ompig-slim")
+	executable := filepath.Join(dir, filepath.Base(nativeArtifact(t).member))
 	before := []byte("current")
 	if err := os.WriteFile(executable, before, 0o755); err != nil {
 		t.Fatal(err)
@@ -286,9 +320,57 @@ func TestUpdateRefusesAnArchiveWithoutTheExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("left %d entries in the install directory, want 1", len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".ompig-slim-update-") {
+			t.Errorf("left staged executable %s in the install directory", entry.Name())
+		}
 	}
+}
+
+func TestUpdateDeadlineCoversBetaPagination(t *testing.T) {
+	var pages atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages.Add(1)
+		time.Sleep(80 * time.Millisecond)
+		if r.URL.Query().Get("page") == "1" {
+			w.Header().Set("Link", `</releases?page=2>; rel="next"`)
+		}
+		_, _ = io.WriteString(w, `[{"tag_name":"v2.0.0-beta.1","prerelease":true}]`)
+	}))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), filepath.Base(nativeArtifact(t).member))
+	if err := os.WriteFile(executable, []byte("current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	code := updateWithTimeout(Options{Version: "2.0.0-beta.0", Channel: "beta", ExePath: executable,
+		DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
+		Client: server.Client(), Stderr: &stderr}, nil, 120*time.Millisecond)
+	if code != 1 || !strings.Contains(stderr.String(), "context deadline exceeded") {
+		t.Fatalf("Update = %d, stderr = %q", code, &stderr)
+	}
+	if pages.Load() != 2 {
+		t.Fatalf("release pagination made %d requests, want 2", pages.Load())
+	}
+}
+
+func TestUpdateRejectsOversizedChecksum(t *testing.T) {
+	artifact := nativeArtifact(t)
+	archive := nativeArchive(t, artifact.member, []byte("new"))
+	checksum := digestOf(archive) + "  " + artifact.name + "\n" + strings.Repeat("x", maxChecksumBytes)
+	server := releaseServer(t, "v2.0.0", archive, checksum)
+	executable := filepath.Join(t.TempDir(), filepath.Base(artifact.member))
+	if err := os.WriteFile(executable, []byte("current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	code := Update(Options{Version: "1.0.0", ExePath: executable,
+		DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
+		Client: server.Client(), Stderr: &stderr})
+	if code != 1 || !strings.Contains(stderr.String(), fmt.Sprintf("exceeds the %d-byte limit", maxChecksumBytes)) {
+		t.Fatalf("Update = %d, stderr = %q", code, &stderr)
+	}
+	assertFileBytes(t, executable, []byte("current"))
 }
 
 func TestUpdateReportsAnUnreachableChannel(t *testing.T) {
@@ -308,7 +390,11 @@ func TestUpdateReportsAnUnreachableChannel(t *testing.T) {
 	if !strings.Contains(stderr.String(), "release channel") {
 		t.Fatalf("stderr = %q, want a release-channel error", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "install.sh") {
+	installer := "install.sh"
+	if runtime.GOOS == "windows" {
+		installer = "install.ps1"
+	}
+	if !strings.Contains(stderr.String(), installer) {
 		t.Fatalf("stderr = %q, want the installer fallback", stderr.String())
 	}
 }
@@ -437,19 +523,25 @@ func TestReadMarker(t *testing.T) {
 
 func TestSameExecutable(t *testing.T) {
 	dir := t.TempDir()
-	installed := filepath.Join(dir, "ompig-slim")
+	installed := filepath.Join(dir, filepath.Base(nativeArtifact(t).member))
 	if err := os.WriteFile(installed, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(dir, "on-path")
-	if err := os.Symlink(installed, link); err != nil {
-		t.Fatal(err)
+	sameExecutable := func(a, b string) bool {
+		_, ok := ownedExecutable(a, b)
+		return ok
 	}
 	if !sameExecutable(installed, installed) {
-		t.Error("sameExecutable rejected the same path")
+		t.Error("ownership rejected the same path")
 	}
-	if !sameExecutable(link, installed) {
-		t.Error("sameExecutable did not follow a symlink to the installed file")
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, "on-path")
+		if err := os.Symlink(installed, link); err != nil {
+			t.Fatal(err)
+		}
+		if !sameExecutable(link, installed) {
+			t.Error("ownership did not follow a symlink to the installed file")
+		}
 	}
 	other := filepath.Join(dir, "other")
 	if err := os.WriteFile(other, []byte("binary"), 0o755); err != nil {

@@ -1,20 +1,26 @@
 GO ?= go
+export GO
+GOEXE := $(shell $(GO) env GOEXE)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
 .PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
 
 build:
-	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim .
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim$(GOEXE) .
 
 # Unmodified dependencies are restored locally; the patched PiG tree stays tracked.
 deps:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vendor.ps1
+else
 	GO="$(GO)" bash scripts/bootstrap-vendor.sh
+endif
 
 build build-broker run install check test race vet: | deps
 
 build-broker:
-	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker ./cmd/ompig-slim-broker
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker$(GOEXE) ./cmd/ompig-slim-broker
 
 # The image is the deployable artifact for the storage service. Building it is
 # separate from testing it so CI can test the exact image it publishes.
@@ -29,16 +35,23 @@ run:
 	$(GO) run -mod=vendor . $(ARGS)
 
 install:
-	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o "$(BINDIR)/ompig-slim" .
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o "$(BINDIR)/ompig-slim$(GOEXE)" .
 
 check test race vet:
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-go.ps1 -Mode $@
+else
 	GO="$(GO)" bash scripts/check-go.sh $@
+endif
 
 smoke: build
 	$(MAKE) smoke-built
 
 # CI extracts a verified release binary before calling this build-free target.
 smoke-built:
+ifeq ($(OS),Windows_NT)
+	python3 scripts/smoke-test-windows.py ./bin/ompig-slim.exe
+else
 	python3 scripts/smoke-test-account-routing.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codex-account-policy.py ./bin/ompig-slim
 	python3 scripts/smoke-test-model-discovery.py ./bin/ompig-slim
@@ -71,6 +84,7 @@ smoke-built:
 	python3 scripts/smoke-test-goal-interruption.py ./bin/ompig-slim --quota
 	python3 scripts/smoke-test-goal-blockers.py ./bin/ompig-slim
 	python3 scripts/smoke-test-goal-ui.py ./bin/ompig-slim
+endif
 
 release:
 	bash scripts/build-binaries.sh $(ARGS)
@@ -82,7 +96,11 @@ release-publish:
 # Exercise the user-facing installer against a loopback release server; needs
 # only Python 3, bash, and the usual archive/HTTP tools.
 test-install:
+ifeq ($(OS),Windows_NT)
+	python3 scripts/test-install-windows.py ./bin/ompig-slim.exe
+else
 	python3 scripts/test-install.py
+endif
 
 # Run the installable extensions' own test suites. They live in a separate Go
 # module per extension because PiG builds each one against the SDK staged for the
@@ -95,7 +113,11 @@ test-extensions: build
 # the file the installer placed, and refuse an installation it did not create.
 # Builds no Go code and reaches no network beyond loopback.
 test-self-update: build
+ifeq ($(OS),Windows_NT)
+	python3 scripts/test-install-windows.py ./bin/ompig-slim.exe
+else
 	python3 scripts/test-self-update.py ./bin/ompig-slim
+endif
 
 # Drive the deployable container: authorization, revisions, the credential lease,
 # restart durability and two real clients. Needs a Docker daemon; builds the

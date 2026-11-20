@@ -51,14 +51,7 @@ func TestSetupProvisionsWithoutATerminal(t *testing.T) {
 	if saved.URL != "https://sync.example.com" || saved.Secret != "sync-secret" {
 		t.Fatalf("saved = %+v", saved)
 	}
-	// The file carries the shared secret, so its mode is part of the contract.
-	info, err := os.Stat(filepath.Join(dir, connectionFile))
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
-		t.Fatalf("connection file mode = %o, want 600", mode)
-	}
+	assertPrivateFile(t, filepath.Join(dir, connectionFile))
 }
 
 // TestSetupReadsTheSecretFromEverySource pins the precedence the usage text

@@ -288,20 +288,11 @@ func TestNewHandlerTightensDataDirectory(t *testing.T) {
 	if err := os.Mkdir(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	// Mkdir is masked by the umask, so assert from a known wide mode.
-	if err := os.Chmod(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	makeWidePath(t, dir)
 	handler, err := NewHandler(dir, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { handler.Close() })
-	info, err := os.Stat(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm != 0700 {
-		t.Fatalf("data directory mode %o, want 700", perm)
-	}
+	assertPrivatePath(t, dir)
 }

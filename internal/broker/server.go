@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"ompig-slim/internal/privatefs"
 )
 
 const maxItemBytes = 8 << 20
@@ -48,10 +49,7 @@ func NewHandler(dir, token string) (*Store, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("broker token is required")
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(dir, 0700); err != nil {
+	if err := privatefs.EnsurePrivateDir(dir); err != nil {
 		return nil, fmt.Errorf("make data directory private: %w", err)
 	}
 	vault, err := ai.OpenLocalCredentialStore(dir)
@@ -241,6 +239,10 @@ func replaceFile(path string, data []byte) error {
 		return err
 	}
 	defer os.Remove(f.Name())
+	if err = privatefs.RestrictFile(f); err != nil {
+		f.Close()
+		return err
+	}
 	if _, err = f.Write(data); err != nil {
 		f.Close()
 		return err

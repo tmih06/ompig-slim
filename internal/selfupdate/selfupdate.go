@@ -1,10 +1,8 @@
-// Package selfupdate downloads verified release archives and atomically replaces
-// the executable for installations recorded by scripts/install.sh.
+// Package selfupdate downloads verified releases for archive installations.
 package selfupdate
 
 import (
-	"archive/tar"
-	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -32,21 +29,20 @@ const (
 	// the new binary is necessary because this process still has the old SDK.
 	StageReplacementArg = "--internal-stage-extension-sdks"
 
-	// updateTimeout bounds the whole operation. A release archive is roughly
-	// 32 MB, so this is generous while still failing a hung connection.
+	// updateTimeout bounds release lookup, downloads, and SDK staging.
 	updateTimeout = 5 * time.Minute
 
 	// maxArchiveBytes bounds both the download and the extracted executable.
 	// It matches PiG's own self-update limit so neither path accepts more.
 	maxArchiveBytes = 512 << 20
 
+	// maxChecksumBytes is independent of the much larger release archive limit.
+	maxChecksumBytes = 64 << 10
+
 	defaultDownloadBase = "https://github.com/tmih06/ompig-slim/releases"
 	defaultReleasesAPI  = "https://api.github.com/repos/tmih06/ompig-slim/releases/latest"
 
-	// markerName is the file scripts/install.sh writes under the config root,
-	// and archiveMember is the executable's path inside a release archive.
-	markerName    = "ompig-slim-install"
-	archiveMember = "ompig-slim/ompig-slim"
+	markerName = "ompig-slim-install"
 
 	// markerKind values distinguish an archive install from anything else.
 	markerKind = "archive"
@@ -57,11 +53,10 @@ type Options struct {
 	// Version is the running release, such as "0.1.0"; a leading "v" is
 	// ignored. It is compared against the release tag.
 	Version string
-	// ExePath is the file to replace. It must be the running executable in
-	// production: Update replaces it by renaming over it.
+	// ExePath is the file to replace, normally the running executable.
 	ExePath string
 	// DownloadBase is the release root that serves
-	// download/<tag>/ompig-slim-<platform>.tar.gz, mirroring GitHub's layout.
+	// download/<tag>/<archive>, mirroring GitHub's layout.
 	DownloadBase string
 	// ReleasesAPI returns the latest stable release document. Beta selection
 	// lists releases at the same URL with its trailing /latest removed.
@@ -80,12 +75,44 @@ type Options struct {
 	Force bool
 }
 
-// Update downloads the latest verified release and atomically replaces
-// Options.ExePath with it. It returns a process exit status: 0 when the
-// executable is current or was replaced, 1 when anything failed before the
-// rename, which leaves the previous executable untouched. Invalid channels
-// return 2 without making a request.
+// Update downloads the latest verified release and replaces Options.ExePath.
+// It returns 0 when current or replaced, 1 on failure, or 2 for an invalid channel.
 func Update(o Options) int {
+	return update(o, nil)
+}
+
+func update(o Options, savePreference func() error) int {
+	return updateWithTimeout(o, savePreference, updateTimeout)
+}
+
+func updateWithTimeout(o Options, savePreference func() error, timeout time.Duration) int {
+	if o.Stdout == nil {
+		o.Stdout = io.Discard
+	}
+	if o.Stderr == nil {
+		o.Stderr = io.Discard
+	}
+	if strings.TrimSpace(o.ExePath) == "" {
+		fmt.Fprintln(o.Stderr, "Update failed: the running executable could not be located")
+		return 1
+	}
+	if o.Channel != "" && o.Channel != "stable" && o.Channel != "beta" {
+		fmt.Fprintln(o.Stderr, "Update failed: --channel must be stable or beta")
+		return 2
+	}
+	unlock, err := lockUpdate(o.ExePath)
+	if err != nil {
+		fmt.Fprintf(o.Stderr, "Update failed: %v\n", err)
+		return 1
+	}
+	defer unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return updateLocked(ctx, o, savePreference)
+}
+
+func updateLocked(ctx context.Context, o Options, savePreference func() error) int {
 	if o.Stdout == nil {
 		o.Stdout = io.Discard
 	}
@@ -99,19 +126,28 @@ func Update(o Options) int {
 		fmt.Fprintln(o.Stderr, "Update failed: the running executable could not be located")
 		return 1
 	}
-
 	if o.Channel != "" && o.Channel != "stable" && o.Channel != "beta" {
 		fmt.Fprintln(o.Stderr, "Update failed: --channel must be stable or beta")
 		return 2
 	}
-	archiveName, err := archiveNameFor(runtime.GOOS, runtime.GOARCH)
+	artifact, err := artifactFor(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: %v\n", err)
 		return 1
 	}
+
+	finish := func() int {
+		if savePreference != nil {
+			if err := savePreference(); err != nil {
+				fmt.Fprintf(o.Stderr, "Update succeeded, but could not save the channel: %v\n", err)
+				return 1
+			}
+		}
+		return 0
+	}
 	current := strings.TrimPrefix(strings.TrimSpace(o.Version), "v")
 
-	tag, err := o.latestTag()
+	tag, err := o.latestTag(ctx)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: could not reach the release channel: %v\n%s\n", err, fallback())
 		return 1
@@ -121,42 +157,43 @@ func Update(o Options) int {
 	switching := (o.Channel == "beta") != isBetaVersion(current)
 	if !o.Force && !switching && !isNewer(latest, current) {
 		fmt.Fprintf(o.Stdout, "ompig-slim %s is up to date.\n", current)
-		return 0
+		return finish()
 	}
 
-	archiveURL := strings.TrimRight(o.DownloadBase, "/") + "/download/" + tag + "/" + archiveName
+	archiveURL := strings.TrimRight(o.DownloadBase, "/") + "/download/" + tag + "/" + artifact.name
 	printBanner(o.Stdout)
 	fmt.Fprintf(o.Stdout, "Updating ompig-slim %s → %s\n\n", current, latest)
-	archive, err := o.download(archiveURL, o.Stderr)
+	archive, err := o.download(ctx, archiveURL, o.Stderr)
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: %v\n%s\n", err, fallback())
 		return 1
 	}
 	defer func() { _ = os.Remove(archive) }()
 
-	if err := o.replace(archive); err != nil {
+	if err := o.replace(ctx, archive, artifact); err != nil {
 		fmt.Fprintf(o.Stderr, "Update failed: %v\n%s\n", err, fallback())
 		return 1
 	}
 
 	fmt.Fprintf(o.Stdout, "\n✓ Updated ompig-slim %s → %s\n", current, latest)
-	// The replacement staged its own SDK before the atomic rename, so startup
-	// can reuse source-extension caches instead of rebuilding after every update.
 	fmt.Fprintln(o.Stdout, "Extension SDKs prepared; startup can reuse source-extension caches.")
-	return 0
+	return finish()
 }
 
 func fallback() string {
-	return "Reinstall with the installer instead: curl -fsSL " +
-		"https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.sh | bash"
+	const root = "https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/"
+	if runtime.GOOS == "windows" {
+		return "Reinstall with the PowerShell installer: " + root + "install.ps1"
+	}
+	return "Reinstall with the installer instead: curl -fsSL " + root + "install.sh | bash"
 }
 
 // latestTag returns the newest published release in the requested channel.
-func (o Options) latestTag() (string, error) {
+func (o Options) latestTag(ctx context.Context) (string, error) {
 	if o.Channel == "beta" {
-		return o.latestBetaTag()
+		return o.latestBetaTag(ctx)
 	}
-	req, err := http.NewRequest(http.MethodGet, o.ReleasesAPI, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.ReleasesAPI, nil)
 	if err != nil {
 		return "", err
 	}
@@ -199,7 +236,7 @@ func isBetaVersion(tag string) bool {
 // latestBetaTag scans all release pages, ignoring drafts and other prerelease
 // lines. Numeric semver ordering handles beta.10 versus beta.9, independently
 // of publication order. Pagination stays on the configured host, not Link URLs.
-func (o Options) latestBetaTag() (string, error) {
+func (o Options) latestBetaTag(ctx context.Context) (string, error) {
 	endpoint, err := url.Parse(o.ReleasesAPI)
 	if err != nil {
 		return "", err
@@ -211,7 +248,7 @@ func (o Options) latestBetaTag() (string, error) {
 		query.Set("per_page", "100")
 		query.Set("page", fmt.Sprint(page))
 		endpoint.RawQuery = query.Encode()
-		req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 		if err != nil {
 			return "", err
 		}
@@ -261,15 +298,15 @@ func (o Options) latestBetaTag() (string, error) {
 // The checksum comes from the same release as the archive, exactly as in
 // scripts/install.sh: it detects a corrupt, truncated, or swapped download. It
 // is not a signature and does not defend against a compromised release.
-func (o Options) download(archiveURL string, progressOut io.Writer) (string, error) {
+func (o Options) download(ctx context.Context, archiveURL string, progressOut io.Writer) (string, error) {
 	meter := newProgress(progressOut, "download")
-	archive, err := o.fetch(archiveURL, meter.set)
+	archive, err := o.fetch(ctx, archiveURL, meter.set, maxArchiveBytes)
 	if err != nil {
 		return "", err
 	}
 	meter.finish("archive downloaded")
 	// The checksum is small, so fetch it without progress reporting.
-	checksumFile, err := o.fetch(archiveURL+".sha256", nil)
+	checksumFile, err := o.fetch(ctx, archiveURL+".sha256", nil, maxChecksumBytes)
 	if err != nil {
 		_ = os.Remove(archive)
 		return "", err
@@ -280,11 +317,12 @@ func (o Options) download(archiveURL string, progressOut io.Writer) (string, err
 		_ = os.Remove(archive)
 		return "", fmt.Errorf("read checksum for %s: %w", archiveURL, err)
 	}
-	expected := strings.TrimSpace(strings.Fields(string(raw))[0])
-	if len(expected) != sha256.Size*2 {
+	fields := strings.Fields(string(raw))
+	if len(fields) == 0 || len(fields[0]) != sha256.Size*2 {
 		_ = os.Remove(archive)
 		return "", fmt.Errorf("published checksum for %s is not a SHA-256 digest", filepath.Base(archiveURL))
 	}
+	expected := fields[0]
 	if _, err := hex.DecodeString(expected); err != nil {
 		_ = os.Remove(archive)
 		return "", fmt.Errorf("published checksum for %s is not a SHA-256 digest", filepath.Base(archiveURL))
@@ -306,8 +344,12 @@ func (o Options) download(archiveURL string, progressOut io.Writer) (string, err
 // report, when non-nil, receives the running byte count and the response's
 // Content-Length (0 when the server does not send one) after every chunk, so a
 // caller can render progress. It must be cheap and must not block.
-func (o Options) fetch(url string, report func(done, total int64)) (string, error) {
-	resp, err := o.Client.Get(url)
+func (o Options) fetch(ctx context.Context, url string, report func(done, total int64), maxBytes int64) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := o.Client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -330,117 +372,29 @@ func (o Options) fetch(url string, report func(done, total int64)) (string, erro
 	if report != nil {
 		body = &countingReader{inner: resp.Body, total: total, report: report}
 	}
-	written, copyErr := io.Copy(file, io.LimitReader(body, maxArchiveBytes+1))
+	written, copyErr := io.Copy(file, io.LimitReader(body, maxBytes+1))
 	closeErr := file.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = os.Remove(name)
 		return "", errors.Join(copyErr, closeErr)
 	}
-	if written > maxArchiveBytes {
+	if written > maxBytes {
 		_ = os.Remove(name)
-		return "", fmt.Errorf("%s exceeds the %d-byte limit", url, int64(maxArchiveBytes))
+		return "", fmt.Errorf("%s exceeds the %d-byte limit", url, maxBytes)
 	}
 	return name, nil
 }
 
-// replace extracts the executable from the archive into a temporary file beside
-// Options.ExePath and renames it into place.
-//
-// Staging beside the destination keeps the rename atomic on one filesystem, so
-// a running instance keeps its old inode and a failed copy never truncates the
-// installed binary.
-func (o Options) replace(archive string) error {
-	dir := filepath.Dir(o.ExePath)
-	staged, err := extractExecutable(archive, dir)
+func (o Options) replace(ctx context.Context, archive string, artifact releaseArtifact) error {
+	staged, err := extractExecutable(archive, filepath.Dir(o.ExePath), artifact)
 	if err != nil {
 		return err
 	}
-	// The running process still embeds the old SDK. Let the replacement stage
-	// its own SDK before the atomic rename, so startup does not repeatedly pay
-	// the SDK invalidation and source-extension rebuild cost after an update.
-	command := exec.Command(staged, StageReplacementArg)
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
-	if err := command.Run(); err != nil {
-		_ = os.Remove(staged)
+	defer func() { _ = os.Remove(staged) }()
+	if err := exec.CommandContext(ctx, staged, StageReplacementArg).Run(); err != nil {
 		return fmt.Errorf("prepare replacement SDKs: %w", err)
 	}
-	// From here the staged file is either renamed or removed; never leave it
-	// behind, because it sits in a directory the user has on PATH.
-	renameErr := os.Rename(staged, o.ExePath)
-	if renameErr != nil {
-		_ = os.Remove(staged)
-	}
-	return renameErr
-}
-
-func extractExecutable(archive, dir string) (string, error) {
-	file, err := os.Open(archive)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = file.Close() }()
-	uncompressed, err := gzip.NewReader(file)
-	if err != nil {
-		return "", fmt.Errorf("read release archive: %w", err)
-	}
-	defer func() { _ = uncompressed.Close() }()
-
-	reader := tar.NewReader(uncompressed)
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", fmt.Errorf("read release archive: %w", err)
-		}
-		if path.Clean(header.Name) != archiveMember {
-			continue
-		}
-		// Only a regular file is acceptable: a directory or an entry that links
-		// elsewhere would put something other than the released program on PATH.
-		if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxArchiveBytes {
-			return "", fmt.Errorf("%s in the release archive is not a regular file", archiveMember)
-		}
-		staged, err := os.CreateTemp(dir, ".ompig-slim-update-*")
-		if err != nil {
-			return "", fmt.Errorf("stage update (is %s writable?): %w", dir, err)
-		}
-		name := staged.Name()
-		written, copyErr := io.Copy(staged, io.LimitReader(reader, header.Size))
-		closeErr := staged.Close()
-		if copyErr != nil || closeErr != nil || written != header.Size {
-			_ = os.Remove(name)
-			return "", errors.Join(copyErr, closeErr, fmt.Errorf("copy %s: wrote %d of %d bytes", archiveMember, written, header.Size))
-		}
-		if err := os.Chmod(name, 0o755); err != nil {
-			_ = os.Remove(name)
-			return "", err
-		}
-		return name, nil
-	}
-	return "", fmt.Errorf("release archive does not contain %s", archiveMember)
-}
-
-// archiveNameFor maps a Go platform to the release archive that serves it. The
-// four names here are exactly the ones scripts/build-binaries.sh publishes.
-func archiveNameFor(goos, goarch string) (string, error) {
-	var arch string
-	switch goarch {
-	case "amd64":
-		arch = "x64"
-	case "arm64":
-		arch = "arm64"
-	default:
-		return "", fmt.Errorf("no release archive for CPU %s (supported: x86_64, arm64)", goarch)
-	}
-	switch goos {
-	case "linux", "darwin":
-	default:
-		return "", fmt.Errorf("no release archive for %s (supported: Linux, macOS)", goos)
-	}
-	return "ompig-slim-" + goos + "-" + arch + ".tar.gz", nil
+	return commitReplacement(staged, o.ExePath)
 }
 
 // isNewer reports whether candidate is a later release than current.
@@ -575,8 +529,6 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 
 	marker, err := readMarker()
 	if err != nil {
-		// Not an archive install, so this package must not replace the binary.
-		// PiG names the install method and the correct way to update it.
 		return canonicalUpdate(args), false, 0
 	}
 	executable, err := os.Executable()
@@ -584,24 +536,52 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 		fmt.Fprintf(stderr, "Update failed: cannot locate the running executable: %v\n", err)
 		return nil, true, 1
 	}
-	// The marker names the one installed file it describes. A different build
-	// running beside that installation (a repository build, or a binary copied
-	// elsewhere) is not this package's to replace, so PiG keeps the decision.
-	if !sameExecutable(marker.ExecutablePath, executable) {
+	// A build running beside the marked installation is not allowed to replace it.
+	target, ok := ownedExecutable(marker.ExecutablePath, executable)
+	if !ok {
 		return canonicalUpdate(args), false, 0
 	}
-	if resolved.channel == "" {
-		resolved.channel = marker.Channel
-	}
 	if resolved.all {
-		// `update --all` is packages then this binary, matching PiG's order. The
-		// child runs the same executable with the package-only form, which this
-		// function delegates, so the recursion stops after one level.
 		if childCode := runPackageUpdate(executable, stdout, stderr); childCode != 0 {
 			return nil, true, childCode
 		}
 	}
 
+	unlock, err := lockUpdate(target)
+	if err != nil {
+		fmt.Fprintf(stderr, "Update failed: %v\n", err)
+		return nil, true, 1
+	}
+	defer unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
+	defer cancel()
+	marker, err = readMarker()
+	if err != nil {
+		fmt.Fprintf(stderr, "Update failed: could not re-read the install marker: %v\n", err)
+		return nil, true, 1
+	}
+	currentTarget, ok := ownedExecutable(marker.ExecutablePath, executable)
+	if !ok || !sameUpdatePath(target, currentTarget) {
+		fmt.Fprintln(stderr, "Update failed: the installed executable changed; restart and retry")
+		return nil, true, 1
+	}
+	liveVersion, err := readInstalledVersion(ctx, currentTarget)
+	if err != nil {
+		fmt.Fprintf(stderr, "Update failed: cannot verify the installed executable: %v\n", err)
+		return nil, true, 1
+	}
+	currentVersion := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	liveVersion = strings.TrimPrefix(strings.TrimSpace(liveVersion), "v")
+	if currentVersion != liveVersion {
+		fmt.Fprintf(stderr, "Update failed: this process runs ompig-slim %s, but %s is installed; restart and retry\n", currentVersion, liveVersion)
+		return nil, true, 1
+	}
+
+	channel := resolved.channel
+	if channel == "" {
+		channel = marker.Channel
+	}
 	downloadBase := strings.TrimSpace(os.Getenv("OMPIG_SLIM_DOWNLOAD_BASE"))
 	if downloadBase == "" {
 		downloadBase = marker.DownloadBase
@@ -613,23 +593,50 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 	if releasesAPI == "" {
 		releasesAPI = defaultReleasesAPI
 	}
-	code = Update(Options{
-		Version:      version,
-		ExePath:      executable,
+	var savePreference func() error
+	if resolved.channel != "" && resolved.channel != marker.Channel {
+		requestedChannel := resolved.channel
+		savePreference = func() error { return saveChannel(requestedChannel) }
+	}
+	return nil, true, updateLocked(ctx, Options{
+		Version:      liveVersion,
+		ExePath:      currentTarget,
 		DownloadBase: downloadBase,
 		ReleasesAPI:  releasesAPI,
 		Stdout:       stdout,
 		Stderr:       stderr,
 		Force:        resolved.force,
-		Channel:      resolved.channel,
-	})
-	if code == 0 && resolved.channel != marker.Channel {
-		if err := saveChannel(resolved.channel); err != nil {
-			fmt.Fprintf(stderr, "Update succeeded, but could not save the channel: %v\n", err)
-			return nil, true, 1
+		Channel:      channel,
+	}, savePreference)
+}
+
+func readInstalledVersion(ctx context.Context, executable string) (string, error) {
+	command := exec.CommandContext(ctx, executable, "--version")
+	environment := os.Environ()
+	command.Env = make([]string, 0, len(environment))
+	for _, entry := range environment {
+		key, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(key, "PIG_VERSION_FORMAT") {
+			command.Env = append(command.Env, entry)
 		}
 	}
-	return nil, true, code
+	output, err := command.Output()
+	if err != nil {
+		return "", err
+	}
+	version := strings.TrimSpace(string(output))
+	if version == "" {
+		return "", errors.New("installed executable returned an empty version")
+	}
+	return version, nil
+}
+
+func sameUpdatePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // canonicalUpdate returns args with the `upgrade` alias rewritten to `update`.
@@ -743,27 +750,4 @@ func saveChannel(channel string) error {
 		return err
 	}
 	return os.Rename(staged.Name(), name)
-}
-
-// sameExecutable reports whether two spellings name the same installed file.
-// Both are reduced through symlinks first, so a symlink on PATH that points at
-// the installed executable still matches the marker. When a path cannot be
-// resolved it is compared as written, which is the conservative answer: an
-// unresolvable running executable was already rejected by the caller.
-func sameExecutable(marked, running string) bool {
-	if marked == "" || running == "" {
-		return false
-	}
-	if resolved, err := filepath.EvalSymlinks(marked); err == nil {
-		marked = resolved
-	}
-	if resolved, err := filepath.EvalSymlinks(running); err == nil {
-		running = resolved
-	}
-	markedAbs, markedErr := filepath.Abs(marked)
-	runningAbs, runningErr := filepath.Abs(running)
-	if markedErr != nil || runningErr != nil {
-		return marked == running
-	}
-	return markedAbs == runningAbs
 }

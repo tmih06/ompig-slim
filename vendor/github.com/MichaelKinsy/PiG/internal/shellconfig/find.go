@@ -14,10 +14,10 @@ import (
 // findTimeout is the time `which` or `where` gets, upstream's spawnSync timeout.
 const findTimeout = 5 * time.Second
 
-// FindExecutableOnPath asks the platform lookup command for the first match of executable: `where` on Windows, where
-// the match must also pass the access check ([nodefs.Access]) because `where` can report a path that does not exist, and
-// `which` elsewhere, whose output is trusted so Termux and special file systems work. It returns "" when the command
-// fails, times out, or finds nothing.
+// FindExecutableOnPath uses where on Windows and which elsewhere. Windows Bash
+// lookup selects the first existing native shell, excluding the WSL launcher.
+// Other Windows lookups require the first result to exist. Unix output is trusted
+// for Termux and special file systems. Failed or empty lookups return "".
 //
 // Ports packages/coding-agent/src/utils/shell.ts (findExecutableOnPath).
 func FindExecutableOnPath(executable string) string {
@@ -37,7 +37,21 @@ func FindExecutableOnPath(executable string) string {
 	if err != nil || len(output) == 0 {
 		return ""
 	}
+	if windows && strings.EqualFold(executable, "bash.exe") {
+		return FirstNativeBashMatch(string(output), nodefs.Access)
+	}
 	return FirstMatch(string(output), windows, nodefs.Access)
+}
+
+// FirstNativeBashMatch excludes the WSL launcher from automatic shell selection.
+func FirstNativeBashMatch(output string, exists func(string) bool) string {
+	for _, candidate := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" && !IsLegacyWSLBashPath(candidate) && exists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // FirstMatch is the first line of the lookup command's output. On Windows the path must also exist according to exists,

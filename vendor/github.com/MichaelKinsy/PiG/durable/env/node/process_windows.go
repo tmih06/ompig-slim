@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/MichaelKinsy/PiG/internal/nodespawn"
+	"github.com/MichaelKinsy/PiG/internal/shellconfig"
 )
 
 const isWindows = true
@@ -51,13 +52,7 @@ func taskkillCommand(pid int) *exec.Cmd {
 }
 
 func platformShellConfig(ctx context.Context) (shellConfig, error) {
-	var candidates []string
-	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
-		candidates = append(candidates, programFiles+`\Git\bin\bash.exe`)
-	}
-	if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
-		candidates = append(candidates, programFilesX86+`\Git\bin\bash.exe`)
-	}
+	candidates := shellconfig.GitBashCandidates()
 	for _, candidate := range candidates {
 		if pathExists(candidate) {
 			return getBashShellConfig(candidate), nil
@@ -70,7 +65,7 @@ func platformShellConfig(ctx context.Context) (shellConfig, error) {
 	for index, candidate := range candidates {
 		searched[index] = "  " + candidate
 	}
-	return shellConfig{}, durableenv.NewExecutionError(durableenv.ExecutionErrorShellUnavailable, "No bash shell found. Options:\n"+"  1. Install Git for Windows: https://git-scm.com/download/win\n"+"  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n"+"  3. Configure an explicit shellPath\n\n"+"Searched Git Bash in:\n"+strings.Join(searched, "\n"), nil)
+	return shellConfig{}, durableenv.NewExecutionError(durableenv.ExecutionErrorShellUnavailable, "No bash shell found. Options:\n"+"  1. Install Git for Windows: https://git-scm.com/download/win\n"+"  2. Add native bash to PATH (Cygwin or MSYS2, not WSL)\n"+"  3. Configure an explicit shellPath\n\n"+"Searched Git Bash in:\n"+strings.Join(searched, "\n"), nil)
 }
 
 func signalExitCode(syscall.WaitStatus) (int, bool) { return 0, false }

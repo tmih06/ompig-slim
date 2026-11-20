@@ -6,7 +6,7 @@
   <a href="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tmih06/ompig-slim/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/tmih06/ompig-slim/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.2.2-blue?style=flat-square"></a>
   <a href="go.mod"><img alt="Go 1.27" src="https://img.shields.io/github/go-mod/go-version/tmih06/ompig-slim?style=flat-square&logo=go&logoColor=white"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS-2ea44f?style=flat-square">
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20Windows-2ea44f?style=flat-square">
   <a href="https://github.com/MichaelKinsy/PiG"><img alt="PiG pin" src="https://img.shields.io/badge/PiG-v0.7.0-8A2BE2?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/tmih06/ompig-slim?style=flat-square"></a>
   <a href="CONTRIBUTING.md"><img alt="Contributions" src="https://img.shields.io/badge/PRs-discuss%20first-orange?style=flat-square"></a>
@@ -44,7 +44,19 @@ curl -fsSL https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/inst
 ```
 
 Installs to `~/.local/bin/ompig-slim` (Linux and macOS, x64 or arm64), verifies the published SHA-256, and
-needs no Go or `sudo`. Pass `--version v0.2.2` to pin a release or `--dir` to install elsewhere. Then:
+needs no Go or `sudo`. Pass `--version v0.2.2` to pin a release or `--dir` to install elsewhere.
+
+On native Windows x64 or ARM64, use PowerShell without WSL:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/tmih06/ompig-slim/main/scripts/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Windows installs to `%LOCALAPPDATA%\ompig-slim\bin`. Open a new terminal to use the
+updated PATH. Install Git for Windows to use Bash tools. Windows assets require a release built from this change, not an older tag.
+See [native Windows setup and verification](docs/windows.md) for prerequisites,
+PowerShell source builds, and platform limits. Then:
 
 ```sh
 ompig-slim update                   # update using the saved channel (initially stable)
@@ -55,7 +67,7 @@ ompig-slim update --models          # refresh model catalogs
 ```
 
 Each successful CI run after a merge to `main` publishes a numbered beta with prebuilt binaries
-for the same four platforms. `upgrade` also accepts `--channel stable|beta`. Switching channels
+for Linux, macOS, and Windows on x64 and ARM64. `upgrade` also accepts `--channel stable|beta`. Switching channels
 can install an older version; failed updates leave your saved channel unchanged.
 
 From source with Go 1.27+: `make build && ./bin/ompig-slim`, or `make install`.

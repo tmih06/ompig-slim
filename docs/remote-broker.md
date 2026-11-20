@@ -19,9 +19,10 @@ Default bind: `127.0.0.1:8765`. Use an HTTPS reverse proxy, private encrypted
 network or SSH tunnel for remote access. TLS is operator-owned. One server process
 owns the data directory; a filesystem lock refuses a second owner.
 
-The directory is mode 0700 and contains `agent.db` (0600), SQLite WAL/SHM files,
-portable preference files, `themes/` once a theme has been written, and
-`server.lock`. Keep the volume across upgrades.
+On Unix, the directory is mode 0700 and `agent.db` is mode 0600. On Windows,
+the directory and stored files are restricted to the current user with DACLs.
+The directory also contains SQLite WAL/SHM files, portable preference files,
+`themes/` once a theme has been written, and `server.lock`. Keep the volume across upgrades.
 Use SQLite-aware backups or stop the service before copying the database.
 
 ### Back up or switch to standalone mode

@@ -74,7 +74,6 @@ func getShellConfig(ctx context.Context, customShellPath string) (shellConfig, e
 	return platformShellConfig(ctx)
 }
 
-// findBashOnPath asks `which bash` (or `where bash.exe`) for the first match.
 func findBashOnPath(ctx context.Context) string {
 	name, args := "which", []string{"bash"}
 	if isWindows {
@@ -90,6 +89,9 @@ func findBashOnPath(ctx context.Context) string {
 	output, err := command.Output()
 	if err != nil {
 		return ""
+	}
+	if isWindows {
+		return shellconfig.FirstNativeBashMatch(string(output), pathExists)
 	}
 	return bashFromWhichOutput(string(output))
 }

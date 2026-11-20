@@ -163,9 +163,16 @@ func TestRunResumeAndStatus(t *testing.T) {
 	eventsPath := filepath.Join(state, "events.jsonl")
 	args := []string{"run", "--state", state, "--cwd", cwd, "--model", "desk-fixture/fixture", "--request-id", "ticket-1", "--events-file", eventsPath, "Fix the fixture"}
 	for _, command := range [][]string{args, {"resume", "--state", state}, {"status", "--state", state}, args} {
+		if command[0] == "status" {
+			makeWidePath(t, state)
+			assertWidePath(t, state)
+		}
 		var out bytes.Buffer
 		if err := workdesk.Run(context.Background(), command, &out); err != nil {
 			t.Fatal(err)
+		}
+		if command[0] == "status" {
+			assertWidePath(t, state)
 		}
 		var result struct {
 			Status string `json:"status"`
@@ -180,6 +187,9 @@ func TestRunResumeAndStatus(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("duplicate execution: %d requests", calls.Load())
+	}
+	for _, path := range []string{state, filepath.Join(state, "job.json"), filepath.Join(state, "session.sqlite")} {
+		assertPrivatePath(t, path)
 	}
 	events, err := os.ReadFile(eventsPath)
 	if err != nil {

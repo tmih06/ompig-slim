@@ -17,12 +17,19 @@ import (
 // else ~/.pi. It reports an error only when the home directory cannot be
 // resolved, which is the one case where no useful fallback exists.
 func Dir() (string, error) {
-	if root := strings.TrimSpace(os.Getenv("PIG_HOME")); root != "" {
+	root := os.Getenv("PIG_HOME")
+	if root != "~" && !strings.HasPrefix(root, "~/") && root != "" {
 		return root, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
+	}
+	if root == "~" {
+		return home, nil
+	}
+	if root != "" {
+		return filepath.Join(home, strings.TrimPrefix(root, "~/")), nil
 	}
 	return filepath.Join(home, ".pi"), nil
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"ompig-slim/internal/broker"
+	"ompig-slim/internal/privatefs"
 )
 
 // main reports startup/storage failures without printing any credentials. A
@@ -50,7 +51,7 @@ func run() error {
 	if strings.TrimSpace(token) == "" {
 		return fmt.Errorf("OMPIG_BROKER_TOKEN is required: set it to a long random secret and keep it out of committed files")
 	}
-	if err := os.MkdirAll(*dir, 0700); err != nil {
+	if err := privatefs.EnsurePrivateDir(*dir); err != nil {
 		return err
 	}
 	lock := flock.New(filepath.Join(*dir, "server.lock"))

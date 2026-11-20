@@ -24,8 +24,9 @@ func TestUpdateChannels(t *testing.T) {
 		{"beta increments numerically", "beta", "2.0.0-beta.9", "2.0.0-beta.10"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			payload := "#!/bin/sh\necho " + tc.target + "\n"
-			archive := archiveFor(t, map[string]string{archiveMember: payload})
+			artifact := nativeArtifact(t)
+			payload := fixturePayload(t, "#!/bin/sh\necho "+tc.target+"\n")
+			archive := nativeArchive(t, artifact.member, payload)
 			requestedTag := make(chan string, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
@@ -42,14 +43,14 @@ func TestUpdateChannels(t *testing.T) {
 						{"tag_name":"v9.0.0-rc.1","prerelease":true},
 						{"tag_name":"v9.0.0"}]`)
 				case strings.HasSuffix(r.URL.Path, ".sha256"):
-					fmt.Fprintln(w, digestOf(archive)+"  archive.tar.gz")
+					fmt.Fprintln(w, digestOf(archive)+"  "+artifact.name)
 				default:
 					requestedTag <- strings.Split(r.URL.Path, "/")[3]
 					_, _ = w.Write(archive)
 				}
 			}))
 			defer server.Close()
-			exe := filepath.Join(t.TempDir(), "ompig-slim")
+			exe := filepath.Join(t.TempDir(), filepath.Base(nativeArtifact(t).member))
 			if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -66,8 +67,8 @@ func TestUpdateChannels(t *testing.T) {
 			case tag = <-requestedTag:
 			default:
 			}
-			if err != nil || string(got) != payload || tag != "v"+tc.target {
-				t.Fatalf("replacement = %q, tag = %q, error = %v", got, tag, err)
+			if err != nil || !bytes.Equal(got, payload) || tag != "v"+tc.target {
+				t.Fatalf("replacement matches: %t, tag = %q, error = %v", bytes.Equal(got, payload), tag, err)
 			}
 		})
 	}
@@ -92,7 +93,7 @@ func TestChannelRefusalsLeaveBinaryUntouched(t *testing.T) {
 				_, _ = fmt.Fprint(w, tc.body)
 			}))
 			defer server.Close()
-			exe := filepath.Join(t.TempDir(), "ompig-slim")
+			exe := filepath.Join(t.TempDir(), filepath.Base(nativeArtifact(t).member))
 			if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
 				t.Fatal(err)
 			}

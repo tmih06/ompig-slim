@@ -25,6 +25,7 @@ import (
 	sqlitenode "github.com/MichaelKinsy/PiG/durable/storage/sqlite/node"
 	"github.com/MichaelKinsy/PiG/durable/tools"
 	"github.com/gofrs/flock"
+	"ompig-slim/internal/privatefs"
 )
 
 // assignment is the fsynced admission intent. Replaying its request ID bridges a
@@ -130,9 +131,6 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 		if err != nil {
 			return err
 		}
-		if err = os.MkdirAll(statePath, 0700); err != nil {
-			return err
-		}
 	} else if flags.NArg() != 0 {
 		return errors.New("resume/status accept no prompt")
 	}
@@ -147,7 +145,12 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 		}
 		return json.NewEncoder(out).Encode(result)
 	}
-	if err = os.Chmod(statePath, 0700); err != nil {
+	if command == "resume" {
+		if _, err = os.Stat(statePath); err != nil {
+			return err
+		}
+	}
+	if err = privatefs.EnsurePrivateDir(statePath); err != nil {
 		return err
 	}
 	lock := flock.New(filepath.Join(statePath, "owner.lock"))
@@ -352,8 +355,8 @@ func loadAssignment(state string) (assignment, error) {
 	return job, nil
 }
 
-// saveAssignment publishes admission intent atomically and flushes both file and
-// directory before any input can execute. A crash may leave an unused temp file.
+// saveAssignment publishes admission intent atomically and syncs its file plus
+// the directory entry where supported. A crash may leave an unused temp file.
 func saveAssignment(state string, job assignment) error {
 	raw, err := json.Marshal(job)
 	if err != nil {
@@ -377,12 +380,7 @@ func saveAssignment(state string, job assignment) error {
 	if err = os.Rename(file.Name(), filepath.Join(state, "job.json")); err != nil {
 		return err
 	}
-	dir, err := os.Open(state)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return privatefs.SyncDir(state)
 }
 
 // status reads committed records without opening a scheduler or using model

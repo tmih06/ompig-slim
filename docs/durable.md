@@ -93,9 +93,11 @@ that restarts itself.
   lifetime, including shutdown. Another writer fails immediately. The file may
   remain after a crash; the kernel lock, not file existence, determines ownership.
   Never delete/recreate the lock file to bypass an owner.
-- State directories are private (`0700`); assignment and database files are
-  private (`0600`). SQLite WAL uses `synchronous=FULL` for task persistence;
-  durability still depends on the filesystem and storage honoring flushes.
+- State directories are private (`0700` on Unix, a protected current-user DACL
+  on Windows). Assignment and database files use `0600` on Unix and inherit the
+  private directory ACL on Windows. Assignment files are flushed before rename;
+  only Unix also flushes the directory. SQLite WAL uses `synchronous=FULL` for
+  task persistence. Durability depends on the filesystem and storage honoring flushes.
   Deferred streaming progress is not an acknowledged task checkpoint.
 - Host assignment format version 1 is checked before resume. PiG also checks and
   migrates its storage schema. Pin images and back up before upgrades: an older

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the personal harness for the fork's four supported native platforms.
+# Build the personal harness for the fork's six supported native platforms.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,17 +13,17 @@ while (($#)); do
             shift 2
             ;;
         --help|-h)
-            printf 'Usage: bash scripts/build-binaries.sh [--platform linux-x64|linux-arm64|darwin-x64|darwin-arm64] [--out directory]\n'
+            printf 'Usage: bash scripts/build-binaries.sh [--platform linux-x64|linux-arm64|darwin-x64|darwin-arm64|windows-x64|windows-arm64] [--out directory]\n'
             exit 0
             ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
 
-platforms=(linux-x64 linux-arm64 darwin-x64 darwin-arm64)
+platforms=(linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64 windows-arm64)
 if [[ -n "$platform" ]]; then
     case "$platform" in
-        linux-x64|linux-arm64|darwin-x64|darwin-arm64) platforms=("$platform") ;;
+        linux-x64|linux-arm64|darwin-x64|darwin-arm64|windows-x64|windows-arm64) platforms=("$platform") ;;
         *) printf 'Unsupported platform: %s\n' "$platform" >&2; exit 2 ;;
     esac
 fi
@@ -49,9 +49,15 @@ for platform in "${platforms[@]}"; do
     arch="${platform##*-}"
     if [[ "$arch" == x64 ]]; then arch=amd64; fi
     package="$stage/$platform/ompig-slim"
+    binary=ompig-slim
+    archive_extension=tar.gz
+    if [[ "$os" == windows ]]; then
+        binary+=.exe
+        archive_extension=zip
+    fi
     mkdir -p "$package"
     printf 'Building %s\n' "$platform"
-    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags="$ldflags" -o "$package/ompig-slim" .
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags="$ldflags" -o "$package/$binary" .
     cp README.md "$package/README.md"
     cp LICENSE NOTICE "$package/"
     while IFS= read -r -d '' license; do
@@ -68,11 +74,27 @@ for platform in "${platforms[@]}"; do
     cp vendor/github.com/MichaelKinsy/PiG/REUSE.toml "$pig_notices/"
     cp vendor/github.com/MichaelKinsy/PiG/LICENSE "$package/PiG-LICENSE"
     cp vendor/github.com/MichaelKinsy/PiG/NOTICE "$package/PiG-NOTICE"
-    tar -C "$stage/$platform" -czf "$out/ompig-slim-$platform.tar.gz" ompig-slim
-    if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$out" && sha256sum "ompig-slim-$platform.tar.gz" > "ompig-slim-$platform.tar.gz.sha256")
+    archive="$out/ompig-slim-$platform.$archive_extension"
+    if [[ "$archive_extension" == zip ]]; then
+        python3 - "$stage/$platform" "$archive" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+root = pathlib.Path(sys.argv[1])
+with zipfile.ZipFile(sys.argv[2], "w", compression=zipfile.ZIP_DEFLATED) as package:
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            package.write(path, path.relative_to(root).as_posix())
+PY
     else
-        (cd "$out" && shasum -a 256 "ompig-slim-$platform.tar.gz" > "ompig-slim-$platform.tar.gz.sha256")
+        tar -C "$stage/$platform" -czf "$archive" ompig-slim
     fi
-    printf '%s\n' "$out/ompig-slim-$platform.tar.gz"
+    archive_name="${archive##*/}"
+    if command -v sha256sum >/dev/null 2>&1; then
+        (cd "$out" && sha256sum "$archive_name" > "$archive_name.sha256")
+    else
+        (cd "$out" && shasum -a 256 "$archive_name" > "$archive_name.sha256")
+    fi
+    printf '%s\n' "$archive"
 done
