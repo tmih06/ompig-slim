@@ -19,6 +19,7 @@ func TestRPCBindPublishesEventsEmittedBySessionStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(services.Close)
 
 	var session *coding.Session
 	var starts int
@@ -37,7 +38,6 @@ func TestRPCBindPublishesEventsEmittedBySessionStart(t *testing.T) {
 		NoSession: true, NoTools: "all", ResourceLoader: coding.NoResources, Runner: runner,
 	})
 	if err != nil {
-		services.Close()
 		t.Fatal(err)
 	}
 	runtime, err := coding.NewAgentSessionRuntime(context.Background(), session, services, func(context.Context, coding.CreateAgentSessionRuntimeOptions) (coding.CreateAgentSessionRuntimeResult, error) {
@@ -58,6 +58,14 @@ func TestRPCBindPublishesEventsEmittedBySessionStart(t *testing.T) {
 		tasks:         &rpcTaskGroup{},
 		conversionErr: make(chan error, 1),
 	}
+	t.Cleanup(func() {
+		host.detached.Store(true)
+		if err := runtime.Close(); err != nil {
+			t.Error(err)
+		}
+		host.forwarders.Wait()
+		host.closeHost()
+	})
 	host.rt = runtime
 	if err := host.bind(context.Background(), session, session.StartEvent(), false); err != nil {
 		t.Fatal(err)
@@ -79,12 +87,6 @@ func TestRPCBindPublishesEventsEmittedBySessionStart(t *testing.T) {
 			if !found {
 				t.Fatal("RPC did not publish session_info_changed emitted by session_start")
 			}
-			host.detached.Store(true)
-			if err := runtime.Close(); err != nil {
-				t.Fatal(err)
-			}
-			host.forwarders.Wait()
-			host.closeHost()
 			return
 		}
 	}
