@@ -465,7 +465,7 @@ func readTextStream(ctx context.Context, p readParams, source io.Reader) (agent.
 	var decoder utf8stream.Decoder
 	var retained []string
 	var line strings.Builder
-	lineNumber, selectedLineCount, fileLineCount := 0, 0, 0
+	lineNumber, selectedLineCount := 0, 0
 	selectedBytes, storedBytes, firstLineBytes := 0, 0, 0
 	lastSelectedLineEmpty := false
 	storing, keepLine := true, false
@@ -524,7 +524,6 @@ func readTextStream(ctx context.Context, p readParams, source io.Reader) (agent.
 			}
 		}
 		lineNumber++
-		fileLineCount++
 		line.Reset()
 		lineBytes = 0
 		beginLine()
@@ -558,7 +557,12 @@ func readTextStream(ctx context.Context, p readParams, source io.Reader) (agent.
 		}
 		n, err := source.Read(buffer)
 		if n > 0 {
-			consume(decoder.Decode(buffer[:n], true))
+			if float64(lineNumber) >= endLine {
+				// UTF-8 decoding cannot add or remove LF bytes. Past the selection, only the file line count matters.
+				lineNumber += bytes.Count(buffer[:n], []byte{'\n'})
+			} else {
+				consume(decoder.Decode(buffer[:n], true))
+			}
 		}
 		if ctx.Err() != nil {
 			return agent.AgentToolResult{}, errors.New("Operation aborted")
@@ -573,8 +577,13 @@ func readTextStream(ctx context.Context, p readParams, source io.Reader) (agent.
 			continue
 		}
 	}
-	consume(decoder.Decode(nil, false))
-	finishLine()
+	if float64(lineNumber) < endLine {
+		consume(decoder.Decode(nil, false))
+		finishLine()
+	} else {
+		lineNumber++
+	}
+	fileLineCount := lineNumber
 	if startLine >= float64(fileLineCount) {
 		return agent.AgentToolResult{}, fmt.Errorf("Offset %s is beyond end of file (%d lines total)", jsNumber(*p.Offset), fileLineCount)
 	}

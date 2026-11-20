@@ -193,6 +193,7 @@ func TestReadStreamMatchesWholeFileSelection(t *testing.T) {
 		{name: "byte cap after complete lines", data: strings.Repeat(strings.Repeat("x", 40)+"\n", 1500), args: map[string]any{"path": "fixture.txt"}},
 		{name: "empty file", data: "", args: map[string]any{"path": "fixture.txt"}},
 		{name: "zero-line range", data: "first\nsecond", args: map[string]any{"path": "fixture.txt", "limit": 0}},
+		{name: "limited range before invalid UTF-8 tail", data: "first\nsecond\n" + strings.Repeat("bad \xff\n", 20000), args: map[string]any{"path": "fixture.txt", "offset": 2, "limit": 1}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -225,6 +226,26 @@ func TestReadStreamMatchesWholeFileSelection(t *testing.T) {
 				t.Fatalf("stream details = %s, whole-file details = %s", gotDetails, wantDetails)
 			}
 		})
+	}
+}
+
+func BenchmarkReadLimitedLargeFile(b *testing.B) {
+	const lines = 1 << 18
+	const row = "2026-11-20 INFO fixture log line with an ID and a message\n"
+	path := filepath.Join(b.TempDir(), "fixture.log")
+	if err := os.WriteFile(path, []byte(strings.Repeat(row, lines)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	tool := &ReadTool{CWD: filepath.Dir(path)}
+	args := json.RawMessage(`{"path":"fixture.log","limit":1}`)
+	want := strings.TrimSuffix(row, "\n") + "\n\n[" + itoa(lines) + " more lines in file. Use offset=2 to continue.]"
+	b.SetBytes(int64(lines * len(row)))
+	b.ReportAllocs()
+	for b.Loop() {
+		result, err := tool.Execute(b.Context(), "benchmark", args, nil)
+		if err != nil || result.IsError || result.Text() != want {
+			b.Fatalf("read returned %q (error=%v, err=%v)", result.Text(), result.IsError, err)
+		}
 	}
 }
 
