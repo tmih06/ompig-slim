@@ -265,19 +265,22 @@ func validResumeArgv(argv []string) bool {
 func isControlRune(r rune) bool { return r < ' ' || r == '\u007f' }
 
 // agentRoot resolves the directory holding one document per running agent: PIG_HOME
-// when set, else ~/.pi.
+// with a leading ~ or ~/ expanded, else ~/.pi.
 //
-// The harness resolves the same layout; both spell it out rather than sharing a
-// constant because this extension is built against PiG's staged SDK, not against
-// the harness's module.
+// This repeats internal/configroot.Dir rather than importing it because this
+// extension is built against PiG's staged SDK, not against the harness's module.
 func agentRoot() (string, bool) {
-	root := strings.TrimSpace(os.Getenv("PIG_HOME"))
-	if root == "" {
+	root := os.Getenv("PIG_HOME")
+	if root == "" || root == "~" || strings.HasPrefix(root, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", false
 		}
-		root = filepath.Join(home, ".pi")
+		if root == "" {
+			root = filepath.Join(home, ".pi")
+		} else {
+			root = filepath.Join(home, strings.TrimPrefix(root[1:], "/"))
+		}
 	}
 	return filepath.Join(root, "state", "agent"), true
 }

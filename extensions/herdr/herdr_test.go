@@ -497,15 +497,28 @@ func TestSessionReplacementDoesNotReportFinished(t *testing.T) {
 	}
 }
 
+// TestAgentRootFollowsPigHome mirrors internal/configroot's cases: the
+// extension must read the directory the harness writes.
 func TestAgentRootFollowsPigHome(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("PIG_HOME", root)
-	path, ok := agentRoot()
-	if !ok {
-		t.Fatal("agentRoot reported no root")
-	}
-	if want := filepath.Join(root, "state", "agent"); path != want {
-		t.Fatalf("agentRoot = %q, want %q", path, want)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	explicit := filepath.Join(home, "explicit")
+	for _, tc := range []struct{ pigHome, root string }{
+		{"", filepath.Join(home, ".pi")},
+		{"~", home},
+		{"~/profile with spaces", filepath.Join(home, "profile with spaces")},
+		{"~another-user", "~another-user"},
+		{" profile with spaces ", " profile with spaces "},
+		{explicit, explicit},
+	} {
+		t.Run(tc.pigHome, func(t *testing.T) {
+			t.Setenv("PIG_HOME", tc.pigHome)
+			path, ok := agentRoot()
+			if want := filepath.Join(tc.root, "state", "agent"); !ok || path != want {
+				t.Fatalf("agentRoot = %q, %v, want %q", path, ok, want)
+			}
+		})
 	}
 }
 
