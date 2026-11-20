@@ -1,6 +1,12 @@
 #requires -Version 5.1
 $ErrorActionPreference = 'Stop'
 
+function Get-ReleaseChecksum([string]$Text) {
+    $digests = [regex]::Matches($Text, '(?im)^[ \t]*([0-9a-f]{64})(?:[ \t]+[^\r\n]+)?[ \t]*\r?$')
+    if ($digests.Count -ne 1) { throw 'Expected exactly one SHA-256 release digest.' }
+    return $digests[0].Groups[1].Value
+}
+
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw 'This helper requires native Windows.'
 }
@@ -31,9 +37,8 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
     $url = "https://github.com/BurntSushi/ripgrep/releases/download/$version/$name"
     Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive
     Invoke-WebRequest -UseBasicParsing -Uri "$url.sha256" -OutFile "$archive.sha256"
-    $expected = ((Get-Content -LiteralPath "$archive.sha256" -Raw).Trim() -split '\s+')[0]
-    if ($expected -notmatch '^[0-9a-fA-F]{64}$' -or
-        (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $expected) {
+    $expected = Get-ReleaseChecksum (Get-Content -LiteralPath "$archive.sha256" -Raw)
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $expected) {
         throw 'ripgrep checksum mismatch.'
     }
     Expand-Archive -LiteralPath $archive -DestinationPath $directory -Force

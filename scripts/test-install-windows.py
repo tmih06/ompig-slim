@@ -202,7 +202,8 @@ class ReleaseServer:
                         self.send_error(404)
                         return
                     asset = path[len(prefix):]
-                    location = f"/releases/download/{latest_tag}/{asset}"
+                    location = ("/releases/download/" + urllib.parse.quote(latest_tag, safe="")
+                                + "/" + urllib.parse.quote(asset, safe=""))
                     self.send_response(302)
                     self.send_header("Location", location)
                     self.send_header("Content-Length", "0")

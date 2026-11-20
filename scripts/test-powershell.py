@@ -249,6 +249,29 @@ try {
         result = self.run_ps_command(command, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_ci_checksum_accepts_certutil_and_gnu_formats(self):
+        env = dict(self.env, SETUP_SCRIPT=str(ROOT / "scripts/setup-windows-ci.ps1"))
+        command = r'''
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:SETUP_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
+foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+$digest = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'
+$certutil = "SHA256 hash of ripgrep.zip:`r`n$digest`r`nCertUtil: -hashfile command completed successfully.`r`n"
+foreach ($text in @($certutil, "$digest  ripgrep.zip`n", "$digest`n")) {
+    if ((Get-ReleaseChecksum $text) -cne $digest) { throw 'Release checksum was not parsed' }
+}
+foreach ($text in @('', 'bad checksum', "$digest`n$digest")) {
+    $rejected = $false
+    try { Get-ReleaseChecksum $text | Out-Null } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Invalid checksum accepted' }
+}
+'''
+        result = self.run_ps_command(command, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bootstrap_preserves_pig_and_manifest_and_skips_cached_restore(self):
         pig = self.prepare_bootstrap()
         manifest = self.manifest.read_bytes()

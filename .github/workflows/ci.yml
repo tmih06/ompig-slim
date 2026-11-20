@@ -365,7 +365,9 @@ jobs:
       - name: Test native release archive validation
         run: python3 -m unittest discover -s scripts -p 'test_verify_releases.py'
       - name: Test portable Windows smoke fixture logic
-        run: python3 scripts/smoke-test-windows.py --self-test
+        run: |
+          python3 scripts/smoke-test-windows.py --self-test
+          python3 -m unittest discover -s scripts -p 'test_windows_release_fixture.py'
       - name: Scan every commit, including nested archives
         run: gitleaks git --log-opts=--all --max-archive-depth=10 --redact --no-banner .
 
