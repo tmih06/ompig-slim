@@ -14,7 +14,7 @@ deps:
 ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vendor.ps1
 else
-	GO="$(GO)" bash scripts/bootstrap-vendor.sh
+	bash scripts/bootstrap-vendor.sh
 endif
 
 build build-broker run install check test race vet: | deps
@@ -41,7 +41,7 @@ check test race vet:
 ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-go.ps1 -Mode $@
 else
-	GO="$(GO)" bash scripts/check-go.sh $@
+	bash scripts/check-go.sh $@
 endif
 
 smoke: build
@@ -94,7 +94,11 @@ release-publish:
 	bash scripts/release.sh $(VERSION) --publish
 
 # Exercise the user-facing installer against a loopback release server; needs
-# only Python 3, bash, and the usual archive/HTTP tools.
+# only Python 3, bash, and the usual archive/HTTP tools. The Windows suite also
+# drives the installed executable, so it builds one first.
+ifeq ($(OS),Windows_NT)
+test-install: build
+endif
 test-install:
 ifeq ($(OS),Windows_NT)
 	python3 scripts/test-install-windows.py ./bin/ompig-slim.exe
