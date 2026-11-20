@@ -161,7 +161,7 @@ The following is a prioritized comparison, not a verdict on every 1.6 fix.
 | Pi fix | Finding and local evidence | Confidence |
 |---|---|---|
 | Find paths relative to search root and leading `./` (#12066, #12020) | **BUG.** `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/tools/find.go:118-131` prepends `**/` and matches absolute paths. `src/*.ts` can match at a deeper `nested/src/`, and `./src/*.ts` becomes `**/./src/*.ts`. Using the same fd arguments in a temporary fixture reproduced the unwanted nested match and missing `./` result; this was not an end-to-end tool invocation. | High |
-| Stale image warning after model change (#12131) | **BUG.** `.../tools/read.go:456-466` appends the current model's no-image warning to the tool-result text rather than keeping it TUI-only; the text can be stored and replayed after switching models. | High |
+| Stale image warning after model change (#12131) | **FIXED for new reads.** Local and URL image results keep the image. The original model ID is display metadata, not part of the model-facing result. The renderer shows the warning while collapsed or expanded. Tests cover the text-model placeholder and vision-model replay. Existing session text is not rewritten. | High |
 | `pi.exec` signal exit codes (#12088) | **BUG.** `vendor/github.com/MichaelKinsy/PiG/coding/extension/exec.go:296-309` maps a signaled child's negative exit code to 0 rather than 128 plus signal. This is the extension API, not necessarily the built-in bash tool. | High |
 | `/resume` search selection (#12245) | **BUG.** `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/session_selector.go:517-546` clamps the prior selected index after filtering rather than resetting to the best match. | High, source-level |
 | `/copy` after a failed assistant response (#12119) | **BUG.** `vendor/github.com/MichaelKinsy/PiG/coding/session.go:1762-1780` returns nil for a textless error response rather than continuing to an earlier answer; this helper also serves RPC. Empty aborted messages are skipped. | High, source-level |
@@ -171,7 +171,7 @@ The following is a prioritized comparison, not a verdict on every 1.6 fix.
 | Non-strict Anthropic schemas and extra properties (#12067) | **LIKELY GAP.** The non-strict schema construction in `vendor/github.com/MichaelKinsy/PiG/ai/anthropic.go:899-934` does not add Pi's new `additionalProperties: false` constraint. | Medium |
 | WebSocket expiry mid-stream (#12124) | **LIKELY GAP.** `vendor/github.com/MichaelKinsy/PiG/ai/openai_codex_websocket.go:722-965` handles pre-stream errors, but the inspected read-failure path after streaming starts did not show Pi's fresh-connection retry. Not tested with a long-running stream. | Medium |
 | Additional retry messages (#12064, #12128) | **LIKELY GAP.** Patterns in `vendor/github.com/MichaelKinsy/PiG/ai/assistant_retry.go:39-105,259-270` do not list `Connection closed.`, `read ECONNRESET`, `write EPIPE`, or `connect ETIMEDOUT`; Go transport normalization may cover some actual failures, so exposure needs a provider-level test. | Medium |
-| External SIGTSTP restores terminal (#12283) | **LIKELY BUG.** `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/interactive_signals_unix.go:32,112,138` registers WINCH and CONT and has a Ctrl-Z path, but no handler for externally delivered TSTP. Not checked in a PTY. | Medium |
+| External SIGTSTP restores terminal (#12283) | **FIXED on Unix.** The signal routes through the same terminal teardown as Ctrl+Z. `scripts/smoke-test-terminal-suspend.py` verifies two stop and resume cycles in a Linux PTY. Windows has no equivalent job-control signal. | High on Linux |
 
 ### Already present, missing features, and non-applicable changes
 
@@ -194,8 +194,30 @@ The following is a prioritized comparison, not a verdict on every 1.6 fix.
   removed `/share` and HTML export surfaces are listed in
   `vendor/github.com/MichaelKinsy/PiG/internal/codingagent/removed_features.go`.
   This says nothing about independent dependency vulnerabilities.
-- **Not verified:** individual image overlay/redraw fixes; Copilot reasoning
-  and optional arguments; Codex cache behavior; stdout drain; Tab completion;
+- **Fixed:** Enter accepts absolute path and slash-command argument completions
+  without submitting. Only command-name completion submits. The Linux PTY
+  smoke test covers the absolute path, and the editor test covers asynchronous
+  argument completion.
+- **Fixed:** The exit summary prints the resume command on its own line.
+  The quit smoke test verifies this for both regular and fullscreen sessions.
+- **No equivalent stdout queue:** The native terminal writes reset sequences
+  synchronously to stdout rather than using Node's queued writes. The Linux
+  quit smoke test verifies that enabled mouse, Kitty keyboard, and bracketed
+  paste modes are reset before the exit summary. The original Windows Terminal
+  report was not reproduced or tested on Windows here.
+- **Fixed:** Fullscreen Kitty images now survive row clears and full redraws
+  on every cell-based terminal, not only WezTerm. Uploaded-image accounting is
+  reset on a full redraw so the data is sent again, and Markdown image lines
+  keep their reserved rows when a transformer emits image plus spacer lines.
+  Renderer tests cover row clears, resize, and reserved rows. Verified in a
+  Linux PTY harness only; Orca and WezTerm rendering was not observed.
+- **Fixed:** Search in the provider, settings, config, model and per-model
+  pickers now highlights the best match when the query changes, and moving
+  the caret with Left, Right, Home or End keeps the row the arrows selected.
+  Component tests cover each picker. `/scoped-models` has no equivalent here;
+  that command is one of this product's removed surfaces.
+- **Not verified:** Copilot reasoning
+  and optional arguments; Codex cache behavior;
   MCP `tool_search` restoration; session-start/JSON/RPC event delivery; and
   other 1.6 release bullets not listed above. Their absence from this note is
   not evidence they are fixed or irrelevant.
