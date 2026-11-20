@@ -605,6 +605,8 @@ class ConPTY:
                 ctypes.sizeof(self.pseudo_console), None, None), "UpdateProcThreadAttribute(ConPTY)")
             startup = STARTUPINFOEXW()
             startup.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+            # Null standard handles keep redirected parent streams from bypassing ConPTY.
+            startup.StartupInfo.dwFlags = 0x00000100
             startup.lpAttributeList = ctypes.cast(self.attributes, ctypes.c_void_p)
             process_info = PROCESS_INFORMATION()
             command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(
@@ -683,7 +685,11 @@ class ConPTY:
             if state == 0:
                 self._pump()
                 if not predicate(self.captured):
-                    raise RuntimeError(f"TUI exited before {label}; tail={bytes(self.captured[-3000:])!r}")
+                    code = wintypes.DWORD()
+                    self._check(self.kernel.GetExitCodeProcess(self.process, ctypes.byref(code)),
+                                "GetExitCodeProcess(ConPTY)")
+                    raise RuntimeError(f"TUI exited before {label}; exit=0x{code.value:08x}; "
+                                       f"tail={bytes(self.captured[-3000:])!r}")
                 return
             if state == 0xFFFFFFFF:
                 raise ctypes.WinError(ctypes.get_last_error(), "WaitForSingleObject(ConPTY)")
@@ -738,7 +744,7 @@ class ConPTY:
 
 def run_tui(binary, workspace, environment, sessions, model_requested, timeout):
     prompt = "WINDOWS_TUI_PROBE"
-    arguments = cli_base(binary, sessions, "write,read,bash") + ["--no-session"]
+    arguments = cli_base(binary, sessions, "write,read,bash")[1:] + ["--no-session"]
     conpty = ConPTY(binary, arguments, workspace, {**environment, "PIG_STARTUP_TRACE": "1"})
     try:
         conpty.wait_for(lambda data: b"interactive-ready" in data,

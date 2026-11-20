@@ -446,7 +446,8 @@ func TestGeminiDecisionsTimeoutRetryAndCancellation(t *testing.T) {
 		var requests atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if requests.Add(1) == 1 {
-				time.Sleep(100 * time.Millisecond)
+				_, _ = io.Copy(io.Discard, r.Body)
+				<-r.Context().Done()
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -454,7 +455,7 @@ func TestGeminiDecisionsTimeoutRetryAndCancellation(t *testing.T) {
 		}))
 		defer server.Close()
 		models, model := geminiTestModels(t, server.URL+"/v1beta")
-		timeoutMs, retries := 30, 1
+		timeoutMs, retries := 500, 1
 		result := models.Classify(context.Background(), model, ai.ClassifierContext{Questions: ai.ClassifierQuestions{{ID: "check", Question: ai.ClassifierBoolQuestion{Instructions: "Check."}}}}, ai.ModelsClassifierOptions{ClassifierOptions: ai.ClassifierOptions{TimeoutMs: &timeoutMs, MaxRetries: &retries}})
 		if result.StopReason != ai.ClassifierStopReasonStop || requests.Load() != 2 {
 			t.Fatalf("timeout retry result = %+v, requests = %d", result, requests.Load())

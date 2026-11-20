@@ -153,7 +153,7 @@ class PowerShellToolingTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ompig powershell tooling ")
         self.addCleanup(self.temporary.cleanup)
-        self.base = pathlib.Path(self.temporary.name)
+        self.base = pathlib.Path(self.temporary.name).resolve()
         self.root = self.base / "checkout with spaces"
         self.root.mkdir()
         self.scripts = self.root / "scripts"
