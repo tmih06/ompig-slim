@@ -63,16 +63,6 @@ function Assert-OrdinaryDirectory([string]$Path) {
     }
 }
 
-function Copy-GeneratedDirectory([string]$Source, [string]$Target) {
-    Assert-NoReparseTree $Target
-    Remove-Tree $Target
-    $parent = Split-Path -Parent $Target
-    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-    Move-Item -LiteralPath $Source -Destination $Target
-}
-
 try {
     Set-Location -LiteralPath $repoRoot
     $vendorRoot = Join-Path $repoRoot 'vendor'
@@ -102,28 +92,17 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'go.mod') -Destination $stage
     Copy-Item -LiteralPath (Join-Path $repoRoot 'go.sum') -Destination $stage
 
-    $imports = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($rawLine in Get-Content -LiteralPath $manifest -Encoding UTF8) {
+    $imports = @(foreach ($rawLine in Get-Content -LiteralPath $manifest -Encoding UTF8) {
         $package = $rawLine.Trim()
         if ([string]::IsNullOrWhiteSpace($package) -or $package.StartsWith('#')) { continue }
-        if ($package.StartsWith('github.com/MichaelKinsy/PiG', [StringComparison]::Ordinal) -and
-            ($package.Length -eq 'github.com/MichaelKinsy/PiG'.Length -or
-             $package['github.com/MichaelKinsy/PiG'.Length] -eq '/')) {
-            continue
-        }
+        if ($package -cmatch '^github\.com/MichaelKinsy/PiG(/|$)') { continue }
         if ($package.Contains('"') -or $package.Contains("`n") -or $package.Contains("`r")) {
             throw "Invalid package entry in vendor/modules.txt: $package"
         }
-        $imports.Add(('    _ "' + $package + '"'))
-    }
-    $mainLines = New-Object 'System.Collections.Generic.List[string]'
-    $mainLines.Add('package main')
-    $mainLines.Add('import (')
-    foreach ($import in $imports) { $mainLines.Add($import) }
-    $mainLines.Add(')')
-    $mainLines.Add('func main() {}')
-    $encoding = [System.Text.UTF8Encoding]::new($false)
-    [IO.File]::WriteAllText((Join-Path $stage 'main.go'), (($mainLines -join "`n") + "`n"), $encoding)
+        '    _ "' + $package + '"'
+    })
+    $mainSource = (@('package main', 'import (') + $imports + @(')', 'func main() {}', '')) -join "`n"
+    [IO.File]::WriteAllText((Join-Path $stage 'main.go'), $mainSource, [System.Text.UTF8Encoding]::new($false))
 
     $goCommand = if ([string]::IsNullOrWhiteSpace($env:GO)) { 'go' } else { $env:GO }
     $resolvedGo = Get-Command -Name $goCommand -ErrorAction Stop
@@ -183,7 +162,8 @@ try {
     foreach ($sourceRoot in $generatedRoots) {
         $targetRoot = Join-Path $vendorRoot $sourceRoot.Name
         if ($sourceRoot.Name -ne 'github.com') {
-            Copy-GeneratedDirectory $sourceRoot.FullName $targetRoot
+            Remove-Tree $targetRoot
+            Move-Item -LiteralPath $sourceRoot.FullName -Destination $targetRoot
             continue
         }
         if (-not (Test-Path -LiteralPath $targetRoot -PathType Container)) {
@@ -192,7 +172,8 @@ try {
         foreach ($sourceOwner in Get-ChildItem -LiteralPath $sourceRoot.FullName -Directory -Force) {
             $targetOwner = Join-Path $targetRoot $sourceOwner.Name
             if ($sourceOwner.Name -ne 'MichaelKinsy') {
-                Copy-GeneratedDirectory $sourceOwner.FullName $targetOwner
+                Remove-Tree $targetOwner
+                Move-Item -LiteralPath $sourceOwner.FullName -Destination $targetOwner
                 continue
             }
             if (-not (Test-Path -LiteralPath $targetOwner -PathType Container)) {

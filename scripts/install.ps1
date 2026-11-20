@@ -87,6 +87,17 @@ function Test-ArchiveRegularFile($Entry) {
         ($fileType -eq 0 -or $fileType -eq 0x8000)
 }
 
+function Copy-LimitedStream([IO.Stream]$Source, [IO.Stream]$Destination, [long]$MaximumBytes, [string]$LimitMessage) {
+    $buffer = New-Object byte[] 65536
+    [long]$copied = 0
+    while (($read = $Source.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        $copied += $read
+        if ($copied -gt $MaximumBytes) { throw $LimitMessage }
+        $Destination.Write($buffer, 0, $read)
+    }
+    return $copied
+}
+
 function Save-Download([string]$Uri, [string]$Path, [long]$MaximumBytes) {
     $request = [Net.HttpWebRequest]::Create($Uri)
     $request.Method = 'GET'
@@ -98,20 +109,11 @@ function Save-Download([string]$Uri, [string]$Path, [long]$MaximumBytes) {
     $outputStream = $null
     try {
         $response = $request.GetResponse()
-        if ($response.ContentLength -gt $MaximumBytes) {
-            throw "Download exceeds the $MaximumBytes-byte limit."
-        }
+        $limitMessage = "Download exceeds the $MaximumBytes-byte limit."
+        if ($response.ContentLength -gt $MaximumBytes) { throw $limitMessage }
         $inputStream = $response.GetResponseStream()
         $outputStream = [IO.File]::Create($Path)
-        $buffer = New-Object byte[] 65536
-        [long]$copied = 0
-        while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $copied += $read
-            if ($copied -gt $MaximumBytes) {
-                throw "Download exceeds the $MaximumBytes-byte limit."
-            }
-            $outputStream.Write($buffer, 0, $read)
-        }
+        $copied = Copy-LimitedStream $inputStream $outputStream $MaximumBytes $limitMessage
         if ($response.ContentLength -ge 0 -and $copied -ne $response.ContentLength) {
             throw 'Download ended before its Content-Length.'
         }
@@ -249,7 +251,7 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($archivePath)
     $seenNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $executableEntries = [Collections.Generic.List[IO.Compression.ZipArchiveEntry]]::new()
+    $executableEntry = $null
     foreach ($entry in $zip.Entries) {
         if (-not (Test-SafeArchiveName $entry.FullName)) {
             throw "Unsafe ZIP member name '$($entry.FullName)'."
@@ -261,13 +263,12 @@ try {
             throw "ZIP member '$($entry.FullName)' is a symbolic link."
         }
         if ([StringComparer]::Ordinal.Equals($entry.FullName, 'ompig-slim/ompig-slim.exe')) {
-            $executableEntries.Add($entry)
+            $executableEntry = $entry
         }
     }
-    if ($executableEntries.Count -ne 1) {
+    if ($null -eq $executableEntry) {
         throw "$archiveName must contain exactly one ompig-slim/ompig-slim.exe member."
     }
-    $executableEntry = $executableEntries[0]
     if (-not (Test-ArchiveRegularFile $executableEntry)) {
         throw "$archiveName does not contain a regular ompig-slim/ompig-slim.exe file."
     }
@@ -300,15 +301,7 @@ try {
     $inputStream = $executableEntry.Open()
     $outputStream = [IO.File]::Create($staged)
     try {
-        $buffer = New-Object byte[] 65536
-        [long]$copied = 0
-        while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $copied += $read
-            if ($copied -gt $maximumExecutableSize) {
-                throw 'The executable exceeds the 256 MiB size limit.'
-            }
-            $outputStream.Write($buffer, 0, $read)
-        }
+        $copied = Copy-LimitedStream $inputStream $outputStream $maximumExecutableSize 'The executable exceeds the 256 MiB size limit.'
         if ($copied -ne $executableEntry.Length) {
             throw 'The executable ZIP member length did not match its contents.'
         }
@@ -320,8 +313,7 @@ try {
     $zip = $null
 
     $versionOutput = (& $staged --version 2>&1 | Out-String).Trim()
-    $versionExitCode = $LASTEXITCODE
-    if ($versionExitCode -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
         throw "$staged did not run on this machine: $versionOutput"
     }
     if ([string]::IsNullOrWhiteSpace($versionOutput)) {
@@ -340,8 +332,7 @@ try {
     $staged = $null
     Write-Output "Installed ompig-slim $versionOutput to $target"
 
-    $installer = [string]$archiveUrl
-    $markerText = "kind=archive`nexecutable=$target`ndownload-base=$downloadBase`ninstalled-version=$versionOutput`ninstaller=$installer`nchannel=stable`n"
+    $markerText = "kind=archive`nexecutable=$target`ndownload-base=$downloadBase`ninstalled-version=$versionOutput`ninstaller=$archiveUrl`nchannel=stable`n"
     try {
         $markerRoot = [IO.Path]::GetFullPath([IO.Path]::Combine(
             $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path, $configRoot))
