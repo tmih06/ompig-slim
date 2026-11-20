@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -323,6 +324,71 @@ func TestWindowsUpdateDeadlineStopsSDKStaging(t *testing.T) {
 		t.Fatalf("update lock remained held after the deadline: %v", err)
 	}
 	unlock()
+}
+
+func TestWindowsFileMutationRetriesOnlyTransientConflicts(t *testing.T) {
+	for _, conflict := range []error{windows.ERROR_SHARING_VIOLATION, windows.ERROR_LOCK_VIOLATION} {
+		t.Run(conflict.Error(), func(t *testing.T) {
+			attempts := 0
+			err := retryWindowsFileMutation(func() error {
+				attempts++
+				if attempts == 1 {
+					return &os.PathError{Op: "rename", Path: "staged.exe", Err: conflict}
+				}
+				return nil
+			})
+			if err != nil || attempts != 2 {
+				t.Fatalf("transient mutation = %v after %d attempts", err, attempts)
+			}
+		})
+	}
+	for _, failure := range []error{windows.ERROR_ACCESS_DENIED, windows.ERROR_ALREADY_EXISTS, windows.ERROR_FILE_NOT_FOUND} {
+		attempts := 0
+		err := retryWindowsFileMutation(func() error {
+			attempts++
+			return failure
+		})
+		if !errors.Is(err, failure) || attempts != 1 {
+			t.Fatalf("permanent mutation = %v after %d attempts, want %v", err, attempts, failure)
+		}
+	}
+}
+
+func TestWindowsReplacementWaitsForTransientFileHandles(t *testing.T) {
+	for _, busy := range []string{"staged.exe", "ompig-slim.exe", "ompig-slim.previous.exe"} {
+		t.Run(busy, func(t *testing.T) {
+			dir := t.TempDir()
+			target, staged := filepath.Join(dir, "ompig-slim.exe"), filepath.Join(dir, "staged.exe")
+			for name, data := range map[string]string{target: "old", staged: "new", previousExecutable(target): "previous"} {
+				if err := os.WriteFile(name, []byte(data), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			name, err := windows.UTF16PtrFromString(filepath.Join(dir, busy))
+			if err != nil {
+				t.Fatal(err)
+			}
+			handle, err := windows.CreateFile(name, windows.GENERIC_READ,
+				windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			released := make(chan error, 1)
+			time.AfterFunc(300*time.Millisecond, func() { released <- windows.CloseHandle(handle) })
+			err = commitReplacement(staged, target)
+			if closeErr := <-released; closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			if err != nil {
+				t.Fatalf("replacement failed during a transient file lock: %v", err)
+			}
+			assertFileBytes(t, target, []byte("new"))
+			assertFileBytes(t, previousExecutable(target), []byte("old"))
+			if _, err := os.Stat(staged); !os.IsNotExist(err) {
+				t.Fatalf("staged executable was not consumed: %v", err)
+			}
+		})
+	}
 }
 
 func TestWindowsReplacementRollsBack(t *testing.T) {

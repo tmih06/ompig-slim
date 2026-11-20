@@ -6,6 +6,13 @@ at source revision `cd8dfb7`. The complete CI run passed. The development host i
 Linux ARM64; the Windows results below come from native GitHub-hosted runners,
 not cross-builds.
 
+A later documentation-triggered [run 44736570531](https://github.com/tmih06/ompig-slim/actions/runs/44736570531)
+found a transient sharing violation in the x64 runtime updater. The runtime now
+retries only sharing and lock violations for up to ten seconds per file mutation,
+including backup removal, replacement, and rollback. Permanent errors still fail
+immediately. Native regressions cover temporarily locked staged, installed, and
+backup files. Verification of this follow-up is pending.
+
 ## Native evidence
 
 | Runner | Gate | Result |

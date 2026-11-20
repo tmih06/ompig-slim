@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gofrs/flock"
 	"golang.org/x/sys/windows"
@@ -46,7 +47,7 @@ func replaceWindowsExecutable(staged, target string, move func(string, string) e
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("update backup %q is not a regular file", backup)
 		}
-		if err := os.Remove(backup); err != nil {
+		if err := retryWindowsFileMutation(func() error { return os.Remove(backup) }); err != nil {
 			return fmt.Errorf("remove previous executable %q (close running copies and retry): %w", backup, err)
 		}
 	} else if !os.IsNotExist(err) {
@@ -83,7 +84,21 @@ func moveWithoutOverwrite(from, to string) error {
 	if err != nil {
 		return err
 	}
-	return windows.MoveFileEx(source, destination, 0)
+	return retryWindowsFileMutation(func() error {
+		return windows.MoveFileEx(source, destination, 0)
+	})
+}
+
+func retryWindowsFileMutation(mutate func() error) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := mutate()
+		if (!errors.Is(err, windows.ERROR_SHARING_VIOLATION) && !errors.Is(err, windows.ERROR_LOCK_VIOLATION)) ||
+			!time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func extendedWindowsPath(name string) (string, error) {
