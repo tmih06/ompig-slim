@@ -57,7 +57,8 @@ class BenchmarkTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                messages = [{"role": "user", "content": "BENCH_TURN=0 task"}]
+                messages = [{"role": "user", "content": "BENCH_TURN=0 task"},
+                            {"role": "user", "content": "Selected provider: bench\nSelected model: bench"}]
                 tool = self.request(server, messages)[0]["choices"][0]["delta"]["tool_calls"][0]
                 self.assertEqual(tool["function"]["name"], "read")
                 messages += [{"role": "assistant", "tool_calls": [tool]},
@@ -67,7 +68,8 @@ class BenchmarkTests(unittest.TestCase):
                 self.assertIn("BENCH_OK_0", text)
                 self.assertEqual(server.completed, [0])
                 messages += [{"role": "assistant", "content": text},
-                             {"role": "user", "content": [{"type": "text", "text": "BENCH_TURN=1 task"}]}]
+                             {"role": "user", "content": [{"type": "text", "text": "BENCH_TURN=1 task"}]},
+                             {"role": "user", "content": [{"type": "text", "text": "Selected provider: bench"}]}]
                 tool = self.request(server, messages)[0]["choices"][0]["delta"]["tool_calls"][0]
                 self.assertEqual(tool["function"]["name"], "write")
                 (root / "proof.txt").write_text("proof-1")

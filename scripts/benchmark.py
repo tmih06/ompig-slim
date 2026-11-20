@@ -40,10 +40,17 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             length = int(self.headers["Content-Length"])
             body = json.loads(self.rfile.read(length))
             messages = body["messages"]
-            user = max(i for i, m in enumerate(messages) if m["role"] == "user")
-            content = messages[user]["content"]
-            if isinstance(content, list):
-                content = "".join(c.get("text", "") for c in content)
+            for user in range(len(messages) - 1, -1, -1):
+                message = messages[user]
+                if message["role"] != "user":
+                    continue
+                content = message["content"]
+                if isinstance(content, list):
+                    content = "".join(c.get("text", "") for c in content)
+                if "BENCH_TURN=" in content:
+                    break
+            else:
+                raise AssertionError("benchmark turn prompt missing")
             turn = int(content.split("BENCH_TURN=")[1].split()[0])
             history = str(messages[:user])
             if turn and f"BENCH_OK_{turn - 1}\\n" not in history and f"BENCH_OK_{turn - 1}\n" not in history:
