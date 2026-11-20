@@ -14,9 +14,6 @@ func EnsurePrivateDir(path string) error {
 
 // RestrictFile limits an opened file to the current user.
 func RestrictFile(file *os.File) error {
-	if file == nil {
-		return os.ErrInvalid
-	}
 	return file.Chmod(0600)
 }
 

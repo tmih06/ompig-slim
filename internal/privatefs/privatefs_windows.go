@@ -46,19 +46,19 @@ func EnsurePrivateDir(path string) error {
 		}
 	}
 	root := os.NewFile(uintptr(handle), path)
-	if root == nil {
-		_ = windows.CloseHandle(handle)
-		return fmt.Errorf("open private state directory %q: invalid handle", path)
-	}
 	defer root.Close()
-	return securePrivateTree(root, path, acls)
+	info, err := inspectPrivateEntry(handle, path)
+	if err != nil {
+		return err
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		return fmt.Errorf("private state path is not a directory: %q", path)
+	}
+	return securePrivateDir(root, path, acls)
 }
 
 // RestrictFile limits an opened file to the current Windows user.
 func RestrictFile(file *os.File) error {
-	if file == nil {
-		return os.ErrInvalid
-	}
 	dacl, err := currentUserDACL(false)
 	if err != nil {
 		return err
@@ -116,45 +116,6 @@ func openPrivateRoot(path string) (windows.Handle, error) {
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 }
 
-type privateDACLs struct {
-	file, directory *windows.ACL
-}
-
-func securePrivateTree(dir *os.File, path string, acls privateDACLs) error {
-	handle := windows.Handle(dir.Fd())
-	var info windows.ByHandleFileInformation
-	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
-		return fmt.Errorf("inspect private state path %q: %w", path, err)
-	}
-	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return fmt.Errorf("private state contains a reparse point at %q", path)
-	}
-	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-		return fmt.Errorf("private state path is not a directory: %q", path)
-	}
-	if err := setPrivateDACL(handle, acls.file); err != nil {
-		return fmt.Errorf("restrict private state directory %q: %w", path, err)
-	}
-	if err := securePrivateChildren(dir, path, acls); err != nil {
-		return err
-	}
-	return setPrivateDACL(handle, acls.directory)
-}
-
-func securePrivateChildren(dir *os.File, path string, acls privateDACLs) error {
-	entries, err := dir.ReadDir(-1)
-	if err != nil {
-		return fmt.Errorf("read private state directory %q: %w", path, err)
-	}
-	for _, entry := range entries {
-		childPath := filepath.Join(path, entry.Name())
-		if err := securePrivateEntry(windows.Handle(dir.Fd()), entry.Name(), childPath, acls); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func extendedLengthPath(path string) string {
 	if strings.HasPrefix(path, `\\?\`) || strings.HasPrefix(path, `\\.\`) {
 		return path
@@ -165,46 +126,59 @@ func extendedLengthPath(path string) string {
 	return `\\?\` + path
 }
 
+type privateDACLs struct {
+	file, directory *windows.ACL
+}
+
+func securePrivateDir(dir *os.File, path string, acls privateDACLs) error {
+	handle := windows.Handle(dir.Fd())
+	if err := setPrivateDACL(handle, acls.file); err != nil {
+		return fmt.Errorf("restrict private state directory %q: %w", path, err)
+	}
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return fmt.Errorf("read private state directory %q: %w", path, err)
+	}
+	for _, entry := range entries {
+		if err := securePrivateEntry(handle, entry.Name(), filepath.Join(path, entry.Name()), acls); err != nil {
+			return err
+		}
+	}
+	return setPrivateDACL(handle, acls.directory)
+}
+
 func securePrivateEntry(parent windows.Handle, name, path string, acls privateDACLs) error {
 	handle, err := openPrivateEntry(parent, name)
 	if err != nil {
 		return fmt.Errorf("open private state entry %q: %w", path, err)
 	}
-	defer windows.CloseHandle(handle)
-	var info windows.ByHandleFileInformation
-	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
-		return fmt.Errorf("inspect private state entry %q: %w", path, err)
-	}
-	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return fmt.Errorf("private state contains a reparse point at %q", path)
-	}
-	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-		if info.NumberOfLinks > 1 {
-			return fmt.Errorf("private state file has %d hard links; refusing to change ACL at %q", info.NumberOfLinks, path)
-		}
-		if err := setPrivateDACL(handle, acls.file); err != nil {
-			return fmt.Errorf("restrict private state file %q: %w", path, err)
-		}
-		return nil
-	}
-	if err := setPrivateDACL(handle, acls.file); err != nil {
-		return fmt.Errorf("restrict private state directory %q: %w", path, err)
-	}
-	var listHandle windows.Handle
-	process := windows.CurrentProcess()
-	if err := windows.DuplicateHandle(process, handle, process, &listHandle, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
-		return fmt.Errorf("duplicate private state directory handle %q: %w", path, err)
-	}
-	child := os.NewFile(uintptr(listHandle), path)
-	if child == nil {
-		_ = windows.CloseHandle(listHandle)
-		return fmt.Errorf("open private state directory %q: invalid handle", path)
-	}
-	defer child.Close()
-	if err := securePrivateChildren(child, path, acls); err != nil {
+	entry := os.NewFile(uintptr(handle), path)
+	defer entry.Close()
+	info, err := inspectPrivateEntry(handle, path)
+	if err != nil {
 		return err
 	}
-	return setPrivateDACL(handle, acls.directory)
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		return securePrivateDir(entry, path, acls)
+	}
+	if info.NumberOfLinks > 1 {
+		return fmt.Errorf("private state file has %d hard links; refusing to change ACL at %q", info.NumberOfLinks, path)
+	}
+	if err := setPrivateDACL(handle, acls.file); err != nil {
+		return fmt.Errorf("restrict private state file %q: %w", path, err)
+	}
+	return nil
+}
+
+func inspectPrivateEntry(handle windows.Handle, path string) (windows.ByHandleFileInformation, error) {
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
+		return info, fmt.Errorf("inspect private state entry %q: %w", path, err)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return info, fmt.Errorf("private state contains a reparse point at %q", path)
+	}
+	return info, nil
 }
 
 func openPrivateEntry(parent windows.Handle, name string) (windows.Handle, error) {
