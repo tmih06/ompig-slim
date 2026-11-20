@@ -292,7 +292,7 @@ func sameContent(left, right Document) bool {
 // Read parses the document at path. A missing file returns ErrNoState; malformed
 // JSON returns its decode error.
 func Read(path string) (Document, error) {
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Document{}, ErrNoState

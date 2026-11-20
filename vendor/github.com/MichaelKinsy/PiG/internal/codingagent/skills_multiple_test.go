@@ -117,7 +117,8 @@ func TestParseExpandedSkillMessage(t *testing.T) {
 func TestLegacySkillSubmissionRemainsOneBubble(t *testing.T) {
 	for _, prose := range []string{"", "\n\nfix this"} {
 		mode := resetWiringTest(t, nil)
-		text := "<skill name=\"review\" location=\"/removed/review.md\">\nOLD BODY\n</skill>" + prose
+		location := filepath.VolumeName(mode.opts.CWD) + string(filepath.Separator) + filepath.Join("removed", "review.md")
+		text := "<skill name=\"review\" location=\"" + location + "\">\nOLD BODY\n</skill>" + prose
 		mode.addUserMessageToChat(agent.AgentMessage{}, text, messageMeta{})
 		got := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(80), "\n"))
 		// The bubble plus the Read row for the load it records: a skill invoked
@@ -126,7 +127,7 @@ func TestLegacySkillSubmissionRemainsOneBubble(t *testing.T) {
 		if len(mode.chatContainer.Children()) != 2 || !strings.Contains(got, "◆ review") || strings.Contains(got, "OLD BODY") {
 			t.Fatalf("old expansion did not stay collapsed behind its badge and Read row: %q", got)
 		}
-		if !strings.Contains(got, "└─ Read /removed/review.md") {
+		if !strings.Contains(got, "└─ Read "+filepath.ToSlash(location)) {
 			t.Fatalf("old expansion lost its Read row: %q", got)
 		}
 		if prose != "" && !strings.Contains(got, "fix this") {

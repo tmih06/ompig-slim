@@ -68,9 +68,12 @@ def tools_after_last_user(body):
     last_user = max((i for i, message in enumerate(messages)
                      if message.get("role") == "user"), default=-1)
     names = []
+    calls = {}
     for message in messages[last_user + 1:]:
+        for call in message.get("tool_calls", []):
+            calls[call.get("id")] = call.get("function", {}).get("name", "")
         if message.get("role") == "tool":
-            names.append(message.get("name", ""))
+            names.append(message.get("name") or calls.get(message.get("tool_call_id"), ""))
     return names
 
 
@@ -936,6 +939,12 @@ class PortableLogicTests(unittest.TestCase):
                              {"role": "tool", "name": "write"},
                              {"role": "user", "content": "new"}]}
         self.assertEqual(tools_after_last_user(body), [])
+        body["messages"].extend([
+            {"role": "assistant", "tool_calls": [
+                {"id": "call-1", "function": {"name": "write"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "written"},
+        ])
+        self.assertEqual(tools_after_last_user(body), ["write"])
 
     def test_bash_proof_requires_git_windows_paths_and_native_cmd(self):
         cwd = Path("C:\\Temp\\ompig smoke \u03a9")

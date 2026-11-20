@@ -100,11 +100,19 @@ func TestSkillLoadReadTreeMatchesMentionShape(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("skill rows = %+v", rows)
 	}
-	if got, want := rows[0].Path, mentions[0].Path; got != want {
-		t.Fatalf("skill path %q != mention path %q", got, want)
+	if got, want := rows[0].Path, filepath.ToSlash(mentions[0].Path); got != want {
+		t.Fatalf("skill path %q != mention display path %q", got, want)
 	}
 	if got, want := fileMentionDetail(rows[0]), fileMentionDetail(mentions[0]); got != want {
 		t.Fatalf("skill detail %q != mention detail %q", got, want)
+	}
+	mentionCard := (&fileMentionCard{mentions: mentions}).Render(80)
+	skillCard := (&fileMentionCard{mentions: rows}).Render(80)
+	if len(mentionCard) != 1 || len(skillCard) != 1 {
+		t.Fatalf("mention rows = %v, skill rows = %v", mentionCard, skillCard)
+	}
+	if got, want := tui.SanitizeDisplayLine(skillCard[0]), tui.SanitizeDisplayLine(mentionCard[0]); got != want {
+		t.Fatalf("skill row %q != mention row %q", got, want)
 	}
 }
 

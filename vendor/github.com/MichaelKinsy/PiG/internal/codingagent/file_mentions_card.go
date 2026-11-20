@@ -13,6 +13,7 @@ package codingagent
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
@@ -53,7 +54,7 @@ func (c *fileMentionCard) Render(width int) []string {
 		// tree rail and this card's row accounting both assume it.
 		row := theme.Fg("dim", branch) +
 			theme.Fg("muted", "Read ") +
-			tui.ChalkBold(tui.SanitizeDisplayLine(mention.Path)) +
+			tui.ChalkBold(tui.SanitizeDisplayLine(filepath.ToSlash(mention.Path))) +
 			theme.Fg("dim", " ("+detail+")")
 		rows = append(rows, indent+widthx.TruncateToWidth(row, max(1, width-pad), "…", false))
 	}

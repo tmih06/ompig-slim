@@ -2,6 +2,8 @@ package codingagent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -51,7 +53,23 @@ func TestBuiltinArgumentSuggestions(t *testing.T) {
 // TestLeadingAbsolutePathIsOrdinaryPrompt ensures filesystem paths are sent as
 // ordinary prompts instead of being rejected as unknown commands.
 func TestLeadingAbsolutePathIsOrdinaryPrompt(t *testing.T) {
-	for _, text := range []string{"/tmp/project/file", "/tmp/project/file explain this", "/new/file.go", "/file.txt explain this", "/tmp", "/", "./file.go explain this", "~/file.go", "C:\\project\\file.go", "explain /not-a-command"} {
+	texts := []string{"/tmp/project/file", "/tmp/project/file explain this", "/new/file.go", "/file.txt explain this", "/", "./file.go explain this", "~/file.go", "C:\\project\\file.go", "explain /not-a-command"}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeRoot := filepath.VolumeName(cwd) + string(filepath.Separator)
+	relativeCWD, err := filepath.Rel(volumeRoot, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relativeCWD != "." {
+		rootDirectory := "/" + strings.Split(relativeCWD, string(filepath.Separator))[0]
+		if info, err := os.Stat(rootDirectory); err == nil && info.IsDir() {
+			texts = append(texts, rootDirectory)
+		}
+	}
+	for _, text := range texts {
 		m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry()}
 		m.setupEditorSubmitHandler(context.Background())
 		var submitted string

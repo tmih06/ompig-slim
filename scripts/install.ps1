@@ -326,7 +326,8 @@ try {
     $installer = [string]$archiveUrl
     $markerText = "kind=archive`nexecutable=$target`ndownload-base=$downloadBase`ninstalled-version=$versionOutput`ninstaller=$installer`nchannel=stable`n"
     try {
-        $markerRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($configRoot)
+        $markerRoot = [IO.Path]::GetFullPath([IO.Path]::Combine(
+            $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path, $configRoot))
         Write-InstallMarker $markerRoot $markerText
     } catch {
         [Console]::Error.WriteLine("warning: could not record the install under $configRoot; ompig-slim update will refuse to replace this binary")

@@ -119,10 +119,11 @@ func TestFooterSegmentsUseStatusLineTokens(t *testing.T) {
 // sees rather than the absolute one a machine reports.
 func footerLayoutFixture(t *testing.T) footerData {
 	t.Helper()
-	t.Setenv("HOME", "/home/someone")
+	home := filepath.Join(string(filepath.Separator), "home", "someone")
+	t.Setenv("HOME", home)
 	return footerData{
 		model:              footerTestModel("claude-sonnet-4", 200000),
-		cwd:                "/home/someone/work/clients/acme/platform/project-alpha",
+		cwd:                filepath.Join(home, "work", "clients", "acme", "platform", "project-alpha"),
 		gitBranch:          "feat-project-dir-collapse",
 		sessionName:        "footer layout",
 		thinkingLevel:      "high",
@@ -183,12 +184,12 @@ func TestFooterCompactsTheProjectPathInsteadOfTheModel(t *testing.T) {
 	tui.SetThemeInstance(footerTheme(t))
 
 	full := widthx.StripTerminalSequences(renderFooter(footerLayoutFixture(t), 200)[0])
-	if !strings.Contains(full, "…/acme/platform/project-alpha") {
+	if !strings.Contains(full, filepath.Join("…", "acme", "platform", "project-alpha")) {
 		t.Fatalf("a wide footer did not show the path's tail: %q", full)
 	}
 
 	compacted := widthx.StripTerminalSequences(renderFooter(footerLayoutFixture(t), 80)[0])
-	if !strings.Contains(compacted, "…/project-alpha") {
+	if !strings.Contains(compacted, filepath.Join("…", "project-alpha")) {
 		t.Fatalf("the compacted path lost its leaf: %q", compacted)
 	}
 	if strings.Contains(compacted, "clients") {
@@ -211,15 +212,16 @@ func TestFooterShortensTheProjectPathToItsTail(t *testing.T) {
 	t.Cleanup(func() { tui.SetThemeInstance(previous) })
 	tui.SetThemeInstance(footerTheme(t))
 
-	t.Setenv("HOME", "/home/someone")
+	home := filepath.Join(string(filepath.Separator), "home", "someone")
+	t.Setenv("HOME", home)
 	// A worktree checkout is the case that motivates the cap: the fixed prefix is
 	// most of the path, and only its tail says which checkout this is.
 	d := footerData{
-		cwd:       "/home/someone/.herdr/worktrees/ompig-slim/feat-git-status-show-both",
+		cwd:       filepath.Join(home, ".herdr", "worktrees", "ompig-slim", "feat-git-status-show-both"),
 		gitBranch: "feat-git-status-show-both",
 	}
 	line := widthx.StripTerminalSequences(renderFooter(d, 200)[0])
-	if !strings.Contains(line, "…/worktrees/ompig-slim/feat-git-status-show-both") {
+	if !strings.Contains(line, filepath.Join("…", "worktrees", "ompig-slim", "feat-git-status-show-both")) {
 		t.Fatalf("the path was not shortened to its last three segments: %q", line)
 	}
 	if strings.Contains(line, ".herdr") || strings.Contains(line, "ubuntu") {
@@ -229,12 +231,12 @@ func TestFooterShortensTheProjectPathToItsTail(t *testing.T) {
 	// Short paths keep every segment: the cap only removes what a reader does not
 	// need, so a shallow checkout still reads as the home-relative path it had.
 	for _, tc := range []struct{ cwd, want string }{
-		{"/home/someone/ompig-slim", "~/ompig-slim"},
-		{"/home/someone", "~"},
-		{"/tmp/work", "/tmp/work"},
-		{"/home/someone/a/b/c", "…/a/b/c"},
+		{filepath.Join(home, "ompig-slim"), filepath.Join("~", "ompig-slim")},
+		{home, "~"},
+		{filepath.Join(string(filepath.Separator), "tmp", "work"), filepath.Join(string(filepath.Separator), "tmp", "work")},
+		{filepath.Join(home, "a", "b", "c"), filepath.Join("…", "a", "b", "c")},
 	} {
-		short := shortenFooterPath(formatCwdForFooter(tc.cwd, "/home/someone"))
+		short := shortenFooterPath(formatCwdForFooter(tc.cwd, home))
 		if short != tc.want {
 			t.Fatalf("shortenFooterPath(%q) = %q, want %q", tc.cwd, short, tc.want)
 		}
