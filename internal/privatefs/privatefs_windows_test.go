@@ -97,6 +97,25 @@ func TestEnsurePrivateDirSecuresExistingTree(t *testing.T) {
 	}
 }
 
+func TestEnsurePrivateDirSecuresOpenFile(t *testing.T) {
+	path := t.TempDir()
+	filePath := filepath.Join(path, "owner.lock")
+	if err := os.WriteFile(filePath, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	setTestDACL(t, filePath, "D:P(A;;FA;;;WD)")
+	file, err := os.OpenFile(filePath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := EnsurePrivateDir(path); err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentUserDACL(t, filePath, true, 0,
+		windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE|windows.INHERITED_ACE)
+}
+
 func TestEnsurePrivateDirSupportsLongRootPath(t *testing.T) {
 	path := t.TempDir()
 	for len(path) <= 300 {
@@ -192,6 +211,11 @@ func TestEnsurePrivateDirRejectsExternalHardlinkWithoutChangingACL(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	file, err := os.OpenFile(stateFile, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
 
 	err = EnsurePrivateDir(path)
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "hard link") {

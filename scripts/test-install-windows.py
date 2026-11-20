@@ -87,7 +87,8 @@ def build_archive(executable=None, members=(), duplicate=False, symlink=False, d
 
     data = bytearray(buffer.getvalue())
     if declared_size is not None:
-        position = 0
+        with zipfile.ZipFile(io.BytesIO(data)) as parsed:
+            position = parsed.start_dir
         changed = False
         while True:
             position = data.find(b"PK\x01\x02", position)
@@ -285,6 +286,9 @@ class WindowsInstallTests(unittest.TestCase):
 
     def environment(self, **overrides):
         env = dict(os.environ)
+        for key in list(env):
+            if key.casefold() == "psmodulepath":
+                del env[key]
         for key in ("OMPIG_SLIM_VERSION", "OMPIG_SLIM_INSTALL_DIR", "OMPIG_SLIM_DOWNLOAD_BASE",
                     "OMPIG_SLIM_RELEASES_API", "PIG_HOME"):
             env.pop(key, None)

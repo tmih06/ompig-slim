@@ -350,7 +350,7 @@ func TestWindowsReplacementPreservesBackupWhenTargetIsMissing(t *testing.T) {
 	if err := os.WriteFile(staged, []byte("new"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := commitReplacement(staged, target); err == nil || !strings.Contains(err.Error(), backup) {
+	if err := commitReplacement(staged, target); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%q", backup)) {
 		t.Fatalf("error did not identify recovery path: %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {

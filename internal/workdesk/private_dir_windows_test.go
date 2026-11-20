@@ -17,7 +17,7 @@ func assertPrivatePath(t testing.TB, path string) {
 		t.Fatal(err)
 	}
 	sd, dacl, ace := testDACL(t, path)
-	if dacl.AceCount != 1 || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+	if dacl.AceCount != 1 || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
 		t.Fatalf("path DACL is not one allowed user entry: %s", sd)
 	}
 	const fileAllAccess = windows.ACCESS_MASK(0x001F01FF)
@@ -31,17 +31,17 @@ func assertPrivatePath(t testing.TB, path string) {
 	if sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart)); !sid.Equals(user.User.Sid) {
 		t.Fatalf("path ACE SID %v is not current user %v", sid, user.User.Sid)
 	}
+	control, _, err := sd.Control()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if info.IsDir() {
-		control, _, err := sd.Control()
-		if err != nil {
-			t.Fatal(err)
-		}
 		inherit := uint8(windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE)
 		if control&windows.SE_DACL_PROTECTED == 0 || ace.Header.AceFlags&inherit != inherit || ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
 			t.Fatalf("directory DACL does not protect an explicit inheritable user ACE: %s", sd)
 		}
-	} else if ace.Header.AceFlags&windows.INHERITED_ACE == 0 {
-		t.Fatalf("file DACL does not inherit the private directory ACE: %s", sd)
+	} else if control&windows.SE_DACL_PROTECTED == 0 && ace.Header.AceFlags&windows.INHERITED_ACE == 0 {
+		t.Fatalf("file DACL does not have a protected or inherited private user ACE: %s", sd)
 	}
 }
 

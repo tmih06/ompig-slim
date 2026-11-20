@@ -21,7 +21,7 @@ func TestThemeSync(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	name := "themes/night #1?.json"
+	name := "themes/night #1.json"
 	mustWrite(t, filepath.Join(a.dir, name), `{"name":"night","vars":{"bg":"#000000"}}`)
 	mustWrite(t, filepath.Join(b.dir, name), `{"name":"old"}`)
 	mustWrite(t, filepath.Join(a.dir, "themes", "ignored.txt"), "local")

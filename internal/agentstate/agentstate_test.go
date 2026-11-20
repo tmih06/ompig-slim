@@ -438,7 +438,7 @@ func TestRemoveProcessClearsACrashedWritersLeftovers(t *testing.T) {
 }
 
 func TestLiveReportsThisProcess(t *testing.T) {
-	publisher := NewPublisherAt(t.TempDir())
+	publisher := NewPublisherAt(filepath.Join(t.TempDir(), strconv.Itoa(os.Getpid())))
 	publisher.Publish(Document{State: Idle, Agent: "ompig-slim"})
 	publisher.mu.Lock()
 	doc := *publisher.last

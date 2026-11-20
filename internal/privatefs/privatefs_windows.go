@@ -64,7 +64,7 @@ func RestrictFile(file *os.File) error {
 		return err
 	}
 	// Go's file handles lack WRITE_DAC. ReOpenFile adds it without resolving a path.
-	handle, _, callErr := reOpenFile.Call(uintptr(file.Fd()), windows.WRITE_DAC,
+	handle, _, callErr := reOpenFile.Call(uintptr(file.Fd()), privateFileACLAccess,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		windows.FILE_FLAG_OPEN_REPARSE_POINT)
 	runtime.KeepAlive(file)
@@ -83,6 +83,8 @@ var reOpenFile = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
 // MAXIMUM_ALLOWED prevents SetSecurityInfo from propagating ACLs to unchecked children.
 // https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo
 const privateHandleAccess = windows.MAXIMUM_ALLOWED
+
+const privateFileACLAccess = windows.READ_CONTROL | windows.WRITE_DAC | windows.FILE_READ_ATTRIBUTES
 
 func currentUserDACL(inherit bool) (*windows.ACL, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -218,9 +220,16 @@ func openPrivateEntry(parent windows.Handle, name string) (windows.Handle, error
 	}
 	var handle windows.Handle
 	var status windows.IO_STATUS_BLOCK
+	const share = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE
+	const options = windows.FILE_OPEN_REPARSE_POINT | windows.FILE_SYNCHRONOUS_IO_NONALERT
 	err = windows.NtCreateFile(&handle, privateHandleAccess|windows.SYNCHRONIZE, &attributes, &status, nil, 0,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, windows.FILE_OPEN,
-		windows.FILE_OPEN_REPARSE_POINT|windows.FILE_SYNCHRONOUS_IO_NONALERT, 0, 0)
+		share, windows.FILE_OPEN, options, 0, 0)
+	if errors.Is(err, windows.STATUS_SHARING_VIOLATION) {
+		// Go file handles do not share DELETE. Keep directories on MAXIMUM_ALLOWED
+		// to prevent ACL propagation, and request data access to enforce the share mode.
+		err = windows.NtCreateFile(&handle, privateFileACLAccess|windows.FILE_READ_DATA|windows.SYNCHRONIZE,
+			&attributes, &status, nil, 0, share, windows.FILE_OPEN, options|windows.FILE_NON_DIRECTORY_FILE, 0, 0)
+	}
 	if err != nil {
 		return windows.InvalidHandle, err
 	}

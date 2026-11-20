@@ -171,6 +171,9 @@ class PowerShellToolingTests(unittest.TestCase):
         self.cache = self.root / "check cache with spaces"
         self.log = self.root / "commands.jsonl"
         self.env = dict(os.environ)
+        for key in list(self.env):
+            if key.casefold() == "psmodulepath":
+                del self.env[key]
         self.env.update({
             "CHECK_GO_LOG": str(self.log),
             "CHECKOUT": str(self.root),
