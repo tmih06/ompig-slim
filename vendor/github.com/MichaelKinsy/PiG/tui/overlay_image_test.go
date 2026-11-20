@@ -80,6 +80,48 @@ func TestOverlayHidesITermImagesThatCoverItsCells(t *testing.T) {
 	}
 }
 
+func TestMarkdownImageKeepsReservedRows(t *testing.T) {
+	image := EncodeKitty("aGVsbG8=", 8, 3, 0)
+	m := &Markdown{}
+	rows, _ := m.layoutRows(nil, nil, []string{image + "\n\n", "After"}, 20, 20)
+	if len(rows) != 4 || rows[0] != image || strings.TrimSpace(rows[1]) != "" || strings.TrimSpace(rows[2]) != "" || strings.TrimSpace(rows[3]) != "After" {
+		t.Fatalf("expected three image rows followed by text, got %q", rows)
+	}
+}
+
+func TestAltScreenKittyImagesSurviveRowClearsAndResize(t *testing.T) {
+	id := AllocateImageID()
+	RegisterKittyImageMetadata(KittyImageMetadata{ImageID: id, Columns: 10, Rows: 2, WidthPx: 90, HeightPx: 36})
+	image := EncodeKitty("aGVsbG8=", 10, 2, id)
+	var out bytes.Buffer
+	renderer := newTuiAltScreen(&out, false, TuiAltScreenOptions{})
+	renderer.fixedSize = true
+	renderer.setSize(20, 4)
+	renderer.altScreenActive = true
+	renderer.imageProtocol = ImageProtocolKitty
+	fixture := &overlayImageFixture{lines: []string{image, "", "", ""}}
+	renderer.layoutRoot = fixture
+	assertPlacedLast := func(frame string) {
+		t.Helper()
+		if placement := strings.LastIndex(frame, "\x1b_G"); placement < 0 || placement < strings.LastIndex(frame, "\x1b[2K") {
+			t.Fatalf("expected image placement after row clears: %q", frame)
+		}
+	}
+	renderer.doRender()
+	assertPlacedLast(out.String())
+	out.Reset()
+	fixture.lines[1] = "changed covered row"
+	renderer.doRender()
+	assertPlacedLast(out.String())
+	out.Reset()
+	renderer.setSize(20, 5)
+	renderer.doRender()
+	assertPlacedLast(out.String())
+	if !strings.Contains(out.String(), image) {
+		t.Fatal("resize did not resend image data")
+	}
+}
+
 func TestAltScreenOverlayClearsPreviouslyPlacedKittyImage(t *testing.T) {
 	imageID := AllocateImageID()
 	RegisterKittyImageMetadata(KittyImageMetadata{

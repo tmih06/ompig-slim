@@ -87,11 +87,7 @@ type TuiAltScreen struct {
 
 	altScreenActive bool
 	imageProtocol   ImageProtocol
-	// wezTerm is isWezTermSession as Start read it. Upstream reads process.env each frame, a property read; a Windows
-	// environment read allocates its UTF-16 key and value, so the alt screen reads it once per start, with the capabilities.
-	wezTerm bool
 	// scrollRows is whether a frame scrolls the rows that only moved (findMovedRows): PIG_TUI_SCROLL_ROWS=0 or a terminal not trusted with scroll regions (scrollRegionsUsable) turns it off.
-	// Start reads it, as it reads wezTerm.
 	scrollRows bool
 
 	// savedCapabilities holds the pre-enter terminal capabilities when the
@@ -436,7 +432,6 @@ func (t *TuiAltScreen) enterAltScreen() {
 	t.altScreenActive = true
 	caps := GetCapabilities()
 	t.imageProtocol = caps.Images
-	t.wezTerm = t.imageProtocol == "kitty" && isWezTermSession()
 	t.scrollRows = scrollRegionsUsable()
 	clear(t.uploadedKittyImages)
 	t.uploadedKittyImagesOrder = nil
@@ -924,12 +919,9 @@ func (t *TuiAltScreen) doRender() {
 			imageAnchorsNeedRedraw = true
 		}
 	}
-	// WezTerm erases the Kitty image cells a row write touches, so a changed row an image covers redraws the images
-	// (upstream tui-alt-screen.ts imageCellsNeedRedraw).
-	// Only a Kitty frame can use the answer; Start read it (t.wezTerm), so a frame reads no environment.
-	isWezTerm := t.wezTerm
+	// Cell-based Kitty renderers erase image tiles when a covered row is cleared.
 	imageCellsNeedRedraw := false
-	if !imageAnchorsNeedRedraw && isWezTerm && t.imageProtocol == "kitty" && anyChanged {
+	if !imageAnchorsNeedRedraw && t.imageProtocol == "kitty" && anyChanged {
 	rows:
 		for row, line := range screen {
 			placementRows, ok := GetKittyImagePlacementRows(line)
@@ -946,7 +938,10 @@ func (t *TuiAltScreen) doRender() {
 	}
 	imagesNeedRedraw := imageAnchorsNeedRedraw || imageCellsNeedRedraw
 	redrawImages := fullRedraw || imagesNeedRedraw
-	hadUploadedKittyImages := len(t.uploadedKittyImages) > 0
+	if fullRedraw {
+		clear(t.uploadedKittyImages)
+		t.uploadedKittyImagesOrder = nil
+	}
 
 	preparedLines := screen
 	evictedImageDeletion := ""
@@ -961,11 +956,7 @@ func (t *TuiAltScreen) doRender() {
 	switch {
 	case fullRedraw:
 		t.fullRedrawCount.Add(1) // tui-alt-screen.ts:1725
-		clearImages := t.deleteKittyImages()
-		if t.imageProtocol == "kitty" && hadUploadedKittyImages {
-			clearImages = DeleteAllKittyPlacements()
-		}
-		buf.WriteString(clearImages + "\x1b[2J")
+		buf.WriteString(t.deleteKittyImages() + "\x1b[2J")
 	case imagesNeedRedraw:
 		switch t.imageProtocol {
 		case "iterm2":
@@ -976,12 +967,8 @@ func (t *TuiAltScreen) doRender() {
 	}
 	buf.WriteString(evictedImageDeletion)
 
-	// WezTerm erases intersecting Kitty image cells when a later row write
-	// touches a covered row. Draw image placements after every clear and text
-	// write so nothing later intersects them; text-only frames and other
-	// terminals keep the interleaved output. Mirrors upstream drawKittyImagesLast.
-	drawKittyImagesLast := redrawImages && t.imageProtocol == "kitty" &&
-		slices.ContainsFunc(screen, widthx.IsImageLine) && isWezTerm
+	// Draw Kitty placements after all row clears and text writes so cell-based terminals keep the whole image.
+	drawKittyImagesLast := redrawImages && t.imageProtocol == "kitty" && slices.ContainsFunc(screen, widthx.IsImageLine)
 	repaintAll := fullRedraw || imagesNeedRedraw
 	repaint := func(row int) bool {
 		return repaintAll || altScreenRow(screen, row) != altScreenRow(t.previousScreen, row)
@@ -1095,12 +1082,6 @@ func writeCursorTo(buf *strings.Builder, row, col int) {
 	buf.WriteByte(';')
 	buf.Write(strconv.AppendInt(digits[:0], int64(col), 10))
 	buf.WriteByte('H')
-}
-
-// isWezTermSession reports whether the process runs inside WezTerm, from WEZTERM_PANE and TERM_PROGRAM as upstream reads
-// process.env; the alt screen reads it at Start.
-func isWezTermSession() bool {
-	return os.Getenv("WEZTERM_PANE") != "" || strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm"
 }
 
 // compositeOverlays uses the same state snapshot, geometry, and terminal-cell
