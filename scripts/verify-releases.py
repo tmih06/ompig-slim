@@ -16,6 +16,9 @@ ARTIFACTS = (
     ("windows-x64", "zip", 0x8664),
     ("windows-arm64", "zip", 0xAA64),
 )
+WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL"} | {
+    prefix + digit for prefix in ("COM", "LPT") for digit in "123456789¹²³"
+}
 
 
 def verify_pe(binary, machine):
@@ -38,10 +41,8 @@ def safe_member_name(name, windows=False):
     assert not any(character in name for character in ("\\", ":", "\0")), name
     if windows:
         assert not any(character in name for character in '<>"|?*') and all(ord(character) >= 32 for character in name), name
-        devices = {"CON", "PRN", "AUX", "NUL"} | {
-            prefix + digit for prefix in ("COM", "LPT") for digit in "123456789¹²³"
-        }
-        assert all(part == part.rstrip(". ") and part.split(".")[0].upper() not in devices for part in parts), name
+        assert all(part == part.rstrip(". ") and part.split(".")[0].upper() not in WINDOWS_DEVICES
+                   for part in parts), name
 
 
 def verify(directory):
@@ -69,46 +70,41 @@ def verify(directory):
             names = [member.filename if is_zip else member.name for member in members]
             keys = [name.removesuffix("/").casefold() if is_zip else name for name in names]
             assert len(keys) == len(set(keys)), "duplicate archive member"
+            # Read in archive order: seeking backwards in a tar.gz restarts decompression.
+            contents = {}
             for member, name in zip(members, names):
                 safe_member_name(name, windows=is_zip)
                 if is_zip:
                     member_type = stat.S_IFMT(member.external_attr >> 16)
                     expected_types = (0, stat.S_IFDIR) if member.is_dir() else (0, stat.S_IFREG)
                     assert member_type in expected_types, f"unexpected member: {name}"
+                    if not member.is_dir():
+                        contents[name.removeprefix("ompig-slim/")] = package.read(member)
                 else:
                     assert member.isfile() or member.isdir(), f"unexpected member: {name}"
-
-            def content(name):
-                member_name = "ompig-slim/" + name
-                if is_zip:
-                    return package.read(member_name)
-                stream = package.extractfile(member_name)
-                assert stream is not None, member_name
-                with stream:
-                    return stream.read()
-
-            binary_name = "ompig-slim.exe" if is_zip else "ompig-slim"
-            binary = content(binary_name)
+                    if member.isfile():
+                        contents[name.removeprefix("ompig-slim/")] = package.extractfile(member).read()
             if is_zip:
-                verify_pe(binary, machine)
-            elif platform.startswith("linux"):
-                assert binary[:6] == b"\x7fELF\x02\x01", "expected 64-bit little-endian ELF"
-                assert struct.unpack_from("<H", binary, 18)[0] == machine
-                assert package.getmember("ompig-slim/ompig-slim").mode & 0o111
+                verify_pe(contents["ompig-slim.exe"], machine)
             else:
-                assert binary[:4] == b"\xcf\xfa\xed\xfe", "expected 64-bit little-endian Mach-O"
-                assert struct.unpack_from("<I", binary, 4)[0] == machine
+                binary = contents["ompig-slim"]
                 assert package.getmember("ompig-slim/ompig-slim").mode & 0o111
-            for name in ("README.md", "LICENSE", "NOTICE"):
-                assert content(name) == (vendor.parent / name).read_bytes(), name
-            for name in ("LICENSE", "NOTICE"):
-                assert content("PiG-" + name) == (pig / name).read_bytes(), name
-            for path in notices:
-                assert content("licenses/" + path.relative_to(vendor).as_posix()) == path.read_bytes(), path
-            for path in (pig / "LICENSES").iterdir():
-                if path.is_file():
-                    assert content("licenses/github.com/MichaelKinsy/PiG/LICENSES/" + path.name) == path.read_bytes(), path
-            assert content("licenses/github.com/MichaelKinsy/PiG/REUSE.toml") == (pig / "REUSE.toml").read_bytes()
+                if platform.startswith("linux"):
+                    assert binary[:6] == b"\x7fELF\x02\x01", "expected 64-bit little-endian ELF"
+                    assert struct.unpack_from("<H", binary, 18)[0] == machine
+                else:
+                    assert binary[:4] == b"\xcf\xfa\xed\xfe", "expected 64-bit little-endian Mach-O"
+                    assert struct.unpack_from("<I", binary, 4)[0] == machine
+        for name in ("README.md", "LICENSE", "NOTICE"):
+            assert contents[name] == (vendor.parent / name).read_bytes(), name
+        for name in ("LICENSE", "NOTICE"):
+            assert contents["PiG-" + name] == (pig / name).read_bytes(), name
+        for path in notices:
+            assert contents["licenses/" + path.relative_to(vendor).as_posix()] == path.read_bytes(), path
+        for path in (pig / "LICENSES").iterdir():
+            if path.is_file():
+                assert contents["licenses/github.com/MichaelKinsy/PiG/LICENSES/" + path.name] == path.read_bytes(), path
+        assert contents["licenses/github.com/MichaelKinsy/PiG/REUSE.toml"] == (pig / "REUSE.toml").read_bytes()
         print(f"{platform}: checksum, executable, and license contents verified")
 
 
