@@ -50,7 +50,7 @@ smoke: build
 # CI extracts a verified release binary before calling this build-free target.
 smoke-built:
 ifeq ($(OS),Windows_NT)
-	python3 scripts/smoke-test-windows.py ./bin/ompig-slim.exe
+	python scripts/smoke-test-windows.py ./bin/ompig-slim.exe
 else
 	python3 scripts/smoke-test-account-routing.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codex-account-policy.py ./bin/ompig-slim
@@ -101,7 +101,7 @@ test-install: build
 endif
 test-install:
 ifeq ($(OS),Windows_NT)
-	python3 scripts/test-install-windows.py ./bin/ompig-slim.exe
+	python scripts/test-install-windows.py ./bin/ompig-slim.exe
 else
 	python3 scripts/test-install.py
 endif
@@ -118,7 +118,7 @@ test-extensions: build
 # Builds no Go code and reaches no network beyond loopback.
 test-self-update: build
 ifeq ($(OS),Windows_NT)
-	python3 scripts/test-install-windows.py ./bin/ompig-slim.exe
+	python scripts/test-install-windows.py ./bin/ompig-slim.exe
 else
 	python3 scripts/test-self-update.py ./bin/ompig-slim
 endif
