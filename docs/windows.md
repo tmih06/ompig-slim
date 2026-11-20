@@ -102,8 +102,7 @@ and executable smoke scenarios. The x64 job also runs the race detector.
 Windows smoke scenarios drive terminal input through ConPTY rather than the
 Unix-only Python PTY helpers. Stable and beta publication depend on these jobs.
 
-Cross-compilation and PE inspection are not native runtime proof. This change was
-developed on Linux. The native Windows jobs must pass before the Windows support
-claim is verified. The implementation decisions and outstanding evidence are in
-[the decision trail](windows-support-decisions.tsv). Reproducible checks and
-review gaps are recorded in [the verification report](windows-verification.md).
+Cross-compilation and PE inspection are not native runtime proof, so the native
+jobs are the Windows support gate. [The verification report](windows-verification.md)
+records native evidence and review gaps. [The decision trail](windows-support-decisions.tsv)
+records implementation decisions.

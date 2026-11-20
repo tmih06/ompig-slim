@@ -54,9 +54,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 Windows installs to `%LOCALAPPDATA%\ompig-slim\bin`. Open a new terminal to use the
-updated PATH. Install Git for Windows to use Bash tools. Windows assets require a release built from this change, not an older tag.
-See [native Windows setup and verification](docs/windows.md) for prerequisites,
-PowerShell source builds, and platform limits. Then:
+updated PATH. Install Git for Windows to use Bash tools. Releases published before
+Windows support have no Windows assets. See [native Windows setup and verification](docs/windows.md)
+for prerequisites, PowerShell source builds, and platform limits. Then:
 
 ```sh
 ompig-slim update                   # update using the saved channel (initially stable)
