@@ -33,7 +33,8 @@ type ReadDetails struct {
 	Truncated   bool `json:"-"`
 	// Truncation is the upstream-shaped truncation object for the extension SDK
 	// contract and the TUI warning. It is nil unless truncation occurred.
-	Truncation *TruncationResult `json:"truncation,omitempty"`
+	Truncation              *TruncationResult `json:"truncation,omitempty"`
+	ImageUnsupportedByModel string            `json:"imageUnsupportedByModel,omitempty"`
 }
 
 // BashDetails is attached to a BashTool result. The renderer reads

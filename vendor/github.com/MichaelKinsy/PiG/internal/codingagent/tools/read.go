@@ -633,12 +633,12 @@ func (t *ReadTool) readImage(ctx context.Context, data []byte, mime string) agen
 			text += "\n" + hints
 		}
 	}
-	if env.SupportsImages != nil && !*env.SupportsImages {
-		text += "\n[Current model does not support images. The image will be omitted from this request.]"
-	}
 	result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}}}
 	if err == nil {
 		result.Content = append(result.Content, ai.ImageContent{MimeType: processedMIME, Data: base64Encode(processed)})
+		if env.SupportsImages != nil && !*env.SupportsImages {
+			result.Details = &ReadDetails{ImageUnsupportedByModel: env.Model}
+		}
 	}
 	return result
 }
