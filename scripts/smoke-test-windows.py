@@ -41,16 +41,16 @@ class Scenario:
     prior_answer: str | None = None
 
 
-def request_user_text(body):
+def request_user_text(body, markers):
     for message in reversed(body.get("messages", [])):
         if message.get("role") != "user":
             continue
         content = message.get("content", "")
-        if isinstance(content, str):
-            return content
         if isinstance(content, list):
-            return "\n".join(part.get("text", "") for part in content
-                             if isinstance(part, dict))
+            content = "\n".join(part.get("text", "") for part in content
+                                if isinstance(part, dict))
+        if isinstance(content, str) and any(marker in content for marker in markers):
+            return content
     return ""
 
 
@@ -143,7 +143,7 @@ class ModelFixture:
         self.call_number = 0
 
     def handle(self, body):
-        user_text = request_user_text(body)
+        user_text = request_user_text(body, self.scenarios)
         scenario = next((item for marker, item in self.scenarios.items()
                          if marker in user_text), None)
         if scenario is None:
@@ -943,6 +943,22 @@ class PortableLogicTests(unittest.TestCase):
         self.assertEqual(tail, b"")
         reply, tail = terminal_replies(b"\x1b[c", tail)
         self.assertEqual(reply, b"\x1b[?1;2c")
+
+    def test_fixture_finds_scenario_before_model_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ModelFixture(root, [Scenario("PROBE", "OK", "write", {})], root)
+            body = {"messages": [{"role": "user", "content": "PROBE"},
+                                 {"role": "user", "content": "Selected provider: windows-smoke\nSelected model: fixture"}],
+                    "tools": [{"function": {"name": "write"}}]}
+            delta, reason = fixture.handle(body)
+            self.assertEqual(reason, "tool_calls")
+            body["messages"].extend([
+                {"role": "assistant", "tool_calls": delta["tool_calls"]},
+                {"role": "tool", "tool_call_id": delta["tool_calls"][0]["id"], "content": "written"},
+            ])
+            delta, reason = fixture.handle(body)
+            self.assertEqual((delta["content"], reason), ("OK", "stop"))
 
     def test_rpc_tool_results_are_scoped_to_latest_user_turn(self):
         body = {"messages": [{"role": "user", "content": "old"},
