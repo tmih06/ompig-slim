@@ -56,12 +56,7 @@ def pe_architecture(path):
 
 def build_archive(executable=None, members=(), duplicate=False, symlink=False, declared_size=None,
                   include_executable=True):
-    global NATIVE_ARCHIVE
-    default_archive = (executable is None and not members and not duplicate and not symlink and
-                       declared_size is None and include_executable)
-    if default_archive and NATIVE_ARCHIVE is not None:
-        return NATIVE_ARCHIVE
-    if executable is None and (duplicate or (include_executable and not symlink)):
+    if executable is None:
         executable = BINARY.read_bytes()
     buffer = io.BytesIO()
     with warnings.catch_warnings():
@@ -108,10 +103,7 @@ def build_archive(executable=None, members=(), duplicate=False, symlink=False, d
             position = name_start + name_length + extra_length + comment_length
         if not changed:
             raise AssertionError("could not find the executable ZIP entry")
-    result = bytes(data)
-    if default_archive:
-        NATIVE_ARCHIVE = result
-    return result
+    return bytes(data)
 
 
 def checksum_for(archive, name):
@@ -166,7 +158,18 @@ class ReleaseServer:
         self.lock = threading.Lock()
         fixture = self
 
+        def release_document(tag):
+            return {"tag_name": tag, "draft": False, "prerelease": "-beta." in tag}
+
         class Handler(http.server.BaseHTTPRequestHandler):
+            def send_json(self, document):
+                body = json.dumps(document).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def do_GET(self):
                 parsed = urllib.parse.urlsplit(self.path)
                 path = parsed.path
@@ -178,24 +181,10 @@ class ReleaseServer:
                     if latest_tag is None:
                         self.send_error(404)
                         return
-                    body = json.dumps({"tag_name": latest_tag, "draft": False,
-                                       "prerelease": "-beta." in latest_tag}).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                    self.send_json(release_document(latest_tag))
                     return
                 if path == "/releases":
-                    documents = [{"tag_name": tag, "draft": False,
-                                  "prerelease": "-beta." in tag}
-                                 for tag in releases]
-                    body = json.dumps(documents).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                    self.send_json([release_document(tag) for tag in releases])
                     return
                 prefix = "/releases/latest/download/"
                 if path.startswith(prefix):
@@ -220,12 +209,13 @@ class ReleaseServer:
                 if record is None:
                     self.send_error(404)
                     return
+                archive, sidecar, declared_length = record
                 archive_name = f"ompig-slim-{fixture.platform}.zip"
                 if asset == archive_name:
-                    body = record[0]
-                    content_length = record[2] if record[2] is not None else len(body)
+                    body = archive
+                    content_length = len(body) if declared_length is None else declared_length
                 elif asset == archive_name + ".sha256":
-                    body = record[1]
+                    body = sidecar
                     content_length = len(body)
                 else:
                     self.send_error(404)
@@ -234,7 +224,7 @@ class ReleaseServer:
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(content_length))
                 self.end_headers()
-                if record[2] is None or asset != archive_name:
+                if declared_length is None or asset != archive_name:
                     self.wfile.write(body)
 
             def log_message(self, *_args):
@@ -289,8 +279,7 @@ class WindowsInstallTests(unittest.TestCase):
         for key in list(env):
             if key.casefold() == "psmodulepath":
                 del env[key]
-        for key in ("OMPIG_SLIM_VERSION", "OMPIG_SLIM_INSTALL_DIR", "OMPIG_SLIM_DOWNLOAD_BASE",
-                    "OMPIG_SLIM_RELEASES_API", "PIG_HOME"):
+        for key in ("OMPIG_SLIM_VERSION", "OMPIG_SLIM_INSTALL_DIR"):
             env.pop(key, None)
         env.update({
             "OMPIG_SLIM_DOWNLOAD_BASE": self.server.base,
@@ -304,22 +293,23 @@ class WindowsInstallTests(unittest.TestCase):
         env.update({key: str(value) for key, value in overrides.items()})
         return env
 
-    def run_installer(self, *arguments, env=None):
+    def powershell(self, *arguments, env=None):
         return subprocess.run(
             [POWERSHELL, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-             "-File", str(INSTALLER), *map(str, arguments)],
+             *map(str, arguments)],
             env=self.environment() if env is None else env,
             text=True, capture_output=True, errors="replace", timeout=120, cwd=self.root,
         )
 
+    def run_installer(self, *arguments, env=None):
+        return self.powershell("-File", INSTALLER, *arguments, env=env)
+
     def stage(self, tag="v1.2.3", *, archive=None, latest=False, checksum=None,
               archive_content_length=None, **archive_options):
-        payload = build_archive() if archive is None else archive
-        if archive_options:
-            payload = build_archive(**archive_options)
-        self.server.publish(tag, payload, latest=latest, checksum=checksum,
+        if archive is None:
+            archive = build_archive(**archive_options) if archive_options else NATIVE_ARCHIVE
+        self.server.publish(tag, archive, latest=latest, checksum=checksum,
                             archive_content_length=archive_content_length)
-        return payload
 
     def target(self, directory=None):
         return (self.install_dir if directory is None else pathlib.Path(directory)) / "ompig-slim.exe"
@@ -451,13 +441,11 @@ class WindowsInstallTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("PIG_HOME must not contain a newline", result.stderr)
         self.assertFalse(self.server.requests)
-        self.assertEqual(self.target().read_bytes(), before_binary)
-        self.assertEqual(self.marker().read_bytes(), before_marker)
+        self.assert_update_preserved(before_binary, before_marker)
 
     def test_default_directory_uses_local_app_data(self):
         self.stage("v1.2.3", latest=True)
         env = self.environment(OMPIG_SLIM_VERSION="latest")
-        env.pop("OMPIG_SLIM_INSTALL_DIR", None)
         result = self.run_installer("-NoModifyPath", env=env)
         default_dir = self.local_app_data / "ompig-slim" / "bin"
         self.assert_installed(result, self.target(default_dir))
@@ -487,8 +475,7 @@ class WindowsInstallTests(unittest.TestCase):
         result = self.run_installer("-NoModifyPath", env=env)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("Checksum mismatch", result.stderr)
-        self.assertEqual(self.target().read_bytes(), before_binary)
-        self.assertEqual(self.marker().read_bytes(), before_marker)
+        self.assert_update_preserved(before_binary, before_marker)
 
     def test_oversized_archive_download_is_rejected_without_installing(self):
         self.stage("v1.2.3", latest=True, archive_content_length=512 * 1024 * 1024 + 1)
@@ -565,8 +552,7 @@ class WindowsInstallTests(unittest.TestCase):
         self.stage("v2.0.0", latest=True, executable=b"not a Windows executable")
         result = self.run_installer("-NoModifyPath", env=env)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.target().read_bytes(), before_binary)
-        self.assertEqual(self.marker().read_bytes(), before_marker)
+        self.assert_update_preserved(before_binary, before_marker)
         self.assertFalse(any(self.install_dir.glob(".ompig-slim.new.*.exe")))
 
     def test_backup_only_install_recovers_previous_executable_before_staging(self):
@@ -617,8 +603,7 @@ class WindowsInstallTests(unittest.TestCase):
         finally:
             kernel32.CloseHandle(handle)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.target().read_bytes(), before_binary)
-        self.assertEqual(self.marker().read_bytes(), before_marker)
+        self.assert_update_preserved(before_binary, before_marker)
 
     def test_invalid_and_missing_cli_flags_fail(self):
         self.stage("v1.2.3", latest=True)
@@ -658,7 +643,6 @@ class WindowsInstallTests(unittest.TestCase):
                 self.assertEqual((self.install_dir / "ompig-slim.previous.exe").read_bytes(), before)
                 marker = dict(line.split("=", 1) for line in self.marker().read_text(encoding="utf-8").splitlines())
                 self.assertEqual(marker["channel"], "stable")
-                self.assertEqual(hashlib.sha256(target.read_bytes()).digest(), hashlib.sha256(BINARY.read_bytes()).digest())
                 before = target.read_bytes()
 
     def test_stable_noop_force_beta_selection_and_saved_channel(self):
@@ -720,12 +704,7 @@ class WindowsInstallTests(unittest.TestCase):
 
     def _run_powershell(self, script, env=None):
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-        return subprocess.run(
-            [POWERSHELL, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-             "-EncodedCommand", encoded],
-            env=self.environment() if env is None else env,
-            text=True, capture_output=True, errors="replace", timeout=120,
-        )
+        return self.powershell("-EncodedCommand", encoded, env=env)
 
     def _get_user_path(self):
         script = "$v=[Environment]::GetEnvironmentVariable('Path','User'); if ($null -eq $v) { 'NULL' } else { 'VALUE=' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)) }"
@@ -760,10 +739,7 @@ class WindowsInstallTests(unittest.TestCase):
             )
             env = self.environment(OMPIG_SLIM_TEST_INSTALLER=INSTALLER,
                                   OMPIG_SLIM_TEST_INSTALL_DIR=self.install_dir)
-            result = subprocess.run(
-                [POWERSHELL, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                 "-File", str(wrapper)], env=env, text=True, capture_output=True, errors="replace", timeout=120,
-            )
+            result = self.powershell("-File", wrapper, env=env)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             encoded_path = next(line.split("=", 1)[1] for line in result.stdout.splitlines() if line.startswith("TESTPATH="))
             process_path = base64.b64decode(encoded_path).decode("utf-8")

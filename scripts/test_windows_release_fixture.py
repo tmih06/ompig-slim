@@ -3,7 +3,6 @@ import http.client
 import importlib.util
 import io
 from pathlib import Path
-import tempfile
 import unittest
 import zipfile
 
@@ -15,15 +14,8 @@ SPEC.loader.exec_module(windows_install)
 
 class WindowsReleaseFixtureTests(unittest.TestCase):
     def test_declared_size_edit_ignores_executable_zip_signatures(self):
-        with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / "fixture.exe"
-            binary.write_bytes(b"executable PK\x01\x02" + b"\xff" * 100)
-            previous = windows_install.BINARY
-            windows_install.BINARY = binary
-            try:
-                data = windows_install.build_archive(declared_size=123456789)
-            finally:
-                windows_install.BINARY = previous
+        data = windows_install.build_archive(executable=b"executable PK\x01\x02" + b"\xff" * 100,
+                                             declared_size=123456789)
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             self.assertEqual(archive.getinfo(windows_install.ARCHIVE_MEMBER).file_size, 123456789)
 

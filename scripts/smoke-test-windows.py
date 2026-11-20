@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Exercise a native Windows release executable without credentials or WSL."""
 
+from __future__ import annotations
+
 import argparse
 import ctypes
 from ctypes import wintypes
+import dataclasses
 import http.server
 import json
 import ntpath
@@ -26,17 +29,16 @@ STARTUP_TIMEOUT = 60
 NATIVE_BASH_RUNTIMES = ("mingw", "msys", "clangarm64", "clang64", "ucrt64")
 
 
+@dataclasses.dataclass(frozen=True)
 class Scenario:
-    def __init__(self, marker, answer, tool=None, arguments=None, proof=None,
-                 content=None, proof_kind="text", prior_answer=None):
-        self.marker = marker
-        self.answer = answer
-        self.tool = tool
-        self.arguments = arguments
-        self.proof = proof
-        self.content = content
-        self.proof_kind = proof_kind
-        self.prior_answer = prior_answer
+    marker: str
+    answer: str
+    tool: str | None = None
+    arguments: dict | None = None
+    proof: Path | None = None
+    content: str | None = None
+    proof_kind: str = "text"
+    prior_answer: str | None = None
 
 
 def request_user_text(body):
@@ -151,8 +153,7 @@ class ModelFixture:
             self.call_number += 1
             call_number = self.call_number
             self.events[scenario.marker].set()
-        all_text = "\n".join(strings_in(body.get("messages", [])))
-        if scenario.prior_answer and scenario.prior_answer not in all_text:
+        if scenario.prior_answer and scenario.prior_answer not in "\n".join(strings_in(body.get("messages", []))):
             raise AssertionError("resumed session did not include the earlier assistant answer")
         tool_results = tools_after_last_user(body)
         offered = {item.get("function", {}).get("name")
@@ -237,8 +238,9 @@ class FixtureHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(payload)
             self.close_connection = True
         except Exception as exc:
-            self.server.fixture.failures.append(f"{type(exc).__name__}: {exc}")
-            payload = (f"{type(exc).__name__}: {exc}").encode("utf-8")
+            failure = f"{type(exc).__name__}: {exc}"
+            self.server.fixture.failures.append(failure)
+            payload = failure.encode("utf-8")
             try:
                 self.send_response(500)
                 self.send_header("Content-Length", str(len(payload)))
@@ -295,7 +297,7 @@ def isolated_environment(root, profile, git_bash):
     appdata = root / "roaming data"
     for path in (temp, local, appdata):
         path.mkdir(parents=True, exist_ok=True)
-    environment = {
+    return {
         "PATH": os.pathsep.join(unique_paths),
         "SystemRoot": system_root,
         "WINDIR": system_root,
@@ -323,7 +325,6 @@ def isolated_environment(root, profile, git_bash):
         "TERM_PROGRAM": "ompig-windows-smoke",
         "LANG": "C.UTF-8",
     }
-    return environment
 
 
 def write_profile(profile, server):
@@ -774,7 +775,6 @@ def run_tui(binary, workspace, environment, sessions, model_requested, timeout):
         conpty.close()
 
 
-
 def git_install_root(git_bash):
     parents = git_bash.parents
     if len(parents) >= 3 and parents[0].name.casefold() == "bin" and parents[1].name.casefold() == "usr":
@@ -863,9 +863,8 @@ def run_smoke(binary, git_bash, timeout):
                 raise AssertionError("resumed session did not produce its fixture response")
             print("PASS: print tool side effect and session persistence/resume")
 
-            json_result = run_command(cli_base(binary, sessions) + ["--mode", "json",
-                                         "--no-session", "WINDOWS_JSON_PROBE"], workspace,
-                                      environment, timeout, "JSON model/tool turn")
+            json_result = run_command(base + ["--mode", "json", "--no-session", "WINDOWS_JSON_PROBE"],
+                                      workspace, environment, timeout, "JSON model/tool turn")
             try:
                 events = [json.loads(line) for line in json_result.stdout.splitlines() if line.strip()]
             except json.JSONDecodeError as exc:
@@ -877,7 +876,7 @@ def run_smoke(binary, git_bash, timeout):
             print("PASS: JSONL model turn and native codemode nested write")
 
             run_rpc(binary, workspace, environment, sessions, timeout)
-            if not (workspace / "rpc-proof.txt").read_text(encoding="utf-8") == "native rpc write":
+            if (workspace / "rpc-proof.txt").read_text(encoding="utf-8") != "native rpc write":
                 raise AssertionError("RPC write tool side effect differs")
             print("PASS: RPC stdio request/response and tool write")
 
@@ -899,7 +898,7 @@ def run_smoke(binary, git_bash, timeout):
                     raise AssertionError(f"durable {action} did not retain completion: {status}")
             print("PASS: durable run, status, resume, and native file write")
 
-            bash_turn = run_command(cli_base(binary, sessions) + ["--print", "WINDOWS_BASH_PROBE"],
+            bash_turn = run_command(base + ["--print", "WINDOWS_BASH_PROBE"],
                                     workspace, environment, timeout, "Git for Windows Bash tool turn")
             if "WINDOWS_BASH_OK" not in bash_turn.stdout:
                 raise AssertionError("Bash tool turn did not produce its fixture response")

@@ -9,6 +9,16 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+INSTALLER = ROOT / "scripts/install.ps1"
+LOAD_FUNCTIONS = r'''
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:FUNCTIONS_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
+foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+'''
 
 FAKE_GO = r'''package main
 
@@ -197,6 +207,9 @@ class PowerShellToolingTests(unittest.TestCase):
             cwd=cwd or self.base, env=env or self.env, text=True, capture_output=True, timeout=60,
         )
 
+    def run_functions(self, script, body, **env):
+        return self.run_ps_command(LOAD_FUNCTIONS + body, env=dict(self.env, FUNCTIONS_SCRIPT=str(script), **env))
+
     def calls(self):
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
 
@@ -217,14 +230,7 @@ class PowerShellToolingTests(unittest.TestCase):
         return pig
 
     def test_installer_validates_windows_names_and_deduplicates_path(self):
-        env = dict(self.env, INSTALLER_SCRIPT=str(ROOT / "scripts/install.ps1"))
         command = r'''
-$tokens = $null
-$errors = $null
-$ast = [Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SCRIPT, [ref]$tokens, [ref]$errors)
-if ($errors.Count) { throw ($errors | Out-String) }
-$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
-foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
 foreach ($name in @('../bad', 'ompig-slim/trailing.', 'ompig-slim/trailing ', 'ompig-slim/NUL.txt', 'ompig-slim/stream:alias')) {
     if (Test-SafeArchiveName $name) { throw "Unsafe archive name accepted $name" }
 }
@@ -249,18 +255,18 @@ try {
     [IO.Directory]::Delete($root, $true)
 }
 '''
-        result = self.run_ps_command(command, env=env)
+        result = self.run_functions(INSTALLER, command)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_loaded_functions_stop_on_errors_like_their_scripts(self):
+        for body in ("Write-Error 'injected'\n'continued'\n", "Get-UndefinedFixtureFunction\n'continued'\n"):
+            with self.subTest(body=body):
+                result = self.run_functions(INSTALLER, body)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("continued", result.stdout)
+
     def test_installer_retries_transient_sharing_errors_and_fails_fast_other_io(self):
-        env = dict(self.env, INSTALLER_SCRIPT=str(ROOT / "scripts/install.ps1"))
         command = r'''
-$tokens = $null
-$errors = $null
-$ast = [Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SCRIPT, [ref]$tokens, [ref]$errors)
-if ($errors.Count) { throw ($errors | Out-String) }
-$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
-foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
 $root = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($root)
 try {
@@ -313,7 +319,7 @@ try {
     [IO.Directory]::Delete($root, $true)
 }
 '''
-        result = self.run_ps_command(command, env=env)
+        result = self.run_functions(INSTALLER, command)
         self.assertEqual(result.returncode, 0, result.stderr)
 
         if os.name == "nt":
@@ -350,20 +356,7 @@ try {
             release = threading.Thread(target=release_after_failure)
             release.start()
             try:
-                env = dict(
-                    self.env,
-                    INSTALLER_SCRIPT=str(ROOT / "scripts/install.ps1"),
-                    MOVE_SOURCE=str(source),
-                    MOVE_TARGET=str(target),
-                    MOVE_FAILURE=str(failure_marker),
-                )
                 command = r'''
-$tokens = $null
-$errors = $null
-$ast = [Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SCRIPT, [ref]$tokens, [ref]$errors)
-if ($errors.Count) { throw ($errors | Out-String) }
-$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
-foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
 Invoke-InstallFileMutation {
     try { [IO.File]::Move($env:MOVE_SOURCE, $env:MOVE_TARGET) }
     catch [IO.IOException] {
@@ -372,7 +365,8 @@ Invoke-InstallFileMutation {
     }
 }
 '''
-                result = self.run_ps_command(command, env=env)
+                result = self.run_functions(INSTALLER, command, MOVE_SOURCE=str(source),
+                                            MOVE_TARGET=str(target), MOVE_FAILURE=str(failure_marker))
             finally:
                 release.join()
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -380,14 +374,7 @@ Invoke-InstallFileMutation {
             self.assertIn(int(failure_marker.read_text(encoding="utf-8-sig")), (32, 33))
 
     def test_ci_checksum_accepts_certutil_and_gnu_formats(self):
-        env = dict(self.env, SETUP_SCRIPT=str(ROOT / "scripts/setup-windows-ci.ps1"))
         command = r'''
-$tokens = $null
-$errors = $null
-$ast = [Management.Automation.Language.Parser]::ParseFile($env:SETUP_SCRIPT, [ref]$tokens, [ref]$errors)
-if ($errors.Count) { throw ($errors | Out-String) }
-$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
-foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
 $digest = '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'
 $certutil = "SHA256 hash of ripgrep.zip:`r`n$digest`r`nCertUtil: -hashfile command completed successfully.`r`n"
 foreach ($text in @($certutil, "$digest  ripgrep.zip`n", "$digest`n")) {
@@ -399,7 +386,7 @@ foreach ($text in @('', 'bad checksum', "$digest`n$digest")) {
     if (-not $rejected) { throw 'Invalid checksum accepted' }
 }
 '''
-        result = self.run_ps_command(command, env=env)
+        result = self.run_functions(ROOT / "scripts/setup-windows-ci.ps1", command)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_bootstrap_preserves_pig_and_manifest_and_skips_cached_restore(self):
