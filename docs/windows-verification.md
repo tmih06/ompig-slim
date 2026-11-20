@@ -1,13 +1,45 @@
 # Windows port verification
 
-The implementation adds native x64 and ARM64 release artifacts and Windows-only
-regression gates. Native Windows execution remains unverified in this session.
-The development host is Linux ARM64. Cross-compilation does not prove Windows
-ACLs, mapped-image replacement, PowerShell 5.1 installation, or ConPTY behavior.
+Native Windows x64 and ARM64 acceptance passed in
+[CI run 44733920510](https://github.com/tmih06/ompig-slim/actions/runs/44733920510),
+at source revision `cd8dfb7`. The complete CI run passed. The development host is
+Linux ARM64; the Windows results below come from native GitHub-hosted runners,
+not cross-builds.
 
-## Executed checks
+## Native evidence
 
-These commands passed on the development host:
+| Runner | Gate | Result |
+| --- | --- | --- |
+| Windows x64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280536989) | Passed |
+| Windows ARM64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280537128) | Passed |
+| Windows x64 | [Go race detector](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280536851) | Passed |
+| Windows x64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136281812053) | Passed |
+| Windows ARM64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136281811905) | Passed |
+
+Each architecture passed all 31 loopback installer/update tests. Each then proved
+print mode, JSONL, native codemode writes, RPC, session persistence and resume,
+durable recovery, and native Git Bash without WSL. The ConPTY scenario
+submitted a prompt, observed its tool write and response, resized the terminal,
+required a fresh repaint, and quit successfully. These jobs consume the exact
+release ZIP after checking its checksum.
+
+Each Go check job also passed 11 PowerShell tooling tests. These include a native
+locked-handle regression that releases the file only after a move encounters a
+sharing violation. The installer suite prefers Windows PowerShell 5.1; tooling
+checks use PowerShell 7. Go coverage includes private-state ACLs, junction and
+hard-link refusal, long paths, running-image updates, stale processes, shared
+update locks, rollback, SDK timeouts, and case-insensitive ownership.
+
+Native runs found defects that cross-vet missed. Fixes cover handle rights and
+sharing, concurrent status reads, PowerShell module-path inheritance, literal
+tilde paths, display separators, and transient executable-file locks. The ConPTY
+harness also needed explicit standard-handle isolation from redirected CI
+streams. The [decision trail](windows-support-decisions.tsv) records the failures
+and changes. Neither native release gate is weakened or skipped on failure.
+
+## Development-host checks
+
+These commands passed on Linux ARM64:
 
 ```sh
 make check
@@ -24,35 +56,17 @@ python3 scripts/test-powershell.py
 python3 scripts/smoke-test-windows.py --self-test
 ```
 
-The PowerShell tests used PowerShell 7.7 on Linux. Nine tests exercised dependency
-bootstrap, test-command failure propagation, profile isolation, directory links,
-installer name validation, and actual .NET file and marker replacement. They do
-not substitute for installation on Windows. Eight release-verifier tests covered
-all six archive layouts, unsafe members, Windows aliases, checksums, PE headers,
-license contents, and unexpected release assets. Five portable smoke tests checked
-fixture and protocol logic without launching Windows processes.
+The Unix installer suite passed 32 cases, and real-binary self-update passed 15.
+The final Linux smoke run covered interactive and headless flows. All six release
+archives passed checksum, executable-header, layout, and license verification.
+Eight release-verifier tests and five portable Windows-smoke tests passed.
+PowerShell tooling passed 11 tests under PowerShell 7.7 on Linux. Those portable
+checks do not substitute for the Windows executions above.
 
-The existing installer suite passed 32 cases. The existing real-binary self-update
-suite passed 15 cases. The full Linux smoke suite passed before the final
-Windows-only API and test corrections. Final shared-code changes then passed
-`make check`, race checks, and real-binary self-update checks. All six final
-release archives must be rebuilt and verified after any further source edit.
+Actionlint v1.7.12 accepted the workflow. Shell, Python, and PowerShell syntax
+checks passed, as did `git diff --check`.
 
-The pinned actionlint v1.7.12 accepted `.github/workflows/ci.yml`. All shell scripts
-passed Bash syntax checks, and all Python scripts parsed. Native PowerShell scripts
-passed PowerShell parsing. An initial combined check exceeded the tool timeout
-while vet was running. Separate tests and vet passed, followed by a successful
-full `make check`.
-
-## Native release gates
-
-The workflow runs native Go checks on `windows-latest` and `windows-11-arm`.
-Windows x64 also runs the race detector. Both architectures execute the exact
-release ZIP through loopback installation and update tests, then run CLI, RPC,
-Bash, durable-state, and ConPTY smoke scenarios. Publishing depends on these jobs.
-No Windows CI result was available for this unpushed working tree.
-
-Run these commands on each native Windows target:
+## Reproduce on Windows
 
 ```powershell
 .\scripts\bootstrap-vendor.ps1
@@ -62,28 +76,26 @@ python scripts/test-install-windows.py bin/native/ompig-slim/ompig-slim.exe
 python scripts/smoke-test-windows.py bin/native/ompig-slim/ompig-slim.exe
 ```
 
-The Windows-only Go tests cover existing private-state ACLs, junction and hard-link
-refusal, long paths, running-image updates, stale processes, shared update locks,
-rollback, SDK timeouts, and case-insensitive ownership. They compiled and passed
-cross-vet, but did not execute here. Hard termination between replacement moves
-has an explicit backup recovery contract. The loopback installer tests exercise
-backup-only recovery. A real power-loss test was not performed.
+Windows x64 also runs `check-go.ps1 -Mode race`. Stable and beta publication depend
+on both native architectures passing their Go and executable gates.
+
+## Limits and review
+
+These results cover the hosted Windows runner images and tested flows, not every
+Windows filesystem, terminal, or security policy. Hard termination between update
+moves has an explicit backup recovery contract. Backup-only recovery is tested;
+a real power-loss test was not performed.
 
 No Windows latency, CPU, memory, or throughput baseline was measured. Release
-builds retain `CGO_ENABLED=0`, `-trimpath`, and stripped symbols. This work makes
-no Windows speedup or complete compatibility claim.
+builds retain `CGO_ENABLED=0`, `-trimpath`, and stripped symbols. This work makes no
+Windows speedup or universal compatibility claim.
 
-## Review attention
+Laziness Protocol kept the existing PiG terminal and process runtime. Model the
+Domain kept release selection typed and filesystem paths separate from display
+paths. Prove It Works required native execution and observable tool, persistence,
+and terminal results. Independent reviews were completed, but cross-model
+diversity was not established.
 
-The independent reviewer reported `codex-json/gpt-6.2-sol` as its harness model
-identity. Reviews identified stale updater state, explicit ACL grants on existing
-children, PowerShell null binding, relative path resolution, and native handle
-access assumptions. Fixes and regression tests are present. Final API changes
-still require native Windows execution. The reviewer had no independent backend
-identity, so cross-model diversity was not established.
-
-The [decision trail](windows-support-decisions.tsv) includes transient `/tmp`
-command logs and two temporary design sketches. Those files are local evidence,
-not durable links. This document records the reproducible commands and observed
-results. The first trail timestamp was a placeholder and is corrected by a later
-append-only row. No commit, push, release, or pull request was performed.
+Changes are committed and pushed in [PR #128](https://github.com/tmih06/ompig-slim/pull/128).
+No merge or release was performed. Temporary command logs mentioned in the decision
+trail are local diagnostics; the CI links above are the durable native evidence.
