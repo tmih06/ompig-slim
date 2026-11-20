@@ -31,12 +31,14 @@ class ResumeModel(http.server.BaseHTTPRequestHandler):
         self.server.requested = time.perf_counter()
         body = self.rfile.read(int(self.headers["Content-Length"]))
         messages = json.loads(body)["messages"]
-        history = json.dumps(messages[:-1])
+        continuation = next((i for i, message in enumerate(messages)
+                             if message.get("role") == "user" and "resume-edit-probe" in json.dumps(message)), None)
+        history = json.dumps(messages[:continuation]) if continuation is not None else ""
         seen = {int(turn) for turn in re.findall(r"RESUME_HISTORY_(\d+)", history)}
         self.server.failures = []
         if seen != set(range(self.server.first_turn, self.server.turns)):
             self.server.failures.append("saved conversation is incomplete")
-        if "resume-edit-probe" not in json.dumps(messages[-1]):
+        if continuation is None:
             self.server.failures.append("continuation prompt missing")
         chunks = [
             {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "RESUME_CONTINUED"}, "finish_reason": None}]},

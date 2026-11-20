@@ -203,6 +203,12 @@ func BindSessionExtensionActions(runner *inproc.Runner, bridge *subprocess.UIBri
 			}
 			return []extension.SlashCommandInfo{}
 		}
+		contextActions.GetModel = func() extension.Model {
+			if sess := current(); sess != nil {
+				return sess.Model()
+			}
+			return nil
+		}
 		contextActions.GetSystemPrompt = sessionContext.GetSystemPrompt
 		contextActions.GetSystemPromptOptions = sessionContext.GetSystemPromptOptions
 		contextActions.IsIdle = sessionContext.IsIdle

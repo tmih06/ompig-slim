@@ -25,6 +25,8 @@ import (
 	sqlitenode "github.com/MichaelKinsy/PiG/durable/storage/sqlite/node"
 	"github.com/MichaelKinsy/PiG/durable/tools"
 	"github.com/gofrs/flock"
+
+	"ompig-slim/internal/modelcontext"
 	"ompig-slim/internal/privatefs"
 )
 
@@ -212,6 +214,10 @@ func Run(ctx context.Context, args []string, out io.Writer) (runErr error) {
 		return err
 	}
 	defer func() { runErr = errors.Join(runErr, h.Close(context.Background())) }()
+	if err = registry.Install(modelcontext.DurableExtension()); err != nil {
+		storage.Close(context.Background())
+		return err
+	}
 	progressExtension := newProgressExtension(job)
 	if err = registry.Install(progressExtension); err != nil {
 		storage.Close(context.Background())

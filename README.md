@@ -98,6 +98,8 @@ Interactive startup uses cached lists while discovery runs in the background.
 Use `--offline` to skip discovery or `update --models` to force a refresh.
 See [model discovery and offline behavior](docs/model-discovery.md).
 ClinePass does not list `cline-free/` promotions reserved for Cline's IDE extension and CLI.
+The agent receives its selected provider and model in context; model changes are
+appended to the conversation rather than rewriting its cached prefix.
 
 | Key | Action |
 |---|---|

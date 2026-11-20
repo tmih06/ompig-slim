@@ -13,6 +13,14 @@ and **session-only model selection**:
   `--model @review` and workflow `model: "@review"` also resolve roles.
   `pi/review` is the legacy spelling; `*` means `@default`.
 
+The agent sees the selected provider and model ID in its conversation context,
+without reading environment variables. A hidden message is added when that
+identity changes or is no longer in the projected context (for example, after
+compaction); existing messages remain unchanged to preserve the cacheable prefix.
+For virtual models this is the selected identity, not necessarily the physical
+model chosen by the router. Durable jobs receive their fixed model identity in
+a prompt section.
+
 ## Subagent roles and tools
 
 The `Agent` tool offers exactly three roles, and `Agent.role` must be one of

@@ -24,6 +24,7 @@ import (
 	"ompig-slim/internal/broker"
 	goalext "ompig-slim/internal/goalext"
 	"ompig-slim/internal/loopguard"
+	"ompig-slim/internal/modelcontext"
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/internal/streamingrules"
 	"ompig-slim/internal/workdesk"
@@ -129,6 +130,9 @@ func main() {
 		SyncedDocuments:      syncedDocuments,
 		SyncConflicts:        syncConflicts,
 		ExtensionFactories: []extension.InlineExtension{
+			extension.NamedInlineExtension{
+				Name: "model-context", Factory: modelcontext.Extension, Hidden: true,
+			},
 			extension.NamedInlineExtension{
 				Name: "streaming-rules", Factory: streamingrules.Extension(coding.DefaultAgentDir()), Hidden: true,
 			},

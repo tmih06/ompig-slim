@@ -111,6 +111,8 @@ def crash(binary):
                 assert receipt["status"] == "done", receipt
                 assert receipt["answer"] == "Recovered workdesk", receipt
             assert len(calls) == 2, f"duplicate work: {len(calls)} requests"
+            for call in calls:
+                assert "Selected provider: desk-fixture\nSelected model: fixture" in request_text(call), call
             assert (workspace / "preserved.txt").read_text() == "uncommitted work\n"
     finally:
         release.set()
