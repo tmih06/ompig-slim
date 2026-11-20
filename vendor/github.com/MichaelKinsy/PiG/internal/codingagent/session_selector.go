@@ -363,8 +363,7 @@ func (s *SessionSelectorComponent) HandleInput(data string) {
 		return
 	case s.keybindings.Matches(data, "app.session.deleteNoninvasive"):
 		if s.searchInput.Text() != "" {
-			s.searchInput.HandleInput(data)
-			s.refilter()
+			s.handleSearchInput(data)
 		} else {
 			s.startDeleteConfirmation()
 		}
@@ -392,9 +391,23 @@ func (s *SessionSelectorComponent) HandleInput(data string) {
 			s.list.OnCancel()
 		}
 	default:
-		s.searchInput.HandleInput(data)
-		s.refilter()
+		s.handleSearchInput(data)
 	}
+}
+
+func (s *SessionSelectorComponent) handleSearchInput(data string) {
+	previousQuery := s.searchInput.Text()
+	s.searchInput.HandleInput(data)
+	query := s.searchInput.Text()
+	if query == previousQuery {
+		return
+	}
+	s.refilter()
+	if jsTrim(query) == "" {
+		return
+	}
+	s.selected = 0
+	s.selectionTouched = false
 }
 
 // highlighted reports whether the selected index names a row: like Pi's selectedIndex it is -1 after a down key over an empty list and stays out of range until a key moves it.

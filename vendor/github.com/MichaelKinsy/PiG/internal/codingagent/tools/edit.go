@@ -306,7 +306,6 @@ func (t *EditTool) editLocked(ctx context.Context, absPath string, p editParams)
 	}
 	var decoder utf8stream.Decoder
 	bom, content := text.SplitBom(decoder.Decode(data, false))
-	originalEnding := detectLineEnding(content)
 	normalized := normalizeToLF(content)
 	applied, err := applyEditsToNormalizedContent(normalized, p.Edits, p.Path)
 	if err != nil {
@@ -315,17 +314,20 @@ func (t *EditTool) editLocked(ctx context.Context, absPath string, p editParams)
 	if aborted() {
 		return editError("Operation aborted")
 	}
-	final := bom + restoreLineEndings(applied.newContent, originalEnding)
+	final := bom + applyReplacementsToOriginal(content, applied.replacements)
+	// Compute both diffs before writing so a diff failure cannot follow a successful mutation.
+	lineDiff := jsdiff.DiffLineRuns(applied.baseContent, applied.newContent)
+	diff, firstChangedLine := diffStringOf(lineDiff, applied.baseContent, applied.newContent, 4)
+	patch := unifiedPatchOf(p.Path, lineDiff, 4)
+	if aborted() {
+		return editError("Operation aborted")
+	}
 	if err := ops.WriteFile(absPath, final); err != nil {
 		return editError(NodeFSError(err, "open", absPath))
 	}
 	if aborted() {
 		return editError("Operation aborted")
 	}
-	// One line diff serves the display diff and the patch, which upstream computes separately over the same pair.
-	lineDiff := jsdiff.DiffLineRuns(applied.baseContent, applied.newContent)
-	diff, firstChangedLine := diffStringOf(lineDiff, applied.baseContent, applied.newContent, 4)
-	patch := unifiedPatchOf(p.Path, lineDiff, 4)
 	return agent.AgentToolResult{
 		Content: []ai.ToolResultMessageContent{ai.TextContent{Text: fmt.Sprintf("Successfully replaced %d block(s) in %s.", len(p.Edits), p.Path)}},
 		Details: &EditToolDetails{Diff: diff, Patch: patch, FirstChangedLine: firstChangedLine},

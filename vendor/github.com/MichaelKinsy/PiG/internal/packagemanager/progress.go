@@ -1,6 +1,6 @@
 package packagemanager
 
-// ProgressEvent describes one package operation. Completion omits Message.
+// ProgressEvent describes one package operation. Completion omits Message; result reports a changed package after the update finishes.
 type ProgressEvent struct {
 	Type    string
 	Action  string

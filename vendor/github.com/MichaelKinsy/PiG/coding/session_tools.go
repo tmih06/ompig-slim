@@ -36,7 +36,7 @@ func (s *Session) SetActiveToolsByName(names []string) {
 	// upstream: agent-session.ts setActiveToolsByName
 	active := s.ActiveToolNames()
 	for _, name := range previous {
-		if !slices.Contains(active, name) {
+		if _, restored := s.restoredToolNames[name]; restored && !slices.Contains(active, name) {
 			s.pendingToolNames = nil
 			break
 		}
@@ -214,12 +214,18 @@ func (s *Session) applyTranscriptTools(messages []agent.AgentMessage, modifiers 
 	s.toolRegistryMu.Lock()
 	defer s.toolRegistryMu.Unlock()
 	s.pendingToolNames = nil
+	s.restoredToolNames = nil
 	if len(systems) == 0 {
 		return
 	}
 	var names []string
 	for _, tool := range ai.GetCurrentTools(systems) {
 		names = append(names, tool.Name)
+	}
+	restoredNames := icodingagent.ApplyToolModifiers(names, modifiers)
+	s.restoredToolNames = make(map[string]struct{}, len(restoredNames))
+	for _, name := range restoredNames {
+		s.restoredToolNames[name] = struct{}{}
 	}
 	base := map[string]struct{}{}
 	for _, entry := range s.toolRegistry.base {

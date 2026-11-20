@@ -28,7 +28,7 @@ const (
 	codexWebSocketBeta           = "responses_websockets=2026-02-06"
 	codexWebSocketConnectTimeout = 15 * time.Second
 	codexWebSocketCacheTTL       = 5 * time.Minute
-	codexWebSocketMaxAge         = 55 * time.Minute
+	codexWebSocketMaxAge         = 45 * time.Minute
 )
 
 // codexWebSocketError is a WebSocket transport failure as Node's WebSocket reports it to openai-codex-responses.ts: extractWebSocketError's "WebSocket error" for a failed handshake or a dropped connection, and extractWebSocketCloseError's WebSocketCloseError, with the close code, for a close frame (openai-codex-responses.ts:1250-1288).

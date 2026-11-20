@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // compactedToolSession leaves a large tool-output prefix outside a small or
@@ -60,6 +62,30 @@ func TestCompactedResumeLeavesToolHistoryCold(t *testing.T) {
 
 // cacheNoticeLabels compares notices by stable entry ID rather than decoded
 // pointer identity, so independent whole-history and index reads can be checked.
+func TestResumeGroupsAdjacentCacheWarmingUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "warm.jsonl")
+	data := `{"type":"session","version":3,"id":"warm","cwd":"/tmp"}
+{"type":"usage","id":"warm-1","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","kind":"cache_warm","provider":"fixture","model":"one","usage":{"cost":{"total":0.001}}}
+{"type":"usage","id":"warm-2","parentId":"warm-1","timestamp":"2026-01-01T00:01:00.000Z","kind":"cache_warm","provider":"fixture","model":"one","usage":{"cost":{"total":0.002}}}
+{"type":"branch_summary","id":"break","parentId":"warm-2","summary":"separate activity"}
+{"type":"usage","id":"warm-3","parentId":"break","timestamp":"2026-01-01T00:02:00.000Z","kind":"cache_warm","provider":"fixture","model":"one","usage":{"cost":{"total":0.004}}}
+`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mode := resumedCacheMode(loadFixtureSession(t, path))
+	mode.renderSessionEntriesWithHistory(false)
+	transcript := widthx.StripAnsi(strings.Join(mode.chatContainer.Render(100), "\n"))
+	if got := strings.Count(transcript, "Cache warmed:"); got != 2 {
+		t.Fatalf("resume rendered %d warming notices, want 2: %s", got, transcript)
+	}
+	for _, want := range []string{"Cache warmed: $0.003", "Cache warmed: $0.004"} {
+		if !strings.Contains(transcript, want) {
+			t.Errorf("resume transcript %q does not contain cumulative notice %q", transcript, want)
+		}
+	}
+}
+
 func cacheNoticeLabels(entries []SessionEntry, prices ModelPriceSource) map[string]string {
 	stats := make([]cacheStatsEntry, 0, len(entries))
 	for _, entry := range entries {

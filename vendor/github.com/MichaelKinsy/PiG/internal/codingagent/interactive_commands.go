@@ -199,6 +199,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		AppendBlock:      func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 1, nil)) },
 		Clear: func() {
 			m.disposeMarkdownBlocks()
+			m.cacheWarmingUsage = nil
 			m.chatContainer.Clear()
 		},
 		// Snapshot prompt templates so /help can list them.

@@ -56,12 +56,20 @@ func (s *Session) ImportFromJsonl(ctx context.Context, inputPath, cwdOverride st
 	if cwdOverride != "" {
 		override = append(override, cwdOverride)
 	}
+	removeCopiedSession := func(err error) error {
+		if !sourceAlreadyStored {
+			if removeErr := os.Remove(destinationPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				return errors.Join(err, removeErr)
+			}
+		}
+		return err
+	}
 	next, err := manager.Open(destinationPath, override...)
 	if err != nil {
-		return extension.CancelledResult{}, err
+		return extension.CancelledResult{}, removeCopiedSession(err)
 	}
 	if err := icodingagent.AssertSessionCwdExists(next, s.services.CWD()); err != nil {
-		return extension.CancelledResult{}, err
+		return extension.CancelledResult{}, removeCopiedSession(err)
 	}
 	return s.finishExtensionReplacement(ctx, next, "resume")
 }

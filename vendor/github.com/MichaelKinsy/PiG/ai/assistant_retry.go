@@ -67,13 +67,19 @@ var retryableProviderErrorPattern = buildProviderErrorPattern([]string{
 	// Network, proxy, and fetch transport failures.
 	"network.?error",
 	"connection.?error",
+	// Gateway mid-stream drop relayed as an Anthropic-style api_error event, e.g. "Connection closed." (#12064, utils/retry.ts).
+	"connection.?closed",
 	"connection.?refused",
 	"connection.?lost",
+	"connection reset by peer",
 	"other side closed",
 	"fetch failed",
 	// node-fetch system errors, e.g. the Google ADC OAuth token refresh used by google-vertex; the reason is often empty (#10996, Pi 0fbdbd3f).
 	"request to \\S+ failed, reason:",
 	"getaddrinfo",
+	// Bare Node socket error codes, e.g. "read ECONNRESET", "write EPIPE" or "connect ETIMEDOUT 1.2.3.4:443" when a transport reports only the code (#12128).
+	// Pi spells it (?<![a-z0-9_])(?:ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE)(?![a-z0-9_]); RE2 has no lookaround, so the neighbours are matched, which a boolean test cannot tell apart.
+	"(?:^|[^a-z0-9_])(?:ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE)(?:[^a-z0-9_]|$)",
 	"ENOTFOUND",
 	"EAI_AGAIN",
 	"upstream.?connect",
@@ -86,6 +92,8 @@ var retryableProviderErrorPattern = buildProviderErrorPattern([]string{
 	// WebSocket transports can report close/error text.
 	"websocket.?closed",
 	"websocket.?error",
+	// Codex 60-minute WebSocket lifetime limit, as code websocket_connection_limit_reached or as text "Responses websocket connection limit reached". A retry opens a fresh connection (#12124, utils/retry.ts).
+	"websocket.?connection.?limit.?reached",
 	// Premature stream endings from SDKs and transports.
 	"ended without",
 	"stream ended before message_stop",
@@ -93,6 +101,8 @@ var retryableProviderErrorPattern = buildProviderErrorPattern([]string{
 	"http2 request did not get a response",
 	// Codex CLI mid-stream disconnect, relayed by proxies that wrap the Codex CLI, e.g. "stream disconnected before completion: stream closed before response.completed" (#11057, Pi 29057ece).
 	"stream disconnected before completion",
+	// Magpie gateway relaying a dropped upstream Anthropic stream, e.g. "Claude Code's stream from Anthropic was cut short after the reply had begun" (#11879, utils/retry.ts).
+	"cut short after the reply had begun",
 	// Node ERR_HTTP2_STREAM_CANCEL: the HTTP/2 session died before the request was sent, for example after the Bedrock SDK's 5-minute session timeout (utils/retry.ts, #10379).
 	"pending stream has been canceled",
 	// Provider-requested retry delay cap failures flow through the outer policy.

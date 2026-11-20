@@ -300,6 +300,7 @@ func composeOverlaySnapshotWithStats(background []string, snapshot overlayStateS
 	}
 	viewportStart := max(0, workingHeight-termHeight)
 	for _, overlay := range rendered {
+		hideImagesUnderOverlay(result, OverlayBounds{Row: overlay.row, Col: overlay.col, Width: overlay.width, Height: len(overlay.lines)}, viewportStart)
 		for row, line := range overlay.lines {
 			index := viewportStart + overlay.row + row
 			if index < 0 || index >= len(result) {

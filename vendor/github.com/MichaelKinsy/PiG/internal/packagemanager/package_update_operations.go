@@ -27,12 +27,25 @@ type npmUpdateBatch struct {
 	sources  []npmUpdateTarget
 }
 
+type gitUpdateTarget struct {
+	pkg   ConfiguredPackage
+	index int
+}
+
+type packageUpdateResult struct {
+	source string
+	scope  string
+	kind   string
+	from   string
+	to     string
+}
+
 func updateConfiguredSources(cwd string, sm *codingagent.SettingsManager, packages []ConfiguredPackage, progress ProgressCallback) error {
 	if IsOfflineModeEnabled() || len(packages) == 0 {
 		return nil
 	}
 	var npm []npmUpdateTarget
-	var git []ConfiguredPackage
+	var git []gitUpdateTarget
 	for _, pkg := range packages {
 		switch DetectSourceKind(pkg.Source.Source) {
 		case "npm":
@@ -45,7 +58,7 @@ func updateConfiguredSources(cwd string, sm *codingagent.SettingsManager, packag
 			}
 			npm = append(npm, npmUpdateTarget{ref: ref, source: pkg.Source.Source, local: pkg.Scope == "project"})
 		case "git":
-			git = append(git, pkg)
+			git = append(git, gitUpdateTarget{pkg: pkg, index: len(git)})
 		}
 	}
 	checks := make([]func() error, len(npm))
@@ -107,11 +120,12 @@ func updateConfiguredSources(cwd string, sm *codingagent.SettingsManager, packag
 			return nil
 		})
 	}
+	gitResults := make([]packageUpdateResult, len(git))
 	if len(git) > 0 {
 		tasks = append(tasks, func() error {
 			groups := groupGitUpdatesByCheckout(cwd, sm.AgentDir(), git)
-			start := func(pkg ConfiguredPackage) {
-				source := pkg.Source.Source
+			start := func(target gitUpdateTarget) {
+				source := target.pkg.Source.Source
 				report(ProgressEvent{Type: "start", Action: "update", Source: source, Message: new(fmt.Sprintf("Updating %s...", source))})
 			}
 			gitTasks := make([]func() error, len(groups))
@@ -119,12 +133,18 @@ func updateConfiguredSources(cwd string, sm *codingagent.SettingsManager, packag
 				gitTasks[i] = func() error {
 					// Packages of one repository share a managed checkout and each moves it to its own ref, so they run one at a time in settings order and the last one decides the checked-out commit.
 					var first error
-					for j, pkg := range group {
+					for j, target := range group {
+						pkg := target.pkg
 						if j > 0 {
-							start(pkg)
+							start(target)
 						}
-						err := FinishPackageProgress(report, "update", pkg.Source.Source, InstallManagedGit(cwd, sm.AgentDir(), sm, pkg.Source.Source, pkg.Scope == "project", WithProgressReporter(report)))
-						if err != nil && first == nil {
+						before := installedGitHead(cwd, sm.AgentDir(), pkg.Source.Source, pkg.Scope == "project")
+						err := InstallManagedGit(cwd, sm.AgentDir(), sm, pkg.Source.Source, pkg.Scope == "project", WithProgressReporter(report))
+						err = FinishPackageProgress(report, "update", pkg.Source.Source, err)
+						if err == nil {
+							after := installedGitHead(cwd, sm.AgentDir(), pkg.Source.Source, pkg.Scope == "project")
+							gitResults[target.index] = packageUpdateResult{source: pkg.Source.Source, scope: pkg.Scope, kind: "git", from: before, to: after}
+						} else if first == nil {
 							first = err
 						}
 					}
@@ -134,23 +154,76 @@ func updateConfiguredSources(cwd string, sm *codingagent.SettingsManager, packag
 			return runPackageTasks(gitTasks, func(i int) { start(groups[i][0]) })
 		})
 	}
-	return runPackageTasks(tasks, nil)
+	if err := runPackageTasks(tasks, nil); err != nil {
+		return err
+	}
+	for _, batch := range batches {
+		for _, target := range batch.sources {
+			after := ReadInstalledNpmVersion(npmInstalledPath(cwd, sm, target.ref, batch.local))
+			reportPackageUpdateResult(report, packageUpdateResult{source: target.source, scope: packageScope(batch.local), kind: "npm", from: target.installedVersion, to: after})
+		}
+	}
+	for _, result := range gitResults {
+		reportPackageUpdateResult(report, result)
+	}
+	return nil
+}
+
+func packageScope(local bool) string {
+	if local {
+		return "project"
+	}
+	return "user"
+}
+
+func installedGitHead(cwd, agentDir, source string, local bool) string {
+	checkout, err := GitCheckoutPath(cwd, agentDir, source, local)
+	if err != nil {
+		return ""
+	}
+	head, err := RunPackageCapture(checkout, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return head
+}
+
+func reportPackageUpdateResult(report ProgressCallback, result packageUpdateResult) {
+	if result.from == result.to {
+		return
+	}
+	formatVersion := func(version string) string {
+		if version == "" {
+			return "(none)"
+		}
+		if result.kind == "git" {
+			return version[:min(7, len(version))]
+		}
+		return version
+	}
+	scope := ""
+	if result.scope == "project" {
+		scope = " (project)"
+	}
+	message := fmt.Sprintf("%s%s %s -> %s", result.source, scope, formatVersion(result.from), formatVersion(result.to))
+	EmitProgress(report, ProgressEvent{Type: "result", Action: "update", Source: result.source, Message: &message})
 }
 
 // groupGitUpdatesByCheckout collects Git packages that resolve to one managed checkout, in input order, with groups ordered by their first package. Pi's updateConfiguredSources gives each package its own task and so races two updates of one checkout (package-manager.ts:1171-1181, 1931-1945): both fetch into one FETCH_HEAD and both run `git reset --hard`, which fails on index.lock. A source whose checkout path cannot be computed stays alone, so InstallManagedGit reports its error for that package only.
-func groupGitUpdatesByCheckout(cwd, agentDir string, git []ConfiguredPackage) [][]ConfiguredPackage {
-	var groups [][]ConfiguredPackage
+func groupGitUpdatesByCheckout(cwd, agentDir string, git []gitUpdateTarget) [][]gitUpdateTarget {
+	var groups [][]gitUpdateTarget
 	byCheckout := map[string]int{}
-	for _, pkg := range git {
+	for _, target := range git {
+		pkg := target.pkg
 		checkout, err := GitCheckoutPath(cwd, agentDir, pkg.Source.Source, pkg.Scope == "project")
 		if err == nil {
 			if i, shared := byCheckout[checkout]; shared {
-				groups[i] = append(groups[i], pkg)
+				groups[i] = append(groups[i], target)
 				continue
 			}
 			byCheckout[checkout] = len(groups)
 		}
-		groups = append(groups, []ConfiguredPackage{pkg})
+		groups = append(groups, []gitUpdateTarget{target})
 	}
 	return groups
 }

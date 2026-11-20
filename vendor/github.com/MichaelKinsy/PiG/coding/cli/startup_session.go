@@ -237,6 +237,23 @@ func resolveStartupSessionSelectionIn(flags Args, launchCWD, sessionDir string) 
 // to continue in the current cwd. A launch directory that is gone is possible only where getcwd(3) still names it (macOS); elsewhere
 // processCwd fails first. A Session selected by an explicit path that does not exist yet is such a new Session; the runtime opens
 // it at that path.
+func (s *startupSessionSelection) forkMissingCWD(issue missingSessionCWD) error {
+	sessionDir := s.sessionDir
+	if sessionDir == "" {
+		sessionDir = filepath.Dir(issue.sessionFile)
+	}
+	manager := newSessionManagerWithDir(issue.fallbackCWD, sessionDir)
+	forked, err := manager.ForkFromFile(issue.sessionFile)
+	if err != nil {
+		return err
+	}
+	s.runtimeCWD = issue.fallbackCWD
+	s.sessionDir = sessionDir
+	s.forkPath = forked.Path()
+	s.missingCWD = nil
+	return nil
+}
+
 func (s *startupSessionSelection) checkNewSessionCWD(flags Args, manager *codingagent.SessionManager, launchCWD string) error {
 	if _, err := os.Stat(launchCWD); err == nil { //perf:ok once per startup with a new Session
 		return nil

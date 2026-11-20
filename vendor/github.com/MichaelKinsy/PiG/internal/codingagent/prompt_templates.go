@@ -31,16 +31,22 @@ type PromptTemplate struct {
 
 // ─── Argument parsing ────────────────────────────────────────────────────────
 
-// ParsePromptArgs splits arguments using ECMAScript whitespace outside single- and double-quoted runs. Empty quoted strings are omitted, and backslashes are literal.
+// ParsePromptArgs splits arguments on ECMAScript whitespace, with quotes opening only at the start of a token. An unmatched opening quote is literal text, and a backslash escapes its matching quote inside a quoted token.
 // Upstream: packages/coding-agent/src/core/prompt-templates.ts:24-55.
 func ParsePromptArgs(s string) []string {
 	args := make([]string, 0, 4)
+	runes := []rune(s)
 	var cur strings.Builder
-	var quote rune // 0 = not in quotes
-	// hasToken records that a token has started, so quoted empty strings ("" or '') are kept as arguments (Pi 9fe3f371).
+	var quote rune
 	hasToken := false
-	for _, char := range s {
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
 		if quote != 0 {
+			if char == '\\' && i+1 < len(runes) && runes[i+1] == quote {
+				cur.WriteRune(quote)
+				i++
+				continue
+			}
 			if char == quote {
 				quote = 0
 				continue
@@ -48,10 +54,23 @@ func ParsePromptArgs(s string) []string {
 			cur.WriteRune(char)
 			continue
 		}
-		if char == '"' || char == '\'' {
-			quote = char
-			hasToken = true
-			continue
+		if (char == '"' || char == '\'') && !hasToken {
+			closing := -1
+			for j := i + 1; j < len(runes); j++ {
+				if runes[j] == '\\' && j+1 < len(runes) && runes[j+1] == char {
+					j++
+					continue
+				}
+				if runes[j] == char {
+					closing = j
+					break
+				}
+			}
+			if closing >= 0 {
+				quote = char
+				hasToken = true
+				continue
+			}
 		}
 		if isJSWhitespace(char) {
 			if hasToken {

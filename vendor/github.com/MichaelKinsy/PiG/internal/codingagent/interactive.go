@@ -171,9 +171,10 @@ type InteractiveMode struct {
 	resourceSourceInfo map[string]ResourceSourceInfo
 
 	// UI components
-	chatContainer *tui.Container
-	extHeader     *specialLinesComponent
-	extFooter     *specialLinesComponent
+	chatContainer     *tui.Container
+	cacheWarmingUsage *cacheWarmingUsageNotice
+	extHeader         *specialLinesComponent
+	extFooter         *specialLinesComponent
 	// extHeaderComponent and extFooterComponent are the components the extension's factories built, disposed when the surface is replaced
 	// or restored (interactive-mode.ts customHeader, customFooter). extComponentMu guards them.
 	extHeaderComponent, extFooterComponent extension.DisposableComponent

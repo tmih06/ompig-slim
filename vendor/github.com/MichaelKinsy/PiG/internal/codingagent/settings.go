@@ -428,7 +428,7 @@ type CacheWarmingMode string
 // CacheWarmingModes lists the modes in Pi's order (CACHE_WARMING_MODES).
 var CacheWarmingModes = []CacheWarmingMode{"off", "streaming", "idle"}
 
-// defaultCacheWarmingMode is Pi's default: warm only while the agent runs.
+// defaultCacheWarmingMode keeps warming active only while the agent runs, avoiding unsolicited idle refreshes.
 const defaultCacheWarmingMode CacheWarmingMode = "streaming"
 
 func parseHTTPIdleTimeoutMs(value any) (int, bool) {
@@ -2139,9 +2139,9 @@ func (sm *SettingsManager) SetDefaultProjectTrust(trust DefaultProjectTrust) err
 	return sm.UpdateGlobal(func(s *Settings) { s.DefaultProjectTrust = string(trust) })
 }
 
-// GetCacheWarmingMode returns the global cache-warming mode, or "streaming"
-// when it is unset or invalid. Project settings are ignored because each
-// refresh costs money. Mirrors upstream getCacheWarmingMode.
+// GetCacheWarmingMode returns the global cache-warming mode, or the project's
+// cost-conscious "streaming" default when it is unset or invalid. Project
+// settings are ignored because each refresh costs money.
 func (sm *SettingsManager) GetCacheWarmingMode() CacheWarmingMode {
 	mode := readGlobal(sm, func(s *Settings) CacheWarmingMode { return s.CacheWarming })
 	if slices.Contains(CacheWarmingModes, mode) {

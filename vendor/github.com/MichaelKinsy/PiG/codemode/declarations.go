@@ -1,12 +1,12 @@
 package codemode
 
 import (
-	"cmp"
 	"encoding/json"
 	"maps"
 	"math"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -283,76 +283,59 @@ type schemaContext struct {
 	expansions int
 	// tags is whether property comments include constraint tags.
 	tags bool
-	// err is the first failure to decode a reference; the rendering carries on with `unknown` and schemaToType returns it.
-	err error
 }
 
 func schemaToType(schema any, maxChars *int) (string, error) {
-	render := func(tags bool) (string, error) {
+	render := func(tags bool) string {
 		ctx := &schemaContext{root: schema, resolving: map[string]bool{}, tags: tags}
-		typ := toType(schema, ctx)
-		return typ, ctx.err
+		return toType(schema, ctx)
 	}
-	typ, err := render(true)
-	if err != nil {
-		return "", err
-	}
+	typ := render(true)
 	if maxChars == nil || jsstring.Length(typ) <= *maxChars {
 		return typ, nil
 	}
-	untagged, err := render(false)
-	if err != nil {
-		return "", err
-	}
+	untagged := render(false)
 	if jsstring.Length(untagged) <= *maxChars {
 		return untagged, nil
 	}
 	return "unknown", nil
 }
 
-// errURIMalformed is the failure to decode a percent-encoded $ref segment. Its message is that of the URIError
-// upstream's decodeURIComponent throws, which callers surface as the error text.
-var errURIMalformed = &URIError{Message: "URI malformed"}
-
-// URIError is the error JavaScript's decodeURIComponent throws for a malformed percent-encoding (a `$ref` segment with one).
-type URIError struct{ Message string }
-
-func (e *URIError) Error() string { return e.Message }
-
-// Name is the JavaScript error's `name`.
-func (*URIError) Name() string { return "URIError" }
-
-// resolveRef follows a local JSON pointer. A pointer segment that is not valid percent-encoding is an error, as
-// upstream's decodeURIComponent throws a URIError.
-func resolveRef(ref string, root any) (any, bool, error) {
+// resolveRef follows a local JSON pointer. Malformed, remote, and unresolved references are unknown schemas.
+func resolveRef(ref string, root any) (any, bool) {
 	if ref != "#" && !strings.HasPrefix(ref, "#/") {
-		return nil, false, nil
+		return nil, false
 	}
 	current := root
 	if ref != "#" {
 		for segment := range strings.SplitSeq(ref[2:], "/") {
-			if segment == "" {
-				continue
-			}
 			decoded, err := url.PathUnescape(segment)
 			if err != nil || !utf8.ValidString(decoded) {
-				return nil, false, errURIMalformed
+				return nil, false
 			}
 			key := strings.ReplaceAll(strings.ReplaceAll(decoded, "~1", "/"), "~0", "~")
-			obj, ok := current.(*object)
-			if !ok {
-				return nil, false, nil
-			}
-			if current, ok = obj.get(key); !ok {
-				return nil, false, nil
+			switch value := current.(type) {
+			case *object:
+				var ok bool
+				if current, ok = value.get(key); !ok {
+					return nil, false
+				}
+			case []any:
+				index, err := strconv.Atoi(key)
+				if err != nil || index < 0 || strconv.Itoa(index) != key || index >= len(value) {
+					return nil, false
+				}
+				current = value[index]
+			default:
+				return nil, false
 			}
 		}
 	}
 	switch current.(type) {
 	case bool, *object:
-		return current, true, nil
+		return current, true
 	}
-	return nil, false, nil
+	return nil, false
 }
 
 func toType(schema any, ctx *schemaContext) string {
@@ -373,11 +356,7 @@ func objectSchemaType(schema *object, ctx *schemaContext) string {
 		if ctx.resolving[ref] || ctx.expansions >= maxRefExpansions {
 			return "unknown"
 		}
-		target, ok, err := resolveRef(ref, ctx.root)
-		if err != nil {
-			ctx.err = cmp.Or(ctx.err, err)
-			return "unknown"
-		}
+		target, ok := resolveRef(ref, ctx.root)
 		if !ok {
 			return "unknown"
 		}

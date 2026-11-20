@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+	"github.com/MichaelKinsy/PiG/internal/minimatch"
 	"github.com/MichaelKinsy/PiG/internal/nodepath"
 	"github.com/MichaelKinsy/PiG/internal/nodespawn"
 )
@@ -94,6 +96,7 @@ func (t *FindTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 	if p.Limit != nil {
 		effectiveLimit = *p.Limit
 	}
+	effectiveLimit = math.Max(1, math.Floor(effectiveLimit))
 
 	if t.Operations != nil && t.Operations.Glob != nil {
 		return t.findWithOperations(ctx, p.Pattern, searchPath, effectiveLimit), nil
@@ -107,28 +110,58 @@ func (t *FindTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 		return findError("fd is not available and could not be downloaded"), nil
 	}
 
-	args := []string{"--glob", "--color=never", "--hidden"}
+	isWindows := runtime.GOOS == "windows"
+	effectivePattern := p.Pattern
+	if isWindows {
+		effectivePattern = strings.ReplaceAll(effectivePattern, `\`, "/")
+	}
+	for strings.HasPrefix(effectivePattern, "./") {
+		effectivePattern = strings.TrimPrefix(effectivePattern, "./")
+	}
+	isPathPattern := strings.Contains(effectivePattern, "/")
+	ignoreCase := effectivePattern == jsstring.ToLower(effectivePattern)
+	isRelativePathPattern := isPathPattern && !filepath.IsAbs(effectivePattern)
+	var windowsPathMatcher *minimatch.Minimatch
+	if isWindows && isPathPattern {
+		matcherPattern := effectivePattern
+		if strings.HasSuffix(matcherPattern, "/**") {
+			matcherPattern += "/*"
+		}
+		matcherPattern = escapeFindExtglobs(matcherPattern)
+		windowsPathMatcher, err = minimatch.New(matcherPattern, minimatch.Options{Dot: true, NoCase: ignoreCase, Platform: "win32"})
+		if err != nil {
+			return findError(err.Error()), nil
+		}
+	}
+
+	args := []string{"--color=never", "--hidden"}
 	// fd ignores .gitignore outside git repos unless --no-require-git; inside
 	// a repo its git-aware default stops parent rules at nested repos
 	// (upstream #5960).
 	if !insideGitRepo(searchPath) {
 		args = append(args, "--no-require-git")
 	}
-	args = append(args, "--max-results", jsNumber(effectiveLimit))
-	// fd --glob matches the basename unless --full-path is set; in
-	// --full-path mode it matches the absolute candidate path, so a
-	// path-containing pattern needs a leading "**/".
-	effectivePattern := p.Pattern
-	if strings.Contains(p.Pattern, "/") {
-		args = append(args, "--full-path")
-		if !strings.HasPrefix(p.Pattern, "/") && !strings.HasPrefix(p.Pattern, "**/") && p.Pattern != "**" {
-			effectivePattern = "**/" + p.Pattern
+	if windowsPathMatcher != nil {
+		// fd's path-glob behavior has varied across Windows versions; match
+		// its full listing locally for consistent semantics.
+		args = append(args, "--", "", searchPath)
+	} else {
+		args = append(args, "--glob", "--max-results", jsNumber(effectiveLimit+1))
+		if isPathPattern {
+			args = append(args, "--full-path")
 		}
-		if runtime.GOOS == "windows" {
-			effectivePattern = strings.ReplaceAll(effectivePattern, "/", `[/\\]`)
+		if isRelativePathPattern {
+			root := strings.TrimRight(searchPath, "/")
+			if root == "" {
+				root = "/"
+			}
+			effectivePattern = escapeFindGlob(root) + "/" + effectivePattern
+			if ignoreCase {
+				args = append(args, "--ignore-case")
+			}
 		}
+		args = append(args, "--", effectivePattern, searchPath)
 	}
-	args = append(args, "--", effectivePattern, searchPath)
 
 	//nolint:gosec // G204 (class b): program is fd resolved by PiG's tools manager; args are fixed flags, then -- and the pattern and search path from the find tool call, so the model cannot reach an fd option.
 	cmd := exec.CommandContext(ctx, fdPath, args...)
@@ -163,17 +196,29 @@ func (t *FindTool) Execute(ctx context.Context, _ string, rawParams json.RawMess
 		}
 		return findError(msg), nil
 	}
-	if output == "" {
-		return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "No files found matching pattern"}}}, nil
-	}
-
 	var relativized []string
 	for _, raw := range lines {
 		line := jsstring.Trim(strings.TrimSuffix(raw, "\r"))
 		if line == "" {
 			continue
 		}
-		relativized = append(relativized, relativizeFindResultPath(line, searchPath))
+		result := relativizeFindResultPath(line, searchPath)
+		if windowsPathMatcher != nil {
+			matchPath := line
+			if isRelativePathPattern {
+				matchPath = result
+			}
+			if !windowsPathMatcher.Match(matchPath) {
+				continue
+			}
+		}
+		relativized = append(relativized, result)
+		if windowsPathMatcher != nil && float64(len(relativized)) > effectiveLimit {
+			break
+		}
+	}
+	if len(relativized) == 0 {
+		return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: "No files found matching pattern"}}}, nil
 	}
 	return formatFindResults(relativized, effectiveLimit, false), nil
 }
@@ -193,7 +238,7 @@ func (t *FindTool) findWithOperations(ctx context.Context, pattern, searchPath s
 	if !exists {
 		return findError("Path not found: " + searchPath)
 	}
-	results, err := ops.Glob(pattern, searchPath, FindGlobOptions{Ignore: []string{"**/node_modules/**", "**/.git/**"}, Limit: limit})
+	results, err := ops.Glob(pattern, searchPath, FindGlobOptions{Ignore: []string{"**/node_modules/**", "**/.git/**"}, Limit: limit + 1})
 	if ctx.Err() != nil {
 		return findError("Operation aborted")
 	}
@@ -211,7 +256,11 @@ func (t *FindTool) findWithOperations(ctx context.Context, pattern, searchPath s
 }
 
 func formatFindResults(relativized []string, effectiveLimit float64, custom bool) agent.AgentToolResult {
-	resultLimitReached := float64(len(relativized)) >= effectiveLimit
+	resultLimitReached := float64(len(relativized)) > effectiveLimit
+	if resultLimitReached {
+		// This conversion is safe because the limit is below the result count.
+		relativized = relativized[:int(effectiveLimit)]
+	}
 	// Number.MAX_SAFE_INTEGER is observable in the truncation details, even though only bytes cap this tool.
 	tr := TruncateHead(strings.Join(relativized, "\n"), truncationLimits(DefaultMaxBytes, 1<<53-1))
 	resultOutput := tr.Content
@@ -242,6 +291,35 @@ func formatFindResults(relativized []string, effectiveLimit float64, custom bool
 
 func findError(message string) agent.AgentToolResult {
 	return agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: message}}, Details: map[string]any{}, IsError: true, Thrown: true}
+}
+
+func escapeFindGlob(path string) string {
+	var escaped strings.Builder
+	for _, char := range path {
+		if strings.ContainsRune(`\*?[]{}`, char) {
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteRune(char)
+	}
+	return escaped.String()
+}
+
+func escapeFindExtglobs(pattern string) string {
+	var escaped strings.Builder
+	backslashes := 0
+	for i := 0; i < len(pattern); i++ {
+		char := pattern[i]
+		if strings.ContainsRune("*+?@!", rune(char)) && i+1 < len(pattern) && pattern[i+1] == '(' && backslashes%2 == 0 {
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteByte(char)
+		if char == '\\' {
+			backslashes++
+		} else {
+			backslashes = 0
+		}
+	}
+	return escaped.String()
 }
 
 // insideGitRepo reports whether searchPath or an ancestor has a .git entry.

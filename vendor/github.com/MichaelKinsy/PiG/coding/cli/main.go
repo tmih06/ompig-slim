@@ -1156,19 +1156,26 @@ func Main(args []string, options *MainOptions) {
 		}
 		selected, ok, selectErr := codingagent.ShowStartupSelector(
 			issue.prompt(),
-			[]string{"Continue", "Cancel"},
+			[]string{"Continue", "Fork", "Cancel"},
 			startupUIOpts,
 		)
 		if selectErr != nil {
 			printCLIError("select session cwd: %v", selectErr)
 			exitProcess(1)
 		}
-		if !ok || selected != 0 {
+		if !ok || selected == 2 {
 			exitProcess(0)
 		}
-		startupSession.runtimeCWD = issue.fallbackCWD
-		startupSession.missingCWD = nil
-		flags.sessionCwdOverride = new(startupSession.runtimeCWD)
+		if selected == 1 {
+			if err := startupSession.forkMissingCWD(*issue); err != nil {
+				printCLIError("fork session with missing cwd: %v", err)
+				exitProcess(1)
+			}
+		} else {
+			startupSession.runtimeCWD = issue.fallbackCWD
+			startupSession.missingCWD = nil
+			flags.sessionCwdOverride = new(startupSession.runtimeCWD)
+		}
 	}
 	cwd = startupSession.runtimeCWD
 	// upstream: packages/coding-agent/src/main.ts:autoTrustOnReloadCwd

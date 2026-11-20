@@ -89,6 +89,7 @@ func cloneScalarCompat(in *ModelCompat) (*ModelCompat, bool) {
 		!utf8.ValidString(in.ThinkingFormat) ||
 		!utf8.ValidString(in.CacheControlFormat) ||
 		!utf8.ValidString(in.DeferredToolsMode) ||
+		!utf8.ValidString(in.PromptCacheKeyMode) ||
 		!utf8.ValidString(string(in.SessionAffinityFormat)) ||
 		!utf8.ValidString(string(in.ThinkingTokenBudgetField)) ||
 		in.VLLMPriority != nil && (math.IsNaN(*in.VLLMPriority) || math.IsInf(*in.VLLMPriority, 0)) ||
@@ -111,6 +112,8 @@ func cloneScalarCompat(in *ModelCompat) (*ModelCompat, bool) {
 	out.SupportsFinishReason = cloneCompatBool(in.SupportsFinishReason)
 	out.RequiresToolResultName = cloneCompatBool(in.RequiresToolResultName)
 	out.RequiresAssistantAfterToolResult = cloneCompatBool(in.RequiresAssistantAfterToolResult)
+	out.RequiresNonNullAssistantContent = cloneCompatBool(in.RequiresNonNullAssistantContent)
+	out.RequiresToolsWithToolHistory = cloneCompatBool(in.RequiresToolsWithToolHistory)
 	out.RequiresThinkingAsText = cloneCompatBool(in.RequiresThinkingAsText)
 	out.RequiresReasoningContentOnAssistantMessages = cloneCompatBool(in.RequiresReasoningContentOnAssistantMessages)
 	out.SupportsOpenAIGrammarTools = cloneCompatBool(in.SupportsOpenAIGrammarTools)
