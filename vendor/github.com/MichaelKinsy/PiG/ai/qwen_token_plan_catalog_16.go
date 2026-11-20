@@ -45,14 +45,10 @@ func init() {
 		GeneratedModels = append(GeneratedModels, preview)
 	}
 
-	individualModels := make([]GeneratedModel, 0)
 	for i := range GeneratedModels {
-		if GeneratedModels[i].Provider == "qwen-token-plan-individual" {
-			individualModels = append(individualModels, GeneratedModels[i])
+		if model := &GeneratedModels[i]; model.Provider == "qwen-token-plan-individual" {
+			GeneratedModels = append(GeneratedModels, cloneQwenCatalogModel(model, qwenTokenPlanIndividualCNProviderID, qwenTokenPlanCNBaseURL))
 		}
-	}
-	for i := range individualModels {
-		GeneratedModels = append(GeneratedModels, cloneQwenCatalogModel(&individualModels[i], qwenTokenPlanIndividualCNProviderID, qwenTokenPlanCNBaseURL))
 	}
 
 	if index := slices.Index(GeneratedProviders, "qwen-token-plan-individual"); index >= 0 && !slices.Contains(GeneratedProviders, qwenTokenPlanIndividualCNProviderID) {

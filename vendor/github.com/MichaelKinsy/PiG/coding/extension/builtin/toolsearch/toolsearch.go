@@ -10,6 +10,7 @@ package toolsearch
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"net/url"
 	"slices"
@@ -73,7 +74,7 @@ func schemaText(schema, root any, parts *[]string, seenRefs map[string]struct{})
 		*parts = append(*parts, description)
 	}
 	if properties, ok := object["properties"].(map[string]any); ok {
-		for _, name := range slices.Sorted(mapsKeys(properties)) {
+		for _, name := range slices.Sorted(maps.Keys(properties)) {
 			*parts = append(*parts, name)
 			schemaText(properties[name], root, parts, seenRefs)
 		}
@@ -97,7 +98,7 @@ func resolveSchemaRef(ref string, root any) (any, bool) {
 		return nil, false
 	}
 	current := root
-	for _, segment := range strings.Split(ref[2:], "/") {
+	for segment := range strings.SplitSeq(ref[2:], "/") {
 		decoded, err := url.PathUnescape(segment)
 		if err != nil || !utf8.ValidString(decoded) {
 			return nil, false
@@ -120,16 +121,6 @@ func resolveSchemaRef(ref string, root any) (any, bool) {
 		}
 	}
 	return current, true
-}
-
-func mapsKeys(m map[string]any) func(yield func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // CreateDocument builds the search texts of a tool: the description with the schema descriptions and property names, and separately the namespace name, description and instructions. The ranker reads the name from Name. BM25 counts terms, so the order of the parts does not matter.

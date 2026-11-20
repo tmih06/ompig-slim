@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -116,7 +117,7 @@ func TestQwenTokenPlanIndividualRegionalCatalogParity(t *testing.T) {
 	if got := ProviderDisplayName(qwenTokenPlanIndividualCNProviderID); got != "Qwen Token Plan Individual CN" {
 		t.Errorf("CN individual display name = %q", got)
 	}
-	if !slicesContains(GeneratedProviders, qwenTokenPlanIndividualCNProviderID) {
+	if !slices.Contains(GeneratedProviders, qwenTokenPlanIndividualCNProviderID) {
 		t.Fatal("CN individual provider is absent from provider list")
 	}
 }
@@ -132,7 +133,7 @@ func TestQwenTokenPlanKeyVariablesUsePlanSpecificPrecedence(t *testing.T) {
 		{qwenTokenPlanIndividualCNProviderID, []string{"QWEN_TOKEN_PLAN_INDIVIDUAL_CN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY"}},
 	} {
 		got := getAPIKeyEnvVars(test.provider)
-		if !equalStrings(got, test.want) {
+		if !slices.Equal(got, test.want) {
 			t.Errorf("%s environment keys = %v, want %v", test.provider, got, test.want)
 		}
 	}
@@ -176,25 +177,4 @@ func TestStrictSchemaRejectsUnsupportedUntypedRoot(t *testing.T) {
 	if _, err := resolveJSONSchemaStrictSampling(tool, true, nil); err == nil || !strings.Contains(err.Error(), "schemas without a type are unsupported") {
 		t.Fatalf("untyped root error = %v", err)
 	}
-}
-
-func slicesContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func equalStrings(got, want []string) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			return false
-		}
-	}
-	return true
 }

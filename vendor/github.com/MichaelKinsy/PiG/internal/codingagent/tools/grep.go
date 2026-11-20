@@ -316,20 +316,19 @@ func runRipgrep(ctx context.Context, rgPath, dir string, args []string, limit, c
 	return run, nil
 }
 
+type rgJSONText struct {
+	Text  *string `json:"text"`
+	Bytes *string `json:"bytes"`
+}
+
 // parseRipgrepEvent parses a match or context event with its path and line text.
 func parseRipgrepEvent(line string) (*grepMatch, bool) {
 	var event struct {
 		Type string `json:"type"`
 		Data struct {
-			Path *struct {
-				Text  *string `json:"text"`
-				Bytes *string `json:"bytes"`
-			} `json:"path"`
-			LineNumber *float64 `json:"line_number"`
-			Lines      *struct {
-				Text  *string `json:"text"`
-				Bytes *string `json:"bytes"`
-			} `json:"lines"`
+			Path       *rgJSONText `json:"path"`
+			LineNumber *float64    `json:"line_number"`
+			Lines      *rgJSONText `json:"lines"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(line), &event); err != nil || (event.Type != "match" && event.Type != "context") {
@@ -350,10 +349,7 @@ func parseRipgrepEvent(line string) (*grepMatch, bool) {
 	return m, isMatch
 }
 
-func decodeRgJSONText(data *struct {
-	Text  *string `json:"text"`
-	Bytes *string `json:"bytes"`
-}) string {
+func decodeRgJSONText(data *rgJSONText) string {
 	if data == nil {
 		return ""
 	}
