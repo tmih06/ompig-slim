@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -91,7 +92,7 @@ func extractZIP(archive, dir, member string) (string, error) {
 		return "", fmt.Errorf("open %s: %w", member, err)
 	}
 	defer payload.Close()
-	return stageExecutable(dir, ".exe", member, payload, int64(executable.UncompressedSize64))
+	return stageExecutable(dir, member, payload, int64(executable.UncompressedSize64))
 }
 
 func extractTarGzip(archive, dir, member string) (_ string, err error) {
@@ -137,7 +138,7 @@ func extractTarGzip(archive, dir, member string) (_ string, err error) {
 		if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxArchiveBytes {
 			return "", fmt.Errorf("%s must be a nonempty regular file of at most %d bytes", member, maxArchiveBytes)
 		}
-		staged, err = stageExecutable(dir, "", member, reader, header.Size)
+		staged, err = stageExecutable(dir, member, reader, header.Size)
 		if err != nil {
 			return "", err
 		}
@@ -167,8 +168,8 @@ func archiveEntryName(name string, mode fs.FileMode) (string, error) {
 	return name, nil
 }
 
-func stageExecutable(dir, suffix, member string, payload io.Reader, size int64) (string, error) {
-	file, err := os.CreateTemp(dir, ".ompig-slim-update-*"+suffix)
+func stageExecutable(dir, member string, payload io.Reader, size int64) (string, error) {
+	file, err := os.CreateTemp(dir, ".ompig-slim-update-*"+path.Ext(member))
 	if err != nil {
 		return "", fmt.Errorf("stage update (is %s writable?): %w", dir, err)
 	}

@@ -314,7 +314,7 @@ func TestWindowsUpdateDeadlineStopsSDKStaging(t *testing.T) {
 	var stderr bytes.Buffer
 	code := updateWithTimeout(Options{Version: "1.0.0", ExePath: target,
 		DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
-		Client: server.Client(), Stderr: &stderr}, nil, time.Second)
+		Client: server.Client(), Stderr: &stderr}, time.Second)
 	if code != 1 || !strings.Contains(stderr.String(), "prepare replacement SDKs") {
 		t.Fatalf("Update = %d, stderr = %q", code, &stderr)
 	}

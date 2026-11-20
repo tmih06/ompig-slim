@@ -345,7 +345,7 @@ func TestUpdateDeadlineCoversBetaPagination(t *testing.T) {
 	var stderr bytes.Buffer
 	code := updateWithTimeout(Options{Version: "2.0.0-beta.0", Channel: "beta", ExePath: executable,
 		DownloadBase: server.URL + "/releases", ReleasesAPI: server.URL + "/releases/latest",
-		Client: server.Client(), Stderr: &stderr}, nil, 120*time.Millisecond)
+		Client: server.Client(), Stderr: &stderr}, 120*time.Millisecond)
 	if code != 1 || !strings.Contains(stderr.String(), "context deadline exceeded") {
 		t.Fatalf("Update = %d, stderr = %q", code, &stderr)
 	}

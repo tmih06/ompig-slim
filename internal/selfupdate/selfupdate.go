@@ -78,14 +78,10 @@ type Options struct {
 // Update downloads the latest verified release and replaces Options.ExePath.
 // It returns 0 when current or replaced, 1 on failure, or 2 for an invalid channel.
 func Update(o Options) int {
-	return update(o, nil)
+	return updateWithTimeout(o, updateTimeout)
 }
 
-func update(o Options, savePreference func() error) int {
-	return updateWithTimeout(o, savePreference, updateTimeout)
-}
-
-func updateWithTimeout(o Options, savePreference func() error, timeout time.Duration) int {
+func updateWithTimeout(o Options, timeout time.Duration) int {
 	if o.Stdout == nil {
 		o.Stdout = io.Discard
 	}
@@ -109,22 +105,15 @@ func updateWithTimeout(o Options, savePreference func() error, timeout time.Dura
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return updateLocked(ctx, o, savePreference)
+	return updateLocked(ctx, o, nil)
 }
 
+// updateLocked expects the caller to hold the update lock for o.ExePath and to
+// supply non-nil Stdout and Stderr. The channel is checked again because Handle
+// may take it from the install marker.
 func updateLocked(ctx context.Context, o Options, savePreference func() error) int {
-	if o.Stdout == nil {
-		o.Stdout = io.Discard
-	}
-	if o.Stderr == nil {
-		o.Stderr = io.Discard
-	}
 	if o.Client == nil {
 		o.Client = &http.Client{Timeout: updateTimeout}
-	}
-	if strings.TrimSpace(o.ExePath) == "" {
-		fmt.Fprintln(o.Stderr, "Update failed: the running executable could not be located")
-		return 1
 	}
 	if o.Channel != "" && o.Channel != "stable" && o.Channel != "beta" {
 		fmt.Fprintln(o.Stderr, "Update failed: --channel must be stable or beta")
@@ -342,7 +331,7 @@ func (o Options) download(ctx context.Context, archiveURL string, progressOut io
 // fetch streams url into a new temporary file and returns its path.
 //
 // report, when non-nil, receives the running byte count and the response's
-// Content-Length (0 when the server does not send one) after every chunk, so a
+// Content-Length (-1 when the server does not send one) after every chunk, so a
 // caller can render progress. It must be cheap and must not block.
 func (o Options) fetch(ctx context.Context, url string, report func(done, total int64), maxBytes int64) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

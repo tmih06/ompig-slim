@@ -102,15 +102,11 @@ func retryWindowsFileMutation(mutate func() error) error {
 }
 
 func extendedWindowsPath(name string) (string, error) {
-	if strings.HasPrefix(strings.ToLower(name), `\\?\`) {
-		if strings.HasPrefix(strings.ToLower(name), `\\?\unc\`) {
-			name = `\\` + name[len(`\\?\UNC\`):]
-		} else if len(name) >= 7 && name[5] == ':' && name[6] == '\\' {
-			name = name[4:]
-		} else {
-			return name, nil
-		}
+	stripped := normalizedWindowsPath(name)
+	if stripped == name && strings.HasPrefix(name, `\\?\`) {
+		return name, nil
 	}
+	name = stripped
 	if !filepath.IsAbs(name) {
 		absolute, err := filepath.Abs(name)
 		if err != nil {
@@ -129,7 +125,7 @@ func normalizedWindowsPath(name string) string {
 	if strings.HasPrefix(strings.ToLower(name), `\\?\unc\`) {
 		return `\\` + name[len(`\\?\UNC\`):]
 	}
-	if strings.HasPrefix(strings.ToLower(name), `\\?\`) && len(name) >= 7 && name[5] == ':' && name[6] == '\\' {
+	if strings.HasPrefix(name, `\\?\`) && len(name) >= 7 && name[5] == ':' && name[6] == '\\' {
 		return name[4:]
 	}
 	return name
