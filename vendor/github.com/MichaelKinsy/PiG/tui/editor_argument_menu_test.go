@@ -64,6 +64,38 @@ func TestSlashCommandContextDoesNotFallThroughToPathCompletion(t *testing.T) {
 	}
 }
 
+func TestAsyncSlashArgumentCompletionDoesNotSubmit(t *testing.T) {
+	e := NewEditor()
+	e.SetAsyncApply(func(func()) {})
+	e.SetAsyncAutocomplete(&AsyncAutocompleteProvider{
+		ApplyCompletion: func(_ context.Context, _ []string, _, _ int, item AutocompleteItem, _ string) ([]string, int, int, error) {
+			completed := "/open " + item.Value
+			return []string{completed}, 0, len(completed), nil
+		},
+	}, t.Context(), func(func()) {}, func(work AutocompleteWork) {
+		apply, err := work(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		apply()
+	}, func(err error) { t.Fatal(err) })
+	e.SetText("/open /tm")
+	e.publishAutocomplete(false, false, e.cursor, &AutocompleteSuggestions{
+		Prefix: "/tm",
+		Items:  []AutocompleteItem{{Value: "/tmp", Label: "/tmp"}},
+	}, nil)
+	accepted := false
+	e.AcceptAutocomplete(func(submit bool) {
+		accepted = true
+		if submit {
+			t.Fatal("Enter submitted a slash command argument")
+		}
+	})
+	if !accepted || e.Text() != "/open /tmp" {
+		t.Fatalf("accepted=%t, text=%q", accepted, e.Text())
+	}
+}
+
 // TestAsyncNameCompletionRequestsArguments checks that an extension wrapper's
 // completion schedules an argument query on Tab but not on Enter-to-submit.
 func TestAsyncNameCompletionRequestsArguments(t *testing.T) {

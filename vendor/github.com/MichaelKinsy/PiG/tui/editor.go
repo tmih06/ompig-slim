@@ -1364,11 +1364,10 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
 	prefix := e.autocompletePrefix
 	e.saveHistory()
 	e.lastAction = ""
+	isSlashName := e.completionSubmitsCommand(prefix, item.Value)
 	lines, row, byteCol := e.autocompleteView()
 	newLines, nl, nc := e.autocomplete.ApplyCompletion(lines, row, byteCol, item, prefix)
 	e.applyAutocompleteState(newLines, nl, nc)
-	// Skill calls are composable prompt tokens, not commands to dispatch immediately.
-	isSlashName := strings.HasPrefix(prefix, "/") && !strings.HasPrefix(item.Value, "skill:")
 	e.AutocompleteCancel()
 	if !isSlashName && e.OnChange != nil {
 		e.OnChange(e.Text())
@@ -1863,7 +1862,7 @@ func (e *Editor) HandleInput(data string) {
 			if e.AutocompleteOpen() {
 				return
 			}
-		} else if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") && !strings.Contains(strings.TrimLeftFunc(before, widthx.IsJSSpace), " ") {
+		} else if e.commandNameContext(before) {
 			e.refreshAutocomplete()
 			return
 		}
