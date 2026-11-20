@@ -40,6 +40,14 @@ cmp go.sum "$CHECKOUT/go.sum"
 ! grep -q MichaelKinsy main.go
 grep -q 'example.org/lib/internal/thing' main.go
 if [[ "${FAIL_DOWNLOAD:-}" == 1 ]]; then exit 1; fi
+if [[ "${OWNER_MODULE:-}" == 1 ]]; then
+    mkdir -p vendor/github.com/MichaelKinsy/other
+    printf restored > vendor/github.com/MichaelKinsy/other/other.go
+fi
+if [[ "${SCRATCH_PIG:-}" == 1 ]]; then
+    mkdir -p vendor/github.com/MichaelKinsy/PiG
+    printf upstream > vendor/github.com/MichaelKinsy/PiG/patched.go
+fi
 mkdir -p vendor/example.org/lib vendor/github.com/example/lib
 printf restored > vendor/example.org/lib/lib.go
 printf restored > vendor/github.com/example/lib/lib.go
@@ -71,6 +79,25 @@ printf scratch > vendor/modules.txt
         # A complete restore needs no working downloader on subsequent calls.
         self.go.unlink()
         self.assertEqual(self.run_bootstrap().returncode, 0)
+
+    def test_restore_beside_pig_replaces_only_generated_owner_modules(self):
+        """A generated module under PiG's owner must not remove the patched tree."""
+        stale = self.root / "vendor/github.com/MichaelKinsy/obsolete/old.go"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("obsolete")
+        result = self.run_bootstrap(OWNER_MODULE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.pig.read_text(), "personal patches\n")
+        self.assertFalse(stale.exists())
+        self.assertEqual((self.root / "vendor/github.com/MichaelKinsy/other/other.go").read_text(), "restored")
+
+    def test_scratch_pig_sources_are_refused_without_touching_patches(self):
+        """Upstream PiG pulled in transitively never replaces maintained sources."""
+        result = self.run_bootstrap(SCRATCH_PIG="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PiG", result.stderr)
+        self.assertEqual(self.pig.read_text(), "personal patches\n")
+        self.assertFalse((self.root / "vendor/.bootstrap-modules.txt").exists())
 
     def test_failure_is_retryable_and_manifest_change_restores_again(self):
         """No completion marker or destructive copy precedes a successful fetch."""

@@ -21,6 +21,10 @@ cp go.mod go.sum "$stage/"
 printf 'Restoring pinned dependencies (preserving patched PiG sources)\n'
 (cd "$stage" && GOFLAGS= "${GO:-go}" mod vendor)
 rm "$stage/vendor/modules.txt"
+if [[ -e "$stage/vendor/github.com/MichaelKinsy/PiG" ]]; then
+    printf 'Scratch vendor unexpectedly contains maintained PiG sources\n' >&2
+    exit 1
+fi
 
 # Replace whole generated namespaces so upgrades cannot leave obsolete Go files.
 # github.com is shared with maintained PiG; only replace the generated owners.
@@ -31,8 +35,17 @@ for source in "$stage/vendor"/*; do
         mkdir -p vendor/github.com
         for owner in "$source"/*; do
             target="vendor/github.com/${owner##*/}"
-            rm -rf "$target"
-            mv "$owner" "$target"
+            if [[ "${owner##*/}" == MichaelKinsy ]]; then
+                # PiG shares this owner, so replace only the generated modules beside it.
+                mkdir -p "$target"
+                for module in "$target"/*; do
+                    [[ "${module##*/}" == PiG ]] || rm -rf "$module"
+                done
+                mv "$owner"/* "$target/"
+            else
+                rm -rf "$target"
+                mv "$owner" "$target"
+            fi
         done
     else
         rm -rf "vendor/$name"
