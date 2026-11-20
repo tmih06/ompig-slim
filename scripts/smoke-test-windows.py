@@ -171,7 +171,12 @@ class ModelFixture:
         if scenario.tool:
             if scenario.tool not in tool_results:
                 raise AssertionError(f"expected {scenario.tool!r} tool result in the request")
-            self.check_proof(scenario)
+            try:
+                self.check_proof(scenario)
+            except AssertionError as exc:
+                results = [message.get("content") for message in body.get("messages", [])
+                           if message.get("role") == "tool"]
+                raise AssertionError(f"{exc}; last tool result={str(results[-1:])[-2000:]}") from exc
         return {"role": "assistant", "content": scenario.answer}, "stop"
 
     def check_proof(self, scenario):
@@ -233,7 +238,7 @@ class FixtureHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
         except Exception as exc:
             self.server.fixture.failures.append(f"{type(exc).__name__}: {exc}")
-            payload = b"fixture failure"
+            payload = (f"{type(exc).__name__}: {exc}").encode("utf-8")
             try:
                 self.send_response(500)
                 self.send_header("Content-Length", str(len(payload)))
@@ -969,6 +974,25 @@ class PortableLogicTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             verify_bash_proof(proof.replace("C:\\Program Files\\Git\\usr\\bin\\bash.exe",
                                             "C:\\Windows\\System32\\bash.exe"), cwd, git_root)
+
+    def test_fixture_failure_reports_the_proof_error_and_tool_result(self):
+        import http.client
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scenario = Scenario("PROBE", "OK", "bash", proof=root / "missing.txt")
+            fixture = ModelFixture(root, [scenario], root)
+            with FixtureServer(fixture) as server:
+                connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+                self.addCleanup(connection.close)
+                body = {"messages": [{"role": "user", "content": "PROBE"},
+                                     {"role": "tool", "name": "bash", "content": "spawn failed"}]}
+                connection.request("POST", "/chat/completions", json.dumps(body))
+                response = connection.getresponse()
+                self.assertEqual(response.status, 500)
+                diagnostic = response.read().decode("utf-8")
+                self.assertIn("tool did not create missing.txt", diagnostic)
+                self.assertIn("spawn failed", diagnostic)
+                self.assertEqual(len(fixture.failures), 1)
 
     def test_git_bash_root_supports_bin_and_usr_bin_layouts(self):
         self.assertEqual(git_install_root(Path("/opt/Git/bin/bash.exe")), Path("/opt/Git"))
