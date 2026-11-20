@@ -1,8 +1,8 @@
 # Windows port verification
 
 Native Windows x64 and ARM64 acceptance passed in
-[CI run 44733920510](https://github.com/tmih06/ompig-slim/actions/runs/44733920510),
-at source revision `cd8dfb7`. The complete CI run passed. The development host is
+[CI run 44741164513](https://github.com/tmih06/ompig-slim/actions/runs/44741164513),
+at source revision `cf19f16`. The complete CI run passed. The development host is
 Linux ARM64; the Windows results below come from native GitHub-hosted runners,
 not cross-builds.
 
@@ -11,17 +11,18 @@ found a transient sharing violation in the x64 runtime updater. The runtime now
 retries only sharing and lock violations for up to ten seconds per file mutation,
 including backup removal, replacement, and rollback. Permanent errors still fail
 immediately. Native regressions cover temporarily locked staged, installed, and
-backup files. Verification of this follow-up is pending.
+backup files. The complete follow-up CI run passed, including both native
+installer/update suites and the x64 race detector.
 
 ## Native evidence
 
 | Runner | Gate | Result |
 | --- | --- | --- |
-| Windows x64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280536989) | Passed |
-| Windows ARM64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280537128) | Passed |
-| Windows x64 | [Go race detector](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136280536851) | Passed |
-| Windows x64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136281812053) | Passed |
-| Windows ARM64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44733920510/job/136281811905) | Passed |
+| Windows x64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44741164513/job/136304893017) | Passed |
+| Windows ARM64 | [Go tests, vet, and PowerShell tooling](https://github.com/tmih06/ompig-slim/actions/runs/44741164513/job/136304893277) | Passed |
+| Windows x64 | [Go race detector](https://github.com/tmih06/ompig-slim/actions/runs/44741164513/job/136304893188) | Passed |
+| Windows x64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44741164513/job/136305931756) | Passed |
+| Windows ARM64 | [Release installation, update, and executable smoke](https://github.com/tmih06/ompig-slim/actions/runs/44741164513/job/136305931670) | Passed |
 
 Each architecture passed all 31 loopback installer/update tests. Each then proved
 print mode, JSONL, native codemode writes, RPC, session persistence and resume,
