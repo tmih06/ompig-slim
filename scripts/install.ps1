@@ -15,6 +15,23 @@ function Assert-NoNewline([string]$Value, [string]$Name) {
     }
 }
 
+function Invoke-InstallFileMutation([scriptblock]$Mutation) {
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        try {
+            & $Mutation
+            return
+        } catch [IO.IOException] {
+            $errorCode = $_.Exception.HResult -band 0xFFFF
+            if (($errorCode -ne 32 -and $errorCode -ne 33) -or
+                $stopwatch.Elapsed.TotalSeconds -ge 10) {
+                throw
+            }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}
+
 function Get-NormalizedPath([string]$Path) {
     $value = [Environment]::ExpandEnvironmentVariables($Path.Trim().Trim('"'))
     try {
@@ -112,13 +129,13 @@ function Write-InstallMarker([string]$Root, [string]$Text) {
     try {
         [IO.File]::WriteAllText($temporary, $Text, [Text.UTF8Encoding]::new($false))
         if ([IO.File]::Exists($marker)) {
-            [IO.File]::Replace($temporary, $marker, [NullString]::Value)
+            Invoke-InstallFileMutation { [IO.File]::Replace($temporary, $marker, [NullString]::Value) }
         } else {
-            [IO.File]::Move($temporary, $marker)
+            Invoke-InstallFileMutation { [IO.File]::Move($temporary, $marker) }
         }
     } finally {
         if ([IO.File]::Exists($temporary)) {
-            [IO.File]::Delete($temporary)
+            Invoke-InstallFileMutation { [IO.File]::Delete($temporary) }
         }
     }
 }
@@ -277,7 +294,7 @@ try {
             ($backupAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Update backup $backup is not a regular file."
         }
-        [IO.File]::Move($backup, $target)
+        Invoke-InstallFileMutation { [IO.File]::Move($backup, $target) }
     }
     $staged = Join-Path $installDir ('.ompig-slim.new.' + [Guid]::NewGuid().ToString('N') + '.exe')
     $inputStream = $executableEntry.Open()
@@ -314,11 +331,11 @@ try {
     Assert-NoNewline $target 'Executable path'
 
     if ([IO.File]::Exists($target)) {
-        [IO.File]::Replace($staged, $target, [NullString]::Value)
+        Invoke-InstallFileMutation { [IO.File]::Replace($staged, $target, [NullString]::Value) }
     } elseif ([IO.Directory]::Exists($target)) {
         throw "Cannot replace $target because it is a directory."
     } else {
-        [IO.File]::Move($staged, $target)
+        Invoke-InstallFileMutation { [IO.File]::Move($staged, $target) }
     }
     $staged = $null
     Write-Output "Installed ompig-slim $versionOutput to $target"
@@ -360,7 +377,7 @@ try {
         $updateLock.Dispose()
     }
     if ($null -ne $staged -and [IO.File]::Exists($staged)) {
-        [IO.File]::Delete($staged)
+        Invoke-InstallFileMutation { [IO.File]::Delete($staged) }
     }
     if ($null -ne $work -and [IO.Directory]::Exists($work)) {
         [IO.Directory]::Delete($work, $true)

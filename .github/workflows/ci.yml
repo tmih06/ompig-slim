@@ -186,10 +186,12 @@ jobs:
           ./bin/native/ompig-slim/ompig-slim.exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Release executable did not start' }
       - name: Prepare native tool integration tests
+        id: native-tools
         run: ./scripts/setup-windows-ci.ps1
       - name: Prove PowerShell installation against loopback releases
         run: python scripts/test-install-windows.py ./bin/native/ompig-slim/ompig-slim.exe
       - name: Prove native CLI tools, persistence, and terminal input
+        if: ${{ !cancelled() && steps.native-tools.outcome == 'success' }}
         run: python scripts/smoke-test-windows.py ./bin/native/ompig-slim/ompig-slim.exe
 
   smoke:

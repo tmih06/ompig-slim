@@ -252,6 +252,133 @@ try {
         result = self.run_ps_command(command, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_installer_retries_transient_sharing_errors_and_fails_fast_other_io(self):
+        env = dict(self.env, INSTALLER_SCRIPT=str(ROOT / "scripts/install.ps1"))
+        command = r'''
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
+foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+$root = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($root)
+try {
+    foreach ($hresult in @(0x80070020, 0x80070021)) {
+        $source = Join-Path $root ("staged-$hresult.exe")
+        $target = Join-Path $root ("installed-$hresult.exe")
+        [IO.File]::WriteAllText($source, 'executable')
+        $script:attempts = 0
+        Invoke-InstallFileMutation {
+            $script:attempts++
+            if ($script:attempts -eq 1) {
+                throw [IO.IOException]::new('transient sharing violation', $hresult)
+            }
+            [IO.File]::Move($source, $target)
+        }
+        if ($script:attempts -ne 2) { throw "Sharing violation attempts: $script:attempts" }
+        if (-not [IO.File]::Exists($target) -or [IO.File]::ReadAllText($target) -ne 'executable') {
+            throw 'The file move did not complete after the transient sharing violation.'
+        }
+    }
+
+    $script:attempts = 0
+    $failure = $null
+    try {
+        Invoke-InstallFileMutation {
+            $script:attempts++
+            throw [IO.IOException]::new('permanent I/O failure', 0x80070005)
+        }
+    } catch {
+        $failure = $_.Exception
+    }
+    if ($null -eq $failure -or $script:attempts -ne 1) {
+        throw "A non-sharing I/O error was retried or hidden: $script:attempts attempts"
+    }
+
+    $script:attempts = 0
+    $failure = $null
+    try {
+        Invoke-InstallFileMutation {
+            $script:attempts++
+            throw [InvalidOperationException]::new('non-I/O failure')
+        }
+    } catch {
+        $failure = $_.Exception
+    }
+    if ($null -eq $failure -or $script:attempts -ne 1) {
+        throw "A non-I/O error was retried or hidden: $script:attempts attempts"
+    }
+} finally {
+    [IO.Directory]::Delete($root, $true)
+}
+'''
+        result = self.run_ps_command(command, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        if os.name == "nt":
+            import ctypes
+            import threading
+            import time
+            from ctypes import wintypes
+
+            native_root = self.base / "native sharing lock"
+            native_root.mkdir()
+            source = native_root / "staged.exe"
+            target = native_root / "installed.exe"
+            source.write_text("executable", encoding="utf-8")
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateFileW.argtypes = [
+                wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+            ]
+            kernel32.CreateFileW.restype = wintypes.HANDLE
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.CreateFileW(
+                str(source), 0x80000000, 0, None, 3, 0x80, None,
+            )
+            self.assertNotEqual(handle, wintypes.HANDLE(-1).value, ctypes.FormatError(ctypes.get_last_error()))
+            failure_marker = native_root / "sharing-failure.txt"
+
+            def release_after_failure():
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline and not failure_marker.exists():
+                    time.sleep(0.01)
+                kernel32.CloseHandle(handle)
+
+            release = threading.Thread(target=release_after_failure)
+            release.start()
+            try:
+                env = dict(
+                    self.env,
+                    INSTALLER_SCRIPT=str(ROOT / "scripts/install.ps1"),
+                    MOVE_SOURCE=str(source),
+                    MOVE_TARGET=str(target),
+                    MOVE_FAILURE=str(failure_marker),
+                )
+                command = r'''
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SCRIPT, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$functions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
+foreach ($function in $functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+Invoke-InstallFileMutation {
+    try { [IO.File]::Move($env:MOVE_SOURCE, $env:MOVE_TARGET) }
+    catch [IO.IOException] {
+        [IO.File]::WriteAllText($env:MOVE_FAILURE, ($_.Exception.HResult -band 0xFFFF))
+        throw
+    }
+}
+'''
+                result = self.run_ps_command(command, env=env)
+            finally:
+                release.join()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(target.read_text(encoding="utf-8"), "executable")
+            self.assertIn(int(failure_marker.read_text(encoding="utf-8-sig")), (32, 33))
+
     def test_ci_checksum_accepts_certutil_and_gnu_formats(self):
         env = dict(self.env, SETUP_SCRIPT=str(ROOT / "scripts/setup-windows-ci.ps1"))
         command = r'''
