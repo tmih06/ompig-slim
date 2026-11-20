@@ -45,7 +45,7 @@ func FindExecutableOnPath(executable string) string {
 
 // FirstNativeBashMatch excludes the WSL launcher from automatic shell selection.
 func FirstNativeBashMatch(output string, exists func(string) bool) string {
-	for _, candidate := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+	for candidate := range strings.Lines(output) {
 		candidate = strings.TrimSpace(candidate)
 		if candidate != "" && !IsLegacyWSLBashPath(candidate) && exists(candidate) {
 			return candidate
