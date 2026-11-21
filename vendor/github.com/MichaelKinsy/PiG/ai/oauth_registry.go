@@ -30,6 +30,8 @@ var builtInOAuthProviders = map[string]OAuthProviderInterface{
 	"cloudflare-workers-ai": newCloudflareWorkersAIOAuthProvider(),
 	"cloudflare-ai-gateway": newCloudflareAIGatewayOAuthProvider(),
 	"mistral":               newMistralVibeOAuthProvider(),
+	// ompig-slim addition: Devin browser PKCE sign-in and Devin CLI credential adoption.
+	"devin": newDevinOAuthProvider(),
 }
 
 // copilotOAuthRegistryProvider adapts the GitHub Copilot device-flow helper to

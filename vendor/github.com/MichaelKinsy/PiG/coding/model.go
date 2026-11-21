@@ -401,6 +401,16 @@ func buildLeafProviderForEntry(providerID, modelID string, apiKind ai.API, entry
 			ExtraHeaders:  extraHeaders,
 			Reasoning:     entry.Reasoning,
 		})
+	case ai.APIDevinAgent:
+		return ai.NewDevinProvider(ai.DevinConfig{
+			ModelMetadata: modelFromEntry(entry, nil),
+			BaseURL:       baseURL,
+			APIKey:        apiKey,
+			GetAPIKey:     resolveAPIKey,
+			Model:         modelID,
+			ProviderID:    providerID,
+			ExtraHeaders:  extraHeaders,
+		})
 	case ai.APIPiMessages:
 		config := ai.PiMessagesConfig{
 			ModelMetadata: modelFromEntry(entry, nil),

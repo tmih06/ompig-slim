@@ -428,11 +428,13 @@ var builtinOAuthNames = map[string]struct {
 	"openrouter":     {"OpenRouter OAuth", false},
 	"radius":         {"Radius", false},
 	"xai":            {"xAI (Grok/X subscription)", true},
-	// ompig-slim addition: the API-key sign-in flows of omp_oauth_apikey*.go that authenticate
-	// providers already in the catalog. Each advertises the lazyOAuth name and subscription flag of
+	// ompig-slim addition: the sign-in flows of the omp OAuth additions
+	// (omp_oauth_apikey*.go, oauth_devin.go) that authenticate providers already
+	// in the catalog. Each advertises the lazyOAuth name and subscription flag of
 	// its upstream provider module (providers/<id>.ts).
 	"cloudflare-ai-gateway": {"Cloudflare AI Gateway", true},
 	"cloudflare-workers-ai": {"Cloudflare Workers AI", true},
+	"devin":                 {"Devin", true},
 	"mistral":               {"Mistral", true},
 	"xiaomi":                {"Xiaomi MiMo", true},
 }
@@ -447,6 +449,7 @@ var builtinOAuthLoginLabels = map[string]string{
 	// ompig-slim addition: see builtinOAuthNames.
 	"cloudflare-ai-gateway": "Sign in with Cloudflare",
 	"cloudflare-workers-ai": "Sign in with Cloudflare",
+	"devin":                 "Sign in with Devin",
 	"mistral":               "Sign in with Mistral",
 	"xiaomi":                "Sign in with Xiaomi",
 }
@@ -575,6 +578,7 @@ var builtinAPIKeyNames = sync.OnceValue(func() map[string]string {
 		"baseten":                    "Baseten API key",
 		"cerebras":                   "Cerebras API key",
 		"deepseek":                   "DeepSeek API key",
+		"devin":                      "Devin API key",
 		"fireworks":                  "Fireworks API key",
 		"github-copilot":             "GitHub Copilot token",
 		"google":                     "Gemini API key",

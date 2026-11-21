@@ -124,12 +124,21 @@ func (r *ModelRegistry) providerBaseURLOverride(id string) string {
 }
 
 // remoteCatalogProviderIDs are the built-in providers whose catalogs the overlay refreshes: not Radius, which has its own catalog, and not
-// a provider an extension replaced, whose composed base refreshes through the native collection.
+// a provider an extension replaced, whose composed base refreshes through the native collection. An OMP-only provider joins only when it
+// carries an account-scoped catalog (devin's GetCliModelConfigs roster), so the other OMP snapshot providers keep their refresh behavior.
 func (r *ModelRegistry) remoteCatalogProviderIDs(selected []string) []string {
 	var ids []string
-	for _, id := range ai.ListProviders() {
-		if r.isRadiusProvider(id) || r.GetProvider(id) != nil {
+	legacy := ai.ListProviders()
+	seen := map[string]bool{}
+	for _, id := range slices.Concat(legacy, ai.OMPCatalogProviders()) {
+		if seen[id] || r.isRadiusProvider(id) || r.GetProvider(id) != nil {
 			continue
+		}
+		seen[id] = true
+		if !slices.Contains(legacy, id) {
+			if base := builtinTypedBase(id, nil); base == nil || base.ModelCatalog == nil {
+				continue
+			}
 		}
 		if len(selected) > 0 && !slices.Contains(selected, id) {
 			continue

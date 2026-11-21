@@ -546,7 +546,7 @@ func (builder *assistantStreamBuilder) endToolCall(index int) { builder.endToolC
 // parseStreamingJson's reading, so a non-object value such as [] stays as sent.
 func finalArgumentsAPI(api API) bool {
 	switch api {
-	case APIAnthropicMessages, APIBedrockConverseStream, APIMistralConversations, APIOpenAICompletions, APIOpenAIResponses, APIAzureOpenAIResponses, APIOpenAICodexResponses:
+	case APIAnthropicMessages, APIBedrockConverseStream, APIMistralConversations, APIOpenAICompletions, APIOpenAIResponses, APIAzureOpenAIResponses, APIOpenAICodexResponses, APIDevinAgent:
 		return true
 	}
 	return false

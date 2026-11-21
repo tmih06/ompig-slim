@@ -16,6 +16,16 @@ decides which models the signed-in accounts can select. The public catalog can
 supply missing metadata, but it cannot authorize subscription models.
 The two providers retain separate credential and catalog namespaces.
 
+Devin uses the authenticated `GetCliModelConfigs` endpoint after `/login` (or a
+`DEVIN_API_KEY` session token). The live roster is scoped to the account's
+credential and endpoint: disabled entries, quick-review and internal display
+slots are dropped, duplicate wire UIDs collapse to one row, and Fusion
+pairings resolve to their lead model. Router slots keep the `modelRouter`
+compat flag so chat requests go through `AssignModel`. When discovery fails or
+returns an empty roster, the bundled `swe-1-6`/`swe-1-6-fast` seed catalog
+stays authoritative; an empty successful response never restores seeds over a
+published roster.
+
 The ClinePass catalog omits `cline-free/` promotions. [Cline reserves those
 models for its IDE extension and CLI](https://docs.cline.bot/getting-started/free-models#api-access).
 

@@ -331,7 +331,7 @@ func TestZaiCreditLimitPrefersAbsoluteRatio(t *testing.T) {
 }
 
 func TestDevinUserStatusRequestEncodesSessionToken(t *testing.T) {
-	body := encodeDevinUserStatusRequest("abc.def.ghi")
+	body := encodeDevinMetadataRequest("abc.def.ghi")
 	if len(body) == 0 {
 		t.Fatal("empty request body")
 	}

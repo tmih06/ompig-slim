@@ -59,6 +59,9 @@ const (
 	APIGoogleGenerativeAI    API = "google-generative-ai"
 	APIGoogleVertex          API = "google-vertex"
 	APIPiMessages            API = "pi-messages"
+	// APIDevinAgent is the Devin (Codeium Cascade) Connect/protobuf transport.
+	// ompig-slim addition: upstream has no devin-agent API implementation.
+	APIDevinAgent API = "devin-agent"
 )
 
 // ─── Content Types ────────────────────────────────────────────────────────────

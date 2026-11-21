@@ -133,6 +133,8 @@ func directAPIProviderFor(api API, model *Model, key string, env ProviderEnv) (P
 		return GoogleCloudCodeAssistProviderFromConfig(GoogleCloudCodeAssistConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers})
 	case APIMistralConversations:
 		return NewMistralAPIProvider(MistralConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers, Reasoning: meta.Reasoning})
+	case APIDevinAgent:
+		return NewDevinProvider(DevinConfig{ModelMetadata: model, APIKey: key, Model: model.ID, ProviderID: meta.ProviderID, BaseURL: meta.BaseURL, ExtraHeaders: meta.Headers})
 	default:
 		return nil, fmt.Errorf("Provider %s has no API implementation for %s", meta.ProviderID, api)
 	}

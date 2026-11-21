@@ -6,7 +6,6 @@ package ai
 import (
 	"context"
 	"math"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -950,61 +949,9 @@ func commandCodeUsageProvider() *UsageProvider {
 
 // --- Devin (Codeium Cascade) ------------------------------------------------
 
-const (
-	devinProvider       = "devin"
-	devinDefaultBaseURL = "https://server.codeium.com"
-	devinUserStatusPath = "/exa.seat_management_pb.SeatManagementService/GetUserStatus"
-	devinSessionPrefix  = "devin-session-token$"
-	devinCliVersion     = "3000.11.205"
-	devinMicrosPerUSD   = 1_000_000
-	devinBillingQuota   = 2
-)
-
-// devinCredentialToken reads the stored token of either credential kind.
-func devinCredentialToken(credential UsageCredential) string {
-	raw := credential.APIKey
-	if credential.Type == CredentialOAuth {
-		raw = credential.AccessToken
-	}
-	return trimJSWhitespace(raw)
-}
-
-// encodeDevinCredential prefixes a bare JWT-shaped session token.
-func encodeDevinCredential(token string) string {
-	if token == "" {
-		return ""
-	}
-	if strings.HasPrefix(token, devinSessionPrefix) {
-		return token
-	}
-	if len(strings.Split(token, ".")) == 3 {
-		return devinSessionPrefix + token
-	}
-	return token
-}
-
-// devinCLIMetadata builds the released-CLI request identity.
-func devinCLIMetadata(token string) map[string]string {
-	osName := "linux"
-	switch runtimeGOOS() {
-	case "darwin":
-		osName = "darwin"
-	case "windows":
-		osName = "windows"
-	}
-	return map[string]string{
-		"ideName":          "devin-cli",
-		"ideType":          "chisel",
-		"ideVersion":       devinCliVersion,
-		"extensionName":    "chisel",
-		"extensionVersion": devinCliVersion,
-		"locale":           "en",
-		"os":               osName,
-	}
-}
-
-// runtimeGOOS returns the host OS.
-func runtimeGOOS() string { return runtime.GOOS }
+// The Devin constants, credential encoding, CLI metadata, protobuf writer /
+// reader, and the GetUserStatus request encoder live in devin_proto.go, shared
+// with the devin-agent transport and discovery.
 
 // devinTimestampMs converts a protobuf Timestamp to epoch milliseconds.
 func devinTimestampMs(seconds int64, nanos int32) float64 {
@@ -1020,119 +967,6 @@ func devinTierLabel(tier int64) string {
 		18: "Max", 19: "Devin Free", 20: "Devin Trial",
 	}
 	return names[tier]
-}
-
-// devinPbWriter writes protobuf wire bytes for the GetUserStatusRequest.
-type devinPbWriter struct {
-	buffer []byte
-}
-
-// appendVarint appends a base-128 varint.
-func (w *devinPbWriter) appendVarint(value uint64) {
-	for value >= 0x80 {
-		w.buffer = append(w.buffer, byte(value)|0x80)
-		value >>= 7
-	}
-	w.buffer = append(w.buffer, byte(value))
-}
-
-// appendTag appends a field tag.
-func (w *devinPbWriter) appendTag(field int, wireType int) {
-	w.appendVarint(uint64(field)<<3 | uint64(wireType))
-}
-
-// appendString appends one length-delimited string field.
-func (w *devinPbWriter) appendString(field int, value string) {
-	if value == "" {
-		return
-	}
-	w.appendTag(field, 2)
-	w.appendVarint(uint64(len(value)))
-	w.buffer = append(w.buffer, value...)
-}
-
-// encodeDevinUserStatusRequest builds the GetUserStatusRequest message: the
-// CLI identity metadata (field 1) carries the session token.
-func encodeDevinUserStatusRequest(token string) []byte {
-	metadata := &devinPbWriter{}
-	metadata.appendString(1, "devin-cli")                  // ideName
-	metadata.appendString(28, "chisel")                    // ideType
-	metadata.appendString(7, devinCliVersion)              // ideVersion
-	metadata.appendString(12, "chisel")                    // extensionName
-	metadata.appendString(2, devinCliVersion)              // extensionVersion
-	metadata.appendString(3, encodeDevinCredential(token)) // apiKey
-	metadata.appendString(4, "en")                         // locale
-	osName := devinCLIMetadata(token)["os"]
-	metadata.appendString(5, osName) // os
-	metadata.appendString(21, "")    // userJwt (empty)
-	request := &devinPbWriter{}
-	request.appendTag(1, 2)
-	request.appendVarint(uint64(len(metadata.buffer)))
-	request.buffer = append(request.buffer, metadata.buffer...)
-	return request.buffer
-}
-
-// devinPbReader walks protobuf wire bytes.
-type devinPbReader struct {
-	data  []byte
-	index int
-}
-
-// readVarint reads one base-128 varint.
-func (r *devinPbReader) readVarint() (uint64, bool) {
-	var result uint64
-	var shift uint
-	for {
-		if r.index >= len(r.data) {
-			return 0, false
-		}
-		value := r.data[r.index]
-		r.index++
-		result |= uint64(value&0x7f) << shift
-		if value < 0x80 {
-			return result, true
-		}
-		shift += 7
-		if shift > 63 {
-			return 0, false
-		}
-	}
-}
-
-// readBytes reads one length-delimited payload.
-func (r *devinPbReader) readBytes() ([]byte, bool) {
-	length, ok := r.readVarint()
-	if !ok || uint64(len(r.data)-r.index) < length {
-		return nil, false
-	}
-	payload := r.data[r.index : r.index+int(length)]
-	r.index += int(length)
-	return payload, true
-}
-
-// devinSkippedField advances past one field of an unknown wire type.
-func (r *devinPbReader) skip(wireType int) bool {
-	switch wireType {
-	case 0:
-		_, ok := r.readVarint()
-		return ok
-	case 1:
-		if len(r.data)-r.index < 8 {
-			return false
-		}
-		r.index += 8
-		return true
-	case 2:
-		_, ok := r.readBytes()
-		return ok
-	case 5:
-		if len(r.data)-r.index < 4 {
-			return false
-		}
-		r.index += 4
-		return true
-	}
-	return false
 }
 
 // devinTimestamp is a decoded Timestamp.
@@ -1662,7 +1496,7 @@ func buildDevinReport(status *devinUserStatus, rootPlan *devinPlanInfo) *UsageRe
 	if planName == "" {
 		planName = devinTierLabel(status.teamsTier)
 	}
-	scope := UsageScope{Provider: devinProvider, AccountID: accountID, OrgID: orgID, Tier: planName}
+	scope := UsageScope{Provider: devinProviderName, AccountID: accountID, OrgID: orgID, Tier: planName}
 	limits := make([]UsageLimit, 0, 5)
 	if planStatus != nil {
 		window := devinPlanWindow(planStatus)
@@ -1711,7 +1545,7 @@ func buildDevinReport(status *devinUserStatus, rootPlan *devinPlanInfo) *UsageRe
 	if planName != "" {
 		metadata["planType"] = planName
 	}
-	report := &UsageReport{Provider: devinProvider, FetchedAt: timeNowMillis(), Limits: limits, Metadata: metadata}
+	report := &UsageReport{Provider: devinProviderName, FetchedAt: timeNowMillis(), Limits: limits, Metadata: metadata}
 	if planStatus != nil && planStatus.planEnd != nil && planStatus.planEnd.set {
 		planEnd := int64(devinTimestampMs(planStatus.planEnd.seconds, planStatus.planEnd.nanos))
 		if planEnd > 0 {
@@ -1730,7 +1564,7 @@ func buildDevinReport(status *devinUserStatus, rootPlan *devinPlanInfo) *UsageRe
 
 // fetchDevinUsage issues the GetUserStatus Connect RPC.
 func fetchDevinUsage(ctx context.Context, params UsageFetchParams, fctx UsageFetchContext) (*UsageReport, error) {
-	if params.Provider != devinProvider {
+	if params.Provider != devinProviderName {
 		return nil, nil
 	}
 	token := devinCredentialToken(params.Credential)
@@ -1745,7 +1579,7 @@ func fetchDevinUsage(ctx context.Context, params UsageFetchParams, fctx UsageFet
 		"content-type":             "application/proto",
 		"connect-protocol-version": "1",
 		"accept":                   "*/*",
-	}, encodeDevinUserStatusRequest(token))
+	}, encodeDevinMetadataRequest(token))
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, context.Cause(ctx)
@@ -1769,9 +1603,9 @@ func fetchDevinUsage(ctx context.Context, params UsageFetchParams, fctx UsageFet
 // devinUsageProvider returns the Devin usage provider.
 func devinUsageProvider() *UsageProvider {
 	return &UsageProvider{
-		ID: devinProvider,
+		ID: devinProviderName,
 		Supports: func(params UsageFetchParams) bool {
-			return params.Provider == devinProvider && devinCredentialToken(params.Credential) != ""
+			return params.Provider == devinProviderName && devinCredentialToken(params.Credential) != ""
 		},
 		FetchUsage:           fetchDevinUsage,
 		ValidatesCredentials: true,
