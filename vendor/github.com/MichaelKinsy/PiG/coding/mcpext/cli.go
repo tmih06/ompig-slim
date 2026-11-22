@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf16"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	"github.com/MichaelKinsy/PiG/internal/editdistance"
 	"github.com/MichaelKinsy/PiG/internal/jsnumber"
 	"github.com/MichaelKinsy/PiG/internal/jsonstringify"
 	"github.com/MichaelKinsy/PiG/internal/orderedjson"
@@ -329,7 +329,7 @@ func RunMcpCommand(ctx context.Context, args []string, options McpCommandOptions
 				configured = "none"
 			}
 			suggestion := ""
-			if index := slices.IndexFunc(names, func(candidate string) bool { return editDistance(candidate, name) <= 2 }); index >= 0 {
+			if index := slices.IndexFunc(names, func(candidate string) bool { return editdistance.UTF16(candidate, name) <= 2 }); index >= 0 {
 				suggestion = fmt.Sprintf(` Did you mean "%s"?`, names[index])
 			}
 			c.error(fmt.Sprintf(`No MCP server named "%s".%s%s Configured: %s.`, name, suggestion, note, configured))
@@ -387,28 +387,6 @@ func (c *mcpCLI) trusted() (bool, error) {
 		return false, nil
 	}
 	return c.options.IsProjectTrusted(c.options.Cwd)
-}
-
-// editDistance is the Levenshtein distance between a and b in UTF-16 code units, as Pi's editDistance counts them. It suggests a configured server name for a mistyped one.
-func editDistance(a, b string) int {
-	ua, ub := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
-	previous := make([]int, len(ub)+1)
-	for j := range previous {
-		previous[j] = j
-	}
-	for i := 1; i <= len(ua); i++ {
-		current := make([]int, len(ub)+1)
-		current[0] = i
-		for j := 1; j <= len(ub); j++ {
-			cost := 1
-			if ua[i-1] == ub[j-1] {
-				cost = 0
-			}
-			current[j] = min(previous[j]+1, current[j-1]+1, previous[j-1]+cost)
-		}
-		previous = current
-	}
-	return previous[len(ub)]
 }
 
 // parsePairs parses the `KEY=VALUE` pairs of a repeatable option into an object in insertion order. It returns false after reporting a malformed pair.

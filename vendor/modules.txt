@@ -108,6 +108,7 @@ github.com/MichaelKinsy/PiG/internal/configvalue
 github.com/MichaelKinsy/PiG/internal/contentdirs
 github.com/MichaelKinsy/PiG/internal/crossspawn
 github.com/MichaelKinsy/PiG/internal/ctxowner
+github.com/MichaelKinsy/PiG/internal/editdistance
 github.com/MichaelKinsy/PiG/internal/ecmascript
 github.com/MichaelKinsy/PiG/internal/entered
 github.com/MichaelKinsy/PiG/internal/eventwire
