@@ -3,13 +3,12 @@ package agentstateext
 
 import (
 	"context"
+	"ompig-slim/internal/agentstate"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/coding/extension"
-
-	"ompig-slim/internal/agentstate"
 )
 
 // agentName is the program identifier published in agentstate documents.

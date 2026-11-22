@@ -74,7 +74,7 @@ func loadRules(cwd, agentDir string, config settings) ([]*rule, []string) {
 		entries, err := os.ReadDir(directory)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				warnings = append(warnings, fmt.Sprintf("cannot read %s", directory))
+				warnings = append(warnings, "cannot read "+directory)
 			}
 			continue
 		}
@@ -86,7 +86,7 @@ func loadRules(cwd, agentDir string, config settings) ([]*rule, []string) {
 			file := filepath.Join(directory, entry.Name())
 			data, err := os.ReadFile(file)
 			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("cannot read %s", file))
+				warnings = append(warnings, "cannot read "+file)
 				continue
 			}
 			add(strings.TrimSuffix(entry.Name(), ext), file, data, false)

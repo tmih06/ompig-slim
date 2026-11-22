@@ -7,13 +7,12 @@ package agentstate
 import (
 	"encoding/json"
 	"errors"
+	"ompig-slim/internal/configroot"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
-
-	"ompig-slim/internal/configroot"
 )
 
 // Version is the document schema version. Consumers must ignore unknown fields

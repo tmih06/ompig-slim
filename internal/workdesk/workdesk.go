@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"ompig-slim/internal/modelcontext"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,9 +27,6 @@ import (
 	sqlitenode "github.com/MichaelKinsy/PiG/durable/storage/sqlite/node"
 	"github.com/MichaelKinsy/PiG/durable/tools"
 	"github.com/gofrs/flock"
-
-	"ompig-slim/internal/modelcontext"
-	"ompig-slim/internal/privatefs"
 )
 
 // assignment is the fsynced admission intent. Replaying its request ID bridges a
@@ -321,11 +320,11 @@ func controlLoop(ctx context.Context, conversation harness.Conversation, path st
 // Power-loss guarantees still depend on the volume honoring SQLite's fsyncs.
 func openStorage(state string) (*durablesqlite.SqliteStorage, error) {
 	path := filepath.Join(state, "session.sqlite")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	err = errors.Join(file.Chmod(0600), file.Close())
+	err = errors.Join(file.Chmod(0o600), file.Close())
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +372,7 @@ func saveAssignment(state string, job assignment) error {
 		return err
 	}
 	defer os.Remove(file.Name())
-	if err = file.Chmod(0600); err == nil {
+	if err = file.Chmod(0o600); err == nil {
 		_, err = file.Write(raw)
 	}
 	if err == nil {
@@ -420,10 +419,10 @@ type workerEventWriter struct {
 }
 
 func newWorkerEventWriter(path string) (*workerEventWriter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}

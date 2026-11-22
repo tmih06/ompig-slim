@@ -11,16 +11,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/configroot"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	semver "github.com/MichaelKinsy/PiG/third_party/semver"
-
-	"ompig-slim/internal/configroot"
 )
 
 const (
@@ -235,7 +235,7 @@ func (o Options) latestBetaTag(ctx context.Context) (string, error) {
 	for page := 1; ; page++ {
 		query := endpoint.Query()
 		query.Set("per_page", "100")
-		query.Set("page", fmt.Sprint(page))
+		query.Set("page", strconv.Itoa(page))
 		endpoint.RawQuery = query.Encode()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 		if err != nil {
@@ -733,7 +733,7 @@ func saveChannel(channel string) error {
 		return err
 	}
 	defer func() { _ = os.Remove(staged.Name()) }()
-	_, writeErr := io.WriteString(staged, strings.Join(lines, "\n")+"\n")
+	_, writeErr := staged.WriteString(strings.Join(lines, "\n") + "\n")
 	closeErr := staged.Close()
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err
