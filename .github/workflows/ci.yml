@@ -319,6 +319,116 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  quality-gate:
+    # The agent-facing gate as a required status check. Local hooks can be
+    # skipped with --no-verify, so this is the real enforcement point: new and
+    # changed code must pass every check, and gate config edits need an owner.
+    name: Quality gate (new + changed code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Restore dependencies without replacing maintained PiG sources
+        run: bash scripts/bootstrap-vendor.sh
+      - name: Install golangci-lint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.15.0
+          golangci-lint version
+      - name: Install semgrep
+        run: |
+          python3 -m pip install --user semgrep==1.180.0 >/dev/null
+          ~/.local/bin/semgrep --version
+      - name: Resolve PR base, body and owner approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > .pr-body || true
+            OWNER_APPROVED=false
+            for reviewer in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+                --jq '.[] | select(.state=="APPROVED") | .user.login' | sort -u); do
+              if [[ "$reviewer" == "tmih06" ]]; then OWNER_APPROVED=true; fi
+            done
+            echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
+          else
+            echo "PR_BASE=${{ github.event.before }}" >> "$GITHUB_ENV"
+            echo "OWNER_APPROVED=true" >> "$GITHUB_ENV"
+          fi
+      - name: Run the quality gate
+        env:
+          PR_BODY_FILE: .pr-body
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin:$HOME/.local/bin"
+          export PR_BODY="$(cat .pr-body 2>/dev/null || true)"
+          make gate
+
+  guardrail-check:
+    # A PR titled `fix...` must leave a guardrail: a touched gate file
+    # (AGENTS.md, .golangci.yml, .semgrep/), a new regression test, or an
+    # explicit `No-guardrail: <reason>` in the description. Warn-only at first;
+    # flip continue-on-error to false once the team trusts it.
+    name: fix PR leaves a guardrail (warn)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the fix leaves a guardrail
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          # Collect commit messages too: a fix may be titled in any commit.
+          subjects="$PR_TITLE"
+          subjects+=$'\n'"$(git log --format=%s "origin/$BASE...HEAD" | head -20)"
+          if ! grep -qiE '^fix(\(|:)' <<< "$subjects"; then
+            echo "Not a fix PR; no guardrail required."
+            exit 0
+          fi
+          body="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body 2>/dev/null || true)"
+          if grep -qiE '^\s*No-guardrail:' <<< "$body"; then
+            echo "fix PR opted out: $(grep -iE 'No-guardrail:' <<< "$body" | head -1)"
+            exit 0
+          fi
+          changed="$(git diff --name-only "origin/$BASE...HEAD")"
+          if grep -qE 'AGENTS\.md|\.golangci\.(yml|yaml)|\.semgrep/|_test\.go$' <<< "$changed"; then
+            echo "fix PR leaves a guardrail (touched gate config or added a test)."
+            exit 0
+          fi
+          echo "::warning title=Missing guardrail::This fix PR touched no test, "
+          echo "::warning::lint config, .semgrep/, or AGENTS.md, and has no "
+          echo "::warning::No-guardrail: <reason> line. Per AGENTS.md, a root-cause "
+          echo "::warning::fix should leave a regression test, a lint/semgrep rule, "
+          echo "::warning::or a learned rule — or explain why none applies."
+          # Warn-only for now; return 0 so this does not block until trusted.
+          exit 0
+
   hygiene:
     name: Workflow, scripts and full-history secret scan
     runs-on: ubuntu-latest
