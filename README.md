@@ -188,7 +188,7 @@ a Herdr server restart.
 | Area | Detail |
 |---|---|
 | Tools | `read` (files, dirs, URLs, GitHub issue/PR links and `issue://N` / `pr://N` with automatic repository detection), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
-| Prompt | Completed slash commands use distinct colors; `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
+| Prompt | Completed slash commands use distinct colors; suggestions match purpose keywords (`/clea` finds `/new (clear, fresh)`) and an unknown command names its closest match (`Did you mean /new?`); `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
 | Loop guard | [Corrective steers](docs/loop-guard.md) after five identical tool-call turns or three recurring deterministic failures on the same target |
 | Streaming rules | [Code-pattern checks](docs/streaming-rules.md) with 34 bundled correctness, security, and performance reminders plus custom Markdown rules that can block tool calls before execution |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints; [Gemini Decisions judge inference](docs/gemini-decisions.md) |

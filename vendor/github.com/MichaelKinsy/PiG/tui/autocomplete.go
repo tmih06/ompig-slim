@@ -49,9 +49,14 @@ type AutocompleteSuggestions struct {
 type SlashCommand struct {
 	Name string
 	// Value and Label are the AutocompleteItem form of an entry: Value names the command when Name is empty.
-	Value                  string
-	Label                  string
-	Description            string
+	Value       string
+	Label       string
+	Description string
+	// Keywords are purpose words a query may name instead of the command: /new
+	// carries "clear", so typing "clear" still finds it. They extend matching
+	// and the row's label only; no keyword dispatches like a name or alias.
+	// pig divergence (D235): upstream matches and lists command names only.
+	Keywords               []string
 	ArgumentHint           string
 	GetArgumentCompletions func(argPrefix string) []AutocompleteItem
 	// AwaitArgumentCompletions is the Promise-returning form. The editor invokes it on its owned query worker, not while reading/rendering input.
@@ -64,6 +69,25 @@ func (c SlashCommand) commandName() string {
 		return c.Name
 	}
 	return c.Value
+}
+
+// SearchText is the text a command-name query matches: the bare command name
+// plus its keywords, so a purpose word ("clear" for /new) finds the command.
+func (c SlashCommand) SearchText() string {
+	name := strings.TrimPrefix(c.commandName(), "skill:")
+	if len(c.Keywords) == 0 {
+		return name
+	}
+	return name + " " + strings.Join(c.Keywords, " ")
+}
+
+// displayLabel is the popup row's primary text: the command name with its keywords in parentheses.
+func (c SlashCommand) displayLabel() string {
+	name := c.commandName()
+	if len(c.Keywords) == 0 {
+		return name
+	}
+	return name + " (" + strings.Join(c.Keywords, ", ") + ")"
 }
 
 // AutocompleteSuggestionOptions is the `{ signal, force }` options bag of upstream getSuggestions (autocomplete.ts:281); the signal is the context.
@@ -132,22 +156,22 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 		// `/partial`: name completion.
 		prefix := before[1:] // strip leading "/"
 		type item struct {
-			cmd  SlashCommand
-			text string
-			idx  int
+			cmd SlashCommand
+			idx int
 		}
 		all := make([]item, 0, len(p.Commands))
 		for i, c := range p.Commands {
 			if midPrompt && !strings.HasPrefix(c.commandName(), "skill:") {
 				continue
 			}
-			all = append(all, item{cmd: c, text: c.commandName(), idx: i})
+			all = append(all, item{cmd: c, idx: i})
 		}
 		// Upstream autocomplete.ts matches skill commands by their bare name
 		// first, then by their full skill: name, so `/skill` lists skills whose
 		// names lack its letters and `/skbra` still finds skill:brainstorm.
+		// A builtin also matches its keywords, so `/clea` finds /new (clear).
 		bareNameMatches := FuzzyFilter(all, prefix, func(it item) string {
-			return strings.TrimPrefix(it.text, "skill:")
+			return it.cmd.SearchText()
 		})
 		bareNameMatched := make(map[int]bool, len(bareNameMatches))
 		for _, match := range bareNameMatches {
@@ -155,11 +179,11 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 		}
 		var fullNameCandidates []item
 		for _, it := range all {
-			if strings.HasPrefix(it.text, "skill:") && !bareNameMatched[it.idx] {
+			if strings.HasPrefix(it.cmd.commandName(), "skill:") && !bareNameMatched[it.idx] {
 				fullNameCandidates = append(fullNameCandidates, it)
 			}
 		}
-		fullNameOnlyMatches := FuzzyFilter(fullNameCandidates, prefix, func(it item) string { return it.text })
+		fullNameOnlyMatches := FuzzyFilter(fullNameCandidates, prefix, func(it item) string { return it.cmd.commandName() })
 		filtered := slices.Concat(bareNameMatches, fullNameOnlyMatches)
 		if len(filtered) == 0 {
 			return nil
@@ -176,7 +200,7 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string, 
 			}
 			out = append(out, AutocompleteItem{
 				Value:       f.cmd.commandName(),
-				Label:       f.cmd.commandName(),
+				Label:       f.cmd.displayLabel(),
 				Description: desc,
 			})
 		}

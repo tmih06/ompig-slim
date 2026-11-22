@@ -54,6 +54,11 @@ type BuiltinSlashCommand struct {
 	Name        string
 	Aliases     []string
 	Description string
+	// Keywords are purpose synonyms autocomplete matches and shows in
+	// parentheses after the command name, so typing "clear" finds /new
+	// (pig divergence D235). They are search-only: no keyword resolves or
+	// dispatches a command.
+	Keywords []string
 	// ArgumentHint is shown after the command in autocomplete (e.g.
 	// "<provider/model>"). Optional. Mirrors upstream argumentHint.
 	ArgumentHint string
@@ -658,19 +663,19 @@ func upstreamBuiltinCommandNames() map[string]struct{} {
 
 func defaultBuiltins() []BuiltinSlashCommand {
 	cmds := []BuiltinSlashCommand{
-		{Name: "agent-hub", Description: "Open live Agent Hub", Handler: func(sc *SlashContext) error {
+		{Name: "agent-hub", Description: "Open live Agent Hub", Keywords: []string{"dashboard", "live"}, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}
 			return sc.Subagents("hub")
 		}},
-		{Name: "subagents", Description: "Toggle built-in subagents on/off", ArgumentHint: "[on|off|status|hub|menu|settings]", ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
+		{Name: "subagents", Description: "Toggle built-in subagents on/off", Keywords: []string{"workers", "delegate"}, ArgumentHint: "[on|off|status|hub|menu|settings]", ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}
 			return sc.Subagents(sc.Args)
 		}},
-		{Name: "agents", Description: "Manage subagents, workflows and settings", ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
+		{Name: "agents", Description: "Manage subagents, workflows and settings", Keywords: []string{"workers", "workflows"}, ArgumentOptions: subagentArgumentOptions(), TakesArguments: true, Handler: func(sc *SlashContext) error {
 			if sc.Subagents == nil {
 				return errors.New("subagents are unavailable")
 			}
@@ -680,17 +685,17 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			}
 			return sc.Subagents(args)
 		}},
-		{Name: "settings", Description: "Open settings menu", Handler: settingsHandler},
-		{Name: "tree", Description: "Navigate session tree (switch branches)", Handler: treeHandler},
-		{Name: "thinking", Description: "Set thinking level", ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
-		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Handler: modelHubHandler},
-		{Name: "export", Description: "Export session as JSONL", TakesArguments: true, Handler: exportHandler},
-		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", TakesArguments: true, Handler: importHandler},
+		{Name: "settings", Description: "Open settings menu", Keywords: []string{"config", "options"}, Handler: settingsHandler},
+		{Name: "tree", Description: "Navigate session tree (switch branches)", Keywords: []string{"branches", "history"}, Handler: treeHandler},
+		{Name: "thinking", Description: "Set thinking level", Keywords: []string{"reasoning", "effort"}, ArgumentHint: "<level>", TakesArguments: true, Handler: thinkingHandler},
+		{Name: "model", Description: "Manage model roles, fallback chains, and cycling", Keywords: []string{"roles", "switch"}, Handler: modelHubHandler},
+		{Name: "export", Description: "Export session as JSONL", Keywords: []string{"save", "jsonl"}, TakesArguments: true, Handler: exportHandler},
+		{Name: "import", Description: "Import a JSONL session, preserving its ID and working directory", Keywords: []string{"restore", "jsonl"}, TakesArguments: true, Handler: importHandler},
 		// pig divergence (D62): /bug exports a local archive; it never uploads.
-		{Name: "bug", Description: "Export a bug report as a zip archive", ArgumentHint: "<description>", TakesArguments: true, Handler: bugHandler},
-		{Name: "copy", Description: "Copy last agent message to clipboard", Handler: copyHandler},
-		{Name: "name", Description: "Set session display name", TakesArguments: true, Handler: nameHandler},
-		{Name: "session", Description: "Show session info and stats", Handler: sessionHandler},
+		{Name: "bug", Description: "Export a bug report as a zip archive", Keywords: []string{"report", "issue"}, ArgumentHint: "<description>", TakesArguments: true, Handler: bugHandler},
+		{Name: "copy", Description: "Copy last agent message to clipboard", Keywords: []string{"clipboard"}, Handler: copyHandler},
+		{Name: "name", Description: "Set session display name", Keywords: []string{"title", "rename"}, TakesArguments: true, Handler: nameHandler},
+		{Name: "session", Description: "Show session info and stats", Keywords: []string{"stats", "info"}, Handler: sessionHandler},
 		// /usage opens the quota board; `show` is the explicit form and `reset`
 		// spends a saved rate-limit reset, matching upstream's submit handler.
 		{Name: "usage", Description: "Show provider quotas and usage activity", ArgumentHint: "[show|reset [provider/credential|provider/active]|auto-reset]", ArgumentOptions: []tui.AutocompleteItem{
@@ -698,19 +703,19 @@ func defaultBuiltins() []BuiltinSlashCommand {
 			{Value: "reset", Label: "reset", Description: "Choose a saved rate-limit reset to redeem"},
 			{Value: "auto-reset", Label: "auto-reset", Description: "Configure automatic saved-reset redemption by account"},
 		}, TakesArguments: true, Handler: usageHandler},
-		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Handler: hotkeysHandler},
-		{Name: "fork", Description: "Create a new fork from a previous user message", AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},
-		{Name: "clone", Description: "Duplicate the current session at the current position", Handler: cloneHandler},
-		{Name: "trust", Description: "Save project trust decision for future sessions", Handler: trustHandler},
-		{Name: "login", Description: "Configure provider authentication", ArgumentHint: "<provider>", TakesArguments: true, Handler: loginHandler},
-		{Name: "logout", Description: "Remove provider authentication", Handler: logoutHandler},
-		{Name: "new", Description: "Start a new session", Handler: newHandler},
-		{Name: "compact", Description: "Manually compact the session context", TakesArguments: true, Handler: compactHandler},
-		{Name: "resume", Description: "Resume another session", Handler: resumeHandler},
-		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", ArgumentOptions: []tui.AutocompleteItem{
+		{Name: "hotkeys", Description: "Show all keyboard shortcuts", Keywords: []string{"keys", "shortcuts"}, Handler: hotkeysHandler},
+		{Name: "fork", Description: "Create a new fork from a previous user message", Keywords: []string{"branch"}, AdditiveArguments: func(rest string, headless bool) bool { return headless && widthx.JSTrim(rest) != "" }, Handler: forkHandler},
+		{Name: "clone", Description: "Duplicate the current session at the current position", Keywords: []string{"duplicate"}, Handler: cloneHandler},
+		{Name: "trust", Description: "Save project trust decision for future sessions", Keywords: []string{"permissions"}, Handler: trustHandler},
+		{Name: "login", Description: "Configure provider authentication", Keywords: []string{"signin", "auth"}, ArgumentHint: "<provider>", TakesArguments: true, Handler: loginHandler},
+		{Name: "logout", Description: "Remove provider authentication", Keywords: []string{"signout", "auth"}, Handler: logoutHandler},
+		{Name: "new", Description: "Start a new session", Keywords: []string{"clear", "fresh"}, Handler: newHandler},
+		{Name: "compact", Description: "Manually compact the session context", Keywords: []string{"summarize", "trim"}, TakesArguments: true, Handler: compactHandler},
+		{Name: "resume", Description: "Resume another session", Keywords: []string{"continue", "restore"}, Handler: resumeHandler},
+		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", Keywords: []string{"refresh", "restart"}, ArgumentOptions: []tui.AutocompleteItem{
 			{Value: "--explain", Label: "--explain", Description: "Reload and explain resource placement"},
 		}, AdditiveArguments: func(rest string, _ bool) bool { return reloadExplainRequested(rest) }, Handler: reloadHandler},
-		{Name: "quit", Description: "Quit " + AppName, Handler: quitHandler},
+		{Name: "quit", Description: "Quit " + AppName, Keywords: []string{"exit", "close"}, Handler: quitHandler},
 		// Hidden: dispatchable but absent from /help and autocomplete, matching
 		// upstream (handled inline in the submit handler, not in the canonical
 		// slash-commands.js completion list). /debug writes a debug log; it is

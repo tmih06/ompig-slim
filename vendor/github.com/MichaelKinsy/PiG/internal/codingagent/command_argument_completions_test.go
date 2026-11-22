@@ -2,12 +2,14 @@ package codingagent
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // TestBuiltinArgumentSuggestions exercises the actual host wiring, including
@@ -136,6 +138,53 @@ func TestKnownModelBoundSlashSubmission(t *testing.T) {
 		m.editor.HandleInput("\r")
 		if submitted != text {
 			t.Fatalf("known command %q was not submitted: %q", text, submitted)
+		}
+	}
+}
+
+// TestSlashKeywordSuggestionsInHostWiring observes the built provider: a
+// purpose word ranks the matching builtin first and its row shows the keyword
+// tag, while the completed text keeps only the command name.
+func TestSlashKeywordSuggestionsInHostWiring(t *testing.T) {
+	m := &InteractiveMode{}
+	m.opts.CWD, m.opts.AgentDir = t.TempDir(), t.TempDir()
+	provider := m.buildAutocompleteProvider()
+	result := provider.GetSuggestions(context.Background(), []string{"/clea"}, 0, len("/clea"), tui.AutocompleteSuggestionOptions{})
+	if result == nil || len(result.Items) == 0 || result.Items[0].Value != "new" {
+		t.Fatalf("/clea did not rank /new first: %+v", result)
+	}
+	if result.Items[0].Label != "new (clear, fresh)" {
+		t.Fatalf("keyword tag missing from label: %q", result.Items[0].Label)
+	}
+	lines, row, col := provider.ApplyCompletion([]string{"/clea"}, 0, len("/clea"), result.Items[0], result.Prefix)
+	if lines[row] != "/new " || row != 0 || col != len("/new ") {
+		t.Fatalf("completion inserted %q @%d,%d", lines[row], row, col)
+	}
+}
+
+// TestUnknownSlashSuggestsClosestCommand observes the rejected submission:
+// the error names the closest offered command, including through a keyword,
+// while unrelated input gets no suggestion and the draft stays editable.
+func TestUnknownSlashSuggestsClosestCommand(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"/clea", "Error: Unknown slash command: /clea. Did you mean /new?"},
+		{"/clear", "Error: Unknown slash command: /clear. Did you mean /new?"},
+		{"/exit", "Error: Unknown slash command: /exit. Did you mean /quit?"},
+		{"/neww", "Error: Unknown slash command: /neww. Did you mean /new?"},
+		{"/seeting", "Error: Unknown slash command: /seeting. Did you mean /settings?"},
+		{"/zzzzz", "Error: Unknown slash command: /zzzzz"},
+	} {
+		m := &InteractiveMode{editor: tui.NewEditor(), slashRegistry: NewSlashRegistry(),
+			chatContainer: tui.NewContainer(), tuiInst: tui.NewWithOutput(io.Discard, 80, 24)}
+		m.setupEditorSubmitHandler(context.Background())
+		m.editor.SetText(tc.text)
+		m.editor.HandleInput("\r")
+		transcript := widthx.StripAnsi(strings.Join(m.chatContainer.Render(100), "\n"))
+		if !strings.Contains(transcript, tc.want) {
+			t.Fatalf("%q missing %q in transcript %q", tc.text, tc.want, transcript)
+		}
+		if m.editor.Text() != tc.text {
+			t.Fatalf("%q rejected draft lost: %q", tc.text, m.editor.Text())
 		}
 	}
 }

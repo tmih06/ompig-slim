@@ -92,9 +92,12 @@ func (m *InteractiveMode) writeDebugLog() (string, error) {
 	return path, nil
 }
 
-// buildAutocompleteProvider constructs slash-command and @-file autocomplete in Pi's builtin, template, extension, then skill order. Equal fuzzy scores preserve that order.
-// Mirrors createBaseAutocompleteProvider (interactive-mode.ts:747-776).
-func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
+// autocompleteSlashCommands is the command list autocomplete offers and the
+// unknown-command suggestion matches against: Pi's builtin, template,
+// extension, then skill order, with equal fuzzy scores preserving that order.
+// Mirrors createBaseAutocompleteProvider's command list
+// (interactive-mode.ts:747-776).
+func (m *InteractiveMode) autocompleteSlashCommands() []tui.SlashCommand {
 	// pig additive (D92): a Piglet's stripped built-in commands are absent from autocomplete.
 	builtins := BuiltinSlashCommands()
 	cmds := make([]tui.SlashCommand, 0, len(builtins)+len(m.promptTemplates))
@@ -102,7 +105,7 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 		if b.Hidden {
 			continue
 		}
-		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint,
+		sc := tui.SlashCommand{Name: b.Name, Description: b.Description, ArgumentHint: b.ArgumentHint, Keywords: b.Keywords,
 			GetArgumentCompletions: builtinArgumentCompletions(b.ArgumentOptions)}
 		if b.Name == "login" {
 			sc.GetArgumentCompletions = m.loginArgCompletions
@@ -158,6 +161,13 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
 			})
 		}
 	}
+	return cmds
+}
+
+// buildAutocompleteProvider constructs slash-command and @-file autocomplete
+// from autocompleteSlashCommands plus the session's fuzzy file search.
+func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
+	cmds := m.autocompleteSlashCommands()
 
 	// Detect fd for fuzzy file search. Mirrors upstream ensureTool("fd")
 	// (interactive-mode.ts:527). The pre-warm at startup already populated

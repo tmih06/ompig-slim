@@ -19,6 +19,8 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
+	"github.com/MichaelKinsy/PiG/internal/editdistance"
+	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/nodeerrno"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
@@ -1326,9 +1328,51 @@ func (m *InteractiveMode) rejectUnknownSlashCommand(text string) bool {
 			return false
 		}
 	}
-	m.showError("Unknown slash command: /" + name)
+	message := "Unknown slash command: /" + name
+	if closest := m.closestSlashCommand(name); closest != "" {
+		message += ". Did you mean /" + closest + "?"
+	}
+	m.showError(message)
 	m.editor.SetText(text)
 	return true
+}
+
+// slashSuggestMaxScore is the best fuzzy score a rejected command name may
+// still suggest a match for: a three-character boundary run reaches it, so a
+// real truncation ("clea", "exi") suggests while one or two stray letters
+// never do. Typos that fuzzy matching cannot see, such as a doubled letter in
+// "neww", enter through the edit-distance limit instead.
+const slashSuggestMaxScore = -15
+
+// closestSlashCommand returns the offered command a rejected name most
+// resembles, or "" when nothing is close (pig divergence D235: upstream
+// forwards an unknown slash to the model as an ordinary prompt). A command is
+// close when the typed name fuzzy-matches it the way the popup would (a
+// truncation such as "clea" or "exi") or stays within one edit per three typed
+// characters of its name or a keyword (a typo such as "neww" or "seeting");
+// the best fuzzy score wins, so a suggestion names what the same typing would
+// have ranked first.
+func (m *InteractiveMode) closestSlashCommand(name string) string {
+	best, bestScore := "", 0.0
+	maxDistance := max(1, jsstring.Length(name)/3)
+	for _, command := range m.autocompleteSlashCommands() {
+		if command.Name == "" {
+			continue
+		}
+		search := command.SearchText()
+		match := tui.FuzzyMatchScore(name, search)
+		resembles := match.Matches && match.Score <= slashSuggestMaxScore
+		for _, word := range strings.Fields(search) {
+			if editdistance.UTF16(name, word) <= maxDistance {
+				resembles = true
+				break
+			}
+		}
+		if resembles && (best == "" || match.Score < bestScore) {
+			best, bestScore = command.Name, match.Score
+		}
+	}
+	return best
 }
 
 // restoreQueuedMessagesToEditor moves every queued message (the agent's
