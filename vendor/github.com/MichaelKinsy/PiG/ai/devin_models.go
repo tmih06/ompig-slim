@@ -37,6 +37,7 @@ func WithDevinModelDiscovery(provider *ModelsProvider) *ModelsProvider {
 		endpoint:   func(baseURL string) (string, error) { return devinModelEndpoint(baseURL), nil },
 		identity:   devinModelIdentity,
 		builtin:    func(modelID string) bool { return GetBuiltinModel(devinProviderName, modelID) != nil },
+		project:    devinCollapseFamilies,
 	}
 	return withAccountModelDiscovery(provider, catalog, func(ctx context.Context, baseURL string, credential *Credential) ([]*Model, string, error) {
 		models, err := fetchDevinModelRoster(ctx, baseURL, credential)
@@ -195,8 +196,187 @@ func normalizeDevinModelConfigs(response *devinCliModelConfigsResponse, baseURL 
 		}
 		models = append(models, model)
 	}
+	models = devinCollapseFamilies(models)
 	slices.SortFunc(models, func(a, b *Model) int { return strings.Compare(a.ID, b.ID) })
 	return models
+}
+
+// devinServiceSuffix maps a service-tier uid suffix to its family lane: the
+// fast lane (`-lightning`, `-priority`, `-fast`) and the 1M-context lane.
+var devinServiceSuffix = []struct{ suffix, lane string }{
+	{"-lightning", "-fast"},
+	{"-priority", "-fast"},
+	{"-fast", "-fast"},
+	{"-1m", "-1m"},
+}
+
+var devinEffortSuffixes = []string{
+	"-none", "-minimal", "-low", "-medium", "-high", "-xhigh", "-max",
+	"-thinking", "-no-thinking", "-off",
+}
+
+// devinEffortOrder ranks lane names when no wire default survives a stored
+// roster; the native client defaults to the strongest tier.
+var devinEffortOrder = map[string]int{
+	"max": 7, "xhigh": 6, "high": 5, "medium": 4, "low": 3,
+	"minimal": 2, "thinking": 1, "none": 0, "no-thinking": 0, "off": 0,
+}
+
+// devinLaneParts splits a wire uid into family base, effort name, and service
+// lane. swe-2-medium-lightning is the medium lane of family swe-2-fast;
+// gpt-6-sol-high-priority is the high lane of gpt-6-sol-fast.
+func devinLaneParts(uid string) (base, effort, service string) {
+	rest := uid
+	for _, candidate := range devinServiceSuffix {
+		if strings.HasSuffix(rest, candidate.suffix) {
+			service = candidate.lane
+			rest = rest[:len(rest)-len(candidate.suffix)]
+			break
+		}
+	}
+	for _, suffix := range devinEffortSuffixes {
+		if strings.HasSuffix(rest, suffix) {
+			effort = suffix[1:]
+			rest = rest[:len(rest)-len(suffix)]
+			break
+		}
+	}
+	return rest, effort, service
+}
+
+// devinCollapseFamilies projects the wire-level roster onto the logical model
+// set upstream's collapseVariants produces: one model per effort/service
+// family plus standalone rows. Lane members keep their models (selections like
+// devin/swe-2-max and request routing still resolve to the wire uid) but carry
+// the effortLane compat marker so pickers show the family once. A family whose
+// logical id has no wire uid synthesizes a model from its default member and
+// routes through requestModelId, the same mechanism Fusion pairings use.
+func devinCollapseFamilies(models []*Model) []*Model {
+	byID := make(map[string]*Model, len(models))
+	for _, model := range models {
+		byID[model.ID] = model
+	}
+	type family struct {
+		id      string
+		members map[string]*Model // effort name ("" for plain service lanes) -> uid's model
+	}
+	families := map[string]*family{}
+	var order []*family
+	for _, model := range models {
+		if strings.HasPrefix(model.ID, "fusion-") {
+			continue
+		}
+		base, effort, service := devinLaneParts(model.ID)
+		if effort == "" && service == "" {
+			continue
+		}
+		familyID := base + service
+		entry := families[familyID]
+		if entry == nil {
+			entry = &family{id: familyID, members: map[string]*Model{}}
+			families[familyID] = entry
+			order = append(order, entry)
+		}
+		if _, exists := entry.members[effort]; !exists {
+			entry.members[effort] = model
+		}
+	}
+	for _, entry := range order {
+		// A uid that heads its own family (nemotron-3-5-lightning has its own
+		// effort lanes) is a face, not a member of a -fast lane family.
+		for effort, member := range entry.members {
+			if _, headsFamily := families[member.ID]; headsFamily && member.ID != entry.id {
+				delete(entry.members, effort)
+			}
+		}
+		if face := byID[entry.id]; face != nil {
+			// The bare family uid is the face, not a lane of itself.
+			delete(entry.members, "")
+			for effort, member := range entry.members {
+				if member == face {
+					delete(entry.members, effort)
+				}
+			}
+		}
+		if len(entry.members) < 2 && byID[entry.id] == nil {
+			// A lone suffix-shaped uid is not a family: upstream collapses
+			// only wire-declared ladders, so one orphan lane stays itself.
+			continue
+		}
+		routing := map[string]string{}
+		for effort, member := range entry.members {
+			if member.ProviderMeta.Compat == nil {
+				member.ProviderMeta.Compat = &ModelCompat{Extra: map[string]json.RawMessage{}}
+			} else if member.ProviderMeta.Compat.Extra == nil {
+				member.ProviderMeta.Compat.Extra = map[string]json.RawMessage{}
+			}
+			member.ProviderMeta.Compat.Extra["effortLane"] = devinJSON(entry.id)
+			routing[effort] = member.ID
+		}
+		if byID[entry.id] != nil {
+			continue
+		}
+		defaultMember := devinDefaultLane(entry.members)
+		if defaultMember == nil {
+			continue
+		}
+		family := *defaultMember
+		family.ID = entry.id
+		family.DisplayName = devinFamilyName(entry.id, defaultMember.DisplayName)
+		compat := &ModelCompat{Extra: map[string]json.RawMessage{}}
+		if defaultMember.ProviderMeta.Compat != nil {
+			for key, value := range defaultMember.ProviderMeta.Compat.Extra {
+				if key == "effortLane" {
+					continue
+				}
+				compat.Extra[key] = value
+			}
+		}
+		compat.Extra["requestModelId"] = devinJSON(defaultMember.ID)
+		compat.Extra["effortRouting"] = devinJSON(routing)
+		family.ProviderMeta.Compat = compat
+		models = append(models, &family)
+	}
+	return models
+}
+
+// devinDefaultLane picks the member the family serves when no effort is
+// requested: the strongest advertised tier, matching the native client's
+// default.
+func devinDefaultLane(members map[string]*Model) *Model {
+	best := ""
+	var pick *Model
+	for effort, member := range members {
+		if pick == nil || devinEffortOrder[effort] > devinEffortOrder[best] || pick.ID < member.ID && devinEffortOrder[effort] == devinEffortOrder[best] {
+			best, pick = effort, member
+		}
+	}
+	return pick
+}
+
+// devinFamilyName trims the lane word off a member's label ("SWE-2 High
+// Lightning" -> "SWE-2 Fast"); it falls back to the family id.
+func devinFamilyName(familyID, memberName string) string {
+	fields := strings.Fields(strings.TrimSpace(memberName))
+	for len(fields) > 0 {
+		last := strings.ToLower(fields[len(fields)-1])
+		if last == "lightning" || last == "priority" || last == "fast" || last == "1m" || last == "thinking" || devinEffortOrder[last] > 0 || last == "none" || last == "off" || last == "minimal" {
+			fields = fields[:len(fields)-1]
+			continue
+		}
+		break
+	}
+	trimmed := strings.Join(fields, " ")
+	if trimmed == "" {
+		return familyID
+	}
+	switch {
+	case strings.HasSuffix(familyID, "-fast"):
+		return trimmed + " Fast"
+	case strings.HasSuffix(familyID, "-1m"):
+		return trimmed + " 1M"
+	}
+	return trimmed
 }
 
 // devinFusionLeadUID is devinFusionLeadUid: for a
@@ -290,7 +470,20 @@ func devinModelFromConfig(config devinClientModelConfig, uid, baseURL string, is
 	if features != nil {
 		supportsTools = features.supportsToolCalls
 	}
-	cost := devinModelCost(config.modelDimensions)
+	cost, priced := devinModelCost(config.modelDimensions)
+	if !priced {
+		if card, ok := devinEffectiveCostCard(uid, time.Now()); ok {
+			cost.Input, cost.Output, cost.CacheRead, cost.CacheWrite = card.Input, card.Output, card.CacheRead, card.CacheWrite
+		}
+	}
+	if cost.CacheWrite == 0 {
+		if rate := devinCacheWriteRate(uid); rate > 0 {
+			cost.CacheWrite = cost.Input * rate
+		}
+	}
+	if patch, ok := devinCostPatchCard(uid, time.Now()); ok {
+		cost.Input, cost.Output, cost.CacheRead = patch.Input, patch.Output, patch.CacheRead
+	}
 	model := &Model{
 		ID:          uid,
 		DisplayName: devinModelDisplayName(config),
@@ -355,8 +548,11 @@ func devinModelDisplayName(config devinClientModelConfig) string {
 
 // devinModelCost is devinModelCost: COST(1)/COST_FUZZY(2) dimensions up to the
 // "sidekick" marker, labels input/cached input/output, per-million normalized.
-func devinModelCost(dimensions []devinModelDimension) ModelCost {
+// The second result reports whether the wire carried any token price at all;
+// compat/rules/providers/devin.kdl seeds documented rates only when it did not.
+func devinModelCost(dimensions []devinModelDimension) (ModelCost, bool) {
 	cost := ModelCost{}
+	priced := false
 	for _, dimension := range dimensions {
 		label := strings.ToLower(strings.TrimSpace(dimension.label))
 		if label == "sidekick" {
@@ -365,6 +561,7 @@ func devinModelCost(dimensions []devinModelDimension) ModelCost {
 		if dimension.kind != 1 && dimension.kind != 2 { // COST, COST_FUZZY
 			continue
 		}
+		priced = true
 		perMillion := math.Round((dimension.value*1_000_000/devinCostDenominatorTokens(dimension.denominator))*1e6) / 1e6
 		switch label {
 		case "input":
@@ -375,7 +572,138 @@ func devinModelCost(dimensions []devinModelDimension) ModelCost {
 			cost.Output = perMillion
 		}
 	}
-	return cost
+	return cost, priced
+}
+
+// devinCostCard is one dated or standing price card (dollars per 1M tokens).
+type devinCostCard struct {
+	effectiveFrom time.Time // zero: always in effect
+	Input         float64
+	Output        float64
+	CacheRead     float64
+	CacheWrite    float64
+}
+
+// devinCostFallback is the cost-fallback policy of
+// compat/rules/providers/devin.kdl: the documented enterprise (ACU) rates that
+// apply only when GetCliModelConfigs reports no token price for the uid. Rows
+// name each logical id plus its raw effort uids, matching the KDL model lists.
+// Later cards override earlier ones once effectiveFrom passes.
+var devinCostFallback = map[string][]devinCostCard{
+	// SWE-2 promo until 2027-01-01T08:00Z, then enterprise list.
+	"swe-2":        {{Input: 0.5, Output: 2.5, CacheRead: 0.05}, {effectiveFrom: time.Date(2027, 1, 1, 8, 0, 0, 0, time.UTC), Input: 3, Output: 15, CacheRead: 0.3}},
+	"swe-2-medium": {{Input: 0.5, Output: 2.5, CacheRead: 0.05}, {effectiveFrom: time.Date(2027, 1, 1, 8, 0, 0, 0, time.UTC), Input: 3, Output: 15, CacheRead: 0.3}},
+	"swe-2-high":   {{Input: 0.5, Output: 2.5, CacheRead: 0.05}, {effectiveFrom: time.Date(2027, 1, 1, 8, 0, 0, 0, time.UTC), Input: 3, Output: 15, CacheRead: 0.3}},
+	"swe-2-max":    {{Input: 0.5, Output: 2.5, CacheRead: 0.05}, {effectiveFrom: time.Date(2027, 1, 1, 8, 0, 0, 0, time.UTC), Input: 3, Output: 15, CacheRead: 0.3}},
+	// SWE-2 Fast: no published end date or list price.
+	"swe-2-fast":             {{Input: 1, Output: 5, CacheRead: 0.1}},
+	"swe-2-medium-lightning": {{Input: 1, Output: 5, CacheRead: 0.1}},
+	"swe-2-high-lightning":   {{Input: 1, Output: 5, CacheRead: 0.1}},
+	"swe-2-max-lightning":    {{Input: 1, Output: 5, CacheRead: 0.1}},
+	"swe-2-flash":            {{Input: 0.075, Output: 0.375, CacheRead: 0.0075, CacheWrite: 0.09375}, {effectiveFrom: time.Date(2026, 11, 18, 18, 0, 0, 0, time.UTC), Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125}},
+	"swe-2-flash-medium":     {{Input: 0.075, Output: 0.375, CacheRead: 0.0075, CacheWrite: 0.09375}, {effectiveFrom: time.Date(2026, 11, 18, 18, 0, 0, 0, time.UTC), Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125}},
+	"swe-2-flash-high":       {{Input: 0.075, Output: 0.375, CacheRead: 0.0075, CacheWrite: 0.09375}, {effectiveFrom: time.Date(2026, 11, 18, 18, 0, 0, 0, time.UTC), Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125}},
+	"swe-2-flash-max":        {{Input: 0.075, Output: 0.375, CacheRead: 0.0075, CacheWrite: 0.09375}, {effectiveFrom: time.Date(2026, 11, 18, 18, 0, 0, 0, time.UTC), Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125}},
+	"swe-1-7":                {{Input: 0.5, Output: 2.5, CacheRead: 0.2}},
+	"swe-1-7-medium":         {{Input: 0.5, Output: 2.5, CacheRead: 0.2}},
+	"glm-5-2":                {{Input: 1.4, Output: 4.4, CacheRead: 0.26}},
+}
+
+// devinCostPatch is the KDL cost-patch policy: dated list cards that replace a
+// wire or fallback price once the promo ends. Each uid list names the logical
+// id plus its raw effort uids, as upstream's KDL does.
+var devinCostPatch = map[string]devinCostCard{
+	"gemini-4-argon":         {effectiveFrom: time.Date(2026, 12, 1, 8, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-argon-low":     {effectiveFrom: time.Date(2026, 12, 1, 8, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-argon-medium":  {effectiveFrom: time.Date(2026, 12, 1, 8, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-argon-high":    {effectiveFrom: time.Date(2026, 12, 1, 8, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-carbon":        {effectiveFrom: time.Date(2026, 11, 24, 16, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-carbon-low":    {effectiveFrom: time.Date(2026, 11, 24, 16, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-carbon-medium": {effectiveFrom: time.Date(2026, 11, 24, 16, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+	"gemini-4-carbon-high":   {effectiveFrom: time.Date(2026, 11, 24, 16, 0, 0, 0, time.UTC), Input: 4, Output: 20, CacheRead: 0.2},
+}
+
+// devinFlashListCard is the class-wide Gemini Flash 3.7–3.9 list card.
+var devinFlashListCard = devinCostCard{effectiveFrom: time.Date(2027, 1, 1, 8, 0, 0, 0, time.UTC), Input: 1.5, Output: 7.5, CacheRead: 0.15}
+
+// devinCostPatchCard resolves the dated override for uid at now, or false.
+// Lane suffixes (effort, then service tier) strip before the class check so
+// gemini-3-7-flash-high-lightning prices like the rest of its revision.
+func devinCostPatchCard(uid string, now time.Time) (devinCostCard, bool) {
+	if card, ok := devinCostPatch[uid]; ok && !card.effectiveFrom.After(now) {
+		return card, true
+	}
+	base := uid
+	for _, suffix := range []string{"-lightning", "-priority", "-fast", "-1m"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	for _, suffix := range []string{"-minimal", "-low", "-medium", "-high", "-xhigh", "-max", "-none", "-thinking", "-off"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	if (base == "gemini-3-7-flash" || base == "gemini-3-8-flash") && !devinFlashListCard.effectiveFrom.After(now) {
+		return devinFlashListCard, true
+	}
+	return devinCostCard{}, false
+}
+
+// devinEffectiveCostCard resolves the fallback card in force at now.
+func devinEffectiveCostCard(uid string, now time.Time) (devinCostCard, bool) {
+	cards, ok := devinCostFallback[uid]
+	if !ok {
+		return devinCostCard{}, false
+	}
+	card := cards[0]
+	for _, candidate := range cards[1:] {
+		if !candidate.effectiveFrom.After(now) {
+			card = candidate
+		}
+	}
+	return card, true
+}
+
+// devinCacheWriteRate is the KDL cache-write-rate rule: Devin's published card
+// bills cache writes at a multiple of input for Claude and GPT-5.6+ models;
+// `adaptive` bills them at the input rate itself. Other lineages publish none.
+func devinCacheWriteRate(uid string) float64 {
+	switch {
+	case uid == "adaptive":
+		return 1.0
+	case strings.HasPrefix(uid, "claude-"):
+		return 1.25
+	default:
+		base := uid
+		if cut := strings.Index(base, "-fast"); cut > 0 {
+			base = base[:cut]
+		}
+		if cut := strings.Index(base, "-priority"); cut > 0 {
+			base = base[:cut]
+		}
+		if devinGPTRevision(base) >= 5.6 && devinGPTRevision(base) < 7 {
+			return 1.25
+		}
+		return 0
+	}
+}
+
+// devinGPTRevision extracts the gpt revision from uids like gpt-6-2-astra-low
+// or gpt-5-6-sol-priority; zero when the uid is not a gpt lane.
+func devinGPTRevision(uid string) float64 {
+	if !strings.HasPrefix(uid, "gpt-") {
+		return 0
+	}
+	parts := strings.Split(strings.TrimPrefix(uid, "gpt-"), "-")
+	if len(parts) == 0 {
+		return 0
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0
+	}
+	minor := 0
+	if len(parts) > 1 {
+		minor, _ = strconv.Atoi(parts[1])
+	}
+	return float64(major) + float64(minor)/10
 }
 
 var devinCostDenominatorPattern = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*([kmb])?`)

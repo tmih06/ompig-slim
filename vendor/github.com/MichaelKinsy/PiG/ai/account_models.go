@@ -25,8 +25,12 @@ type accountModelCatalog struct {
 	// has none and the scope falls back to the access token.
 	identity func(Credential) (string, bool)
 	builtin  func(modelID string) bool
-	mu       sync.RWMutex
-	rosters  map[string]accountModelRoster
+	// project reshapes a decoded roster before publish; Devin uses it to
+	// collapse wire effort lanes into logical family models so rosters
+	// persisted before the collapse port still load projected.
+	project func(models []*Model) []*Model
+	mu      sync.RWMutex
+	rosters map[string]accountModelRoster
 }
 
 type accountModelRoster struct {
@@ -144,7 +148,11 @@ func withAccountModelDiscovery(provider *ModelsProvider, catalog *accountModelCa
 			if err != nil {
 				return err
 			}
-			if err := publishRoster(chatModels(models), nil); err != nil {
+			chat := chatModels(models)
+			if catalog.project != nil {
+				chat = catalog.project(chat)
+			}
+			if err := publishRoster(chat, nil); err != nil {
 				return err
 			}
 		}

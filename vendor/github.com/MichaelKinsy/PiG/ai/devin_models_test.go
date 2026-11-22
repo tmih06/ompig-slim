@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- Fixture encoders ---------------------------------------------------------
@@ -305,6 +306,193 @@ func TestDevinFetchModelRosterEmptyKeepsSeed(t *testing.T) {
 	credential := &Credential{Type: CredentialOAuth, Access: "tok"}
 	if _, err := fetchDevinModelRoster(context.Background(), server.URL, credential); err == nil {
 		t.Fatal("expected empty-roster error")
+	}
+}
+
+// devinInfo builds a minimal modelInfo with limits and the STANDARD display
+// slot so normalize keeps the config.
+func devinTestFullInfo(ctxTokens, maxOut int32) []byte {
+	w := &devinPbWriter{}
+	w.appendVarintField(4, uint64(ctxTokens))
+	w.appendVarintField(13, uint64(maxOut))
+	w.appendVarintField(22, 8)
+	features := &devinPbWriter{}
+	devinTestFeatures(features, true, true, true, true)
+	w.appendMessage(6, features.buffer)
+	return w.buffer
+}
+
+func devinNormalizeForTest(t *testing.T, configs ...[]byte) map[string]*Model {
+	t.Helper()
+	response := decodeDevinCliModelConfigsResponse(devinTestConfigsResponse(configs...))
+	if response == nil {
+		t.Fatal("response decode failed")
+	}
+	byID := map[string]*Model{}
+	for _, model := range normalizeDevinModelConfigs(response, "https://example.test") {
+		if _, dup := byID[model.ID]; dup {
+			t.Fatalf("duplicate model id %q", model.ID)
+		}
+		byID[model.ID] = model
+	}
+	return byID
+}
+
+// TestDevinCostFallbackPolicy checks the KDL cost-fallback contract: wire
+// prices stay authoritative, unpriced uids get the documented card.
+func TestDevinCostFallbackPolicy(t *testing.T) {
+	unpriced := devinTestConfig("swe-2-max", "SWE-2 Max", func(w *devinPbWriter) {
+		w.appendMessage(23, devinTestFullInfo(262144, 32768))
+	})
+	priced := devinTestConfig("swe-2-medium", "SWE-2 Medium", func(w *devinPbWriter) {
+		w.appendMessage(23, devinTestFullInfo(262144, 32768))
+		w.appendMessage(32, devinTestDimension("input", 9, "1M tokens", 1))
+		w.appendMessage(32, devinTestDimension("output", 9, "1M tokens", 1))
+	})
+	byID := devinNormalizeForTest(t, unpriced, priced)
+	if got := byID["swe-2-max"].Capabilities; got.InputCostPer1M != 0.5 || got.OutputCostPer1M != 2.5 || got.CacheReadCostPer1M != 0.05 {
+		t.Fatalf("swe-2-max fallback %#v", got)
+	}
+	if got := byID["swe-2-medium"].Capabilities; got.InputCostPer1M != 9 || got.OutputCostPer1M != 9 {
+		t.Fatalf("wire price must win over fallback, got %#v", got)
+	}
+}
+
+// TestDevinDatedCostCards checks promo-to-list card selection and the dated
+// cost-patch overrides.
+func TestDevinDatedCostCards(t *testing.T) {
+	promo := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	list := time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)
+	card, ok := devinEffectiveCostCard("swe-2", promo)
+	if !ok || card.Input != 0.5 || card.Output != 2.5 {
+		t.Fatalf("promo card %#v", card)
+	}
+	card, ok = devinEffectiveCostCard("swe-2", list)
+	if !ok || card.Input != 3 || card.Output != 15 || card.CacheRead != 0.3 {
+		t.Fatalf("list card %#v", card)
+	}
+	if _, ok := devinEffectiveCostCard("unlisted-uid", promo); ok {
+		t.Fatal("unlisted uid must not price")
+	}
+	if _, ok := devinCostPatchCard("gemini-4-carbon", promo); ok {
+		t.Fatal("carbon list price before its effective date")
+	}
+	card, ok = devinCostPatchCard("gemini-4-carbon-high", list)
+	if !ok || card.Input != 4 || card.Output != 20 {
+		t.Fatalf("carbon patch %#v", card)
+	}
+	if _, ok := devinCostPatchCard("gemini-3-8-flash", list); !ok {
+		t.Fatal("gemini-3.8-flash misses the class list card")
+	}
+	card, ok = devinCostPatchCard("gemini-3-7-flash-high-lightning", list)
+	if !ok || card.Input != 1.5 {
+		t.Fatalf("flash lane patch %#v", card)
+	}
+}
+
+// TestDevinCacheWriteRate checks the 1.25x cache-write multiplier lineage rule.
+func TestDevinCacheWriteRate(t *testing.T) {
+	for uid, want := range map[string]float64{
+		"claude-opus-4-6":         1.25,
+		"claude-fable-5-2-high":   1.25,
+		"gpt-5-6-sol":             1.25,
+		"gpt-6-sol":               1.25,
+		"gpt-6-sol-high-priority": 1.25,
+		"gpt-5-5":                 0,
+		"gemini-3-7-flash":        0,
+		"swe-2-max":               0,
+		"adaptive":                1.0,
+	} {
+		if got := devinCacheWriteRate(uid); got != want {
+			t.Errorf("%s cache-write rate %v, want %v", uid, got, want)
+		}
+	}
+}
+
+// TestDevinFamilyCollapse checks the wire-lane projection: effort ladders show
+// once as their logical family, service lanes join the -fast/-1m families, the
+// bare face uid is never marked, fusion rows stay standalone, and a lone
+// suffix-shaped uid keeps its own row.
+func TestDevinFamilyCollapse(t *testing.T) {
+	configs := [][]byte{
+		devinTestConfig("swe-2-medium", "SWE-2 Medium", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-high", "SWE-2 High", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-max", "SWE-2 Max", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-medium-lightning", "SWE-2 Medium Lightning", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-high-lightning", "SWE-2 High Lightning", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("glm-5-2", "GLM 5.2", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(200000, 32000)) }),
+		devinTestConfig("glm-5-2-max", "GLM 5.2 Max", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(200000, 32000)) }),
+		devinTestConfig("glm-5-2-max-1m", "GLM 5.2 Max 1M", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(1000000, 32000)) }),
+		devinTestConfig("glm-5-2-1m", "GLM 5.2 1M", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(1000000, 32000)) }),
+		devinTestConfig("fusion-swe-2-max-sidekick-glm-5-2", "Fusion", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(100000, 8000)) }),
+		devinTestConfig("solo-9-low", "Solo Low", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(64000, 8000)) }),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+
+	lane := func(uid string) string {
+		model, ok := byID[uid]
+		if !ok {
+			t.Fatalf("%s missing from roster", uid)
+		}
+		var family string
+		if raw := model.ProviderMeta.Compat.Extra["effortLane"]; raw != nil {
+			_ = json.Unmarshal(raw, &family)
+		}
+		return family
+	}
+	if got := lane("swe-2-medium"); got != "swe-2" {
+		t.Fatalf("swe-2-medium lane family %q", got)
+	}
+	if got := lane("swe-2-high-lightning"); got != "swe-2-fast" {
+		t.Fatalf("swe-2-high-lightning lane family %q", got)
+	}
+	if got := lane("glm-5-2-max-1m"); got != "glm-5-2-1m" {
+		t.Fatalf("glm-5-2-max-1m lane family %q", got)
+	}
+	// The bare 1m face is a family, not a lane.
+	if got := lane("glm-5-2-1m"); got != "" {
+		t.Fatalf("glm-5-2-1m wrongly marked as lane of %q", got)
+	}
+	if got := lane("glm-5-2"); got != "" {
+		t.Fatalf("bare face glm-5-2 marked as lane %q", got)
+	}
+	// The synthesized family routes through its strongest member.
+	family, ok := byID["swe-2"]
+	if !ok {
+		t.Fatal("swe-2 family not synthesized")
+	}
+	var requestModel string
+	_ = json.Unmarshal(family.ProviderMeta.Compat.Extra["requestModelId"], &requestModel)
+	if requestModel != "swe-2-max" {
+		t.Fatalf("family requestModelId %q", requestModel)
+	}
+	if _, marked := family.ProviderMeta.Compat.Extra["effortLane"]; marked {
+		t.Fatal("synthesized family carries a lane marker")
+	}
+	var routing map[string]string
+	if err := json.Unmarshal(family.ProviderMeta.Compat.Extra["effortRouting"], &routing); err != nil {
+		t.Fatalf("effortRouting: %v", err)
+	}
+	if routing["medium"] != "swe-2-medium" || routing["max"] != "swe-2-max" {
+		t.Fatalf("effort routing %#v", routing)
+	}
+	fast, ok := byID["swe-2-fast"]
+	if !ok {
+		t.Fatal("swe-2-fast family not synthesized")
+	}
+	_ = json.Unmarshal(fast.ProviderMeta.Compat.Extra["requestModelId"], &requestModel)
+	if requestModel != "swe-2-high-lightning" {
+		t.Fatalf("fast family requestModelId %q", requestModel)
+	}
+	// Fusion pairings and lone suffix uids stay their own rows.
+	if _, ok := byID["fusion-swe-2-max-sidekick-glm-5-2"]; !ok {
+		t.Fatal("fusion pairing lost in collapse")
+	}
+	if got := lane("solo-9-low"); got != "" {
+		t.Fatalf("orphan suffix uid absorbed into %q", got)
+	}
+	if _, ok := byID["solo-9"]; ok {
+		t.Fatal("phantom family synthesized for an orphan lane")
 	}
 }
 

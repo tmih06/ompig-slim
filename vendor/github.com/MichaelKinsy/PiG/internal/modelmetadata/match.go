@@ -40,6 +40,14 @@ var variantMarkers = map[string]bool{
 	"embedding": true, "pro": true,
 }
 
+// effortLaneWords are effort and service-tier names that qualify a lane of the same model rather
+// than a different model (gpt-5-6-sol-high is gpt-5-6-sol at high effort). Words after the variant
+// that are not lanes still distinguish (gemini-3.5-flash-lite is not gemini-3.5-flash).
+var effortLaneWords = map[string]bool{
+	"none": true, "minimal": true, "low": true, "medium": true, "high": true,
+	"xhigh": true, "max": true, "off": true, "priority": true, "lightning": true,
+}
+
 var (
 	// sizePattern matches size parameters that distinguish models in one family (120b, 8x7b, 35b-a3b).
 	sizePattern = regexp.MustCompile(`^(?:\d+(?:\.\d+)?[bmk](?:-a\d+(?:\.\d+)?b)?|\d+x\d+(?:\.\d+)?b)$`)
@@ -221,6 +229,10 @@ func parseVariantKeyUncached(value string) (*VariantKey, bool) {
 			}
 			if !hasVariant {
 				variant, hasVariant = part, true
+				continue
+			}
+			if !effortLaneWords[part] {
+				markers[part] = true
 			}
 		}
 	}
