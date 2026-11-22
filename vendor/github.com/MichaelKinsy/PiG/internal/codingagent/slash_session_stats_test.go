@@ -10,6 +10,7 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/subagents"
+	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
@@ -368,5 +369,54 @@ func TestSessionStatsViewFramesScrollsAndCloses(t *testing.T) {
 	}
 	if closed != 3 {
 		t.Errorf("close keys closed the view %d times, want 3", closed)
+	}
+}
+
+func TestSessionStatsViewHonorsRemappedBindings(t *testing.T) {
+	previous := tui.GetKeybindings()
+	defer tui.SetKeybindings(previous)
+
+	// The real table defines the refresh action, so users can remap it.
+	if _, ok := keybindingDefinitions()[string(AppSessionStatsRefresh)]; !ok {
+		t.Fatalf("%s is not a configurable action", AppSessionStatsRefresh)
+	}
+	definitions := tui.TUIKeybindingDefinitions()
+	definitions[string(AppSessionStatsRefresh)] = tui.TUIKeybindingDef{DefaultKeys: []string{"shift+r"}, Description: "refresh"}
+	definitions[tui.KBSelectCancel] = tui.TUIKeybindingDef{DefaultKeys: []string{"ctrl+y"}, Description: "cancel"}
+	tui.SetKeybindings(tui.NewKeybindingsManager(definitions, nil))
+
+	var closed, snapshots int
+	text := func(int) string { return "report" }
+	view := &sessionStatsView{
+		snapshot:      func() sessionReport { snapshots++; return text },
+		report:        text,
+		height:        func() int { return 10 },
+		close:         func() { closed++ },
+		requestRender: func() {},
+	}
+	footer := func() string {
+		lines := view.Render(100)
+		return widthx.StripTerminalSequences(lines[len(lines)-2])
+	}
+	if got := footer(); !strings.Contains(got, "shift+r refresh") || !strings.Contains(got, "ctrl+y close") {
+		t.Errorf("footer does not show the configured keys: %q", got)
+	}
+
+	view.HandleInput("r")
+	view.HandleInput("\x1b")
+	if snapshots != 0 || closed != 0 {
+		t.Errorf("the replaced defaults still act: %d refreshes, %d closes", snapshots, closed)
+	}
+	view.HandleInput("R")
+	view.HandleInput("\x19")
+	if snapshots != 1 || closed != 1 {
+		t.Errorf("remapped keys did not act: %d refreshes, %d closes", snapshots, closed)
+	}
+
+	// An action the user has unbound drops out of the footer.
+	definitions[string(AppSessionStatsRefresh)] = tui.TUIKeybindingDef{DefaultKeys: nil, Description: "refresh"}
+	tui.SetKeybindings(tui.NewKeybindingsManager(definitions, nil))
+	if got := footer(); strings.Contains(got, "refresh") {
+		t.Errorf("unbound refresh is still advertised: %q", got)
 	}
 }

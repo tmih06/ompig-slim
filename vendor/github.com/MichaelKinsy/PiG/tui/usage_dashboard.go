@@ -1090,11 +1090,12 @@ func (d *UsageDashboardComponent) bottomBorder(innerWidth int) string {
 	return ActiveTheme().Fg(string(ThemeColorBorder), "╰"+strings.Repeat("─", max(0, innerWidth+2))+"╯")
 }
 
-// usageActionText formats an action's keys, falling back to the upstream
-// default text when the installed table does not define the action.
-func usageActionText(action, fallback string) string {
-	if keys := GetKeybindings().GetKeys(action); len(keys) > 0 {
-		return FormatKeyText(strings.Join(keys, "/"), false)
+// ActionText formats an action's keys, falling back to the upstream
+// default text when the installed table does not define the action. An action
+// the user has unbound has no text, as ActionMatches gives it no key.
+func ActionText(action, fallback string) string {
+	if keys := GetKeybindings(); keys.HasBinding(action) {
+		return FormatKeyText(strings.Join(keys.GetKeys(action), "/"), false)
 	}
 	return FormatKeyText(fallback, false)
 }
@@ -1102,9 +1103,9 @@ func usageActionText(action, fallback string) string {
 // hint renders the footer key hints from the configured bindings.
 func (d *UsageDashboardComponent) hint() string {
 	theme := ActiveTheme()
-	up := usageActionText(KBSelectUp, "up")
-	down := usageActionText(KBSelectDown, "down")
-	cancel := usageActionText(KBSelectCancel, "escape")
+	up := ActionText(KBSelectUp, "up")
+	down := ActionText(KBSelectDown, "down")
+	cancel := ActionText(KBSelectCancel, "escape")
 	parts := make([]string, 0, 4)
 	if up != "" || down != "" {
 		keys := make([]string, 0, 2)
@@ -1119,7 +1120,7 @@ func (d *UsageDashboardComponent) hint() string {
 	hasRefresh, view := d.options.Refresh != nil || d.options.RefreshProgress != nil, d.view
 	d.mu.Unlock()
 	if hasRefresh {
-		if refresh := usageActionText("app.usage.refresh", "r"); refresh != "" {
+		if refresh := ActionText("app.usage.refresh", "r"); refresh != "" {
 			parts = append(parts, refresh+" refresh")
 		}
 	}
@@ -1128,7 +1129,7 @@ func (d *UsageDashboardComponent) hint() string {
 			parts = append(parts, cancel+" back")
 		}
 	} else {
-		if toggle := usageActionText("app.usage.toggleView", "tab"); toggle != "" {
+		if toggle := ActionText("app.usage.toggleView", "tab"); toggle != "" {
 			parts = append(parts, toggle+" details")
 		}
 		if cancel != "" {
@@ -1251,11 +1252,11 @@ func (d *UsageDashboardComponent) HandleMouse(event TuiMouseEvent) *TuiMouseDisp
 	}
 }
 
-// usageActionMatches reports whether data runs action. An action the installed
+// ActionMatches reports whether data runs action. An action the installed
 // keybinding table does not define falls back to the upstream defaults, so the
 // board keeps working where only tui.* actions are registered (component tests,
 // extension surfaces) while still honoring every user remap.
-func usageActionMatches(keybindings *TUIKeybindingsManager, data, action string, defaults ...string) bool {
+func ActionMatches(keybindings *TUIKeybindingsManager, data, action string, defaults ...string) bool {
 	if keybindings.HasBinding(action) {
 		return keybindings.Matches(data, action)
 	}
@@ -1278,7 +1279,7 @@ func (d *UsageDashboardComponent) HandleInput(data string) {
 	}
 	keybindings := GetKeybindings()
 	// The cancel action closes the board, or returns from the detail view.
-	if usageActionMatches(keybindings, data, KBSelectCancel, "escape", "ctrl+c") {
+	if ActionMatches(keybindings, data, KBSelectCancel, "escape", "ctrl+c") {
 		d.mu.Lock()
 		view := d.view
 		d.mu.Unlock()
@@ -1290,10 +1291,10 @@ func (d *UsageDashboardComponent) HandleInput(data string) {
 		return
 	}
 	switch {
-	case usageActionMatches(keybindings, data, "app.usage.refresh", "r"):
+	case ActionMatches(keybindings, data, "app.usage.refresh", "r"):
 		d.Refresh()
 		return
-	case usageActionMatches(keybindings, data, "app.usage.toggleView", "tab", "enter"):
+	case ActionMatches(keybindings, data, "app.usage.toggleView", "tab", "enter"):
 		d.mu.Lock()
 		view := d.view
 		d.mu.Unlock()
@@ -1305,23 +1306,23 @@ func (d *UsageDashboardComponent) HandleInput(data string) {
 		return
 	}
 	switch {
-	case usageActionMatches(keybindings, data, KBSelectUp, "up"):
+	case ActionMatches(keybindings, data, KBSelectUp, "up"):
 		d.scrollBy(-1)
-	case usageActionMatches(keybindings, data, KBSelectDown, "down"):
+	case ActionMatches(keybindings, data, KBSelectDown, "down"):
 		d.scrollBy(1)
-	case usageActionMatches(keybindings, data, KBSelectPageUp, "pageUp"), usageActionMatches(keybindings, data, KBAltScreenPageUp, "pageUp"):
+	case ActionMatches(keybindings, data, KBSelectPageUp, "pageUp"), ActionMatches(keybindings, data, KBAltScreenPageUp, "pageUp"):
 		d.mu.Lock()
 		rows := d.lastViewport
 		d.mu.Unlock()
 		d.scrollBy(-rows)
-	case usageActionMatches(keybindings, data, KBSelectPageDown, "pageDown"), usageActionMatches(keybindings, data, KBAltScreenPageDown, "pageDown"):
+	case ActionMatches(keybindings, data, KBSelectPageDown, "pageDown"), ActionMatches(keybindings, data, KBAltScreenPageDown, "pageDown"):
 		d.mu.Lock()
 		rows := d.lastViewport
 		d.mu.Unlock()
 		d.scrollBy(rows)
-	case usageActionMatches(keybindings, data, KBAltScreenTop, "ctrl+home"):
+	case ActionMatches(keybindings, data, KBAltScreenTop, "ctrl+home"):
 		d.scrollTo(0)
-	case usageActionMatches(keybindings, data, KBAltScreenBottom, "ctrl+end"):
+	case ActionMatches(keybindings, data, KBAltScreenBottom, "ctrl+end"):
 		d.scrollTo(math.MaxInt32)
 	}
 }

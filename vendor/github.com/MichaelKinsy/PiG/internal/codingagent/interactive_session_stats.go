@@ -5,6 +5,7 @@ package codingagent
 // alternate screen like the /usage board and hands it back on close.
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -128,7 +129,7 @@ func (v *sessionStatsView) Render(width int) []string {
 		lines = append(lines, v.blank)
 	}
 	// The position leads so a narrow screen clips the keys, not where you are.
-	hint := "↑/↓ scroll · pgup/pgdn page · r refresh · esc close"
+	hint := sessionStatsHint()
 	if v.total > rows {
 		hint = strconv.Itoa(min(v.total, v.scroll+rows)) + "/" + strconv.Itoa(v.total) + " · " + hint
 	}
@@ -139,32 +140,56 @@ func (v *sessionStatsView) Render(width int) []string {
 	return lines
 }
 
-// HandleInput routes keys through the configured select and alt-screen
-// actions, as the /usage board does, so remapped keys work here too.
+// HandleInput routes keys through the configured actions, as the /usage
+// board does: scrolling and closing use the select and alt-screen actions,
+// refreshing has its own, and a remap applies here too. j, k, q, home and end
+// stay as fixed aliases.
 func (v *sessionStatsView) HandleInput(data string) {
 	keys := tui.GetKeybindings()
+	match := func(action string, fallback ...string) bool {
+		return tui.ActionMatches(keys, data, action, fallback...)
+	}
 	switch {
-	case keys.Matches(data, tui.KBSelectCancel), data == "q":
+	case match(tui.KBSelectCancel, "escape", "ctrl+c"), data == "q":
 		v.close()
 		return
-	case data == "r":
+	case match(string(AppSessionStatsRefresh), "r"):
 		v.report, v.framed = v.snapshot(), nil
-	case keys.Matches(data, tui.KBSelectUp), data == "k":
+	case match(tui.KBSelectUp, "up"), data == "k":
 		v.scrollBy(-1)
-	case keys.Matches(data, tui.KBSelectDown), data == "j":
+	case match(tui.KBSelectDown, "down"), data == "j":
 		v.scrollBy(1)
-	case keys.Matches(data, tui.KBSelectPageUp), keys.Matches(data, tui.KBAltScreenPageUp):
+	case match(tui.KBSelectPageUp, "pageUp"), match(tui.KBAltScreenPageUp, "pageUp"):
 		v.scrollBy(-v.pageRows)
-	case keys.Matches(data, tui.KBSelectPageDown), keys.Matches(data, tui.KBAltScreenPageDown):
+	case match(tui.KBSelectPageDown, "pageDown"), match(tui.KBAltScreenPageDown, "pageDown"):
 		v.scrollBy(v.pageRows)
-	case keys.Matches(data, tui.KBAltScreenTop), tui.MatchesKeyID(data, "home"):
+	case match(tui.KBAltScreenTop, "ctrl+home"), tui.MatchesKeyID(data, "home"):
 		v.scroll = 0
-	case keys.Matches(data, tui.KBAltScreenBottom), tui.MatchesKeyID(data, "end"):
+	case match(tui.KBAltScreenBottom, "ctrl+end"), tui.MatchesKeyID(data, "end"):
 		v.scroll = v.total
 	default:
 		return
 	}
 	v.requestRender()
+}
+
+// sessionStatsHint is the footer's key legend, read from the configured
+// bindings; an action the user has unbound drops out of it.
+func sessionStatsHint() string {
+	part := func(label string, keys ...string) string {
+		keys = slices.DeleteFunc(keys, func(key string) bool { return key == "" })
+		if len(keys) == 0 {
+			return ""
+		}
+		return strings.Join(keys, "/") + " " + label
+	}
+	parts := []string{
+		part("scroll", tui.ActionText(tui.KBSelectUp, "up"), tui.ActionText(tui.KBSelectDown, "down")),
+		part("page", tui.ActionText(tui.KBSelectPageUp, "pageUp"), tui.ActionText(tui.KBSelectPageDown, "pageDown")),
+		part("refresh", tui.ActionText(string(AppSessionStatsRefresh), "r")),
+		part("close", tui.ActionText(tui.KBSelectCancel, "escape")),
+	}
+	return strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), " · ")
 }
 
 // HandleMouse scrolls on the wheel and swallows every other mouse event, so

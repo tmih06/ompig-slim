@@ -15,6 +15,7 @@ const (
 	AppModelSelect              AppKeybinding = "app.model.select"
 	AppUsageToggleView          AppKeybinding = "app.usage.toggleView"
 	AppUsageRefresh             AppKeybinding = "app.usage.refresh"
+	AppSessionStatsRefresh      AppKeybinding = "app.sessionStats.refresh" // ompig-slim
 	AppToolsExpand              AppKeybinding = "app.tools.expand"
 	AppThinkingToggle           AppKeybinding = "app.thinking.toggle"
 	AppSessionToggleNamedFilter AppKeybinding = "app.session.toggleNamedFilter"
@@ -58,6 +59,7 @@ var appKeybindingIDs = []AppKeybinding{
 	AppModelSelect,
 	AppUsageToggleView,
 	AppUsageRefresh,
+	AppSessionStatsRefresh,
 	AppToolsExpand,
 	AppThinkingToggle,
 	AppSessionToggleNamedFilter,

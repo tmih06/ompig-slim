@@ -99,7 +99,7 @@ def run(binary, server, mode):
             before = len(captured)
             os.write(master, b"/session\r")
             wait_for(b"Tokens by model")
-            wait_for(b"esc close")
+            wait_for(b"refresh")
             opened = bytes(captured[before:])
             if mode == "regular":
                 assert alt_on in opened, "the view did not switch to the alternate screen"

@@ -1152,3 +1152,23 @@ func loadActivityForTest(t *testing.T, activity *UsageActivity) []DailyActivityP
 	}
 	return points
 }
+
+func TestActionTextFollowsTheBindingTable(t *testing.T) {
+	previous := GetKeybindings()
+	defer SetKeybindings(previous)
+
+	definitions := TUIKeybindingDefinitions()
+	definitions["app.test.bound"] = TUIKeybindingDef{DefaultKeys: []string{"ctrl+y"}, Description: "bound"}
+	definitions["app.test.unbound"] = TUIKeybindingDef{DefaultKeys: nil, Description: "unbound"}
+	SetKeybindings(NewKeybindingsManager(definitions, nil))
+
+	for action, want := range map[string]string{
+		"app.test.bound":   "ctrl+y",
+		"app.test.unbound": "",  // the user removed every key, so none is advertised
+		"app.test.missing": "r", // not in the table: the upstream default
+	} {
+		if got := ActionText(action, "r"); got != want {
+			t.Errorf("ActionText(%q) = %q, want %q", action, got, want)
+		}
+	}
+}
