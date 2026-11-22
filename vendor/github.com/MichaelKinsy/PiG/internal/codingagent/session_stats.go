@@ -23,6 +23,10 @@ type SessionAccounting struct {
 	// LatestCacheHitRate is the cache-read share (percent) of the last
 	// assistant message's prompt, nil when that prompt had no tokens.
 	LatestCacheHitRate *float64
+	// Activity holds the Unix-millisecond timestamps of the session's user
+	// and assistant messages in entry order; /session buckets them into its
+	// timeline sparkline. ompig-slim addition: upstream accounting keeps no times.
+	Activity []int64
 }
 
 // SessionUsageBreakdown attributes billed usage to a model or to host-side summaries.
@@ -43,6 +47,7 @@ type sessionAccountingAccumulator struct {
 	stats      SessionAccounting
 	usageByKey map[string]SessionUsageBreakdown
 	usageOrder []string
+	activity   []int64 // ompig-slim
 	cachePrev  *previousCacheRequest
 	prices     ModelPriceSource
 	// misses are the detected cache misses in entry order, so that a new price source reprices CacheWaste.MissedCost without reading the records again.
@@ -168,6 +173,10 @@ func (a *sessionAccountingAccumulator) addDecoded(entry sessionAccountingEntry, 
 // addMessage counts one "message" entry.
 func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessage) {
 	a.stats.TotalMessages++
+	// ompig-slim: message times feed the /session timeline.
+	if message.Timestamp > 0 && (message.Role == "user" || message.Role == "assistant") {
+		a.activity = append(a.activity, message.Timestamp)
+	}
 	switch message.Role {
 	case "user":
 		a.stats.UserMessages++
@@ -191,6 +200,8 @@ func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessa
 func (a *sessionAccountingAccumulator) addMessageEntry(message agent.AgentMessage) {
 	accounted := sessionAccountingMessage{Role: message.Role()}
 	switch {
+	case message.User != nil: // ompig-slim: user time feeds the /session timeline.
+		accounted.Timestamp = message.User.Timestamp
 	case message.Assistant != nil:
 		assistant := message.Assistant
 		for _, block := range assistant.Content {
@@ -316,6 +327,7 @@ func cacheWarmPreviousRequest(provider, model string, usage *ai.Usage, timestamp
 
 func (a sessionAccountingAccumulator) snapshot() SessionAccounting {
 	stats := a.stats
+	stats.Activity = slices.Clone(a.activity) // ompig-slim
 	if len(a.usageByKey) == 0 {
 		return stats
 	}
