@@ -585,7 +585,14 @@ func copilotRetryDelay(retryAfter string, retry int) (float64, bool) {
 // fetchGitHubCopilotModels fetches and filters the account's model catalog.
 // Mirrors upstream fetchGitHubCopilotModels (github-copilot.ts:168-195).
 func fetchGitHubCopilotModels(ctx context.Context, copilotToken, enterpriseDomain string, policy copilotRetryPolicy) (copilotModelCatalog, error) {
-	base := getCopilotBaseURL(copilotToken, enterpriseDomain)
+	return fetchGitHubCopilotModelsAtBase(ctx, getCopilotBaseURL(copilotToken, enterpriseDomain), copilotToken, policy)
+}
+
+// fetchGitHubCopilotModelsAtBase is fetchGitHubCopilotModels against an
+// already-resolved API base — account discovery honors the endpoint an
+// omp-minted credential records on the credential itself, which the token
+// claims alone cannot recover.
+func fetchGitHubCopilotModelsAtBase(ctx context.Context, base, copilotToken string, policy copilotRetryPolicy) (copilotModelCatalog, error) {
 	// Some Individual accounts return false for every picker flag despite
 	// explicit enabled policies. Limit the fallback to that endpoint so
 	// other account types keep strict picker semantics.
