@@ -336,12 +336,12 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 	internalSC.SettingsManager = s.SettingsManager()
 	internalSC.ShowStatus = func(message string) { output = append(output, message) }
 	internalSC.ShowError = func(message string) { output = append(output, "Error: "+message) }
-	// ompig-slim: feeds the headless /session "Subagents" section.
-	internalSC.SessionSubagents = func() ([]subagents.Record, subagents.Settings) {
+	// ompig-slim: feeds the headless /session time trace.
+	internalSC.SessionSubagents = func() []subagents.Record {
 		if s.subagents == nil {
-			return nil, subagents.Settings{}
+			return nil
 		}
-		return s.subagents.Records(), s.subagents.Settings()
+		return s.subagents.Records()
 	}
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {

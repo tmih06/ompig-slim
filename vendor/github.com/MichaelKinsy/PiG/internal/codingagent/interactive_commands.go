@@ -323,13 +323,13 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 
 		// Session ops.
 		CurrentSession: func() *Session { return m.currentSession() },
-		// ompig-slim: feeds the /session "Subagents" section.
-		SessionSubagents: func() ([]subagents.Record, subagents.Settings) {
+		// ompig-slim: feeds the /session time trace.
+		SessionSubagents: func() []subagents.Record {
 			manager := m.subagentManager()
 			if manager == nil {
-				return nil, subagents.Settings{}
+				return nil
 			}
-			return manager.Records(), manager.Settings()
+			return manager.Records()
 		},
 		ExportToJsonl: func(outputPath string) (string, error) {
 			if m.opts.SessionHandle == nil {

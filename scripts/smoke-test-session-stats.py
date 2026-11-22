@@ -96,16 +96,14 @@ def run(binary, server):
             wait_for()
             assert process.wait(timeout=5) == 0, "quit failed"
             plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(captured)).decode(errors="replace")
-            report = plain[plain.index("Session Stats"):]
-            for want in ("Session Stats", "Messages", "Tokens",
+            report = plain[plain.index("Session stats"):]
+            for want in ("Session stats", "Messages", "Input tokens", "Started",
                          "Tokens by model", "stats-proof/stats-proof", "%",
-                         "Total", "Timeline", "Started:", "Activity:",
-                         "Cache Warming", "Cost"):
+                         "Total", "Cache Warming", "Cost"):
                 assert want in report, f"missing {want!r}:\n{report}"
-            bars = re.findall(r"\u2588+", report)
-            assert bars, f"no model bars:\n{report}"
-            spark = re.findall(r"[\u2581-\u2588]{8,}", report)
-            assert spark, f"no timeline sparkline:\n{report}"
+            assert "█" in report, f"no model bars:\n{report}"
+            track = re.search(r"stats-proof/stats-proof\s+[·█▌▐]{40}\s", report)
+            assert track, f"no 40-cell time trace row:\n{report}"
         finally:
             if process.poll() is None:
                 process.kill()

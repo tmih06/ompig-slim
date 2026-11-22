@@ -191,10 +191,9 @@ type SlashContext struct {
 
 	// Session accessors. May be nil; handlers must guard.
 	CurrentSession func() *Session
-	// SessionSubagents returns the subagent manager's record snapshot and its
-	// display settings for the /session "Subagents" section. Nil when no
-	// manager is bound. ompig-slim addition.
-	SessionSubagents func() ([]subagents.Record, subagents.Settings)
+	// SessionSubagents returns the subagent manager's record snapshot for the
+	// /session time trace. Nil when no manager is bound. ompig-slim addition.
+	SessionSubagents func() []subagents.Record
 	// ExportToJsonl writes the current branch to outputPath (upstream session.exportToJsonl). May be nil: /export then
 	// writes the branch of CurrentSession itself.
 	ExportToJsonl func(outputPath string) (string, error)
@@ -983,9 +982,8 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		sessionID, _, _ = sc.SessionInfo()
 	}
 	var subagentRecords []subagents.Record
-	var subagentSettings subagents.Settings
 	if sc.SessionSubagents != nil {
-		subagentRecords, subagentSettings = sc.SessionSubagents()
+		subagentRecords = sc.SessionSubagents()
 	}
 	mode := defaultCacheWarmingMode
 	if sc.SettingsManager != nil {
@@ -1012,46 +1010,51 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		ansi := tui.ActiveTheme().ANSIFg
 
 		var b strings.Builder
-		b.WriteString(bold("Session Stats"))
+		b.WriteString(bold("Session stats"))
 		if sessionID != "" {
-			b.WriteString("   " + dim(sessionID))
+			b.WriteString("  " + dim(sessionID))
 		}
 		b.WriteString("\n\n")
+
+		ts := stats.Tokens
+		promptTokens := ts.Input + ts.CacheRead + ts.CacheWrite
+		var fields []sessionField
 		if sessionName != "" {
-			fmt.Fprintf(&b, "%s %s\n", dim("Name:"), sessionName)
+			fields = append(fields, sessionField{"Name", sessionName})
 		}
 		if session != nil {
 			path := sessionPath
 			if path == "" {
 				path = "In-memory"
 			}
-			fmt.Fprintf(&b, "%s %s\n", dim("File:"), path)
+			fields = append(fields, sessionField{"File", path})
 		}
-
-		b.WriteString("\n" + bold("Messages") + "\n")
-		fmt.Fprintf(&b, "%s %d\n", dim("Total:"), stats.TotalMessages)
-		fmt.Fprintf(&b, "%s %d\n", dim("User:"), stats.UserMessages)
-		fmt.Fprintf(&b, "%s %d\n", dim("Assistant:"), stats.AssistantMessages)
-		fmt.Fprintf(&b, "%s %d calls, %d results\n", dim("Tools:"), stats.ToolCalls, stats.ToolResults)
-
-		ts := stats.Tokens
-		promptTokens := ts.Input + ts.CacheRead + ts.CacheWrite
-		b.WriteString("\n" + bold("Tokens") + "\n")
-		fmt.Fprintf(&b, "%s %s\n", dim("Input:"), formatNumber(promptTokens))
-		if promptTokens > 0 && (ts.CacheRead > 0 || ts.CacheWrite > 0) {
-			fmt.Fprintf(&b, "  %s %s %s\n", dim("Cached:"), formatNumber(ts.CacheRead), dim("("+jsstring.ToFixed((float64(ts.CacheRead)/float64(promptTokens))*100, 1)+"%)"))
-			written := ""
-			if ts.CacheWrite > 0 {
-				written = " " + dim(fmt.Sprintf("(%s written to cache)", formatNumber(ts.CacheWrite)))
+		if started, ok := sessionHeaderTime(headerTimestamp); ok {
+			value := started.Local().Format("2006-01-02 15:04")
+			if age := sessionAge(started); age != "now" {
+				value += " " + dim("("+age+" ago)")
 			}
-			fmt.Fprintf(&b, "  %s %s%s\n", dim("Uncached:"), formatNumber(ts.Input+ts.CacheWrite), written)
+			fields = append(fields, sessionField{"Started", value})
 		}
-		fmt.Fprintf(&b, "%s %s\n", dim("Output:"), formatNumber(ts.Output))
-		fmt.Fprintf(&b, "%s %s\n", dim("Total:"), formatNumber(ts.Total))
+		fields = append(fields,
+			sessionField{"Messages", fmt.Sprintf("%d %s", stats.TotalMessages, dim(fmt.Sprintf("(%d user, %d assistant)", stats.UserMessages, stats.AssistantMessages)))},
+			sessionField{"Tool calls", fmt.Sprintf("%d %s", stats.ToolCalls, dim(fmt.Sprintf("(%d results)", stats.ToolResults)))},
+			sessionField{"Input tokens", formatNumber(promptTokens)})
+		if promptTokens > 0 && (ts.CacheRead > 0 || ts.CacheWrite > 0) {
+			cached := formatNumber(ts.CacheRead) + " " + dim("("+jsstring.ToFixed((float64(ts.CacheRead)/float64(promptTokens))*100, 1)+"%)")
+			uncached := formatNumber(ts.Input + ts.CacheWrite)
+			if ts.CacheWrite > 0 {
+				uncached += " " + dim(fmt.Sprintf("(%s written to cache)", formatNumber(ts.CacheWrite)))
+			}
+			fields = append(fields, sessionField{"  Cached", cached}, sessionField{"  Uncached", uncached})
+		}
+		fields = append(fields, sessionField{"Output tokens", formatNumber(ts.Output)})
+		if len(stats.UsageBreakdown) == 0 || ts.Total <= 0 {
+			fields = append(fields, sessionField{"Total tokens", formatNumber(ts.Total)})
+		}
+		writeSessionFields(&b, fields, dim)
 
-		writeSessionModelBars(&b, stats, ansi, bold, dim)
-		writeSessionTimeline(&b, stats, headerTimestamp, ansi, bold, dim)
-		writeSessionSubagents(&b, subagentRecords, subagentSettings, bold, dim)
+		writeSessionTrace(&b, stats, subagentRecords, time.Now(), ansi, bold, dim)
 		writeCacheWarmingSection(&b, mode, status, bold, dim)
 
 		if ts.Cost > 0 || stats.CacheWaste.MissedTokens > 0 {
