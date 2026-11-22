@@ -170,7 +170,7 @@ type SlashContext struct {
 	ShowHotkeys      func()
 	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
 	ShowUsage func()
-	// ShowSessionStats opens the /session report in its own fullscreen view.
+	// ShowSessionStats opens the /session report in its own fullscreen board.
 	// snapshot takes a fresh reading of the session each time it is called.
 	// Nil keeps the report inline in the transcript, as print, RPC and
 	// headless modes do. ompig-slim addition.
@@ -953,7 +953,7 @@ func sessionHandler(sc *SlashContext) error {
 		return nil
 	}
 	report := sessionInfoRenderer(sc)
-	render := func() string { return report(sessionTraceWidth) }
+	render := func() string { return report(sessionInlineLayout) }
 	// upstream handleSessionCommand adds `new ThemedText(renderInfo, 1, 0)`: the text is built again on every render, so it follows theme changes.
 	switch {
 	case sc.AppendThemedText != nil:
@@ -966,9 +966,9 @@ func sessionHandler(sc *SlashContext) error {
 	return nil
 }
 
-// sessionReport builds the /session text with a time-trace track of
-// traceWidth cells, in the active theme's colors at the moment it runs.
-type sessionReport func(traceWidth int) string
+// sessionReport builds the /session text for a layout, in the active
+// theme's colors at the moment it runs.
+type sessionReport func(layout sessionLayout) string
 
 // sessionInfoRenderer mirrors upstream handleSessionCommand (interactive-mode.ts:6705-6779): it snapshots the session statistics, name, usage
 // breakdown, cache-warming status and mode, and the selected model, and returns renderInfo, which builds the text from them with the active
@@ -1014,7 +1014,7 @@ func sessionInfoRenderer(sc *SlashContext) sessionReport {
 	if sc.SelectedModelKey != nil {
 		selectedModelKey = sc.SelectedModelKey()
 	}
-	return func(traceWidth int) string {
+	return func(layout sessionLayout) string {
 		// Section headings carry the accent color as well as bold. Upstream's
 		// /session writes theme.bold(heading) inside a themed report and relies on
 		// the overlay to color it; here the report is appended straight to the
@@ -1069,7 +1069,7 @@ func sessionInfoRenderer(sc *SlashContext) sessionReport {
 		}
 		writeSessionFields(&b, fields, dim)
 
-		writeSessionTrace(&b, stats, subagentRecords, time.Now(), traceWidth, ansi, bold, dim)
+		writeSessionTrace(&b, stats, subagentRecords, time.Now(), layout, ansi, bold, dim)
 		writeCacheWarmingSection(&b, mode, status, bold, dim)
 
 		if ts.Cost > 0 || stats.CacheWaste.MissedTokens > 0 {

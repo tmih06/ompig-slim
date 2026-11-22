@@ -1,8 +1,10 @@
 package codingagent
 
-// ompig-slim: the /session report in its own fullscreen view, so the stats
-// neither bloat the transcript nor wrap inside its width. The view owns the
-// alternate screen like the /usage board and hands it back on close.
+// ompig-slim: text boards, the in-TUI replacement for printing a long report
+// into the transcript. A board is a framed, scrollable page in its own
+// fullscreen view, so it neither bloats the transcript nor wraps inside its
+// width. It owns the alternate screen like the /usage board and hands it back
+// on close. /session and /hotkeys use it.
 
 import (
 	"slices"
@@ -13,74 +15,86 @@ import (
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
-// sessionStatsState is the mounted /session view.
-type sessionStatsState struct {
+// textBoardState is the mounted board.
+type textBoardState struct {
 	handle       *tui.OverlayHandle
 	previousMode string
 }
 
-// showSessionStats opens the /session view, or focuses it when it is open.
-// snapshot reads the session afresh; the view calls it now and on refresh.
-func (m *InteractiveMode) showSessionStats(snapshot func() sessionReport) {
+// openTextBoard shows board in its own fullscreen view, or focuses the board
+// that is already open: one at a time.
+func (m *InteractiveMode) openTextBoard(board *textBoard) {
 	if m.tuiInst == nil {
 		return
 	}
-	if m.sessionStats != nil {
-		m.sessionStats.handle.Focus()
+	if m.textBoard != nil {
+		m.textBoard.handle.Focus()
 		return
 	}
-	previousMode, ok := m.enterBoardScreen("session stats")
+	previousMode, ok := m.enterBoardScreen(strings.ToLower(board.name))
 	if !ok {
 		return
 	}
-	view := &sessionStatsView{
-		snapshot:      snapshot,
-		report:        snapshot(),
-		height:        m.tuiInst.Height,
-		close:         m.closeSessionStats,
-		requestRender: m.requestRender,
-	}
-	handle := m.showBoard(view)
+	board.height, board.close, board.requestRender = m.tuiInst.Height, m.closeTextBoard, m.requestRender
+	handle := m.showBoard(board)
 	if handle == nil {
 		return
 	}
-	m.sessionStats = &sessionStatsState{handle: handle, previousMode: previousMode}
+	m.textBoard = &textBoardState{handle: handle, previousMode: previousMode}
 	m.requestRender()
 }
 
-// closeSessionStats hides the view and restores the chat's previous screen mode.
-func (m *InteractiveMode) closeSessionStats() {
-	state := m.sessionStats
+// closeTextBoard hides the board and restores the chat's previous screen mode.
+func (m *InteractiveMode) closeTextBoard() {
+	state := m.textBoard
 	if state == nil {
 		return
 	}
-	m.sessionStats = nil
+	m.textBoard = nil
 	m.leaveBoardScreen(state.handle, state.previousMode)
 }
 
-// disposeSessionStats drops the view when the mode ends, leaving the
-// renderer, which teardown is already stopping, alone.
-func (m *InteractiveMode) disposeSessionStats() {
-	if state := m.sessionStats; state != nil {
-		m.sessionStats = nil
+// disposeTextBoard drops the board when the mode ends, leaving the renderer,
+// which teardown is already stopping, alone.
+func (m *InteractiveMode) disposeTextBoard() {
+	if state := m.textBoard; state != nil {
+		m.textBoard = nil
 		state.handle.Hide()
 	}
 }
 
-// sessionStatsView is a framed, scrollable page of the /session report. The
-// input loop owns it, so it holds no lock.
-type sessionStatsView struct {
-	snapshot      func() sessionReport
-	report        sessionReport
+// showSessionStats opens the /session board. snapshot reads the session
+// afresh; the board calls it now and on refresh.
+func (m *InteractiveMode) showSessionStats(snapshot func() sessionReport) {
+	report := snapshot()
+	m.openTextBoard(&textBoard{
+		name: "Session stats",
+		lines: func(inner int) []string {
+			return strings.Split(strings.TrimRight(report(sessionViewLayout(inner)), "\n"), "\n")
+		},
+		refresh: func() { report = snapshot() },
+	})
+}
+
+// textBoard is a framed, scrollable page. The input loop owns it, so it
+// holds no lock.
+type textBoard struct {
+	name string // the page's title, for the warning and a too-narrow frame
+	// lines lays the page out for inner columns.
+	lines func(inner int) []string
+	// refresh re-reads what lines shows; nil when the page has nothing to
+	// re-read, which also leaves the refresh key out of the footer.
+	refresh func()
+
 	height        func() int
 	close         func()
 	requestRender func()
 
 	scroll   int
 	pageRows int // body rows at the last render
-	total    int // report lines at the last render
+	total    int // page lines at the last render
 
-	// framed holds the report's lines laid out and boxed for framedWidth and
+	// framed holds the page's lines laid out and boxed for framedWidth and
 	// framedTheme, and blank the box's empty row. Scrolling and repaints
 	// reuse them; a new width or theme, or a refresh, rebuilds them.
 	framed      []string
@@ -89,28 +103,26 @@ type sessionStatsView struct {
 	framedTheme *tui.Theme
 }
 
-// sessionStatsChrome is the rows around the body: top border, divider, hint, bottom border.
-const sessionStatsChrome = 4
+// textBoardChrome is the rows around the body: top border, divider, hint, bottom border.
+const textBoardChrome = 4
 
-func (v *sessionStatsView) Invalidate()                 {}
-func (v *sessionStatsView) CapturesViewportInput() bool { return true }
+func (v *textBoard) Invalidate()                 {}
+func (v *textBoard) CapturesViewportInput() bool { return true }
 
-func (v *sessionStatsView) Render(width int) []string {
+func (v *textBoard) Render(width int) []string {
 	if width < 6 {
-		return []string{widthx.TruncateToWidth("Session stats", max(1, width), "…", false)}
+		return []string{widthx.TruncateToWidth(v.name, max(1, width), "…", false)}
 	}
 	theme := tui.ActiveTheme()
 	border := func(s string) string { return theme.Fg("border", s) }
 	inner := width - 4
-	rows := max(1, max(sessionStatsChrome+2, v.height())-sessionStatsChrome)
+	rows := max(1, max(textBoardChrome+2, v.height())-textBoardChrome)
 
-	// The track fills the room the lane rows leave beside the widest name.
-	traceWidth := min(max(inner-sessionMaxLaneNameWidth-sessionLaneChrome, sessionMinTraceWidth), sessionMaxTraceWidth)
 	row := func(text string) string {
 		return border("│ ") + widthx.TruncateToWidth(text, inner, "…", true) + border(" │")
 	}
 	if v.framed == nil || v.framedWidth != width || v.framedTheme != theme {
-		text := strings.Split(strings.TrimRight(v.report(traceWidth), "\n"), "\n")
+		text := v.lines(inner)
 		v.framed = make([]string, len(text))
 		for i, line := range text {
 			v.framed[i] = row(line)
@@ -121,7 +133,7 @@ func (v *sessionStatsView) Render(width int) []string {
 	v.pageRows, v.total = rows, len(v.framed)
 	v.scroll = min(v.scroll, max(0, v.total-rows))
 
-	lines := make([]string, 0, rows+sessionStatsChrome)
+	lines := make([]string, 0, rows+textBoardChrome)
 	lines = append(lines, border("╭"+strings.Repeat("─", width-2)+"╮"))
 	visible := v.framed[v.scroll:min(v.total, v.scroll+rows)]
 	lines = append(lines, visible...)
@@ -129,7 +141,7 @@ func (v *sessionStatsView) Render(width int) []string {
 		lines = append(lines, v.blank)
 	}
 	// The position leads so a narrow screen clips the keys, not where you are.
-	hint := sessionStatsHint()
+	hint := textBoardHint(v.refresh != nil)
 	if v.total > rows {
 		hint = strconv.Itoa(min(v.total, v.scroll+rows)) + "/" + strconv.Itoa(v.total) + " · " + hint
 	}
@@ -143,8 +155,9 @@ func (v *sessionStatsView) Render(width int) []string {
 // HandleInput routes keys through the configured actions, as the /usage
 // board does: scrolling and closing use the select and alt-screen actions,
 // refreshing has its own, and a remap applies here too. j, k, q, home and end
-// stay as fixed aliases.
-func (v *sessionStatsView) HandleInput(data string) {
+// stay as fixed aliases. Refreshing does nothing on a page with nothing to
+// re-read.
+func (v *textBoard) HandleInput(data string) {
 	keys := tui.GetKeybindings()
 	match := func(action string, fallback ...string) bool {
 		return tui.ActionMatches(keys, data, action, fallback...)
@@ -153,8 +166,9 @@ func (v *sessionStatsView) HandleInput(data string) {
 	case match(tui.KBSelectCancel, "escape", "ctrl+c"), data == "q":
 		v.close()
 		return
-	case match(string(AppSessionStatsRefresh), "r"):
-		v.report, v.framed = v.snapshot(), nil
+	case v.refresh != nil && match(string(AppSessionStatsRefresh), "r"):
+		v.refresh()
+		v.framed = nil
 	case match(tui.KBSelectUp, "up"), data == "k":
 		v.scrollBy(-1)
 	case match(tui.KBSelectDown, "down"), data == "j":
@@ -173,9 +187,9 @@ func (v *sessionStatsView) HandleInput(data string) {
 	v.requestRender()
 }
 
-// sessionStatsHint is the footer's key legend, read from the configured
+// textBoardHint is the footer's key legend, read from the configured
 // bindings; an action the user has unbound drops out of it.
-func sessionStatsHint() string {
+func textBoardHint(refreshable bool) string {
 	part := func(label string, keys ...string) string {
 		keys = slices.DeleteFunc(keys, func(key string) bool { return key == "" })
 		if len(keys) == 0 {
@@ -186,15 +200,17 @@ func sessionStatsHint() string {
 	parts := []string{
 		part("scroll", tui.ActionText(tui.KBSelectUp, "up"), tui.ActionText(tui.KBSelectDown, "down")),
 		part("page", tui.ActionText(tui.KBSelectPageUp, "pageUp"), tui.ActionText(tui.KBSelectPageDown, "pageDown")),
-		part("refresh", tui.ActionText(string(AppSessionStatsRefresh), "r")),
-		part("close", tui.ActionText(tui.KBSelectCancel, "escape")),
 	}
+	if refreshable {
+		parts = append(parts, part("refresh", tui.ActionText(string(AppSessionStatsRefresh), "r")))
+	}
+	parts = append(parts, part("close", tui.ActionText(tui.KBSelectCancel, "escape")))
 	return strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), " · ")
 }
 
 // HandleMouse scrolls on the wheel and swallows every other mouse event, so
 // nothing reaches the chat behind the view.
-func (v *sessionStatsView) HandleMouse(event tui.TuiMouseEvent) *tui.TuiMouseDispatchResult {
+func (v *textBoard) HandleMouse(event tui.TuiMouseEvent) *tui.TuiMouseDispatchResult {
 	if event.Type == tui.MouseWheel && event.WheelDelta != 0 {
 		v.scrollBy(3 * min(max(event.WheelDelta, -1), 1))
 		v.requestRender()
@@ -203,4 +219,4 @@ func (v *sessionStatsView) HandleMouse(event tui.TuiMouseEvent) *tui.TuiMouseDis
 }
 
 // scrollBy moves the body by delta rows; Render clamps the position.
-func (v *sessionStatsView) scrollBy(delta int) { v.scroll = max(0, v.scroll+delta) }
+func (v *textBoard) scrollBy(delta int) { v.scroll = max(0, v.scroll+delta) }

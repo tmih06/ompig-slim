@@ -88,7 +88,7 @@ func TestSessionStatsLayout(t *testing.T) {
 		CurrentSession:   func() *Session { return session },
 		SessionSubagents: func() []subagents.Record { return records },
 	}
-	out := widthx.StripTerminalSequences(sessionInfoRenderer(sc)(sessionTraceWidth))
+	out := widthx.StripTerminalSequences(sessionInfoRenderer(sc)(sessionInlineLayout))
 
 	for _, want := range []string{
 		"Session stats", "stats-test",
@@ -272,7 +272,7 @@ func TestSessionHandlerOpensViewOnlyWhenOffered(t *testing.T) {
 	transcript, opened := nil, 0
 	sc.ShowSessionStats = func(snapshot func() sessionReport) {
 		opened++
-		if out := widthx.StripTerminalSequences(snapshot()(sessionTraceWidth)); !strings.Contains(out, "handler-test") {
+		if out := widthx.StripTerminalSequences(snapshot()(sessionInlineLayout)); !strings.Contains(out, "handler-test") {
 			t.Errorf("snapshot lacks the session: %q", out)
 		}
 	}
@@ -284,26 +284,61 @@ func TestSessionHandlerOpensViewOnlyWhenOffered(t *testing.T) {
 	}
 }
 
-func TestSessionStatsViewFramesScrollsAndCloses(t *testing.T) {
-	var closed, renders, snapshots, builds int
-	const height = 10
-	text := func(traceWidth int) string {
-		builds++
-		var rows []string
-		for i := range 30 {
-			rows = append(rows, "row "+strings.Repeat("x", i)+" w"+strconv.Itoa(traceWidth))
+func TestSessionViewLayoutFillsTheScreenAndListsEveryAgent(t *testing.T) {
+	// The track fills what the lane rows leave beside the widest name.
+	for inner, want := range map[int]int{
+		100: 100 - sessionMaxLaneNameWidth - sessionLaneChrome,
+		10:  sessionMinTraceWidth,
+		400: sessionMaxTraceWidth,
+	} {
+		if got := sessionViewLayout(inner).traceWidth; got != want {
+			t.Errorf("track at %d columns is %d cells, want %d", inner, got, want)
 		}
-		return strings.Join(rows, "\n")
 	}
-	view := &sessionStatsView{
-		snapshot:      func() sessionReport { snapshots++; return text },
-		report:        text,
+
+	now := time.Now().UnixMilli()
+	var records []subagents.Record
+	for i := range 19 {
+		records = append(records, subagents.Record{
+			ID: "a" + strconv.Itoa(i), DisplayName: "agent" + strconv.Itoa(i), Status: "completed",
+			StartedAt: now - int64(30-i)*60_000, CompletedAt: now - int64(29-i)*60_000, Tokens: 100,
+		})
+	}
+	sc := &SlashContext{
+		CurrentSession:   func() *Session { return NewSession("many", t.TempDir()) },
+		SessionSubagents: func() []subagents.Record { return records },
+	}
+	report := sessionInfoRenderer(sc)
+	inline := widthx.StripTerminalSequences(report(sessionInlineLayout))
+	if !strings.Contains(inline, "and 7 more") || strings.Contains(inline, "agent18") {
+		t.Errorf("the transcript should cap the list at %d agents:\n%s", sessionMaxSubagentLanes, inline)
+	}
+	full := widthx.StripTerminalSequences(report(sessionViewLayout(116)))
+	if strings.Contains(full, "more") || !strings.Contains(full, "agent18") || !strings.Contains(full, "19 agents") {
+		t.Errorf("the view should list every agent:\n%s", full)
+	}
+}
+
+func TestTextBoardFramesScrollsAndCloses(t *testing.T) {
+	var closed, renders, refreshes, layouts int
+	const height = 10
+	board := &textBoard{
+		name: "Test page",
+		lines: func(inner int) []string {
+			layouts++
+			rows := make([]string, 30)
+			for i := range rows {
+				rows[i] = "row " + strings.Repeat("x", i) + " w" + strconv.Itoa(inner)
+			}
+			return rows
+		},
+		refresh:       func() { refreshes++ },
 		height:        func() int { return height },
 		close:         func() { closed++ },
 		requestRender: func() { renders++ },
 	}
 	plain := func(width int) []string {
-		lines := view.Render(width)
+		lines := board.Render(width)
 		for i, line := range lines {
 			lines[i] = widthx.StripTerminalSequences(line)
 			if got := widthx.VisibleWidth(line); got != width {
@@ -315,64 +350,68 @@ func TestSessionStatsViewFramesScrollsAndCloses(t *testing.T) {
 
 	lines := plain(60)
 	if len(lines) != height {
-		t.Fatalf("view is %d rows, want the %d of the screen", len(lines), height)
+		t.Fatalf("board is %d rows, want the %d of the screen", len(lines), height)
 	}
-	if !strings.HasPrefix(lines[1], "│ row  w") || !strings.Contains(lines[height-2], "6/30") {
+	if !strings.HasPrefix(lines[1], "│ row  w56") || !strings.Contains(lines[height-2], "6/30") {
 		t.Errorf("first page wrong:\n%s", strings.Join(lines, "\n"))
 	}
 
-	view.HandleInput("\x1b[6~") // page down
-	lines = plain(60)
-	if !strings.Contains(lines[1], "row xxxxxx") {
+	board.HandleInput("\x1b[6~") // page down
+	if lines = plain(60); !strings.Contains(lines[1], "row xxxxxx") {
 		t.Errorf("page down did not move a page:\n%s", strings.Join(lines, "\n"))
 	}
-	view.HandleInput("\x1b[F") // end
-	lines = plain(60)
-	if !strings.Contains(lines[height-2], "30/30") {
+	board.HandleInput("\x1b[F") // end
+	if lines = plain(60); !strings.Contains(lines[height-2], "30/30") {
 		t.Errorf("end did not reach the last row:\n%s", strings.Join(lines, "\n"))
 	}
-	view.HandleInput("k")
-	view.HandleInput("\x1b[H") // home
-	if lines = plain(60); !strings.HasPrefix(lines[1], "│ row  w") {
+	board.HandleInput("k")
+	board.HandleInput("\x1b[H") // home
+	if lines = plain(60); !strings.HasPrefix(lines[1], "│ row  w56") {
 		t.Errorf("home did not return to the top:\n%s", strings.Join(lines, "\n"))
 	}
-	if renders != 4 {
-		t.Errorf("scrolling asked for %d renders, want 4", renders)
-	}
-	if builds != 1 {
-		t.Errorf("scrolling laid the report out %d times, want once", builds)
+	if renders != 4 || layouts != 1 {
+		t.Errorf("scrolling asked for %d renders and %d layouts, want 4 and 1", renders, layouts)
 	}
 
-	// A wider screen widens the trace track, within bounds.
-	if !strings.Contains(plain(100)[1], "w"+strconv.Itoa(100-4-sessionMaxLaneNameWidth-sessionLaneChrome)) {
-		t.Errorf("wide screen did not widen the track: %q", plain(100)[1])
-	}
-	if !strings.Contains(plain(20)[1], "w"+strconv.Itoa(sessionMinTraceWidth)) {
-		t.Errorf("narrow screen shrank the track below its minimum: %q", plain(20)[1])
-	}
-	if !strings.Contains(plain(400)[1], "w"+strconv.Itoa(sessionMaxTraceWidth)) {
-		t.Errorf("huge screen grew the track past its maximum: %q", plain(400)[1])
+	// The page is laid out for the width it is drawn at.
+	if !strings.Contains(plain(100)[1], "w96") || !strings.Contains(plain(20)[1], "w16") {
+		t.Errorf("layout ignored the screen width: %q %q", plain(100)[1], plain(20)[1])
 	}
 
-	builds = 0
-	view.HandleInput("r")
-	view.Render(60)
-	view.Render(60)
-	if snapshots != 1 || builds != 1 {
-		t.Errorf("refresh took %d snapshots and %d layouts, want 1 and 1", snapshots, builds)
+	layouts = 0
+	board.HandleInput("r")
+	board.Render(20)
+	board.Render(20)
+	if refreshes != 1 || layouts != 1 {
+		t.Errorf("refresh re-read %d times and laid out %d times, want 1 and 1", refreshes, layouts)
 	}
-	if got := view.Render(5); len(got) != 1 {
-		t.Errorf("a sliver of width should render one clipped row, got %d", len(got))
+	if got := board.Render(5); len(got) != 1 || !strings.HasPrefix(widthx.StripTerminalSequences(got[0]), "Test") {
+		t.Errorf("a sliver of width should render one clipped title row, got %q", got)
 	}
 	for _, key := range []string{"\x1b", "q", "\x03"} {
-		view.HandleInput(key)
+		board.HandleInput(key)
 	}
 	if closed != 3 {
-		t.Errorf("close keys closed the view %d times, want 3", closed)
+		t.Errorf("close keys closed the board %d times, want 3", closed)
 	}
 }
 
-func TestSessionStatsViewHonorsRemappedBindings(t *testing.T) {
+func TestTextBoardWithoutRefreshIgnoresTheKey(t *testing.T) {
+	board := &textBoard{
+		name:          "Static",
+		lines:         func(int) []string { return []string{"fixed"} },
+		height:        func() int { return 10 },
+		close:         func() {},
+		requestRender: func() {},
+	}
+	lines := board.Render(80)
+	if footer := widthx.StripTerminalSequences(lines[len(lines)-2]); strings.Contains(footer, "refresh") {
+		t.Errorf("a page with nothing to re-read advertises refresh: %q", footer)
+	}
+	board.HandleInput("r") // must not panic
+}
+
+func TestTextBoardHonorsRemappedBindings(t *testing.T) {
 	previous := tui.GetKeybindings()
 	defer tui.SetKeybindings(previous)
 
@@ -385,32 +424,32 @@ func TestSessionStatsViewHonorsRemappedBindings(t *testing.T) {
 	definitions[tui.KBSelectCancel] = tui.TUIKeybindingDef{DefaultKeys: []string{"ctrl+y"}, Description: "cancel"}
 	tui.SetKeybindings(tui.NewKeybindingsManager(definitions, nil))
 
-	var closed, snapshots int
-	text := func(int) string { return "report" }
-	view := &sessionStatsView{
-		snapshot:      func() sessionReport { snapshots++; return text },
-		report:        text,
+	var closed, refreshes int
+	board := &textBoard{
+		name:          "Remap",
+		lines:         func(int) []string { return []string{"report"} },
+		refresh:       func() { refreshes++ },
 		height:        func() int { return 10 },
 		close:         func() { closed++ },
 		requestRender: func() {},
 	}
 	footer := func() string {
-		lines := view.Render(100)
+		lines := board.Render(100)
 		return widthx.StripTerminalSequences(lines[len(lines)-2])
 	}
 	if got := footer(); !strings.Contains(got, "shift+r refresh") || !strings.Contains(got, "ctrl+y close") {
 		t.Errorf("footer does not show the configured keys: %q", got)
 	}
 
-	view.HandleInput("r")
-	view.HandleInput("\x1b")
-	if snapshots != 0 || closed != 0 {
-		t.Errorf("the replaced defaults still act: %d refreshes, %d closes", snapshots, closed)
+	board.HandleInput("r")
+	board.HandleInput("\x1b")
+	if refreshes != 0 || closed != 0 {
+		t.Errorf("the replaced defaults still act: %d refreshes, %d closes", refreshes, closed)
 	}
-	view.HandleInput("R")
-	view.HandleInput("\x19")
-	if snapshots != 1 || closed != 1 {
-		t.Errorf("remapped keys did not act: %d refreshes, %d closes", snapshots, closed)
+	board.HandleInput("R")
+	board.HandleInput("\x19")
+	if refreshes != 1 || closed != 1 {
+		t.Errorf("remapped keys did not act: %d refreshes, %d closes", refreshes, closed)
 	}
 
 	// An action the user has unbound drops out of the footer.

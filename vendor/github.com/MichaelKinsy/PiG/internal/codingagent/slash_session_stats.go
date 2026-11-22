@@ -9,6 +9,7 @@ package codingagent
 import (
 	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -49,6 +50,23 @@ func writeSessionFields(b *strings.Builder, fields []sessionField, dim func(stri
 	for _, f := range fields {
 		pad := strings.Repeat(" ", labelWidth-widthx.VisibleWidth(f.label))
 		fmt.Fprintf(b, "%s%s  %s\n", dim(f.label), pad, f.value)
+	}
+}
+
+// sessionLayout sizes the time trace: the track's length in cells and how
+// many subagents get a lane of their own.
+type sessionLayout struct{ traceWidth, subagentLanes int }
+
+// sessionInlineLayout is the transcript's: a short track and a capped list.
+var sessionInlineLayout = sessionLayout{sessionTraceWidth, sessionMaxSubagentLanes}
+
+// sessionViewLayout is the board's. The track fills the room the lane rows
+// leave beside the widest name, and every subagent gets a lane, since the
+// board scrolls.
+func sessionViewLayout(inner int) sessionLayout {
+	return sessionLayout{
+		traceWidth:    min(max(inner-sessionMaxLaneNameWidth-sessionLaneChrome, sessionMinTraceWidth), sessionMaxTraceWidth),
+		subagentLanes: math.MaxInt,
 	}
 }
 
@@ -93,12 +111,12 @@ func sessionModelLanes(stats SessionAccounting, ansi func(int, string) string) [
 	return lanes
 }
 
-// sessionSubagentLanes is a lane for each of the first sessionMaxSubagentLanes
-// runs, which come sorted by start. A running subagent's span ends at now.
-// Slots continue after the model lanes' so every lane keeps its own hue.
+// sessionSubagentLanes is a lane for each run, which come sorted by start. A
+// running subagent's span ends at now. Slots continue after the model lanes'
+// so every lane keeps its own hue.
 func sessionSubagentLanes(runs []subagents.Record, modelLanes int, now time.Time) []sessionLane {
-	lanes := make([]sessionLane, 0, min(len(runs), sessionMaxSubagentLanes))
-	for i, r := range runs[:cap(lanes)] {
+	lanes := make([]sessionLane, 0, len(runs))
+	for i, r := range runs {
 		lane := sessionLane{
 			marker: subagentIcon(r), name: strings.Repeat("  ", min(r.Depth, 2)) + subagentIdentity(r),
 			slot: sessionBarSlots[(modelLanes+i)%len(sessionBarSlots)], tokens: int(r.Tokens),
@@ -121,12 +139,13 @@ func sessionSubagentLanes(runs []subagents.Record, modelLanes int, now time.Time
 // the same time lines up in the same column. A cell is filled only where its
 // time slice held work, and each cell resolves two slices (▌ ▐ █), so gaps
 // and interleaving stay visible. Lanes without a time have an empty track.
-// width is the track's length in cells.
-func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []subagents.Record, now time.Time, width int, ansi func(int, string) string, bold, dim func(string) string) {
+// layout sets the track's length and how many subagents get a lane.
+func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []subagents.Record, now time.Time, layout sessionLayout, ansi func(int, string) string, bold, dim func(string) string) {
 	models := sessionModelLanes(stats, ansi)
 	runs := slices.Clone(records)
 	slices.SortStableFunc(runs, func(left, right subagents.Record) int { return cmp.Compare(left.StartedAt, right.StartedAt) })
-	agents := sessionSubagentLanes(runs, len(models), now)
+	agents := sessionSubagentLanes(runs[:min(len(runs), layout.subagentLanes)], len(models), now)
+	width := layout.traceWidth
 	if len(models) == 0 && len(agents) == 0 {
 		return
 	}

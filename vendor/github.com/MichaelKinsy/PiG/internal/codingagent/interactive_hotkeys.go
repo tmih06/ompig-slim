@@ -95,16 +95,17 @@ func (m *InteractiveMode) extensionShortcutsForHotkeys() []extension.ExtensionSh
 	return shortcuts
 }
 
+// handleHotkeysCommand opens the shortcut tables in a text board rather than
+// the transcript. ompig-slim: upstream appends them to the chat.
 func (m *InteractiveMode) handleHotkeysCommand() {
-	body := tui.NewPaddedBox(1, 1, nil)
-	hotkeys := m.proseMarkdown(hotkeysMarkdown(m.extensionShortcutsForHotkeys()), 0, 0)
-	hotkeys.FinishStreaming()
-	body.AddChild(hotkeys)
-	m.appendChatBlock(tui.NewContainer(
-		tui.NewDynamicBorder(),
-		tui.NewPaddedText(tui.ChalkBold(tui.ActiveTheme().Fg("accent", "Keyboard Shortcuts")), 1, 0, nil),
-		tui.NewSpacer(1),
-		body,
-		tui.NewDynamicBorder(),
-	))
+	m.openTextBoard(&textBoard{name: "Keyboard shortcuts", lines: m.hotkeysLines})
+}
+
+// hotkeysLines lays the heading and the tables out for inner columns. It reads
+// the shortcuts and theme each time, so a reload shows in the next layout.
+func (m *InteractiveMode) hotkeysLines(inner int) []string {
+	tables := m.proseMarkdown(hotkeysMarkdown(m.extensionShortcutsForHotkeys()), 0, 0)
+	tables.FinishStreaming()
+	heading := tui.ChalkBold(tui.ActiveTheme().Fg("accent", "Keyboard Shortcuts"))
+	return append([]string{heading, ""}, tables.Render(inner)...)
 }
