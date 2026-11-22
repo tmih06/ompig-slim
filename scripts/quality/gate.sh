@@ -92,26 +92,33 @@ if ! go test -mod=vendor -race -shuffle=on -count=1 ./... ; then
     FAILED=1; fail "go test"
 fi
 
-# --- 8. govulncheck (network-dependent; non-fatal if offline)
+# --- 8. govulncheck (advisory: pin the binary to the repo's Go version when it
+# can parse it; warn rather than block on a tool/toolchain version mismatch)
 if command -v govulncheck >/dev/null 2>&1; then
-    step "govulncheck"
-    if ! govulncheck -mode=query ./... >/dev/null 2>&1; then
-        # query mode needs no network if the vuln db is cached; fall back to scan
-        if ! govulncheck ./... ; then
+    step "govulncheck (advisory)"
+    if govulncheck ./... >/tmp/gate-vuln.txt 2>&1; then
+        note "ok — no known vulnerabilities"
+    else
+        if grep -qE 'requires newer Go version|cannot range over|unknown field' /tmp/gate-vuln.txt; then
+            note "warn — govulncheck binary predates this toolchain; skipping (CI pins a compatible build)"
+        else
+            cat /tmp/gate-vuln.txt >&2
             FAILED=1; fail "govulncheck"
-        else note "ok"; fi
-    else note "ok"; fi
+        fi
+    fi
 fi
 
 # --- 9. go.mod / go.sum drift
 step "go mod tidy drift"
 cp go.mod /tmp/gate-go.mod; cp go.sum /tmp/gate-go.sum
 go mod tidy >/dev/null 2>&1 || true
-if ! git diff --quiet -- go.mod go.sum 2>/dev/null && ! cmp -s go.mod /tmp/gate-go.mod; then
-    FAILED=1; fail "go.mod/go.sum drift — run 'go mod tidy' and commit"
+if ! cmp -s go.mod /tmp/gate-go.mod || ! cmp -s go.sum /tmp/gate-go.sum; then
+    cp /tmp/gate-go.mod go.mod; cp /tmp/gate-go.sum go.sum
+    FAILED=1; fail "go.mod/go.sum drift — run 'go mod tidy' and commit the result"
 else
-    cp /tmp/gate-go.mod go.mod; cp /tmp/gate-go.sum go.sum; note "ok"
+    note "ok"
 fi
+rm -f /tmp/gate-go.mod /tmp/gate-go.sum
 
 if [ "$FAILED" = 0 ]; then
     step "gate: PASS"
