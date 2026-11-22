@@ -53,172 +53,45 @@ Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/tmih06/ompi
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Windows installs to `%LOCALAPPDATA%\ompig-slim\bin`. Open a new terminal to use the
-updated PATH. Install Git for Windows to use Bash tools. Releases published before
-Windows support have no Windows assets. See [native Windows setup and verification](docs/windows.md)
-for prerequisites, PowerShell source builds, and platform limits. Then:
-
-```sh
-ompig-slim update                   # update using the saved channel (initially stable)
-ompig-slim update --channel beta    # switch to beta and remember it
-ompig-slim update --channel stable  # switch back to stable and remember it
-ompig-slim update --all             # packages first, then the binary
-ompig-slim update --models          # refresh model catalogs
-```
-
-Each successful CI run after a merge to `main` publishes a numbered beta with prebuilt binaries
-for Linux, macOS, and Windows on x64 and ARM64. `upgrade` also accepts `--channel stable|beta`. Switching channels
-can install an older version; failed updates leave your saved channel unchanged.
+See [native Windows setup](docs/windows.md) for prerequisites and limits. Update with
+`ompig-slim update` (`--channel stable|beta`, `--all` for packages, `--models` for catalogs). Every merge to
+`main` publishes a numbered beta for Linux, macOS, and Windows on x64 and ARM64.
 
 From source with Go 1.27+: `make build && ./bin/ompig-slim`, or `make install`.
-The first build downloads pinned dependencies; later builds can use the local cache.
-For a smaller source checkout, use `git clone --depth=1 https://github.com/tmih06/ompig-slim.git`.
 
 ## Usage
 
 ```sh
 cd ~/code/thing && ompig-slim    # then /login, or export OPENAI_API_KEY
+ompig-slim -p "review this diff" # print one answer and exit
+ompig-slim -c                    # continue the last session
+ompig-slim --model @review       # run on a saved model role
+ompig-slim --help                # every flag
 ```
 
-| Command | What it does |
-|---|---|
-| `ompig-slim "list the failing tests"` | start interactive with an opening prompt |
-| `ompig-slim -p "review this diff"` | print one answer and exit |
-| `ompig-slim --mode json` / `--mode rpc` | JSONL event stream, or an RPC loop over stdio |
-| `ompig-slim -c` / `-r` / `--session <id>` | continue the last session, pick one, open by id |
-| `ompig-slim --model openai/gpt-4o:high` | pick `provider/id` with a thinking level |
-| `ompig-slim --model @review` | run on a saved [model role](docs/model-roles.md) |
-| `ompig-slim --list-models` | refresh and list available models, including [custom models](docs/custom-models.md) |
-| `ompig-slim @src/a.ts "explain"` | attach files or images to the prompt |
-| `ompig-slim --tools read,grep,find` | restrict the tool set for one run ([selection rules](docs/tool-selection.md)) |
+Slash commands include `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree`
+`/fork` `/resume` and `/quit`. See the [usage reference](docs/usage.md) for all commands, shortcuts,
+[`/goal`](docs/goal.md), [durable headless mode](docs/durable.md), and the agent-state file other tools can watch.
 
-Model lists refresh automatically. Codex and Codex JSON use the signed-in accounts'
-provider roster. Other supported providers learn new models from the public catalog.
-Interactive startup uses cached lists while discovery runs in the background.
-Use `--offline` to skip discovery or `update --models` to force a refresh.
-See [model discovery and offline behavior](docs/model-discovery.md).
-ClinePass does not list `cline-free/` promotions reserved for Cline's IDE extension and CLI.
-The agent receives its selected provider and model in context; model changes are
-appended to the conversation rather than rewriting its cached prefix.
+## Features
 
-| Key | Action |
-|---|---|
-| `Ctrl+O` | expand or collapse tool output |
-| `Ctrl+P` | cycle to the next model in the role cycle |
-| `Alt+P` | model picker for this session |
-| `Ctrl+Shift+Left` | cycle to the previous model |
-| `Ctrl+-` | undo an editor change |
-| `Ctrl+V` | paste from the clipboard |
-| `Shift+Tab` | cycle thinking level |
-| `Ctrl+Q` | queue a follow-up behind the current task |
-| `Alt+Q` | restore queued messages to the editor |
-| `Alt+W` | fold the task/quota widget to its border control |
-| `Alt+A` | Agent Hub (live subagents) |
-| `Esc` | interrupt |
+- **Tools:** `read`, `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo`
+- **Models:** ~5,900 IDs across 90 providers, OAuth, API keys, [custom endpoints](docs/custom-models.md), and
+  [roles with fallback chains](docs/model-roles.md)
+- **Accounts:** multiple accounts per provider with [quota-aware routing](docs/account-routing.md)
+- **Subagents:** `Agent` with fixed roles, Agent Hub, and [explicit child outcomes](docs/subagents.md)
+- **Guardrails:** [loop guard](docs/loop-guard.md) and [streaming rules](docs/streaming-rules.md)
+- **Extensions:** TS, Go, Rust, Python, and Lisp; the [Herdr](https://herdr.dev) adapter is installable
+- **State:** Pi layout (`~/.pi/agent`, `.pi`), so existing sessions carry over
+- **Themes:** `system`/`dark`/`light` built in, [100 optional palettes](themes/README.md)
 
-Default shortcuts are the same on every OS. Your `~/.pi/agent/keybindings.json`
-overrides still apply. macOS calls the Alt key Option. Terminal key mappings can
-intercept shortcuts before the application receives them. Ctrl+Z requests process
-suspension; native Windows reports that suspension is unsupported.
+Details: [features](docs/features.md). Codemode and other tools run with your user permissions and are not an
+OS sandbox. Credentials live unencrypted in local SQLite or the configured broker's vault.
 
-Mistral browser sign-in supports multiple accounts and displays the account email when available.
-Repeat `/login` for each account; list them with `ompig-slim auth accounts --provider mistral` and
-switch with `ompig-slim auth use mistral '<account-key>'`. See [Mistral account identity](docs/mistral-account-identity.md).
+## Remote broker and workspace image
 
-Slash commands: `/login` `/model` `/settings` `/usage` `/goal` `/subagents` `/compact` `/tree` `/fork` `/resume`
-`/export` `/hotkeys` `/quit`. On interactive exit, `/quit` leaves the logo, session message and tool-call
-counts, token usage, and recorded cost in your terminal. Saved sessions include a resume command.
-Use `/goal <objective>` (or `/goal set <objective>`) to start working autonomously;
-`/goal pause`, `/goal resume`, `/goal complete`, and `/goal drop` control it. An active goal continues on
-its own until you stop it, and a goal that reports the same blocker three times pauses itself and asks for
-the missing input ([goal contract](docs/goal.md)). Interrupting with `Esc` or `/goal pause` takes effect
-immediately and starts no further turn, and an ordinary follow-up afterwards does not resume the objective:
-only `/goal resume` does, and it restarts the same paused objective. `ompig-slim --help` lists every flag.
-
-### Durable headless work
-
-Daily interactive usage is unchanged. For unattended work with crash recovery:
-
-```sh
-ompig-slim durable run --state /data/workdesk --cwd /work/repo \
-  --model provider/model --request-id ticket-123 'Implement and verify the change'
-ompig-slim durable resume --state /data/workdesk
-ompig-slim durable status --state /data/workdesk
-# Optional committed transcript events and live steering:
-ompig-slim durable run --state /data/workdesk --cwd /work/repo \
-  --model provider/model --request-id ticket-123 \
-  --events-file /data/events.jsonl --control-file /data/control.jsonl \
-  'Implement and verify the change'
-printf '%s\n' '{"content":"Also inspect the failing test"}' >> /data/control.jsonl
-```
-
-Persist both directories across sandbox restarts. This opt-in mode uses PiG
-Durable and its native coding tools, not the daily agent's extensions or session
-format. See [durability guarantees and limits](docs/durable.md).
-
-### For other tools
-
-Every session publishes what the agent is doing, so a multiplexer, status bar, or notifier can watch
-a run without knowing anything about this program:
-
-```sh
-# one document per running agent, rewritten on each change
-ls  <PIG_HOME|~/.pi>/state/agent/*/status.json
-cat <PIG_HOME|~/.pi>/state/agent/$$/status.json
-# {"state": "working", "agent": "ompig-slim", "mode": "tui", "session_id": "...",
-#  "session_file": "...", "cwd": "...", "pid": 1234, "updated_at": "..."}
-```
-
-`state` is `idle`, `working`, `blocked` (with the dialog in `detail`), or `exited`. Check
-`mode == "tui"` if you only care about interactive agents. The files are written atomically; treat a
-missing one, or one whose `pid` is no longer running, as "no information" rather than an error.
-
-The [Herdr](https://herdr.dev) adapter is an installable extension built on that file, not part of the
-binary:
-
-```sh
-ompig-slim install ./extensions/herdr
-```
-
-It gives Herdr a sidebar row, tab and workspace rollups, `herdr agent wait`, and session restore after
-a Herdr server restart.
-
-## What's inside
-
-| Area | Detail |
-|---|---|
-| Tools | `read` (files, dirs, URLs, GitHub issue/PR links and `issue://N` / `pr://N` with automatic repository detection), `bash`, `edit`, `write`, `grep`, `find`, `web_search`, `codemode`, `todo` |
-| Prompt | Completed slash commands use distinct colors; suggestions match purpose keywords (`/clea` finds `/new (clear, fresh)`) and an unknown command names its closest match (`Did you mean /new?`); `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
-| Loop guard | [Corrective steers](docs/loop-guard.md) after five identical tool-call turns or three recurring deterministic failures on the same target |
-| Streaming rules | [Code-pattern checks](docs/streaming-rules.md) with 34 bundled correctness, security, and performance reminders plus custom Markdown rules that can block tool calls before execution |
-| Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints; [Gemini Decisions judge inference](docs/gemini-decisions.md) |
-| Routing | Roles, fallback chains for chat, judge and compaction, auto thinking, `/model` manager, `Alt+P` picker |
-| Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |
-| Subagents | `Agent` with fixed `@task`, `@smol` and `@slow` [roles](docs/model-roles.md#subagent-roles-and-tools), `get_subagent_result`, `steer_subagent`, workflows, Agent Hub, [explicit child outcomes](docs/subagents.md) |
-| TUI | omp-style tool cards, task/quota widget, todo reminder, Mermaid diagrams |
-| Integrations | Publishes agent state for other tools; Herdr is an installable extension; [OpenCode Free](docs/opencode-free.md) is built in |
-| Themes | Built-in `system`/`dark`/`light`, colorful Markdown; [100 optional palettes](themes/README.md) |
-| State | Pi layout: `~/.pi/agent` global, `.pi` per project, so existing sessions carry over |
-
-Account assignments stay sticky per provider, session, and model across restarts.
-Broker clients share assignment state. See [account routing](docs/account-routing.md).
-
-Codex routing prefers eligible, unblocked Free accounts before paid accounts, even when Plus is selected.
-Fresh usage reports identify plans when tokens omit them or contain an older plan.
-New assignments prefer the account with the most quota left in its shortest model-relevant rolling window.
-Offline or failed usage probes retain token-based plan checks and round-robin assignment.
-
-Codex account labels and usage views prefer the access-token email, including for existing JSON imports,
-so they match `/usage reset`. Stored email metadata is the fallback when the token has no email.
-
-Codemode and other tools run with your user permissions; codemode is not an OS sandbox. Credentials live
-in local SQLite, or in the configured broker’s SQLite vault, unencrypted at rest.
-
-## Remote broker
-
-One hosted service keeps sign-in, custom providers, settings, model roles, keybindings and custom profile
-themes identical across your machines. Its SQLite vault owns credentials and **refreshes OAuth tokens on the broker**; clients
-receive access credentials, never refresh tokens. Inference and tools stay on each client. The broker is not a traffic proxy.
+One hosted broker keeps sign-in, settings, model roles, and themes identical across machines and refreshes
+OAuth tokens centrally. Inference and tools stay on each client.
 
 ```sh
 docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
@@ -226,41 +99,20 @@ docker run -d --name ompig-broker -p 127.0.0.1:8765:8765 \
   ghcr.io/tmih06/ompig-slim-broker:<version>
 ```
 
-On each client, open `/login`, choose **Remote ompig-slim broker**, and enter the URL and secret. Unattended
-machines can skip the dialog: `ompig-slim broker setup --url <origin> --token-file <path>` writes the same
-connection. Import existing local accounts explicitly with `ompig-slim broker migrate --from-local`.
-Preferences synchronize with revision checks; account writes persist directly on the broker. Use HTTPS or
-a private encrypted network. See [broker setup and containers](docs/remote-broker.md) for migration,
-deployment and limits. Broker and standalone mode use the same `agent.db`, so a closed database can
-[transfer directly between them](docs/remote-broker.md#back-up-or-switch-to-standalone-mode).
-
-### Workspace image
-
-Each release also publishes a small multi-architecture workspace image with `ompig-slim`, `git`, `fd`,
-`rg`, `jq`, `curl`, SSH, Python, and common archive/patch tools. It is intentionally runtime-only; add
-language toolchains in a project-specific image when needed.
-
-```sh
-docker run --rm -it -v "$PWD:/workspace" \
-  ghcr.io/tmih06/ompig-slim-workspace:<version>
-```
+Setup, migration, and limits: [broker setup](docs/remote-broker.md). A small agent
+[workspace image](docs/workspace-image.md) is published with each release.
 
 ## Development
 
 ```sh
-make check             # tests and vet, patched PiG library included
-make race              # the same with the race detector
-make smoke             # model menu, widget, codemode, subagent, web-tool PTY scenarios
-make test-install      # curl installer against a loopback release server
-make test-self-update  # update/upgrade against a loopback release server
-make test-broker-container  # the broker image and two clients, needs Docker
-make test-broker-cluster    # one broker host plus two client containers, needs Docker
-make build-workspace-image   # build the lightweight agent workspace image
-make release           # build the four platform archives
+make check   # tests and vet, patched PiG library included
+make smoke   # PTY and codemode scenarios
+make release # build the four platform archives
 ```
 
 Read [CONTRIBUTING.md](.github/CONTRIBUTING.md) first: the tracked PiG tree carries project-specific patches.
-Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance guidance lives in [AGENTS.md](AGENTS.md).
+Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance guidance
+lives in [AGENTS.md](AGENTS.md).
 
 Independent personal project, not an official PiG, Pi, or omp release. MIT. See [LICENSE](LICENSE) and
 [NOTICE](NOTICE) for attribution.
