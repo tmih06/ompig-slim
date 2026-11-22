@@ -12,9 +12,10 @@ import (
 )
 
 // accountModelCatalog holds credential-scoped live model rosters per endpoint:
-// the account discovery shared by Codex and Devin. Each provider supplies how
-// its endpoint normalizes, which credential fields identify an account, which
-// models are built in, and how a roster is fetched.
+// the account discovery shared by Codex, Devin, GitHub Copilot, and Google
+// Antigravity. Each provider supplies how its endpoint normalizes, which
+// credential fields identify an account, which models are built in, and how a
+// roster is fetched.
 type accountModelCatalog struct {
 	providerID string
 	// scopeLabel names the roster kind inside scope ids, which persist as
@@ -25,8 +26,12 @@ type accountModelCatalog struct {
 	// has none and the scope falls back to the access token.
 	identity func(Credential) (string, bool)
 	builtin  func(modelID string) bool
-	mu       sync.RWMutex
-	rosters  map[string]accountModelRoster
+	// project reshapes a decoded roster before publish; Devin uses it to
+	// collapse wire effort lanes into logical family models so rosters
+	// persisted before the collapse port still load projected.
+	project func(models []*Model) []*Model
+	mu      sync.RWMutex
+	rosters map[string]accountModelRoster
 }
 
 type accountModelRoster struct {
@@ -144,7 +149,11 @@ func withAccountModelDiscovery(provider *ModelsProvider, catalog *accountModelCa
 			if err != nil {
 				return err
 			}
-			if err := publishRoster(chatModels(models), nil); err != nil {
+			chat := chatModels(models)
+			if catalog.project != nil {
+				chat = catalog.project(chat)
+			}
+			if err := publishRoster(chat, nil); err != nil {
 				return err
 			}
 		}

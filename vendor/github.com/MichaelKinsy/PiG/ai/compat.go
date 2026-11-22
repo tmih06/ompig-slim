@@ -302,9 +302,12 @@ func CompleteSimple(ctx context.Context, model *Model, request Context, options 
 
 // GetBuiltinModel reads one built-in chat model, or nil (providers/all.ts getBuiltinModel; compat.ts getModel).
 func GetBuiltinModel(provider, modelID string) *Model {
-	for _, model := range GetBuiltinModels(provider) {
-		if model.ID == modelID {
-			return model
+	if provider == "" || modelID == "" {
+		return nil
+	}
+	for _, generated := range ListModels(provider) {
+		if generated.ID == modelID {
+			return generated.ToModel()
 		}
 	}
 	return nil

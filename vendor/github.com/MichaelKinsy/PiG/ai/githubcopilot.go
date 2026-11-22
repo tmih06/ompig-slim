@@ -42,7 +42,10 @@ var copilotStaticHeaders = map[string]string{
 
 // copilotAPIVersion is sent as X-GitHub-Api-Version on the model-catalog
 // fetch. Mirrors upstream COPILOT_API_VERSION (github-copilot.ts:19).
-const copilotAPIVersion = "2026-06-01"
+const (
+	copilotAPIVersion     = "2026-06-01"
+	defaultCopilotBaseURL = "https://api.individual.githubcopilot.com"
+)
 
 func mustDecodeB64(s string) string {
 	b, err := base64.StdEncoding.DecodeString(s)
@@ -585,11 +588,18 @@ func copilotRetryDelay(retryAfter string, retry int) (float64, bool) {
 // fetchGitHubCopilotModels fetches and filters the account's model catalog.
 // Mirrors upstream fetchGitHubCopilotModels (github-copilot.ts:168-195).
 func fetchGitHubCopilotModels(ctx context.Context, copilotToken, enterpriseDomain string, policy copilotRetryPolicy) (copilotModelCatalog, error) {
-	base := getCopilotBaseURL(copilotToken, enterpriseDomain)
+	return fetchGitHubCopilotModelsAtBase(ctx, getCopilotBaseURL(copilotToken, enterpriseDomain), copilotToken, policy)
+}
+
+// fetchGitHubCopilotModelsAtBase is fetchGitHubCopilotModels against an
+// already-resolved API base — account discovery honors the endpoint an
+// omp-minted credential records on the credential itself, which the token
+// claims alone cannot recover.
+func fetchGitHubCopilotModelsAtBase(ctx context.Context, base, copilotToken string, policy copilotRetryPolicy) (copilotModelCatalog, error) {
 	// Some Individual accounts return false for every picker flag despite
 	// explicit enabled policies. Limit the fallback to that endpoint so
 	// other account types keep strict picker semantics.
-	allowPolicyFallback := base == "https://api.individual.githubcopilot.com"
+	allowPolicyFallback := base == defaultCopilotBaseURL
 	result, err := copilotFetchWithRetry(ctx, policy, func(reqCtx context.Context) (*http.Request, error) {
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/models", nil)
 		if err != nil {
@@ -951,7 +961,7 @@ func getCopilotBaseURL(accessToken, enterpriseDomain string) string {
 	if enterpriseDomain != "" {
 		return "https://copilot-api." + enterpriseDomain
 	}
-	return "https://api.individual.githubcopilot.com"
+	return defaultCopilotBaseURL
 }
 
 // ResolveCopilotEnvFallback resolves the github-copilot bearer and base URL via

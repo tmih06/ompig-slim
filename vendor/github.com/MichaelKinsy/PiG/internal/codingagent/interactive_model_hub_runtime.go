@@ -57,7 +57,7 @@ func (r *ModelRegistry) hubCatalogItems(disabled []string) (available, all []tui
 			item := hubCatalogItem(model)
 			all = append(all, item)
 			if tui.ModelItemKind(item) == "chat" {
-				if configured && filter(item.ID) {
+				if configured && filter(item.ID) && !devinEffortLane(item) {
 					available = append(available, item)
 				}
 			} else if configured || ai.OMPKeylessCatalog(provider) {
@@ -66,6 +66,19 @@ func (r *ModelRegistry) hubCatalogItems(disabled []string) (available, all []tui
 		}
 	}
 	return available, all
+}
+
+// devinEffortLane reports whether an item is a Devin wire effort/service lane
+// (swe-2-medium, gpt-6-sol-high-priority). Lanes stay selectable by id and in
+// the full catalog, but the logical family models the roster collapses to —
+// swe-2, swe-2-fast — are what the picker lists once per family.
+func devinEffortLane(item tui.ModelSelectorItem) bool {
+	model := item.Model
+	if model == nil || model.ProviderMeta.Compat == nil {
+		return false
+	}
+	_, marked := model.ProviderMeta.Compat.Extra["effortLane"]
+	return marked
 }
 
 // hubAutoRefresh is a process-lifetime once guard, consumed only when a debounce

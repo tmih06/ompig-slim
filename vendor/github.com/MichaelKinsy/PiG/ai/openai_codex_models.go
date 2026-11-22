@@ -66,31 +66,31 @@ func WithCodexModelDiscovery(provider *ModelsProvider) *ModelsProvider {
 }
 
 func codexModelIdentity(credential Credential) (string, bool) {
+	hasAccount := false
 	identity := []string{}
-	add := func(name, value string) {
+	add := func(name, value string, discriminator bool) {
 		value = strings.TrimSpace(value)
 		if value != "" {
+			if discriminator {
+				hasAccount = true
+			}
 			identity = append(identity, name, value)
 		}
 	}
-	add("account", credential.AccountID)
-	add("project", credential.ProjectID)
-	add("enterprise", credential.EnterpriseDomain)
+	add("account", credential.AccountID, true)
+	add("project", credential.ProjectID, true)
+	add("enterprise", credential.EnterpriseDomain, false)
 	claims := codexJWTProfile(credential.Access)
-	add("token-account", codexClaimString(claims, codexJWTClaimPath, "chatgpt_account_id"))
-	add("email", CodexAccountEmail(credential.Access))
-	add("subject", func() string { value, _ := claims["sub"].(string); return value }())
+	add("token-account", codexClaimString(claims, codexJWTClaimPath, "chatgpt_account_id"), true)
+	add("email", CodexAccountEmail(credential.Access), true)
+	add("subject", func() string { value, _ := claims["sub"].(string); return value }(), true)
 	if plan, known := codexAccountPlan(credential); known {
-		add("plan", plan)
+		add("plan", plan, false)
 	}
 	for _, key := range []string{"email", "userId", "user_id", "chatgpt_user_id", "chatgptUserId", "orgId", "org_id", "orgName"} {
-		var value string
-		if raw := credential.Extra[key]; len(raw) != 0 {
-			_ = json.Unmarshal(raw, &value)
-		}
-		add(key, value)
+		add(key, stringClaim(credential, key), true)
 	}
-	if len(identity) == 0 {
+	if !hasAccount {
 		return "", false
 	}
 	encoded, _ := json.Marshal(identity)

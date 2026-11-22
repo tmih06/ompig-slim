@@ -278,10 +278,9 @@ func ccaAccountKeyOf(credentials ccaCredentials) string {
 	return ""
 }
 
-// ccaAccountProfiles returns the account's table, creating it on first use.
-func ccaAccountProfiles(accountKey string, create bool) *ccaAntigravityAccount {
-	ccaAntigravityAccounts.mu.Lock()
-	defer ccaAntigravityAccounts.mu.Unlock()
+// ccaAccountProfilesLocked returns the account's table, creating it on first use.
+// Caller must hold ccaAntigravityAccounts.mu (write lock when create is true).
+func ccaAccountProfilesLocked(accountKey string, create bool) *ccaAntigravityAccount {
 	if ccaAntigravityAccounts.accounts == nil {
 		if !create {
 			return nil
@@ -304,7 +303,9 @@ func ccaRecordAccountProfile(accountKey, wireID string, profile ccaAntigravityWi
 	if accountKey == "" {
 		return
 	}
-	account := ccaAccountProfiles(accountKey, true)
+	ccaAntigravityAccounts.mu.Lock()
+	defer ccaAntigravityAccounts.mu.Unlock()
+	account := ccaAccountProfilesLocked(accountKey, true)
 	account.Profiles[wireID] = profile
 }
 
@@ -313,13 +314,17 @@ func ccaRecordAccountFamily(accountKey string, family ccaAntigravityFamily) {
 	if accountKey == "" || len(family.Tiers) == 0 {
 		return
 	}
-	account := ccaAccountProfiles(accountKey, true)
+	ccaAntigravityAccounts.mu.Lock()
+	defer ccaAntigravityAccounts.mu.Unlock()
+	account := ccaAccountProfilesLocked(accountKey, true)
 	account.Families[family.LogicalID] = family
 }
 
 // ccaAccountProfile reads one SKU's constants for an account.
 func ccaAccountProfile(accountKey, wireID string) (ccaAntigravityWireProfile, bool) {
-	account := ccaAccountProfiles(accountKey, false)
+	ccaAntigravityAccounts.mu.RLock()
+	defer ccaAntigravityAccounts.mu.RUnlock()
+	account := ccaAccountProfilesLocked(accountKey, false)
 	if account == nil {
 		return ccaAntigravityWireProfile{}, false
 	}
@@ -329,7 +334,9 @@ func ccaAccountProfile(accountKey, wireID string) (ccaAntigravityWireProfile, bo
 
 // ccaAccountFamily reads one account's collapsed family.
 func ccaAccountFamily(accountKey, logicalID string) (ccaAntigravityFamily, bool) {
-	account := ccaAccountProfiles(accountKey, false)
+	ccaAntigravityAccounts.mu.RLock()
+	defer ccaAntigravityAccounts.mu.RUnlock()
+	account := ccaAccountProfilesLocked(accountKey, false)
 	if account == nil {
 		return ccaAntigravityFamily{}, false
 	}

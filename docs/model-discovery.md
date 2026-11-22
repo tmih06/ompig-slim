@@ -19,12 +19,32 @@ The two providers retain separate credential and catalog namespaces.
 Devin uses the authenticated `GetCliModelConfigs` endpoint after `/login` (or a
 `DEVIN_API_KEY` session token). The live roster is scoped to the account's
 credential and endpoint: disabled entries, quick-review and internal display
-slots are dropped, duplicate wire UIDs collapse to one row, and Fusion
-pairings resolve to their lead model. Router slots keep the `modelRouter`
-compat flag so chat requests go through `AssignModel`. When discovery fails or
-returns an empty roster, the bundled `swe-1-6`/`swe-1-6-fast` seed catalog
-stays authoritative; an empty successful response never restores seeds over a
-published roster.
+slots are dropped, duplicate wire UIDs collapse to one row, wire effort and
+service lanes collapse onto logical family models (keeping wire UIDs selectable
+by ID), and Fusion pairings resolve to their lead model. Router slots keep the
+`modelRouter` compat flag so chat requests go through `AssignModel`. When
+discovery fails or returns an empty roster, the bundled
+`swe-1-6`/`swe-1-6-fast` seed catalog stays authoritative; an empty successful
+response never restores seeds over a published roster.
+
+GitHub Copilot uses the account's authenticated `GET /models` catalog. The
+roster is the intersection of the ids the endpoint reports picker-visible
+(picker flag set, policy not disabled, tool calls supported) and the bundled
+catalog, so ids the API publishes without a bundled record stay absent, as in
+upstream's `availableModelIds` filter. This covers credentials minted by a
+login that never stored `availableModelIds` (an omp login keeps a GitHub token
+with a far-future expiry and no model list); without discovery those
+credentials would leave the whole bundled catalog selectable, including models
+the account cannot call. The roster is scoped to the credential's own API
+endpoint (`apiEndpoint`, token claim, or enterprise domain), and a scope with
+no roster yet keeps the bundled baseline.
+
+Google Antigravity uses the account's authenticated Cloud Code Assist
+`fetchAvailableModels` endpoint. Internal, disabled, and denylisted rows are
+dropped, effort-tier SKUs collapse into logical families, and discovered rows
+inherit bundled catalog pricing and metadata for known IDs. The roster is
+scoped per account and endpoint and restored offline from `models-store.json`;
+a scope with no roster yet keeps the bundled baseline.
 
 The ClinePass catalog omits `cline-free/` promotions. [Cline reserves those
 models for its IDE extension and CLI](https://docs.cline.bot/getting-started/free-models#api-access).
