@@ -5,7 +5,7 @@
 // ompig-slim never depends on the file at runtime.
 //
 // The vendored PiG runtime builds the system prompt itself. This package only
-// supplies the base text: main.go hands it to prompts.SetPreamble before the CLI
+// supplies the base text: cmd/ompig-slim/main.go hands it to prompts.SetPreamble before the CLI
 // runs, and the runtime composes its tool, rules, project-context, and skills
 // sections around it.
 package prompts

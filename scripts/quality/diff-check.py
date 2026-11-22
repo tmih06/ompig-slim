@@ -11,8 +11,8 @@ fails (exit 1) when the diff:
     test file without a replacement in the same package
   * modifies disposable ``vendor/`` files outside ``vendor/modules.txt`` and
     maintained ``vendor/github.com/MichaelKinsy/PiG/``
-  * touches gate config, ``.semgrep/``, ``scripts/quality/``, ``Makefile``, CI
-    workflows, baseline, ``.githooks/``, or ``AGENTS.md``/``CLAUDE.md`` without a
+  * touches gate config, ``config/semgrep/``, ``scripts/quality/``, ``Makefile``, CI
+    workflows, baseline, ``config/githooks/``, or ``AGENTS.md``/``CLAUDE.md`` without a
     CODEOWNER approval signal
   * changes ``go.mod`` without a justification line in the PR description
   * exceeds the size cap calibrated to this repo's typical PR (unless owner-approved)
@@ -39,14 +39,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # OWNER_APPROVED (CI maps this to owner authorship or CODEOWNERS approval).
 GATE_PATHS = re.compile(
     r"^("
-    r"\.golangci\.(yml|yaml)$"
-    r"|\.semgrep/"
+    r"config/golangci\.yml$"
+    r"|config/gitleaks\.toml$"
+    r"|config/semgrep/"
     r"|\.semgrepignore$"
     r"|scripts/quality/"
     r"|\.github/workflows/"
     r"|docs/quality-baseline\.(json|md)$"
     r"|\.github/CODEOWNERS$"
-    r"|\.githooks/"
+    r"|config/githooks/"
     r"|Makefile$"
     r"|AGENTS\.md$"
     r"|CLAUDE\.md$"

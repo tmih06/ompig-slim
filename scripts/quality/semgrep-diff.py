@@ -9,7 +9,7 @@ touches an added line. Pre-existing debt in a touched file stays out of the way;
 new slop does not.
 
 Usage:
-  python3 scripts/quality/semgrep-diff.py [--base REF] [--config .semgrep/slop.yml]
+  python3 scripts/quality/semgrep-diff.py [--base REF] [--config config/semgrep/slop.yml]
 Exit 1 when any finding survives, 2 on Semgrep config/parse error, 0 otherwise.
 """
 import json
@@ -77,7 +77,7 @@ def added_lines(base):
 def main():
     args = sys.argv[1:]
     base = os.environ.get("PR_BASE", "HEAD")
-    config = os.path.join(ROOT, ".semgrep", "slop.yml")
+    config = os.path.join(ROOT, "config", "semgrep", "slop.yml")
     if "--base" in args:
         base = args[args.index("--base") + 1]
     if "--config" in args:
@@ -88,7 +88,7 @@ def main():
         f for f in added
         if f.endswith(".go")
         and not f.startswith("vendor/")
-        and not f.startswith(".semgrep/")   # our own fixtures must never scan
+        and not f.startswith("config/semgrep/")   # our own fixtures must never scan
         and os.path.isfile(os.path.join(ROOT, f))
     ]
     if not targets:

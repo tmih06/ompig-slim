@@ -32,7 +32,7 @@ Important product boundaries are the following.
 
 ## Repository map
 
-- `main.go` owns executable registration, startup, broker setup, durable
+- `cmd/ompig-slim/` owns executable registration, startup, broker setup, durable
   dispatch, and delegation to the PiG CLI.
 - `internal/` contains project-owned agent state, broker, durable workdesk,
   loop guard, goals, self-update, and related integrations.
@@ -47,6 +47,10 @@ Important product boundaries are the following.
 - `docs/` contains durable behavior, broker contracts, model roles, tools,
   benchmarks, and other technical documentation.
 - `themes/` contains profile theme palettes.
+- `config/` contains the golangci-lint, semgrep, gitleaks, and git-hook
+  configuration for the quality gate.
+- `docker/` contains the broker and workspace Dockerfiles; `.github/` also holds
+  `CONTRIBUTING.md` and `SECURITY.md`.
 - `Makefile` contains the canonical developer commands.
 - `README.md` is user-facing. `CONTRIBUTING.md` contains contributor and
   dependency rules. `SECURITY.md` contains security-reporting guidance.
@@ -173,18 +177,18 @@ must verify that secrets do not appear in logs or snapshots.
 Every change must pass the gate before it is done. It is one command:
 
 ```sh
-make hooks       # configure git core.hooksPath=.githooks (also auto-wired by make build/check/gate)
+make hooks       # configure git core.hooksPath=config/githooks (also auto-wired by make build/check/gate)
 make gate        # full gate: build, lint(new code), vet, slop, diff, ratchet,
                  # tests -race -shuffle, govulncheck, manifest drift
-make gate-quick  # cheap subset run by .githooks/pre-commit (build, lint, vet, slop, diff, ratchet)
+make gate-quick  # cheap subset run by config/githooks/pre-commit (build, lint, vet, slop, diff, ratchet)
 ```
 
 Run a single linter when iterating:
 
 ```sh
-golangci-lint run --new-from-rev=origin/main ./...   # lint only new/changed code
-golangci-lint run ./internal/broker/                  # one package
-semgrep --config .semgrep/slop.yml path/to/file.go    # slop rules on one file
+golangci-lint run -c config/golangci.yml --new-from-rev=origin/main ./...   # lint only new/changed code
+golangci-lint run -c config/golangci.yml ./internal/broker/                  # one package
+semgrep --config config/semgrep/slop.yml path/to/file.go    # slop rules on one file
 python3 scripts/quality/semgrep-diff.py --base origin/main
 python3 scripts/quality/ratchet.py lint.json          # per-rule debt ratchet
 ```
@@ -192,8 +196,8 @@ python3 scripts/quality/ratchet.py lint.json          # per-rule debt ratchet
 ### Gate rules
 
 **Never bypass the gate.** Never add `//nolint`, `t.Skip`, or a disabled rule
-to make it pass. Never edit `.golangci.yml`, `.semgrep/`, `scripts/quality/`,
-`.github/workflows/`, `docs/quality-baseline.*`, `CODEOWNERS`, `.githooks/`, or
+to make it pass. Never edit `config/` (lint, semgrep, gitleaks, hooks), `scripts/quality/`,
+`.github/workflows/`, `docs/quality-baseline.*`, `CODEOWNERS`, or
 this file to loosen a check — those paths are CODEOWNER-protected and the
 diff-check fails the PR without owner approval. If a rule seems wrong, stop
 and ask a human; do not weaken the gate.
@@ -215,7 +219,7 @@ New and changed code is gated strictly; existing debt lives in
 - **Private state**: all credential/profile filesystem writes go through
   `internal/privatefs` (`EnsurePrivateDir`, `RestrictFile`, `SyncDir`).
 - **Concurrency**: channels + `sync.WaitGroup` + `signal.NotifyContext`; no
-  errgroup. Every `go func` has a ctx/done contract. See `main.go`.
+  errgroup. Every `go func` has a ctx/done contract. See `cmd/ompig-slim/main.go`.
 - **Tests**: stdlib `testing` only — no testify. `t.TempDir`, `httptest`,
   fixture credentials, `t.Helper` in helpers. Platform splits via
   `//go:build` + `_unix.go`/`_windows.go`.

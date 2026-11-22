@@ -97,7 +97,7 @@ def build_images(binary):
     finally:
         shutil.rmtree(context, ignore_errors=True)
     print(f"building {BROKER_IMAGE} from {REPO}", flush=True)
-    docker("build", "-f", str(REPO / "Dockerfile.broker"), "-t", BROKER_IMAGE, str(REPO))
+    docker("build", "-f", str(REPO / "docker" / "Dockerfile.broker"), "-t", BROKER_IMAGE, str(REPO))
 
 
 def clean():

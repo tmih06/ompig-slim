@@ -35,7 +35,7 @@ textbooks.
 - `AGENTS.md` (repo root) and `CONTRIBUTING.md` already encode conventions:
   Conventional Commits, "bug fixes need a meaningful regression test", "keep
   the native core small", "prefer deletion", "fix causes, not symptoms".
-- `.gitleaks.toml` (secret scanning) and `.coderabbit.yaml` (AI review) exist.
+- `config/gitleaks.toml` (secret scanning) and `.coderabbit.yaml` (AI review) exist.
 
 ## Baseline (measured before changes)
 
@@ -62,9 +62,9 @@ modelcontext 0%.
   `internal/broker/client.go`.
 - **Logging**: **no `slog`/`log` package**. Diagnostics go to an explicit
   `io.Writer` — `fmt.Fprintln(os.Stderr, err)` / `fmt.Fprintln(stderr, ...)`.
-  See `main.go`, `cmd/ompig-slim-broker/main.go`, `internal/broker/migrate.go`.
+  See `cmd/ompig-slim/main.go`, `cmd/ompig-slim-broker/main.go`, `internal/broker/migrate.go`.
 - **Context**: `context.Context` is the first parameter (11 files).
-  `context.Background()` appears only at process root (`main.go`, broker
+  `context.Background()` appears only at process root (`cmd/ompig-slim/main.go`, broker
   `main.go`) or for shutdown/cleanup timeouts (`workdesk.go`,
   `client.go:476`). `signal.NotifyContext` wires SIGINT/SIGTERM.
 - **Package layering**: `main` → `internal/*` + `prompts`. `internal/*` may
@@ -75,7 +75,7 @@ modelcontext 0%.
   No cycles, no internal pkg importing `main`.
 - **Concurrency**: channels + `sync.WaitGroup` (5) + `signal.NotifyContext`;
   **no `errgroup`**. `go func` appears 14×, almost all in tests or with a
-  done-channel/ctx contract (`main.go:94` conflict pump, `herdr.go:379`
+  done-channel/ctx contract (`cmd/ompig-slim/main.go:94` conflict pump, `herdr.go:379`
   `go s.watch(watchCtx…)`). `internal/agentstate/ext` heartbeat is a tracked
   `go t.beat(...)`.
 - **Tests**: stdlib `testing` only — **no testify**. Helpers take `t` and call

@@ -1,8 +1,8 @@
 # Semgrep rules for the AI-slop patterns this gate targets. Every message tells
 # the agent what to do instead. Run:
-#   semgrep --validate --config .semgrep/slop.yml
-#   semgrep --test --config .semgrep/slop.yml .semgrep/slop.go
-#   semgrep --config .semgrep/slop.yml .
+#   semgrep --validate --config config/semgrep/slop.yml
+#   semgrep --test --config config/semgrep/slop.yml config/semgrep/testdata/slop.go
+#   semgrep --config config/semgrep/slop.yml .
 rules:
   - id: slop.blank-error-assign
     languages: [go]
@@ -57,7 +57,7 @@ rules:
     message: >
       A bare `go func(){...}()` has no lifecycle: nothing owns its completion,
       cancellation, or error. This repo ties goroutines to a context and a
-      done-channel (see main.go conflict pump, internal/agentstate/ext/beat.go).
+      done-channel (see cmd/ompig-slim/main.go conflict pump, internal/agentstate/ext/beat.go).
       Spawn with a ctx you pass in, signal completion, or use the run's tracker.
     patterns:
       - pattern: go func() { ... }()
@@ -144,7 +144,6 @@ rules:
     pattern: os.Exit(...)
     paths:
       exclude:
-        - main.go
         - "**/main.go"
         - "*_test.go"
 
@@ -259,6 +258,6 @@ rules:
     severity: ERROR
     message: >
       Use `signal.NotifyContext` instead of raw `signal.Notify` so signal
-      handling cancels the context cleanly (see main.go and
+      handling cancels the context cleanly (see cmd/ompig-slim/main.go and
       cmd/ompig-slim-broker/main.go).
     pattern: signal.Notify(...)

@@ -67,7 +67,7 @@ run "build" go build -mod=vendor ./... || exit 1
 
 # --- 2. golangci-lint on new/changed code (strict)
 step "golangci-lint (new code vs ${BASE:0:12})"
-if ! golangci-lint run --new-from-rev="$BASE" ./... ; then
+if ! golangci-lint run --config config/golangci.yml --new-from-rev="$BASE" ./... ; then
     FAILED=1; fail "golangci-lint new-code"
 else
     note "ok"
@@ -78,11 +78,11 @@ run "go vet" go vet -mod=vendor ./... || exit 1
 
 # --- 4. Semgrep rule validation, fixture self-test, and diff-scoped scan
 step "semgrep slop (validate + fixtures + added lines)"
-if ! semgrep --validate --config .semgrep/slop.yml >/dev/null 2>&1; then
-    semgrep --validate --config .semgrep/slop.yml >&2
+if ! semgrep --validate --config config/semgrep/slop.yml >/dev/null 2>&1; then
+    semgrep --validate --config config/semgrep/slop.yml >&2
     FAILED=1; fail "semgrep --validate"
-elif ! semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >/dev/null 2>&1; then
-    semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >&2
+elif ! semgrep --test --config config/semgrep/slop.yml config/semgrep/testdata/slop.go >/dev/null 2>&1; then
+    semgrep --test --config config/semgrep/slop.yml config/semgrep/testdata/slop.go >&2
     FAILED=1; fail "semgrep --test fixtures"
 elif ! python3 scripts/quality/semgrep-diff.py --base "$BASE"; then
     FAILED=1; fail "semgrep"
@@ -101,7 +101,7 @@ fi
 # --- 6. Debt ratchet (per-rule totals may only shrink)
 step "lint-debt ratchet"
 LINT_JSON="$TMP_WORK/gate-lint.json"
-golangci-lint run --issues-exit-code=0 --output.json.path="$LINT_JSON" --output.text.path=/dev/null ./... >/dev/null 2>&1
+golangci-lint run --config config/golangci.yml --issues-exit-code=0 --output.json.path="$LINT_JSON" --output.text.path=/dev/null ./... >/dev/null 2>&1
 if ! python3 scripts/quality/ratchet.py "$LINT_JSON"; then
     FAILED=1; fail "ratchet"
 else

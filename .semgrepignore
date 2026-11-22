@@ -1,6 +1,6 @@
 # Semgrep must never scan its own fixtures or vendored trees.
 vendor/
-.semgrep/
+config/semgrep/
 benchmarks/
 .github/
 docs/

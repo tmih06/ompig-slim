@@ -9,7 +9,7 @@
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20Windows-2ea44f?style=flat-square">
   <a href="https://github.com/MichaelKinsy/PiG"><img alt="PiG pin" src="https://img.shields.io/badge/PiG-v0.7.0-8A2BE2?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/tmih06/ompig-slim?style=flat-square"></a>
-  <a href="CONTRIBUTING.md"><img alt="Contributions" src="https://img.shields.io/badge/PRs-discuss%20first-orange?style=flat-square"></a>
+  <a href=".github/CONTRIBUTING.md"><img alt="Contributions" src="https://img.shields.io/badge/PRs-discuss%20first-orange?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -259,7 +259,7 @@ make build-workspace-image   # build the lightweight agent workspace image
 make release           # build the four platform archives
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first: the tracked PiG tree carries project-specific patches.
+Read [CONTRIBUTING.md](.github/CONTRIBUTING.md) first: the tracked PiG tree carries project-specific patches.
 Use `make deps` to restore other dependencies, not `go mod vendor`. Architecture and maintenance guidance lives in [AGENTS.md](AGENTS.md).
 
 Independent personal project, not an official PiG, Pi, or omp release. MIT. See [LICENSE](LICENSE) and

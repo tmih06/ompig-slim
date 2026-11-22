@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestSystemEmbedsTheFile pins the contract main.go relies on: the binary carries
+// TestSystemEmbedsTheFile pins the contract cmd/ompig-slim/main.go relies on: the binary carries
 // the prompt from system.md, so an installed ompig-slim never reads the file at
 // runtime.
 func TestSystemEmbedsTheFile(t *testing.T) {

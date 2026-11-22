@@ -11,6 +11,9 @@ version: "2"
 
 run:
   timeout: 5m
+  # Paths in the exclusion rules below are relative to the repo root, not to
+  # this file's directory.
+  relative-path-mode: wd
 
 linters:
   # Start from nothing; enable deliberately.

@@ -82,7 +82,7 @@ rather than Bash or Make:
 
 ```powershell
 .\scripts\bootstrap-vendor.ps1
-go build -mod=vendor -trimpath -ldflags='-s -w' -o bin/ompig-slim.exe .
+go build -mod=vendor -trimpath -ldflags='-s -w' -o bin/ompig-slim.exe ./cmd/ompig-slim
 .\bin\ompig-slim.exe --version
 .\scripts\check-go.ps1 -Mode check
 ```

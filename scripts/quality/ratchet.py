@@ -18,7 +18,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = ROOT / "docs" / "quality-baseline.json"
-SEMGREP_CONFIG = ROOT / ".semgrep" / "slop.yml"
+SEMGREP_CONFIG = ROOT / "config" / "semgrep" / "slop.yml"
 
 
 def load(path):

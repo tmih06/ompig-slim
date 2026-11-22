@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit quality gate (installed via `git config core.hooksPath .githooks`
+# Pre-commit quality gate (installed via `git config core.hooksPath config/githooks`
 # or `make hooks`). Runs the fast quality gate before every commit so broken
 # code, lint regressions, and AI slop cannot enter local history.
 #
