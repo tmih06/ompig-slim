@@ -4,7 +4,7 @@ GOEXE := $(shell $(GO) env GOEXE)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
+.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet gate gate-quick smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
 
 build:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim$(GOEXE) .
@@ -42,6 +42,27 @@ ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-go.ps1 -Mode $@
 else
 	bash scripts/check-go.sh $@
+endif
+
+# The quality gate is the single entry point every change must pass: build,
+# new-code lint, vet, slop rules, diff checks, debt ratchet, then tests. It
+# does not replace `make check`, which still vets the vendored PiG tree; the
+# gate owns the repo's own code and the AI-slop patterns. `--quick` runs only
+# the cheap pre-commit checks.
+gate: | deps
+ifeq ($(OS),Windows_NT)
+	@echo "make gate is Linux/macOS only; run scripts/quality/gate.sh under Git Bash"
+	@exit 1
+else
+	bash scripts/quality/gate.sh
+endif
+
+gate-quick: | deps
+ifeq ($(OS),Windows_NT)
+	@echo "make gate-quick is Linux/macOS only"
+	@exit 1
+else
+	bash scripts/quality/gate.sh --quick
 endif
 
 smoke: build

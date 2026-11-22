@@ -1,0 +1,7 @@
+# Semgrep must never scan its own fixtures or vendored trees.
+vendor/
+.semgrep/
+benchmarks/
+.github/
+docs/
+prompts/

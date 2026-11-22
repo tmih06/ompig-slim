@@ -420,7 +420,7 @@ type workerEventWriter struct {
 }
 
 func newWorkerEventWriter(path string) (*workerEventWriter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := privatefs.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)

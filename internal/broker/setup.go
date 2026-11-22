@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,7 +122,7 @@ func Setup(ctx context.Context, dir string, options SetupOptions) (SetupResult, 
 	if err != nil {
 		return SetupResult{}, err
 	}
-	if err := os.MkdirAll(client.dir, 0o700); err != nil {
+	if err := privatefs.EnsurePrivateDir(client.dir); err != nil {
 		return SetupResult{}, err
 	}
 	if err := replaceFile(path, data); err != nil {

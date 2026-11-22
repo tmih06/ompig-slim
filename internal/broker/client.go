@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -76,7 +77,7 @@ func Connect(ctx context.Context, dir string) (*Client, error) {
 	// Install before any filesystem or network work can fail.
 	installRemoteStore(c)
 	dir = c.dir
-	if err = os.MkdirAll(dir, 0o700); err != nil {
+	if err = privatefs.EnsurePrivateDir(dir); err != nil {
 		return nil, err
 	}
 	return c, c.SyncFiles(ctx)

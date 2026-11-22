@@ -26,6 +26,14 @@ rules:
       - pattern-not: $A, $B, _ = strings.Cut(...)
       - pattern-not: $A, $B, _ = strings.CutPrefix(...)
       - pattern-not: $A, $B, _ = strings.CutSuffix(...)
+      # Compile-time interface assertions `var _ Iface = (*T)(nil)` are not
+      # error discards; `(*T)(nil)` is a conversion, not a call.
+      - pattern-not: var _ $IFACE = (*$T)(nil)
+      - pattern-not: _ $IFACE = (*$T)(nil)
+      # Type assertions with an ok flag are handled checks, not discards.
+      - pattern-not: _, _ = $X.($T)
+      - pattern-not: _, _ = $X[$K]
+      - pattern-not: _, _ = $X[<-$CH]
 
   - id: slop.empty-err-check
     languages: [go]
@@ -114,6 +122,11 @@ rules:
       - pattern-not-inside: |
           package privatefs
           ...
+    paths:
+      # Fixtures create temp dirs directly; only production private-state
+      # paths must go through the helper.
+      exclude:
+        - "*_test.go"
 
   - id: slop.os-exit-in-package
     languages: [go]

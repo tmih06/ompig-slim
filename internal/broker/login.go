@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,7 @@ func Login(ctx context.Context, dir string, interaction ai.AuthInteraction) erro
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(client.dir, 0o700); err != nil {
+	if err = privatefs.EnsurePrivateDir(client.dir); err != nil {
 		return err
 	}
 	return replaceFile(filepath.Join(client.dir, connectionFile), data)

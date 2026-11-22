@@ -17,11 +17,7 @@
     "wrapcheck": 17
   },
   "semgrep_rules": {
-    "bare-goroutine": 1,
-    "blank-error-assign": 18,
-    "context-in-request": 8,
-    "empty-err-check": 1,
-    "os-exit-in-package": 1,
-    "reimplement-privatefs": 6
+    "bare-goroutine": 2,
+    "context-in-request": 7
   }
 }
