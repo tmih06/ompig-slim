@@ -2,10 +2,11 @@
 """Run the Semgrep slop rules and report only findings on lines added by a diff.
 
 `new-from-rev` for Semgrep does not exist the way golangci-lint's does, so this
-computes the set of added lines per file from `git diff BASE...HEAD`, runs the
-rules on the changed files, and keeps a finding only when its range touches an
-added line. Pre-existing debt in a touched file stays out of the way; new slop
-does not.
+computes the set of added lines per file from `git diff <merge-base>` (covering
+committed PR changes plus staged, unstaged, and untracked working-tree files),
+runs the rules on the changed Go files, and keeps a finding only when its range
+touches an added line. Pre-existing debt in a touched file stays out of the way;
+new slop does not.
 
 Usage:
   python3 scripts/quality/semgrep-diff.py [--base REF] [--config .semgrep/slop.yml]
@@ -20,10 +21,23 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def resolve_merge_base(base):
+    if base == "HEAD":
+        return "HEAD"
+    mb = subprocess.run(
+        ["git", "-C", ROOT, "merge-base", base, "HEAD"],
+        capture_output=True, text=True,
+    )
+    if mb.returncode == 0 and mb.stdout.strip():
+        return mb.stdout.strip()
+    return base
+
+
 def added_lines(base):
-    """Map filepath -> set of added line numbers in `git diff base...HEAD`."""
+    """Map filepath -> set of added line numbers from merge-base to working tree + untracked."""
+    ref = resolve_merge_base(base)
     out = subprocess.run(
-        ["git", "-C", ROOT, "diff", "--unified=0", "--diff-filter=ACMR", f"{base}...HEAD"],
+        ["git", "-C", ROOT, "diff", "--unified=0", "--diff-filter=ACMR", ref],
         capture_output=True, text=True, check=True,
     ).stdout
     files = {}
@@ -42,6 +56,20 @@ def added_lines(base):
                 new_line += 1
             elif not raw.startswith("-") and not raw.startswith("\\") and not raw.startswith("diff "):
                 new_line += 1
+
+    # Include untracked files in the working tree so local hooks cover them too.
+    untracked = subprocess.run(
+        ["git", "-C", ROOT, "ls-files", "--others", "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    for rel in untracked:
+        full = os.path.join(ROOT, rel)
+        if os.path.isfile(full):
+            try:
+                line_count = len(open(full, "r", encoding="utf-8", errors="replace").splitlines())
+            except OSError:
+                continue
+            files[rel] = set(range(1, line_count + 1))
     return files
 
 
@@ -53,9 +81,6 @@ def main():
         base = args[args.index("--base") + 1]
     if "--config" in args:
         config = args[args.index("--config") + 1]
-    if base == "HEAD":
-        print("semgrep-diff: no PR base; nothing to gate")
-        return 0
 
     added = added_lines(base)
     targets = [
@@ -63,6 +88,7 @@ def main():
         if f.endswith(".go")
         and not f.startswith("vendor/")
         and not f.startswith(".semgrep/")   # our own fixtures must never scan
+        and os.path.isfile(os.path.join(ROOT, f))
     ]
     if not targets:
         print("semgrep-diff: no changed Go files")

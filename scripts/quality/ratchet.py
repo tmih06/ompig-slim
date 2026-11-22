@@ -80,6 +80,10 @@ def main(argv):
         }
         if current_sg is not None:
             doc["semgrep_rules"] = {k: current_sg[k] for k in sorted(current_sg)}
+        elif baseline_sg:
+            doc["semgrep_rules"] = {k: baseline_sg[k] for k in sorted(baseline_sg)}
+        if "govulncheck" in baseline_doc:
+            doc["govulncheck"] = baseline_doc["govulncheck"]
         BASELINE.write_text(json.dumps(doc, indent=2) + "\n")
         print(f"ratchet: baseline updated to {total} lint findings across {len(current)} rules")
         return 0

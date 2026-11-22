@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Single quality-gate entry point. Runs the cheapest checks first and stops at
-# the first failure so the agent gets one concrete thing to fix. Each failing
-# check prints file:line, rule id, and a fix hint.
+# Single quality-gate entry point. Runs the cheapest checks first and reports
+# actionable file:line findings with fix hints.
 #
 # Usage:
 #   scripts/quality/gate.sh            # full local gate
-#   scripts/quality/gate.sh --quick    # build + vet + lint-diff only (pre-commit)
+#   scripts/quality/gate.sh --quick    # build + vet + lint-diff + slop + diff + ratchet
 #   PR_BASE=origin/main gate.sh        # diff checks + new-code lint vs that base
 #
 # Modes:
@@ -49,54 +48,64 @@ run() { # run <name> <cmd...>
     return 0
 }
 
+# --- 0. Verify required gate tools are installed (never pass by silently skipping)
+MISSING_TOOLS=0
+if ! command -v golangci-lint >/dev/null 2>&1; then
+    fail "missing required tool: golangci-lint (install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0)"
+    MISSING_TOOLS=1
+fi
+if ! command -v semgrep >/dev/null 2>&1; then
+    fail "missing required tool: semgrep (install: python3 -m pip install --user semgrep==1.180.0)"
+    MISSING_TOOLS=1
+fi
+if [ "$MISSING_TOOLS" != 0 ]; then
+    exit 1
+fi
+
 # --- 1. Build (cheapest real check; nothing else matters if it doesn't compile)
 run "build" go build -mod=vendor ./... || exit 1
 
 # --- 2. golangci-lint on new/changed code (strict)
 step "golangci-lint (new code vs ${BASE:0:12})"
-if command -v golangci-lint >/dev/null 2>&1; then
-    if ! golangci-lint run --new-from-rev="$BASE" ./... ; then
-        FAILED=1; fail "golangci-lint new-code"
-    else note "ok"; fi
+if ! golangci-lint run --new-from-rev="$BASE" ./... ; then
+    FAILED=1; fail "golangci-lint new-code"
 else
-    note "golangci-lint not installed; skipping (install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)"
+    note "ok"
 fi
 
 # --- 3. go vet (whole tree; cheap)
 run "go vet" go vet -mod=vendor ./... || exit 1
 
 # --- 4. Semgrep rule validation, fixture self-test, and diff-scoped scan
-if command -v semgrep >/dev/null 2>&1; then
-    step "semgrep slop (validate + fixtures + added lines)"
-    if ! semgrep --validate --config .semgrep/slop.yml >/dev/null 2>&1; then
-        semgrep --validate --config .semgrep/slop.yml >&2
-        FAILED=1; fail "semgrep --validate"
-    elif ! semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >/dev/null 2>&1; then
-        semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >&2
-        FAILED=1; fail "semgrep --test fixtures"
-    elif ! python3 scripts/quality/semgrep-diff.py --base "$BASE"; then
-        FAILED=1; fail "semgrep"
-    else
-        note "ok"
-    fi
+step "semgrep slop (validate + fixtures + added lines)"
+if ! semgrep --validate --config .semgrep/slop.yml >/dev/null 2>&1; then
+    semgrep --validate --config .semgrep/slop.yml >&2
+    FAILED=1; fail "semgrep --validate"
+elif ! semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >/dev/null 2>&1; then
+    semgrep --test --config .semgrep/slop.yml .semgrep/slop.go >&2
+    FAILED=1; fail "semgrep --test fixtures"
+elif ! python3 scripts/quality/semgrep-diff.py --base "$BASE"; then
+    FAILED=1; fail "semgrep"
+else
+    note "ok"
 fi
 
-# --- 5. Diff-level checks (only meaningful on a real diff)
-if [ "$BASE" != "HEAD" ]; then
-    step "diff-check vs ${BASE:0:12}"
-    if ! python3 scripts/quality/diff-check.py --base "$BASE"; then
-        FAILED=1; fail "diff-check"
-    else note "ok"; fi
+# --- 5. Diff-level checks (covers committed PR changes + working-tree edits)
+step "diff-check vs ${BASE:0:12}"
+if ! python3 scripts/quality/diff-check.py --base "$BASE"; then
+    FAILED=1; fail "diff-check"
+else
+    note "ok"
 fi
 
 # --- 6. Debt ratchet (per-rule totals may only shrink)
-if command -v golangci-lint >/dev/null 2>&1; then
-    step "lint-debt ratchet"
-    LINT_JSON="$TMP_WORK/gate-lint.json"
-    golangci-lint run --output.json.path="$LINT_JSON" --output.text.path=/dev/null ./... >/dev/null 2>&1 || true
-    if ! python3 scripts/quality/ratchet.py "$LINT_JSON"; then
-        FAILED=1; fail "ratchet"
-    else note "ok"; fi
+step "lint-debt ratchet"
+LINT_JSON="$TMP_WORK/gate-lint.json"
+golangci-lint run --issues-exit-code=0 --output.json.path="$LINT_JSON" --output.text.path=/dev/null ./... >/dev/null 2>&1
+if ! python3 scripts/quality/ratchet.py "$LINT_JSON"; then
+    FAILED=1; fail "ratchet"
+else
+    note "ok"
 fi
 
 [ "$QUICK" = 1 ] && { [ "$FAILED" = 0 ] && { step "gate: PASS (quick)"; exit 0; }; exit 1; }
@@ -107,19 +116,35 @@ if ! go test -mod=vendor -race -shuffle=on -count=1 ./... ; then
     FAILED=1; fail "go test"
 fi
 
-# --- 8. govulncheck (advisory: vuln DB updates asynchronously and vendored PiG
-# carries its own transitive pins; report findings without blocking the PR)
+# --- 8. govulncheck (warn on local toolchain-version mismatch; fail on any
+# unbaselined vulnerability finding or unexpected scan error)
 if command -v govulncheck >/dev/null 2>&1; then
-    step "govulncheck (advisory)"
+    step "govulncheck"
     VULN_OUT="$TMP_WORK/gate-vuln.txt"
     if govulncheck ./... >"$VULN_OUT" 2>&1; then
         note "ok — no known vulnerabilities"
+    elif grep -qE 'requires newer Go version|cannot range over|unknown field' "$VULN_OUT"; then
+        note "warn — govulncheck binary predates this toolchain; skipping (CI pins a compatible build)"
     else
-        if grep -qE 'requires newer Go version|cannot range over|unknown field' "$VULN_OUT"; then
-            note "warn — govulncheck binary predates this toolchain; skipping (CI pins a compatible build)"
-        else
-            note "warn — advisory vulnerabilities reported in transitive dependencies:"
-            grep -E '^(Vulnerability #[0-9]+:|    Found in:|    Fixed in:|Your code is affected)' "$VULN_OUT" | sed 's/^/     /' >&2 || true
+        if ! python3 - "$VULN_OUT" <<'PY'
+import json, pathlib, re, sys
+
+out = pathlib.Path(sys.argv[1]).read_text()
+baseline = json.loads(pathlib.Path("docs/quality-baseline.json").read_text())
+allowed = set(baseline.get("govulncheck", []))
+found = sorted(set(re.findall(r"\bGO-\d{4}-\d+\b", out)))
+if not found:
+    print(out, file=sys.stderr)
+    sys.exit(1)
+unexpected = [v for v in found if v not in allowed]
+if unexpected:
+    print(f"govulncheck FAIL: unbaselined vulnerabilities: {', '.join(unexpected)}", file=sys.stderr)
+    print(out, file=sys.stderr)
+    sys.exit(1)
+print(f"   ok — only baselined transitive vulnerabilities reported ({', '.join(found)})", file=sys.stderr)
+PY
+        then
+            FAILED=1; fail "govulncheck"
         fi
     fi
 fi
@@ -127,8 +152,8 @@ fi
 # --- 9. go.mod / go.sum / vendor/modules.txt drift
 # `go mod tidy` cannot run directly because vendor/github.com/MichaelKinsy/PiG
 # contains maintained local packages absent from upstream PiG@v0.7.0. Instead,
-# verify canonical go.mod formatting, module checksums, and exact agreement
-# between go.mod, go.sum, and vendor/modules.txt.
+# verify canonical go.mod formatting and exact agreement between go.mod,
+# go.sum, vendor/modules.txt, and vendor/.bootstrap-modules.txt.
 step "go.mod / vendor manifest drift"
 cp go.mod "$TMP_WORK/go.mod"
 go mod edit -fmt

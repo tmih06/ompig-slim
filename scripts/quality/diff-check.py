@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Diff-level quality checks for a pull request.
+"""Diff-level quality checks for a pull request or local working tree.
 
-Runs on the diff between a base ref and HEAD and fails (exit 1) when the diff:
+Runs on the diff between the merge-base with a base ref and the working tree
+(covering committed PR changes plus staged, unstaged, and untracked files) and
+fails (exit 1) when the diff:
 
   * adds ``//nolint``, ``//nosemgrep``, ``//lint:ignore``, ``t.Skip(``, or
     ``//go:build ignore``
@@ -9,11 +11,11 @@ Runs on the diff between a base ref and HEAD and fails (exit 1) when the diff:
     test file without a replacement in the same package
   * modifies disposable ``vendor/`` files outside ``vendor/modules.txt`` and
     maintained ``vendor/github.com/MichaelKinsy/PiG/``
-  * touches gate config, ``.semgrep/``, ``scripts/quality/``, CI workflows,
-    baseline, ``.claude/``, or ``AGENTS.md``/``CLAUDE.md`` without a CODEOWNER
-    approval signal
+  * touches gate config, ``.semgrep/``, ``scripts/quality/``, ``Makefile``, CI
+    workflows, baseline, ``.claude/``, or ``AGENTS.md``/``CLAUDE.md`` without a
+    CODEOWNER approval signal
   * changes ``go.mod`` without a justification line in the PR description
-  * exceeds the size cap calibrated to this repo's typical PR
+  * exceeds the size cap calibrated to this repo's typical PR (unless owner-approved)
 
 Emit one ``file:line`` finding per violation so the agent can fix it.
 
@@ -34,7 +36,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Gate-owned surfaces an agent must not weaken. Any change here needs
-# OWNER_APPROVED (CI maps this to a CODEOWNERS approval).
+# OWNER_APPROVED (CI maps this to owner authorship or CODEOWNERS approval).
 GATE_PATHS = re.compile(
     r"^("
     r"\.golangci\.(yml|yaml)$"
@@ -45,6 +47,7 @@ GATE_PATHS = re.compile(
     r"|docs/quality-baseline\.(json|md)$"
     r"|\.github/CODEOWNERS$"
     r"|\.claude/"
+    r"|Makefile$"
     r"|AGENTS\.md$"
     r"|CLAUDE\.md$"
     r")"
@@ -69,12 +72,46 @@ TEST_ASSERT_RE = re.compile(
 TEST_FILE_RE = re.compile(r"_test\.go$")
 
 
-def git_diff(base):
-    out = subprocess.run(
-        ["git", "-C", REPO, "diff", "--unified=0", f"{base}...HEAD"],
-        capture_output=True, text=True, check=True,
+def resolve_merge_base(base):
+    if base == "HEAD":
+        return "HEAD"
+    mb = subprocess.run(
+        ["git", "-C", REPO, "merge-base", base, "HEAD"],
+        capture_output=True, text=True,
     )
-    return out.stdout
+    if mb.returncode == 0 and mb.stdout.strip():
+        return mb.stdout.strip()
+    return base
+
+
+def git_diff(base):
+    """Diff from merge-base to working tree (committed + staged + unstaged + untracked)."""
+    ref = resolve_merge_base(base)
+    out = subprocess.run(
+        ["git", "-C", REPO, "diff", "--unified=0", ref],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+    untracked = subprocess.run(
+        ["git", "-C", REPO, "ls-files", "--others", "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    chunks = [out]
+    for rel in untracked:
+        full = os.path.join(REPO, rel)
+        if not os.path.isfile(full):
+            continue
+        try:
+            lines = open(full, "r", encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        chunks.append(f"diff --git a/{rel} b/{rel}")
+        chunks.append("--- /dev/null")
+        chunks.append(f"+++ b/{rel}")
+        chunks.append(f"@@ -0,0 +1,{len(lines)} @@")
+        for line in lines:
+            chunks.append("+" + line)
+    return "\n".join(chunks)
 
 
 def parse_diff(diff_text):
@@ -202,14 +239,14 @@ def main():
             )
 
     if touched_gomod:
-        if not re.search(r"(?im)^\s*(deps?|dependency|justif)[:\-]", body):
+        if not re.search(r"(?im)^\s*(deps?|dependenc(?:y|ies)|justif(?:ication)?)[:\-]", body):
             findings.append(
                 "go.mod: changed without a justification line in the PR "
                 "description (add `Deps: <reason>` or `Justification: <reason>`)"
             )
 
     total = added_lines + removed_lines
-    if total > cap:
+    if total > cap and not owner_ok:
         findings.append(
             f"diff: {total} changed lines exceeds the {cap}-line cap; "
             "split the change into smaller, reviewable commits"

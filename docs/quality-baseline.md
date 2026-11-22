@@ -4,13 +4,13 @@ Recorded when the gate was introduced (`feat/better-lintin`). The gate runs
 strictly on **new and changed code**; this file is the debt that already exists
 and may only shrink. Machine-readable counts are in `quality-baseline.json`.
 
-Total: **82 findings**. The codebase is unusually clean — most of this is a
+Total: **135 findings** (83 in production files + 52 in pre-existing test files once test-file correctness and `thelper` checks were enabled). The codebase is unusually clean — most of this is a
 small number of real-but-low-risk patterns plus a few analyzer false positives.
 
 | Linter | Count | What it is | Fix risk | Payoff |
 |---|---|---|---|---|
 | wrapcheck | 17 | bare `net/http` / `url.Parse` / `flock` errors in `broker/client.go`, `selfupdate.go`, `workdesk.go` | low | wrap I/O errors with context: `fmt.Errorf("…: %w", err)` |
-| errcheck | 17 | deliberate discards now flagged by `check-blank`: `tracker.Pause/Drop`, `extCtx.HasUI`, `json.Marshal`, `conversation.Submit`, `fs.Glob`, `path.Match` | low | these are intentional best-effort/no-UI paths; keep or add a one-line `_ =` with a comment |
+| errcheck | 17 | deliberate discards now flagged by `check-blank`: `tracker.Pause/Drop`, `extCtx.HasUI`, `json.Marshal`, `conversation.Submit`, `fs.Glob`, `path.Match` | low | handle/return the error on actionable paths, or remove unactionable error returns from internal helper contracts |
 | contextcheck | 8 | `context.Background()` in shutdown/cleanup paths where the run ctx is already cancelled — `workdesk.go` (×6), `client.go:472`, `setup_command.go` | none | **mostly false positives**; `Background()` is correct for cleanup after cancellation |
 | gosec | 9 | `G703` path-taint on user-config paths (intended), `G117` JSON secret fields (intended contract), `G101` placeholder-credential patterns | none | audit-only; the flagged shapes are the feature, not a bug |
 | gochecknoglobals | 5 | `SharedFiles`, `goalControlWords`, `progressDoc`, `nextID`, `system` (embedded prompt) | low | 4 are immutable lookup tables; `goal.nextID` is a real mutable counter — consider scoping it |

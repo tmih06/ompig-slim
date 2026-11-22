@@ -109,7 +109,6 @@ linters:
         - (*bytes.Buffer).WriteString
         - (*encoding/json.Encoder).Encode   # headers already sent; nothing to do
         - (*github.com/gofrs/flock.Flock).Unlock  # release-side cleanup
-        - io.Copy                            # drain-to-Discard for conn reuse
         - os.Remove                          # best-effort temp cleanup
         - (*os.File).Close                   # defer cleanup
         - (os.File).Close
@@ -179,28 +178,22 @@ linters:
     forbidigo:
       forbid:
         # time.Sleep in production code is a timing workaround; tests keep it.
-        - pattern: '\btime\.Sleep\b'
+        - pattern: '^time\.Sleep$'
           msg: "use a condition/channel/deadline instead of time.Sleep; if a retry is needed, loop on a predicate"
         # The repo writes diagnostics to an explicit io.Writer (os.Stderr/Stderr
         # param), never to stdout defaults or a logger.
-        - pattern: '\bfmt\.Print(ln|f)?\('
+        - pattern: '^fmt\.Print(ln|f)?$'
           msg: "write to the explicit io.Writer passed in (os.Stdout/os.Stderr), not fmt.Print*"
-        - pattern: '\bpanic\('
+        - pattern: '^panic$'
           msg: "return an error; do not panic. If this is a true invariant, document it"
-        - pattern: '\blog\.Fatal'
+        - pattern: '^log\.Fatal(f|ln)?$'
           msg: "return the error to the caller which owns process exit"
-        - pattern: '\bos\.Exit\('
+        - pattern: '^os\.Exit$'
           msg: "return an exit code to main; only main/Handle* may call os.Exit"
-        - pattern: '\bhttp\.(DefaultClient|DefaultServeMux|Get|Post|PostForm|Head)\b'
+        - pattern: '^http\.(DefaultClient|DefaultServeMux|Get|Post|PostForm|Head)$'
           msg: "use an explicit http.Client with a Timeout, http.NewRequestWithContext, and http.NewServeMux()"
-        - pattern: '\bexec\.Command\('
+        - pattern: '^exec\.Command$'
           msg: "use exec.CommandContext(ctx, ...) so child processes respect cancellation and deadlines"
-        # stdlib tests only; testify is not a dependency (go.mod).
-        - pattern: '"github\.com/stretchr/testify'
-          msg: "tests use the standard library only; add table-driven cases + t.Helper helpers"
-        # No logger package; diagnostics go to io.Writer.
-        - pattern: '"log/slog"'
-          msg: "this repo has no logger; write diagnostics to the explicit io.Writer (see internal/broker/migrate.go)"
       exclude-godoc-examples: false
 
     godox:
@@ -303,11 +296,13 @@ linters:
     paths:
       - vendor
       - third_party
-      - _test\.go$            # complexity/format rules don't gate tests as hard
     rules:
+      # Draining a body to io.Discard for connection reuse has no actionable write error.
+      - source: 'io\.Copy\(io\.Discard,'
+        linters: [errcheck]
       # Tests legitimately discard errors, sleep, and use helpers heavily.
       - path: _test\.go$
-        linters: [errcheck, forbidigo, forcetypeassert, containedctx, dogsled, errname, musttag, goconst, dupl, funlen, gocognit, cyclop, nestif, mnd, gosec, gochecknoglobals]
+        linters: [errcheck, forbidigo, forcetypeassert, containedctx, dogsled, errname, musttag, goconst, dupl, funlen, gocognit, cyclop, nestif, mnd, gosec, gochecknoglobals, wrapcheck]
       # Main entry points may use os.Exit / context.Background legitimately.
       - path: (^|/)main\.go$
         linters: [forbidigo]
@@ -333,3 +328,4 @@ formatters:
     paths:
       - vendor
       - third_party
+      - _test\.go$

@@ -420,12 +420,20 @@ type workerEventWriter struct {
 }
 
 func newWorkerEventWriter(path string) (*workerEventWriter, error) {
-	if err := privatefs.EnsurePrivateDir(filepath.Dir(path)); err != nil {
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		if err := privatefs.EnsurePrivateDir(dir); err != nil {
+			return nil, err
+		}
+	} else if err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
+	}
+	if err := privatefs.RestrictFile(file); err != nil {
+		return nil, errors.Join(err, file.Close())
 	}
 	return &workerEventWriter{file: file, seen: make(map[durable.EntryId]struct{})}, nil
 }

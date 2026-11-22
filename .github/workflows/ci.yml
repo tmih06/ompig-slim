@@ -7,16 +7,18 @@ on:
     # Every main push (including documentation-only merges) gets a beta.
   pull_request:
     paths-ignore: ['README.md', 'docs/**']
+  pull_request_review:
+    types: [submitted]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Only PRs share a group. Even cancel-in-progress:false replaces an older
-  # pending run, so main/tag/manual runs need unique groups to keep every run.
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Only PRs share a group; review-triggered gate refreshes use a separate group
+  # so a review never cancels an in-progress PR matrix run.
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'pull_request_review' && format('review-{0}', github.event.pull_request.number) || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_review' }}
 
 env:
   GO_VERSION: '1.27.4'
@@ -25,6 +27,7 @@ env:
 jobs:
   version:
     name: Allocate the archive version
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -53,6 +56,7 @@ jobs:
 
   check:
     name: Go ${{ matrix.mode }} (${{ matrix.os }})
+    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
@@ -112,6 +116,7 @@ jobs:
 
   windows-check:
     name: Native Go ${{ matrix.mode }} (${{ matrix.os }})
+    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
@@ -324,6 +329,7 @@ jobs:
     # skipped with --no-verify, so this is the real enforcement point: new and
     # changed code must pass every check, and gate config edits need an owner.
     name: Quality gate (new + changed code)
+    if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -332,6 +338,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -357,26 +364,43 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.base_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          if [[ "$EVENT" == pull_request ]]; then
-            echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
-            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > .pr-body || true
-            OWNER_APPROVED=false
-            for reviewer in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+          OWNER_APPROVED=false
+          check_pr_owner_approval() {
+            local pr="$1" author="$2"
+            if [[ "$author" == "tmih06" ]]; then
+              OWNER_APPROVED=true
+              return
+            fi
+            for reviewer in $(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" \
                 --jq '.[] | select(.state=="APPROVED") | .user.login' | sort -u); do
               if [[ "$reviewer" == "tmih06" ]]; then OWNER_APPROVED=true; fi
             done
-            echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
+          }
+          if [[ "$EVENT" == pull_request || "$EVENT" == pull_request_review ]]; then
+            echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > .pr-body || true
+            check_pr_owner_approval "$PR_NUMBER" "$PR_AUTHOR"
           else
             BEFORE="${{ github.event.before }}"
             if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git rev-parse --verify "${BEFORE}^{commit}" >/dev/null 2>&1; then
               BEFORE="HEAD~1"
             fi
             echo "PR_BASE=$BEFORE" >> "$GITHUB_ENV"
-            echo "OWNER_APPROVED=true" >> "$GITHUB_ENV"
+            if [[ "$ACTOR" == "tmih06" ]]; then
+              OWNER_APPROVED=true
+            else
+              while IFS=$'\t' read -r pr author; do
+                [[ -n "$pr" ]] && check_pr_owner_approval "$pr" "$author"
+              done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+                --jq '.[] | "\(.number)\t\(.user.login)"' 2>/dev/null || true)
+            fi
           fi
+          echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
       - name: Run the quality gate
         env:
           PR_BODY_FILE: .pr-body
@@ -437,6 +461,7 @@ jobs:
 
   hygiene:
     name: Workflow, scripts and full-history secret scan
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -535,6 +560,7 @@ jobs:
     # non-interactive connection setup a provisioned machine uses. Both suites
     # build their images from this checkout.
     name: Broker storage contract and client cluster
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

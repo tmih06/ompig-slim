@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,10 +27,14 @@ func goodReturn() error {
 	return doWork()
 }
 
-func goodCleanup() {
+func goodCleanup(dst io.Writer, src io.Reader) {
 	f, _ := os.Open("/tmp/x")
 	// ok: slop.blank-error-assign
 	_ = f.Close()
+	// ok: slop.blank-error-assign
+	_, _ = io.Copy(io.Discard, src)
+	// ruleid: slop.blank-error-assign
+	_, _ = io.Copy(dst, src)
 }
 
 // ---- slop.empty-err-check ----
@@ -161,6 +167,15 @@ func badWgAdd(wg *sync.WaitGroup) {
 		// ruleid: slop.waitgroup-add-in-goroutine
 		wg.Add(1)
 		defer wg.Done()
+	}()
+}
+
+func goodAtomicAdd(counter *atomic.Int64) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// ok: slop.waitgroup-add-in-goroutine
+		counter.Add(1)
 	}()
 }
 

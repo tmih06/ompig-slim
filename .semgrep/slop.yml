@@ -23,7 +23,7 @@ rules:
       - pattern-not: _ = $X.Close()
       - pattern-not: _ = syscall.CloseHandle(...)
       - pattern-not: _ = $X.Unlock()
-      - pattern-not: _, _ = io.Copy(...)
+      - pattern-not: _, _ = io.Copy(io.Discard, ...)
       - pattern-not: _ = os.Remove(...)
       # strings.Cut returns (before, after, found); the found flag is often
       # legitimately ignored.
@@ -191,7 +191,9 @@ rules:
       Calling `wg.Add` inside the spawned goroutine races with `wg.Wait()` in
       the parent. Call `wg.Add(1)` in the parent goroutine before `go func()`.
     patterns:
-      - pattern: $WG.Add(...)
+      - pattern-either:
+          - pattern: "($WG : *sync.WaitGroup).Add(...)"
+          - pattern: "($WG : sync.WaitGroup).Add(...)"
       - pattern-inside: |
           go func(...) {
             ...
