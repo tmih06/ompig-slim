@@ -383,7 +383,7 @@ jobs:
           }
           if [[ "$EVENT" == pull_request || "$EVENT" == pull_request_review ]]; then
             echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
-            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > .pr-body || true
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > "$RUNNER_TEMP/pr-body" || true
             check_pr_owner_approval "$PR_NUMBER" "$PR_AUTHOR"
           else
             BEFORE="${{ github.event.before }}"
@@ -403,10 +403,10 @@ jobs:
           echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
       - name: Run the quality gate
         env:
-          PR_BODY_FILE: .pr-body
+          PR_BODY_FILE: ${{ runner.temp }}/pr-body
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin:$HOME/.local/bin"
-          export PR_BODY="$(cat .pr-body 2>/dev/null || true)"
+          export PR_BODY="$(cat "$PR_BODY_FILE" 2>/dev/null || true)"
           make gate
 
   guardrail-check:

@@ -66,7 +66,8 @@ def added_lines(base):
         full = os.path.join(ROOT, rel)
         if os.path.isfile(full):
             try:
-                line_count = len(open(full, "r", encoding="utf-8", errors="replace").splitlines())
+                with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                    line_count = len(fh.read().splitlines())
             except OSError:
                 continue
             files[rel] = set(range(1, line_count + 1))

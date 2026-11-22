@@ -102,7 +102,8 @@ def git_diff(base):
         if not os.path.isfile(full):
             continue
         try:
-            lines = open(full, "r", encoding="utf-8", errors="replace").splitlines()
+            with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
         except OSError:
             continue
         chunks.append(f"diff --git a/{rel} b/{rel}")
