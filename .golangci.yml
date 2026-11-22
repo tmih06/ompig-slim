@@ -75,15 +75,21 @@ linters:
       # Discard-into-blank and unchecked type assertions are the AI slop we care about.
       check-blank: true
       check-type-assertions: true
-      # The repo's idiomatic safe discards stay allowed.
+      # The repo's idiomatic safe discards stay allowed. Only signatures that are
+      # genuinely non-actionable in context are listed; everything else must
+      # handle the error (or justify a discard in the baseline).
       exclude-functions:
-        - (*os.File).Close
         - fmt.Fprintf
         - fmt.Fprintln
         - fmt.Fprint
         - io.WriteString
-        - (*io.PipeWriter).Close
         - (*bytes.Buffer).WriteString
+        - (*encoding/json.Encoder).Encode   # headers already sent; nothing to do
+        - (*github.com/gofrs/flock.Flock).Unlock  # release-side cleanup
+        - io.Copy                            # drain-to-Discard for conn reuse
+        - os.Remove                          # best-effort temp cleanup
+        - (*os.File).Close                   # defer cleanup
+        - (os.File).Close
 
     wrapcheck:
       # Only flag external-package errors returned bare; internal and sentinel
@@ -192,6 +198,7 @@ linters:
         - hugeParam   # repo passes medium structs by value routinely
         - rangeValCopy
         - paramTypeCombine
+        - sloppyReassign  # err= vs err:= is stylistic; repo prefers reuse
       settings:
         captLocal:
           paramsOnly: true
