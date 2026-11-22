@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -169,6 +170,11 @@ type SlashContext struct {
 	ShowHotkeys      func()
 	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
 	ShowUsage func()
+	// ShowSessionStats opens the /session report in its own fullscreen board.
+	// snapshot takes a fresh reading of the session each time it is called.
+	// Nil keeps the report inline in the transcript, as print, RPC and
+	// headless modes do. ompig-slim addition.
+	ShowSessionStats func(snapshot func() sessionReport)
 	// ListResetCredits reads every stored account's saved rate-limit resets.
 	// Nil means the build wired no quota source.
 	ListResetCredits func(ctx context.Context) ([]UsageResetCreditAccount, error)
@@ -190,6 +196,9 @@ type SlashContext struct {
 
 	// Session accessors. May be nil; handlers must guard.
 	CurrentSession func() *Session
+	// SessionSubagents returns the subagent manager's record snapshot for the
+	// /session time trace. Nil when no manager is bound. ompig-slim addition.
+	SessionSubagents func() []subagents.Record
 	// ExportToJsonl writes the current branch to outputPath (upstream session.exportToJsonl). May be nil: /export then
 	// writes the branch of CurrentSession itself.
 	ExportToJsonl func(outputPath string) (string, error)
@@ -939,7 +948,12 @@ func copyHandler(sc *SlashContext) error {
 }
 
 func sessionHandler(sc *SlashContext) error {
-	render := sessionInfoRenderer(sc)
+	if sc.ShowSessionStats != nil {
+		sc.ShowSessionStats(func() sessionReport { return sessionInfoRenderer(sc) })
+		return nil
+	}
+	report := sessionInfoRenderer(sc)
+	render := func() string { return report(sessionInlineLayout) }
 	// upstream handleSessionCommand adds `new ThemedText(renderInfo, 1, 0)`: the text is built again on every render, so it follows theme changes.
 	switch {
 	case sc.AppendThemedText != nil:
@@ -952,10 +966,18 @@ func sessionHandler(sc *SlashContext) error {
 	return nil
 }
 
+// sessionReport builds the /session text for a layout, in the active
+// theme's colors at the moment it runs.
+type sessionReport func(layout sessionLayout) string
+
 // sessionInfoRenderer mirrors upstream handleSessionCommand (interactive-mode.ts:6705-6779): it snapshots the session statistics, name, usage
 // breakdown, cache-warming status and mode, and the selected model, and returns renderInfo, which builds the text from them with the active
 // theme's bold and dim and the cache-warming status as of the moment it runs.
-func sessionInfoRenderer(sc *SlashContext) func() string {
+// ompig-slim: the snapshot also covers the header timestamp, the activity
+// series and the subagent records, and renderInfo lays them out as a chart
+// report (model bars, timeline sparkline, subagent rollup) rather than the
+// upstream label list.
+func sessionInfoRenderer(sc *SlashContext) sessionReport {
 	var sessionName string
 	if sc.GetSessionName != nil {
 		sessionName = sc.GetSessionName()
@@ -964,13 +986,18 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 	if sc.CurrentSession != nil {
 		session = sc.CurrentSession()
 	}
-	sessionID, sessionPath := "", ""
+	sessionID, sessionPath, headerTimestamp := "", "", ""
 	var stats SessionAccounting
 	if session != nil {
 		sessionID, sessionPath = session.ID(), session.Path()
+		headerTimestamp = session.GetHeader().Timestamp
 		stats = session.Accounting()
 	} else if sc.SessionInfo != nil {
 		sessionID, _, _ = sc.SessionInfo()
+	}
+	var subagentRecords []subagents.Record
+	if sc.SessionSubagents != nil {
+		subagentRecords = sc.SessionSubagents()
 	}
 	mode := defaultCacheWarmingMode
 	if sc.SettingsManager != nil {
@@ -987,50 +1014,62 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 	if sc.SelectedModelKey != nil {
 		selectedModelKey = sc.SelectedModelKey()
 	}
-	return func() string {
+	return func(layout sessionLayout) string {
 		// Section headings carry the accent color as well as bold. Upstream's
 		// /session writes theme.bold(heading) inside a themed report and relies on
 		// the overlay to color it; here the report is appended straight to the
 		// transcript, so a heading that is only bold reads as an unstyled line.
 		bold := func(s string) string { return tui.ChalkBold(tui.ActiveTheme().Fg("accent", s)) }
 		dim := func(s string) string { return tui.ActiveTheme().Fg("dim", s) }
+		ansi := tui.ActiveTheme().ANSIFg
 
 		var b strings.Builder
-		b.WriteString(bold("Session Info") + "\n\n")
+		b.WriteString(bold("Session stats"))
+		if sessionID != "" {
+			b.WriteString("  " + dim(sessionID))
+		}
+		b.WriteString("\n\n")
+
+		ts := stats.Tokens
+		promptTokens := ts.Input + ts.CacheRead + ts.CacheWrite
+		var fields []sessionField
 		if sessionName != "" {
-			fmt.Fprintf(&b, "%s %s\n", dim("Name:"), sessionName)
+			fields = append(fields, sessionField{"Name", sessionName})
 		}
 		if session != nil {
 			path := sessionPath
 			if path == "" {
 				path = "In-memory"
 			}
-			fmt.Fprintf(&b, "%s %s\n", dim("File:"), path)
-			fmt.Fprintf(&b, "%s %s\n", dim("ID:"), sessionID)
-		} else if sessionID != "" {
-			fmt.Fprintf(&b, "%s %s\n", dim("ID:"), sessionID)
+			fields = append(fields, sessionField{"File", path})
 		}
-
-		b.WriteString("\n" + bold("Messages") + "\n")
-		fmt.Fprintf(&b, "%s %d\n", dim("Total:"), stats.TotalMessages)
-		fmt.Fprintf(&b, "%s %d\n", dim("User:"), stats.UserMessages)
-		fmt.Fprintf(&b, "%s %d\n", dim("Assistant:"), stats.AssistantMessages)
-		fmt.Fprintf(&b, "%s %d calls, %d results\n", dim("Tools:"), stats.ToolCalls, stats.ToolResults)
-
-		ts := stats.Tokens
-		promptTokens := ts.Input + ts.CacheRead + ts.CacheWrite
-		b.WriteString("\n" + bold("Tokens") + "\n")
-		fmt.Fprintf(&b, "%s %s\n", dim("Input:"), formatNumber(promptTokens))
-		if promptTokens > 0 && (ts.CacheRead > 0 || ts.CacheWrite > 0) {
-			fmt.Fprintf(&b, "  %s %s %s\n", dim("Cached:"), formatNumber(ts.CacheRead), dim("("+jsstring.ToFixed((float64(ts.CacheRead)/float64(promptTokens))*100, 1)+"%)"))
-			written := ""
-			if ts.CacheWrite > 0 {
-				written = " " + dim(fmt.Sprintf("(%s written to cache)", formatNumber(ts.CacheWrite)))
+		if ms := isoMillis(headerTimestamp); ms > 0 {
+			started := time.UnixMilli(ms)
+			value := started.Local().Format("2006-01-02 15:04")
+			if age := sessionAge(started); age != "now" {
+				value += " " + dim("("+age+" ago)")
 			}
-			fmt.Fprintf(&b, "  %s %s%s\n", dim("Uncached:"), formatNumber(ts.Input+ts.CacheWrite), written)
+			fields = append(fields, sessionField{"Started", value})
 		}
-		fmt.Fprintf(&b, "%s %s\n", dim("Output:"), formatNumber(ts.Output))
-		fmt.Fprintf(&b, "%s %s\n", dim("Total:"), formatNumber(ts.Total))
+		fields = append(fields,
+			sessionField{"Messages", fmt.Sprintf("%d %s", stats.TotalMessages, dim(fmt.Sprintf("(%d user, %d assistant)", stats.UserMessages, stats.AssistantMessages)))},
+			sessionField{"Tool calls", fmt.Sprintf("%d %s", stats.ToolCalls, dim(fmt.Sprintf("(%d results)", stats.ToolResults)))},
+			sessionField{"Input tokens", formatNumber(promptTokens)})
+		if promptTokens > 0 && (ts.CacheRead > 0 || ts.CacheWrite > 0) {
+			cached := formatNumber(ts.CacheRead) + " " + dim("("+jsstring.ToFixed((float64(ts.CacheRead)/float64(promptTokens))*100, 1)+"%)")
+			uncached := formatNumber(ts.Input + ts.CacheWrite)
+			if ts.CacheWrite > 0 {
+				uncached += " " + dim(fmt.Sprintf("(%s written to cache)", formatNumber(ts.CacheWrite)))
+			}
+			fields = append(fields, sessionField{"  Cached", cached}, sessionField{"  Uncached", uncached})
+		}
+		fields = append(fields, sessionField{"Output tokens", formatNumber(ts.Output)})
+		if len(stats.UsageBreakdown) == 0 || ts.Total <= 0 {
+			fields = append(fields, sessionField{"Total tokens", formatNumber(ts.Total)})
+		}
+		writeSessionFields(&b, fields, dim)
+
+		writeSessionTrace(&b, stats, subagentRecords, time.Now(), layout, ansi, bold, dim)
 		writeCacheWarmingSection(&b, mode, status, bold, dim)
 
 		if ts.Cost > 0 || stats.CacheWaste.MissedTokens > 0 {

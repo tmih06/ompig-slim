@@ -335,6 +335,8 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 	internalSC.SettingsManager = s.SettingsManager()
 	internalSC.ShowStatus = func(message string) { output = append(output, message) }
 	internalSC.ShowError = func(message string) { output = append(output, "Error: "+message) }
+	// ompig-slim: feeds the headless /session time trace.
+	internalSC.SessionSubagents = s.subagents.Records
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {
 			return fmt.Errorf("subagents are unavailable")

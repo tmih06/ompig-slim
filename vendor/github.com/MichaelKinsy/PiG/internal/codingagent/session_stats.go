@@ -30,7 +30,14 @@ type SessionUsageBreakdown struct {
 	Key    string
 	Cost   float64
 	Tokens int
+	// Spans are the Unix-millisecond intervals in which Key was working, in
+	// entry order; /session plots them on its time trace. A key's usage with
+	// no time has none. ompig-slim addition.
+	Spans []SessionSpan
 }
+
+// SessionSpan is one closed interval of Unix-millisecond times.
+type SessionSpan struct{ Start, End int64 }
 
 // SessionCacheWaste reports prompt tokens that a preceding request made cacheable but a later request did not read from cache.
 type SessionCacheWaste struct {
@@ -43,8 +50,14 @@ type sessionAccountingAccumulator struct {
 	stats      SessionAccounting
 	usageByKey map[string]SessionUsageBreakdown
 	usageOrder []string
-	cachePrev  *previousCacheRequest
-	prices     ModelPriceSource
+	// openKey and openIndex name the assistant turn whose span (in
+	// usageByKey[openKey].Spans) still grows: it ends at the next request or
+	// tool result, and a user message closes it, so idle time is not drawn as
+	// work. ompig-slim.
+	openKey   string
+	openIndex int
+	cachePrev *previousCacheRequest
+	prices    ModelPriceSource
 	// misses are the detected cache misses in entry order, so that a new price source reprices CacheWaste.MissedCost without reading the records again.
 	misses []cacheMissPrice
 }
@@ -151,12 +164,12 @@ func (a *sessionAccountingAccumulator) addDecoded(entry sessionAccountingEntry, 
 
 	switch wireType {
 	case "usage":
-		a.addUsage(entry.Provider+"/"+entry.Model, entry.Usage)
+		a.addUsage(entry.Provider+"/"+entry.Model, entry.Usage, entry.time())
 		if entry.Kind == "cache_warm" {
 			a.addCacheWarm(entry)
 		}
 	case "compaction", "branch_summary":
-		a.addUsage("Tools/summaries", entry.Usage)
+		a.addUsage("Tools/summaries", entry.Usage, entry.time())
 		a.cachePrev = nil
 	case "message":
 		a.addMessage(entry.Message)
@@ -168,6 +181,7 @@ func (a *sessionAccountingAccumulator) addDecoded(entry sessionAccountingEntry, 
 // addMessage counts one "message" entry.
 func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessage) {
 	a.stats.TotalMessages++
+	a.extendTurn(message.Role, message.Timestamp)
 	switch message.Role {
 	case "user":
 		a.stats.UserMessages++
@@ -178,12 +192,15 @@ func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessa
 		if message.ResponseModel != nil {
 			key = message.Provider + "/" + *message.ResponseModel
 		}
-		a.addUsage(key, message.Usage)
+		a.addUsage(key, message.Usage, message.Timestamp)
+		if message.Usage != nil && message.Timestamp > 0 {
+			a.openKey, a.openIndex = key, len(a.usageByKey[key].Spans)-1
+		}
 		a.stats.LatestCacheHitRate = latestCacheHitRate(message.Usage)
 		a.addCacheWaste(message)
 	case "toolResult":
 		a.stats.ToolResults++
-		a.addUsage("Tools/summaries", message.Usage)
+		a.addUsage("Tools/summaries", message.Usage, 0)
 	}
 }
 
@@ -191,6 +208,8 @@ func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessa
 func (a *sessionAccountingAccumulator) addMessageEntry(message agent.AgentMessage) {
 	accounted := sessionAccountingMessage{Role: message.Role()}
 	switch {
+	case message.User != nil: // ompig-slim: message times feed the /session time trace.
+		accounted.Timestamp = message.User.Timestamp
 	case message.Assistant != nil:
 		assistant := message.Assistant
 		for _, block := range assistant.Content {
@@ -207,6 +226,7 @@ func (a *sessionAccountingAccumulator) addMessageEntry(message agent.AgentMessag
 		accounted.Timestamp = assistant.Timestamp
 	case message.ToolResult != nil:
 		accounted.Usage = message.ToolResult.Usage
+		accounted.Timestamp = message.ToolResult.Timestamp // ompig-slim
 	}
 	a.addMessage(accounted)
 }
@@ -241,7 +261,43 @@ func (s *Session) FooterUsageTotals() footerUsageTotals {
 	}
 }
 
-func (a *sessionAccountingAccumulator) addUsage(key string, usage *ai.Usage) {
+// extendTurn grows the open assistant turn to the time of the message that
+// follows it. A user message ends the turn at its last known time.
+// ompig-slim: feeds SessionUsageBreakdown.Spans.
+func (a *sessionAccountingAccumulator) extendTurn(role string, at int64) {
+	if a.openKey == "" {
+		return
+	}
+	if role != "user" && at > 0 {
+		span := &a.usageByKey[a.openKey].Spans[a.openIndex]
+		span.End = max(span.End, at)
+	}
+	if role == "user" || role == "assistant" {
+		a.openKey = ""
+	}
+}
+
+// time is the entry's ISO timestamp in Unix milliseconds, 0 when it has none.
+// ompig-slim: feeds SessionUsageBreakdown.Spans.
+func (e sessionAccountingEntry) time() int64 {
+	var iso string
+	if json.Unmarshal(e.Timestamp, &iso) != nil {
+		return 0
+	}
+	return isoMillis(iso)
+}
+
+// isoMillis parses an ISO timestamp to Unix milliseconds, 0 when it is not one.
+func isoMillis(iso string) int64 {
+	ms := ai.DateParse(iso)
+	if math.IsNaN(ms) {
+		return 0
+	}
+	return int64(ms)
+}
+
+// addUsage books usage under key; at is when it happened, 0 when unknown.
+func (a *sessionAccountingAccumulator) addUsage(key string, usage *ai.Usage, at int64) {
 	if usage == nil {
 		return
 	}
@@ -262,7 +318,22 @@ func (a *sessionAccountingAccumulator) addUsage(key string, usage *ai.Usage) {
 	breakdown.Key = key
 	breakdown.Cost += usage.Cost.Total
 	breakdown.Tokens += usage.Input + usage.Output + usage.CacheRead + usage.CacheWrite
+	breakdown.addSpan(at)
 	a.usageByKey[key] = breakdown
+}
+
+// addSpan marks the key as working at at. A time inside the last span is
+// already covered, so consecutive turns of one model stay a single span: an
+// assistant message first extends the turn before it (extendTurn) to its own
+// time, then lands inside that span here.
+func (b *SessionUsageBreakdown) addSpan(at int64) {
+	if at <= 0 {
+		return
+	}
+	if n := len(b.Spans); n > 0 && at <= b.Spans[n-1].End {
+		return
+	}
+	b.Spans = append(b.Spans, SessionSpan{at, at})
 }
 
 func (a *sessionAccountingAccumulator) addCacheWaste(message sessionAccountingMessage) {
@@ -322,6 +393,7 @@ func (a sessionAccountingAccumulator) snapshot() SessionAccounting {
 	stats.UsageBreakdown = make([]SessionUsageBreakdown, 0, len(a.usageByKey))
 	for _, key := range a.usageOrder {
 		breakdown := a.usageByKey[key]
+		breakdown.Spans = slices.Clone(breakdown.Spans) // the accumulator keeps growing its own
 		if breakdown.Cost > 0 || breakdown.Tokens > 0 {
 			stats.UsageBreakdown = append(stats.UsageBreakdown, breakdown)
 		}
