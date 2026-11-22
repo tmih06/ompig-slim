@@ -248,30 +248,30 @@ with errors". If a rule can't be made specific enough to check, don't add it.
 
 - **Rule**: Scope `context.Background()`/`TODO()` to the process root or
   cleanup-after-cancel; a function that takes a `ctx` must derive children
-  from it.
+  from it and never accumulate nested contexts in a loop.
   **Why**: durable/goal lifecycle fixes (`#106`, `#99`, `#94`) traced to a
   cancellation that never reached the work; a fresh root context would have
   detached it.
-  **Enforced by**: `contextcheck`, semgrep `slop.context-in-request`.
+  **Enforced by**: `contextcheck`, `fatcontext`, `containedctx`, semgrep `slop.context-in-request`.
 
 - **Rule**: Give every goroutine a cancellation and a completion signal owned
-  by its caller; no bare `go func(){...}()`.
+  by its caller (and call `wg.Add` before `go func`); no bare `go func(){...}()`.
   **Why**: subagent/heartbeat lifecycle bugs (`#97`, `#95`, `a62bd87`) where a
   worker outlived its run or missed its deadline.
-  **Enforced by**: semgrep `slop.bare-goroutine`, `go vet`, race tests.
+  **Enforced by**: semgrep `slop.bare-goroutine`, `slop.waitgroup-add-in-goroutine`, `go vet`, race tests.
 
 - **Rule**: Never discard an error with `_` on a result you must act on;
   deliberate discards (cleanup, encode-after-headers) get a comment.
   **Why**: credential-sync and migration paths (`#127`, `b6baba8`) where a
   swallowed error could corrupt account or sync state.
-  **Enforced by**: `errcheck` (`check-blank`, `check-type-assertions`), semgrep
-  `slop.blank-error-assign`.
+  **Enforced by**: `errcheck` (`check-blank`, `check-type-assertions`), `nilerr`, `nilnesserr`, `forcetypeassert`, semgrep `slop.blank-error-assign`, `slop.empty-err-check`.
 
 - **Rule**: Route all credential and profile filesystem writes through
-  `internal/privatefs`; do not hand-roll `os.MkdirAll(0o700)`/`WriteFile(0o600)`.
+  `internal/privatefs` using explicit `0o` octal modes; do not hand-roll
+  `os.MkdirAll(0o700)`/`WriteFile(0o600)`.
   **Why**: credential files must be 0700/0600 and atomic; a hand-rolled path
   (`#127`, `4f1c7d5`) drifted from the enforced permission/atomicity contract.
-  **Enforced by**: semgrep `slop.reimplement-privatefs`.
+  **Enforced by**: semgrep `slop.reimplement-privatefs`, `slop.decimal-file-mode`.
 
 - **Rule**: Make enum/state switches exhaustive over every member; do not rely
   on `default` to absorb a new state.
@@ -279,11 +279,19 @@ with errors". If a rule can't be made specific enough to check, don't add it.
   a non-exhaustive switch silently dropped.
   **Enforced by**: `exhaustive` linter.
 
-- **Rule**: Pass `context.Context` to `os/exec` and `net/http`; use
-  `exec.CommandContext` / `http.NewRequestWithContext`, not the no-ctx forms.
+- **Rule**: Pass `context.Context` to `os/exec` and `net/http` using an
+  explicit `http.Client` with a timeout and `http.NewServeMux()`; never use
+  `exec.Command`, `http.DefaultClient`, or `http.DefaultServeMux`.
   **Why**: a runaway child or request without a deadline blocked the update/
   durable path.
-  **Enforced by**: `noctx` linter, `bodyclose`.
+  **Enforced by**: `noctx`, `bodyclose`, `forbidigo`, semgrep `slop.http-default-client-or-mux`.
+
+- **Rule**: Do not place `defer` or `time.After` inside loops; close resources
+  per iteration (or via a helper) and use `time.NewTicker`/`time.NewTimer`.
+  **Why**: function-scoped `defer` holds open file handles (blocking Windows
+  rename/remove in `privatefs` and `selfupdate`) and `time.After` leaks timers
+  in long-running heartbeat/poll loops.
+  **Enforced by**: semgrep `slop.defer-in-loop`, `slop.time-after-in-loop`.
 
 Maintenance: when a learned rule becomes mechanically enforced, update its
 "Enforced by". Prune rules that no longer apply. Keep this file scannable — if

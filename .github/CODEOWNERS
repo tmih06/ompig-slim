@@ -11,7 +11,7 @@
 /scripts/quality/       @tmih06
 /.github/workflows/     @tmih06
 /.github/CODEOWNERS     @tmih06
-/docs/quality-baseline  @tmih06
+/docs/quality-baseline* @tmih06
 /.claude/               @tmih06
 /AGENTS.md              @tmih06
 /CLAUDE.md              @tmih06

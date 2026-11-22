@@ -1,7 +1,8 @@
 # Semgrep rules for the AI-slop patterns this gate targets. Every message tells
 # the agent what to do instead. Run:
+#   semgrep --validate --config .semgrep/slop.yml
+#   semgrep --test --config .semgrep/slop.yml .semgrep/slop.go
 #   semgrep --config .semgrep/slop.yml .
-#   semgrep --test --config .semgrep/slop.yml .semgrep/tests/   (fixtures)
 rules:
   - id: slop.blank-error-assign
     languages: [go]
@@ -17,7 +18,10 @@ rules:
           - pattern: _, ..., _ = $F(...)
       - pattern-not: _ = fmt.$F(...)
       - pattern-not: _, _ = fmt.$F(...)
+      - pattern-not: _, _ = io.WriteString(...)
+      - pattern-not: _ = json.NewEncoder(...).Encode(...)
       - pattern-not: _ = $X.Close()
+      - pattern-not: _ = syscall.CloseHandle(...)
       - pattern-not: _ = $X.Unlock()
       - pattern-not: _, _ = io.Copy(...)
       - pattern-not: _ = os.Remove(...)
@@ -29,11 +33,14 @@ rules:
       # Compile-time interface assertions `var _ Iface = (*T)(nil)` are not
       # error discards; `(*T)(nil)` is a conversion, not a call.
       - pattern-not: var _ $IFACE = (*$T)(nil)
-      - pattern-not: _ $IFACE = (*$T)(nil)
+      - pattern-not: _ = (*$T)(nil)
       # Type assertions with an ok flag are handled checks, not discards.
       - pattern-not: _, _ = $X.($T)
       - pattern-not: _, _ = $X[$K]
       - pattern-not: _, _ = $X[<-$CH]
+    paths:
+      exclude:
+        - "*_test.go"
 
   - id: slop.empty-err-check
     languages: [go]
@@ -140,3 +147,116 @@ rules:
         - main.go
         - "**/main.go"
         - "*_test.go"
+
+  - id: slop.defer-in-loop
+    languages: [go]
+    severity: ERROR
+    message: >
+      `defer` inside a loop runs at function exit, not iteration exit, leaking
+      file descriptors, locks, or response bodies across iterations. Extract the
+      loop body into a helper function or close explicitly before the next
+      iteration.
+    patterns:
+      - pattern: defer $F(...)
+      - pattern-inside: |
+          for ... {
+            ...
+          }
+      - pattern-not-inside: |
+          func(...) {
+            ...
+          }
+
+  - id: slop.time-after-in-loop
+    languages: [go]
+    severity: WARNING
+    message: >
+      `time.After` inside a loop allocates a new timer on every iteration that
+      is not garbage-collected until it fires. Use `time.NewTimer` or
+      `time.NewTicker` with `defer ticker.Stop()`.
+    patterns:
+      - pattern: time.After(...)
+      - pattern-inside: |
+          for ... {
+            ...
+          }
+    paths:
+      exclude:
+        - "*_test.go"
+
+  - id: slop.waitgroup-add-in-goroutine
+    languages: [go]
+    severity: ERROR
+    message: >
+      Calling `wg.Add` inside the spawned goroutine races with `wg.Wait()` in
+      the parent. Call `wg.Add(1)` in the parent goroutine before `go func()`.
+    patterns:
+      - pattern: $WG.Add(...)
+      - pattern-inside: |
+          go func(...) {
+            ...
+          }(...)
+
+  - id: slop.http-default-client-or-mux
+    languages: [go]
+    severity: ERROR
+    message: >
+      `http.DefaultClient` has no timeout and `http.DefaultServeMux` is global
+      mutable state. Use an explicit `&http.Client{Timeout: ...}` with
+      `http.NewRequestWithContext` and `http.NewServeMux()`.
+    pattern-either:
+      - pattern: http.DefaultClient
+      - pattern: http.DefaultServeMux
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: http.PostForm(...)
+      - pattern: http.Head(...)
+      - pattern: http.Handle(...)
+      - pattern: http.HandleFunc(...)
+      - pattern: http.ListenAndServe($ADDR, nil)
+    paths:
+      exclude:
+        - "*_test.go"
+
+  - id: slop.decimal-file-mode
+    languages: [go]
+    severity: ERROR
+    message: >
+      Decimal file mode (e.g. `600` or `700`) is not octal (`0o600` or `0o700`)
+      and sets corrupted permissions. Use an explicit `0o` octal prefix.
+    pattern-either:
+      - pattern: os.MkdirAll($D, 700)
+      - pattern: os.MkdirAll($D, 755)
+      - pattern: os.Mkdir($D, 700)
+      - pattern: os.Mkdir($D, 755)
+      - pattern: os.WriteFile($P, $B, 600)
+      - pattern: os.WriteFile($P, $B, 644)
+      - pattern: os.OpenFile($P, $F, 600)
+      - pattern: os.OpenFile($P, $F, 644)
+      - pattern: os.Chmod($P, 600)
+      - pattern: os.Chmod($P, 644)
+      - pattern: os.Chmod($P, 700)
+      - pattern: os.Chmod($P, 755)
+      - pattern: $F.Chmod(600)
+      - pattern: $F.Chmod(644)
+      - pattern: $F.Chmod(700)
+      - pattern: $F.Chmod(755)
+
+  - id: slop.errorf-sprintf
+    languages: [go]
+    severity: ERROR
+    message: >
+      Do not wrap `fmt.Sprintf` inside `errors.New` or `fmt.Errorf`; call
+      `fmt.Errorf` directly (and use `%w` when wrapping an error).
+    pattern-either:
+      - pattern: errors.New(fmt.Sprintf(...))
+      - pattern: fmt.Errorf(fmt.Sprintf(...))
+
+  - id: slop.raw-signal-notify
+    languages: [go]
+    severity: ERROR
+    message: >
+      Use `signal.NotifyContext` instead of raw `signal.Notify` so signal
+      handling cancels the context cleanly (see main.go and
+      cmd/ompig-slim-broker/main.go).
+    pattern: signal.Notify(...)

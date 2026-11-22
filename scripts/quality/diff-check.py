@@ -3,10 +3,15 @@
 
 Runs on the diff between a base ref and HEAD and fails (exit 1) when the diff:
 
-  * adds ``//nolint``, ``t.Skip(``, or ``//go:build ignore``
-  * removes test assertions, or deletes a test file without a replacement
-  * touches gate config, ``.semgrep/``, ``scripts/quality/``, CI workflows or
-    coverage config without a CODEOWNER approval signal
+  * adds ``//nolint``, ``//nosemgrep``, ``//lint:ignore``, ``t.Skip(``, or
+    ``//go:build ignore``
+  * removes test assertions without adding new test assertions, or deletes a
+    test file without a replacement in the same package
+  * modifies disposable ``vendor/`` files outside ``vendor/modules.txt`` and
+    maintained ``vendor/github.com/MichaelKinsy/PiG/``
+  * touches gate config, ``.semgrep/``, ``scripts/quality/``, CI workflows,
+    baseline, ``.claude/``, or ``AGENTS.md``/``CLAUDE.md`` without a CODEOWNER
+    approval signal
   * changes ``go.mod`` without a justification line in the PR description
   * exceeds the size cap calibrated to this repo's typical PR
 
@@ -34,15 +39,21 @@ GATE_PATHS = re.compile(
     r"^("
     r"\.golangci\.(yml|yaml)$"
     r"|\.semgrep/"
+    r"|\.semgrepignore$"
     r"|scripts/quality/"
     r"|\.github/workflows/"
     r"|docs/quality-baseline\.(json|md)$"
     r"|\.github/CODEOWNERS$"
+    r"|\.claude/"
+    r"|AGENTS\.md$"
+    r"|CLAUDE\.md$"
     r")"
 )
 
 ADDED_PATTERNS = [
-    (re.compile(r"//nolint\b"), "//nolint requires a human-approved reason"),
+    (re.compile(r"//\s*nolint\b"), "//nolint requires a human-approved reason"),
+    (re.compile(r"//\s*nosemgrep\b"), "//nosemgrep suppresses slop rules; fix the code instead"),
+    (re.compile(r"//\s*lint:ignore\b"), "//lint:ignore suppresses staticcheck; fix the code instead"),
     (re.compile(r"\bt\.Skip(?:f|Now)?\s*\("), "new t.Skip — cover the case or fix the test instead"),
     (re.compile(r"//go:build\s+ignore"), "//go:build ignore hides code from the gate"),
 ]
@@ -67,11 +78,20 @@ def git_diff(base):
 
 
 def parse_diff(diff_text):
-    """Yield (file, kind, lineno, text) for each added/removed content line."""
+    """Yield (file, kind, lineno, text) for each added/removed line or deleted file."""
     current = None
+    old_file = None
     new_line = 0
     for raw in diff_text.splitlines():
-        if raw.startswith("+++ b/"):
+        if raw.startswith("--- a/"):
+            old_file = raw[6:]
+        elif raw.startswith("--- /dev/null"):
+            old_file = None
+        elif raw.startswith("+++ /dev/null"):
+            if old_file is not None:
+                yield old_file, "file_del", None, ""
+            current = old_file
+        elif raw.startswith("+++ b/"):
             current = raw[6:]
         elif raw.startswith("@@"):
             m = re.search(r"\+(\d+)", raw)
@@ -84,6 +104,16 @@ def parse_diff(diff_text):
                 yield current, "del", None, raw[1:]
             elif not raw.startswith("\\"):
                 new_line += 1
+
+
+def is_disposable_vendor(path):
+    if not path.startswith("vendor/"):
+        return False
+    if path == "vendor/modules.txt":
+        return False
+    if path.startswith("vendor/github.com/MichaelKinsy/PiG/"):
+        return False
+    return True
 
 
 def main():
@@ -105,14 +135,21 @@ def main():
     findings = []
     touched = set()
     deleted_tests = set()
-    added_tests = set()
+    added_test_files = set()
+    added_asserts = []
     removed_asserts = []
     added_lines = removed_lines = 0
     touched_gate = set()
+    touched_disposable_vendor = set()
     touched_gomod = False
 
     for path, kind, lineno, text in parse_diff(diff_text):
         touched.add(path)
+        if kind == "file_del":
+            if TEST_FILE_RE.search(path):
+                deleted_tests.add(path)
+            continue
+
         if kind == "add":
             added_lines += 1
         else:
@@ -120,40 +157,41 @@ def main():
 
         if GATE_PATHS.match(path):
             touched_gate.add(path)
+        if is_disposable_vendor(path):
+            touched_disposable_vendor.add(path)
         if path == "go.mod":
             touched_gomod = True
         if TEST_FILE_RE.search(path):
             if kind == "add":
-                added_tests.add(path)
-            else:
-                removed_asserts.append((path, text)) if TEST_ASSERT_RE.search(text) else None
+                added_test_files.add(path)
+                if TEST_ASSERT_RE.search(text):
+                    added_asserts.append((path, text))
+            elif TEST_ASSERT_RE.search(text):
+                removed_asserts.append((path, text))
 
         if kind == "add" and path.endswith(".go"):
             for rx, hint in ADDED_PATTERNS:
                 if rx.search(text):
                     findings.append(f"{path}:{lineno}: {rx.pattern} -> {hint}")
 
-    # Deleted test files are only OK if a same-package test file is added.
-    try:
-        deleted = subprocess.run(
-            ["git", "-C", REPO, "diff", "--diff-filter=D", "--name-only", "HEAD"],
-            capture_output=True, text=True, check=True,
-        ).stdout.split()
-        for path in deleted:
-            if TEST_FILE_RE.search(path):
-                deleted_tests.add(path)
-    except subprocess.CalledProcessError:
-        deleted = []
-    for path in deleted_tests:
-        if not any(t.startswith(path.rsplit("_test.go", 1)[0]) for t in added_tests):
+    # Deleted test files are only OK if a same-package test file has additions.
+    for path in sorted(deleted_tests):
+        pkg_dir = os.path.dirname(path)
+        if not any(os.path.dirname(t) == pkg_dir and t not in deleted_tests for t in added_test_files):
             findings.append(
                 f"{path}: test file deleted without a replacement in the same package"
             )
 
-    if removed_asserts and not added_tests:
+    if removed_asserts and not added_asserts:
         findings.append(
             f"tests: {len(removed_asserts)} assertion line(s) removed and no "
             "new test assertions added — this can silently weaken coverage"
+        )
+
+    for p in sorted(touched_disposable_vendor):
+        findings.append(
+            f"{p}: disposable vendor file modified; only vendor/modules.txt and "
+            "vendor/github.com/MichaelKinsy/PiG/ are maintained in git"
         )
 
     if touched_gate and not owner_ok:

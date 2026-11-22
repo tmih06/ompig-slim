@@ -10,11 +10,11 @@ Usage:
   python3 scripts/quality/ratchet.py lint.json            # check, exit 1 if a rule grew
   python3 scripts/quality/ratchet.py lint.json --write    # rewrite baseline to current
 """
-import json
-import sys
 import collections
-import subprocess
+import json
 import pathlib
+import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 BASELINE = ROOT / "docs" / "quality-baseline.json"
@@ -42,6 +42,8 @@ def semgrep_counts():
         data = json.loads(out.stdout)
     except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
         return None
+    if data.get("errors"):
+        raise RuntimeError(f"semgrep reported {len(data['errors'])} rule error(s)")
     c = collections.Counter()
     for r in data.get("results", []):
         c[r.get("check_id", "?").split(".")[-1]] += 1
@@ -63,7 +65,11 @@ def main(argv):
     baseline_doc = load(BASELINE)
     baseline = {k: int(v) for k, v in baseline_doc.get("rules", {}).items()}
     baseline_sg = {k: int(v) for k, v in baseline_doc.get("semgrep_rules", {}).items()}
-    current_sg = semgrep_counts()
+    try:
+        current_sg = semgrep_counts()
+    except RuntimeError as exc:
+        print(f"ratchet FAIL: {exc}", file=sys.stderr)
+        return 2
 
     if write:
         total = sum(current.values())

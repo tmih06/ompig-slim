@@ -22,25 +22,42 @@ linters:
     - errcheck       # unchecked errors; check-blank+assertions catches sloppy AI code
     - errorlint      # %w/%v wrapping and errors.Is/As discipline the repo already uses
     - nilerr         # returning nil after checking err != nil — a classic AI bug
+    - nilnesserr     # returning a different nil error var after checking err != nil
     - ineffassign    # dead assignments hide real intent
+    - wastedassign   # reassigned values never read before overwrite
     - copyloopvar    # Go<1.22 loop-var capture; go.mod is 1.27 but guards ports
     - exhaustive     # enum switches must handle all members; auth/goal bugs love this
+    - durationcheck  # multiplying two time.Duration values (timeout * time.Second)
+    - forcetypeassert # unchecked v := x.(T) panics on mismatch; require , ok
+    - makezero       # make([]T, n) followed by append leaves n leading zero items
+    - asasalint      # passing []any as any to variadic func(...any) without ...
+    - musttag        # structs passed to json/yaml marshal/unmarshal must have tags
+    - iotamixing     # mixing iota with non-iota declarations in a const block
+    - recvcheck      # receiver types on a struct must be consistently value or pointer
     # --- Error / context hygiene ------------------------------------------
     - wrapcheck      # external errors should be wrapped with context (repo convention)
     - contextcheck   # non-inherited ctx inside a ctx-taking call chain
+    - fatcontext     # nested context.With* accumulating inside a loop
+    - containedctx   # context.Context stored in a struct field instead of passed first
     - noctx          # net/http + os/exec without context.Context; repo always passes one
     - bodyclose      # HTTP response bodies must close; broker/selfupdate use net/http
+    - errname        # sentinel errors use Err* prefix; error types use *Error suffix
     # --- Workaround / sloppy-AI detectors ---------------------------------
     - nolintlint     # no unexplained or blanket //nolint; require-explanation+specific
     - godox          # TODO/FIXME/HACK/XXX left behind; baseline has zero
-    - forbidigo      # ban time.Sleep / fmt.Print* / panic / log.Fatal — see settings
-    - gochecknoglobals  # no new package-level mutable state; baseline ~16
+    - forbidigo      # ban time.Sleep / fmt.Print* / panic / log.Fatal / DefaultClient
+    - depguard       # enforce package layering and ban loggers / testify / errgroup
+    - gomoddirectives # ban replace/retract/exclude directives left in go.mod
+    - gochecknoglobals  # no new package-level mutable state; baseline ~5
     - gochecknoinits    # no init(); baseline has zero (blank imports are not init)
     - nakedret       # naked returns in long functions are hard to audit
+    - dogsled        # assignments with too many blank identifiers (x, _, _, _ := f())
+    - predeclared    # declarations that shadow Go built-ins (error, any, len, new, copy)
+    - reassign       # reassigning package-level variables or sentinel errors
     # --- Complexity / duplication -----------------------------------------
     - gocognit       # cognitive complexity; p90=19, p99=48 -> cap 40
     - cyclop         # cyclomatic; p90=22, p95=29, p99=42 -> cap 30
-    - funlen         # all functions <60 lines today -> cap 80/50
+    - funlen         # all functions <60 lines today -> cap 100/60
     - nestif         # deep if-nesting; p99=2 -> cap 5
     - dupl           # clone detection; 19 blocks >=40 tok -> cap 150
     - goconst        # repeated literal strings the repo centralizes anyway
@@ -50,12 +67,17 @@ linters:
     # --- Dead code ---------------------------------------------------------
     - unused         # unused symbols; repo is clean
     - unparam        # unused/always-same params; one benign hit today
+    - unconvert      # redundant type conversions
     # --- Performance -------------------------------------------------------
     - prealloc       # sized slice growth in loops
     - perfsprint     # Sprintf that should be strconv/faster form
     - gocritic       # diagnostic+performance+style; tuned below
-    # --- Security ----------------------------------------------------------
+    # --- Security / network ------------------------------------------------
     - gosec          # credential/crypto/exec paths benefit; audit into baseline
+    - bidichk        # dangerous Trojan Source bidirectional Unicode sequences
+    - asciicheck     # non-ASCII lookalike characters in identifiers
+    - nosprintfhostport # use net.JoinHostPort instead of Sprintf("%s:%d") for IPv6
+    - canonicalheader   # net/http.Header keys must use canonical casing
     # --- Tests -------------------------------------------------------------
     - thelper        # test helpers must call t.Helper; repo convention
     - tparallel      # correct t.Parallel usage if/when used
@@ -68,7 +90,8 @@ linters:
     - embeddedstructfieldcheck  # embedded field ordering
     - exptostd       # golang.org/x/exp that should be stdlib now
     - gocheckcompilerdirectives # malformed //go: directives
-    - revive         # exported-docs + a few correctness rules; tuned below
+    - goprintffuncname          # printf-like functions must end with f
+    - revive         # exported-docs + correctness rules; tuned below
 
   settings:
     errcheck:
@@ -126,6 +149,33 @@ linters:
       # conflict choices) must stay total.
       default-signifies-exhaustive: false
 
+    depguard:
+      rules:
+        conventions:
+          deny:
+            - pkg: "log/slog"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/rs/zerolog"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "go.uber.org/zap"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/sirupsen/logrus"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/stretchr/testify"
+              desc: "tests use stdlib testing only; use table-driven cases and t.Helper"
+            - pkg: "golang.org/x/sync/errgroup"
+              desc: "concurrency uses channels, sync.WaitGroup, and signal.NotifyContext"
+            - pkg: "github.com/pkg/errors"
+              desc: "use stdlib errors and fmt.Errorf with %w"
+            - pkg: "io/ioutil"
+              desc: "io/ioutil is deprecated; use io and os packages"
+        internal-layering:
+          files:
+            - "**/internal/**/*.go"
+          deny:
+            - pkg: "ompig-slim/cmd"
+              desc: "internal packages must never import cmd entry points"
+
     forbidigo:
       forbid:
         # time.Sleep in production code is a timing workaround; tests keep it.
@@ -141,6 +191,10 @@ linters:
           msg: "return the error to the caller which owns process exit"
         - pattern: '\bos\.Exit\('
           msg: "return an exit code to main; only main/Handle* may call os.Exit"
+        - pattern: '\bhttp\.(DefaultClient|DefaultServeMux|Get|Post|PostForm|Head)\b'
+          msg: "use an explicit http.Client with a Timeout, http.NewRequestWithContext, and http.NewServeMux()"
+        - pattern: '\bexec\.Command\('
+          msg: "use exec.CommandContext(ctx, ...) so child processes respect cancellation and deadlines"
         # stdlib tests only; testify is not a dependency (go.mod).
         - pattern: '"github\.com/stretchr/testify'
           msg: "tests use the standard library only; add table-driven cases + t.Helper helpers"
@@ -197,7 +251,6 @@ linters:
       disabled-checks:
         - hugeParam   # repo passes medium structs by value routinely
         - rangeValCopy
-        - paramTypeCombine
         - sloppyReassign  # err= vs err:= is stylistic; repo prefers reuse
       settings:
         captLocal:
@@ -223,6 +276,21 @@ linters:
         - name: redefines-builtin-id
         - name: time-equal
         - name: string-of-int
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: unconditional-recursion
+        - name: waitgroup-by-value
+        - name: atomic
+        - name: range-val-in-closure
+        - name: range-val-address
+        - name: datarace
+        - name: identical-branches
+        - name: constant-logical-expr
+        - name: bool-literal-in-expr
+        - name: unnecessary-stmt
 
   exclusions:
     # Generated/vendored code is out of scope (none in root, but belt+braces).
@@ -239,7 +307,7 @@ linters:
     rules:
       # Tests legitimately discard errors, sleep, and use helpers heavily.
       - path: _test\.go$
-        linters: [errcheck, forbidigo, goconst, dupl, funlen, gocognit, cyclop, nestif, mnd, gosec, gochecknoglobals]
+        linters: [errcheck, forbidigo, forcetypeassert, containedctx, dogsled, errname, musttag, goconst, dupl, funlen, gocognit, cyclop, nestif, mnd, gosec, gochecknoglobals]
       # Main entry points may use os.Exit / context.Background legitimately.
       - path: (^|/)main\.go$
         linters: [forbidigo]

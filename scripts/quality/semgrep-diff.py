@@ -9,7 +9,7 @@ does not.
 
 Usage:
   python3 scripts/quality/semgrep-diff.py [--base REF] [--config .semgrep/slop.yml]
-Exit 1 when any finding survives, 0 otherwise.
+Exit 1 when any finding survives, 2 on Semgrep config/parse error, 0 otherwise.
 """
 import json
 import os
@@ -35,17 +35,12 @@ def added_lines(base):
             files.setdefault(current, set())
         elif raw.startswith("@@"):
             m = re.search(r"\+(\d+)(?:,(\d+))?", raw)
-            if m and current is not None:
-                start = int(m.group(1))
-                count = int(m.group(2) or "1")
-                for n in range(start, start + count):
-                    files[current].add(n)
-                new_line = start + count
-        elif raw.startswith("+") and not raw.startswith("+++") and current is not None:
-            files[current].add(new_line)
-            new_line += 1
-        elif not raw.startswith("-") and not raw.startswith("\\") and raw and not raw.startswith("d"):
-            if current is not None:
+            new_line = int(m.group(1)) if m else 0
+        elif current is not None:
+            if raw.startswith("+") and not raw.startswith("+++"):
+                files[current].add(new_line)
+                new_line += 1
+            elif not raw.startswith("-") and not raw.startswith("\\") and not raw.startswith("diff "):
                 new_line += 1
     return files
 
@@ -84,12 +79,22 @@ def main():
         print(proc.stderr[-2000:], file=sys.stderr)
         return 2
 
+    errors = data.get("errors", [])
+    if errors:
+        print(f"semgrep-diff ERROR: {len(errors)} rule configuration/parse error(s):", file=sys.stderr)
+        for err in errors:
+            msg = err.get("message") or err.get("long_msg") or str(err)
+            print(f"  {msg}", file=sys.stderr)
+        return 2
+
     findings = []
     for r in data.get("results", []):
         path = os.path.relpath(r["path"], ROOT)
-        line = r["start"]["line"]
-        if line in added.get(path, set()):
-            findings.append((path, line, r["check_id"].split(".")[-1], r["extra"]["message"].strip()))
+        start_line = r["start"]["line"]
+        end_line = r.get("end", {}).get("line", start_line)
+        file_added = added.get(path, set())
+        if any(line in file_added for line in range(start_line, end_line + 1)):
+            findings.append((path, start_line, r["check_id"].split(".")[-1], r["extra"]["message"].strip()))
 
     if findings:
         print("semgrep-diff FAIL: new code hit a slop rule:", file=sys.stderr)
