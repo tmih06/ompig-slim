@@ -2,6 +2,7 @@ package codingagent
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,7 @@ func TestSessionStatsLayout(t *testing.T) {
 		CurrentSession:   func() *Session { return session },
 		SessionSubagents: func() []subagents.Record { return records },
 	}
-	out := widthx.StripTerminalSequences(sessionInfoRenderer(sc)())
+	out := widthx.StripTerminalSequences(sessionInfoRenderer(sc)(sessionTraceWidth))
 
 	for _, want := range []string{
 		"Session stats", "stats-test",
@@ -177,22 +178,17 @@ func TestSessionSpansSurviveReload(t *testing.T) {
 		}
 	}
 	live := session.Accounting().UsageBreakdown
-	if len(live) != 1 || len(live[0].Spans) != 2 {
-		t.Fatalf("live spans = %+v", live)
-	}
-	// The first turn runs to the next request, the last ends where it began:
-	// the 14 idle minutes before the user's next message are not work.
-	if want := (SessionSpan{base + 1_000, base + 62_000}); live[0].Spans[0] != want {
-		t.Errorf("first turn = %+v, want %+v", live[0].Spans[0], want)
-	}
-	if want := (SessionSpan{base + 62_000, base + 62_000}); live[0].Spans[1] != want {
-		t.Errorf("last turn = %+v, want %+v", live[0].Spans[1], want)
+	// The first turn runs to the next request of the same model, so both
+	// turns are one span; it ends where the last turn began, and the 14 idle
+	// minutes before the user's next message are not work.
+	if want := (SessionSpan{base + 1_000, base + 62_000}); len(live) != 1 || !slices.Equal(live[0].Spans, []SessionSpan{want}) {
+		t.Fatalf("live spans = %+v, want [%+v]", live, want)
 	}
 	loaded, err := manager.Load(session.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.Accounting().UsageBreakdown; !slices.Equal(got[0].Spans, live[0].Spans) {
+	if got := loaded.Accounting().UsageBreakdown; len(got) != 1 || !slices.Equal(got[0].Spans, live[0].Spans) {
 		t.Errorf("reloaded spans = %+v, live %+v", got[0].Spans, live[0].Spans)
 	}
 }
@@ -200,7 +196,7 @@ func TestSessionSpansSurviveReload(t *testing.T) {
 func TestSessionTraceTrack(t *testing.T) {
 	plain := func(slot int, s string) string { return s }
 	track := func(lane []SessionSpan, all ...SessionSpan) string {
-		return sessionTraceTrack(sessionLane{spans: lane}, newTraceAxis(all), plain, func(s string) string { return s })
+		return sessionTraceTrack(sessionLane{spans: lane}, newTraceAxis(all, sessionTraceWidth), plain, func(s string) string { return s })
 	}
 	if got := track(nil, SessionSpan{1000, 1800}); got != strings.Repeat("·", sessionTraceWidth) {
 		t.Errorf("untimed lane = %q", got)
@@ -237,7 +233,7 @@ func TestSessionTraceTrack(t *testing.T) {
 
 func TestTraceAxisOffset(t *testing.T) {
 	const min = int64(60_000)
-	axis := newTraceAxis([]SessionSpan{{1000, 1000 + 10*min}, {5000 + 40*min, 5000 + 50*min}})
+	axis := newTraceAxis([]SessionSpan{{1000, 1000 + 10*min}, {5000 + 40*min, 5000 + 50*min}}, sessionTraceWidth)
 	if axis.active != 20*min {
 		t.Fatalf("active = %d, want %d", axis.active, 20*min)
 	}
@@ -258,16 +254,119 @@ func TestTraceAxisOffset(t *testing.T) {
 	}
 }
 
-func TestSessionDuration(t *testing.T) {
-	for ms, want := range map[int64]string{
-		45_000:      "45s",
-		3_690_000:   "1h 1m",
-		180_000_000: "2d 2h",
-		5_000:       "5s",
-		61_000:      "1m 1s",
-	} {
-		if got := sessionDuration(ms); got != want {
-			t.Errorf("sessionDuration(%d) = %q, want %q", ms, got, want)
+func TestSessionHandlerOpensViewOnlyWhenOffered(t *testing.T) {
+	session := NewSession("handler-test", t.TempDir())
+	var transcript []string
+	sc := &SlashContext{
+		CurrentSession: func() *Session { return session },
+		AppendText:     func(text string) { transcript = append(transcript, text) },
+	}
+	if err := sessionHandler(sc); err != nil {
+		t.Fatal(err)
+	}
+	if len(transcript) != 1 || !strings.Contains(widthx.StripTerminalSequences(transcript[0]), "handler-test") {
+		t.Fatalf("without a view the report stays in the transcript: %q", transcript)
+	}
+
+	transcript, opened := nil, 0
+	sc.ShowSessionStats = func(snapshot func() sessionReport) {
+		opened++
+		if out := widthx.StripTerminalSequences(snapshot()(sessionTraceWidth)); !strings.Contains(out, "handler-test") {
+			t.Errorf("snapshot lacks the session: %q", out)
 		}
+	}
+	if err := sessionHandler(sc); err != nil {
+		t.Fatal(err)
+	}
+	if opened != 1 || len(transcript) != 0 {
+		t.Fatalf("view opened %d times, transcript %q; want one view and an untouched transcript", opened, transcript)
+	}
+}
+
+func TestSessionStatsViewFramesScrollsAndCloses(t *testing.T) {
+	var closed, renders, snapshots, builds int
+	const height = 10
+	text := func(traceWidth int) string {
+		builds++
+		var rows []string
+		for i := range 30 {
+			rows = append(rows, "row "+strings.Repeat("x", i)+" w"+strconv.Itoa(traceWidth))
+		}
+		return strings.Join(rows, "\n")
+	}
+	view := &sessionStatsView{
+		snapshot:      func() sessionReport { snapshots++; return text },
+		report:        text,
+		height:        func() int { return height },
+		close:         func() { closed++ },
+		requestRender: func() { renders++ },
+	}
+	plain := func(width int) []string {
+		lines := view.Render(width)
+		for i, line := range lines {
+			lines[i] = widthx.StripTerminalSequences(line)
+			if got := widthx.VisibleWidth(line); got != width {
+				t.Fatalf("line %d is %d cells wide, want %d: %q", i, got, width, lines[i])
+			}
+		}
+		return lines
+	}
+
+	lines := plain(60)
+	if len(lines) != height {
+		t.Fatalf("view is %d rows, want the %d of the screen", len(lines), height)
+	}
+	if !strings.HasPrefix(lines[1], "│ row  w") || !strings.Contains(lines[height-2], "6/30") {
+		t.Errorf("first page wrong:\n%s", strings.Join(lines, "\n"))
+	}
+
+	view.HandleInput("\x1b[6~") // page down
+	lines = plain(60)
+	if !strings.Contains(lines[1], "row xxxxxx") {
+		t.Errorf("page down did not move a page:\n%s", strings.Join(lines, "\n"))
+	}
+	view.HandleInput("\x1b[F") // end
+	lines = plain(60)
+	if !strings.Contains(lines[height-2], "30/30") {
+		t.Errorf("end did not reach the last row:\n%s", strings.Join(lines, "\n"))
+	}
+	view.HandleInput("k")
+	view.HandleInput("\x1b[H") // home
+	if lines = plain(60); !strings.HasPrefix(lines[1], "│ row  w") {
+		t.Errorf("home did not return to the top:\n%s", strings.Join(lines, "\n"))
+	}
+	if renders != 4 {
+		t.Errorf("scrolling asked for %d renders, want 4", renders)
+	}
+	if builds != 1 {
+		t.Errorf("scrolling laid the report out %d times, want once", builds)
+	}
+
+	// A wider screen widens the trace track, within bounds.
+	if !strings.Contains(plain(100)[1], "w"+strconv.Itoa(100-4-sessionMaxLaneNameWidth-sessionLaneChrome)) {
+		t.Errorf("wide screen did not widen the track: %q", plain(100)[1])
+	}
+	if !strings.Contains(plain(20)[1], "w"+strconv.Itoa(sessionMinTraceWidth)) {
+		t.Errorf("narrow screen shrank the track below its minimum: %q", plain(20)[1])
+	}
+	if !strings.Contains(plain(400)[1], "w"+strconv.Itoa(sessionMaxTraceWidth)) {
+		t.Errorf("huge screen grew the track past its maximum: %q", plain(400)[1])
+	}
+
+	builds = 0
+	view.HandleInput("r")
+	view.Render(60)
+	view.Render(60)
+	if snapshots != 1 || builds != 1 {
+		t.Errorf("refresh took %d snapshots and %d layouts, want 1 and 1", snapshots, builds)
+	}
+	if got := view.Render(5); len(got) != 1 {
+		t.Errorf("a sliver of width should render one clipped row, got %d", len(got))
+	}
+	for _, key := range []string{"\x1b", "q", "\x03"} {
+		view.HandleInput(key)
+	}
+	if closed != 3 {
+		t.Errorf("close keys closed the view %d times, want 3", closed)
 	}
 }

@@ -50,10 +50,10 @@ type sessionAccountingAccumulator struct {
 	stats      SessionAccounting
 	usageByKey map[string]SessionUsageBreakdown
 	usageOrder []string
-	// spans are the working intervals per usage key. openKey and openIndex name
-	// the assistant turn whose span still grows: it ends at the next request or
-	// tool result, and a user message closes it, so idle time is not drawn as work.
-	spans     map[string][]SessionSpan // ompig-slim
+	// openKey and openIndex name the assistant turn whose span (in
+	// usageByKey[openKey].Spans) still grows: it ends at the next request or
+	// tool result, and a user message closes it, so idle time is not drawn as
+	// work. ompig-slim.
 	openKey   string
 	openIndex int
 	cachePrev *previousCacheRequest
@@ -194,7 +194,7 @@ func (a *sessionAccountingAccumulator) addMessage(message sessionAccountingMessa
 		}
 		a.addUsage(key, message.Usage, message.Timestamp)
 		if message.Usage != nil && message.Timestamp > 0 {
-			a.openKey, a.openIndex = key, len(a.spans[key])-1
+			a.openKey, a.openIndex = key, len(a.usageByKey[key].Spans)-1
 		}
 		a.stats.LatestCacheHitRate = latestCacheHitRate(message.Usage)
 		a.addCacheWaste(message)
@@ -269,7 +269,7 @@ func (a *sessionAccountingAccumulator) extendTurn(role string, at int64) {
 		return
 	}
 	if role != "user" && at > 0 {
-		span := &a.spans[a.openKey][a.openIndex]
+		span := &a.usageByKey[a.openKey].Spans[a.openIndex]
 		span.End = max(span.End, at)
 	}
 	if role == "user" || role == "assistant" {
@@ -284,10 +284,16 @@ func (e sessionAccountingEntry) time() int64 {
 	if json.Unmarshal(e.Timestamp, &iso) != nil {
 		return 0
 	}
-	if ms := ai.DateParse(iso); !math.IsNaN(ms) {
-		return int64(ms)
+	return isoMillis(iso)
+}
+
+// isoMillis parses an ISO timestamp to Unix milliseconds, 0 when it is not one.
+func isoMillis(iso string) int64 {
+	ms := ai.DateParse(iso)
+	if math.IsNaN(ms) {
+		return 0
 	}
-	return 0
+	return int64(ms)
 }
 
 // addUsage books usage under key; at is when it happened, 0 when unknown.
@@ -312,13 +318,22 @@ func (a *sessionAccountingAccumulator) addUsage(key string, usage *ai.Usage, at 
 	breakdown.Key = key
 	breakdown.Cost += usage.Cost.Total
 	breakdown.Tokens += usage.Input + usage.Output + usage.CacheRead + usage.CacheWrite
-	if at > 0 {
-		if a.spans == nil {
-			a.spans = make(map[string][]SessionSpan)
-		}
-		a.spans[key] = append(a.spans[key], SessionSpan{at, at})
-	}
+	breakdown.addSpan(at)
 	a.usageByKey[key] = breakdown
+}
+
+// addSpan marks the key as working at at. A time inside the last span is
+// already covered, so consecutive turns of one model stay a single span: an
+// assistant message first extends the turn before it (extendTurn) to its own
+// time, then lands inside that span here.
+func (b *SessionUsageBreakdown) addSpan(at int64) {
+	if at <= 0 {
+		return
+	}
+	if n := len(b.Spans); n > 0 && at <= b.Spans[n-1].End {
+		return
+	}
+	b.Spans = append(b.Spans, SessionSpan{at, at})
 }
 
 func (a *sessionAccountingAccumulator) addCacheWaste(message sessionAccountingMessage) {
@@ -378,7 +393,7 @@ func (a sessionAccountingAccumulator) snapshot() SessionAccounting {
 	stats.UsageBreakdown = make([]SessionUsageBreakdown, 0, len(a.usageByKey))
 	for _, key := range a.usageOrder {
 		breakdown := a.usageByKey[key]
-		breakdown.Spans = slices.Clone(a.spans[key])
+		breakdown.Spans = slices.Clone(breakdown.Spans) // the accumulator keeps growing its own
 		if breakdown.Cost > 0 || breakdown.Tokens > 0 {
 			stats.UsageBreakdown = append(stats.UsageBreakdown, breakdown)
 		}

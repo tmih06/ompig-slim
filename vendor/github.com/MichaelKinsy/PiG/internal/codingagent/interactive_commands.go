@@ -315,6 +315,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		},
 		ShowHotkeys:            m.handleHotkeysCommand,
 		ShowUsage:              m.showUsageDashboard,
+		ShowSessionStats:       m.showSessionStats,
 		ListResetCredits:       m.listResetCredits,
 		ShowResetUsageSelector: m.showResetUsageSelector,
 		ShowAutoResetSelector:  m.showAutoResetSelector,
@@ -324,13 +325,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 		// Session ops.
 		CurrentSession: func() *Session { return m.currentSession() },
 		// ompig-slim: feeds the /session time trace.
-		SessionSubagents: func() []subagents.Record {
-			manager := m.subagentManager()
-			if manager == nil {
-				return nil
-			}
-			return manager.Records()
-		},
+		SessionSubagents: func() []subagents.Record { return m.subagentManager().Records() },
 		ExportToJsonl: func(outputPath string) (string, error) {
 			if m.opts.SessionHandle == nil {
 				return ExportSessionToJsonl(m.currentSession(), outputPath, nil)

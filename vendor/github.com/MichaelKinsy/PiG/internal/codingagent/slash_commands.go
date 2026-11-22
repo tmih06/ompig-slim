@@ -170,6 +170,11 @@ type SlashContext struct {
 	ShowHotkeys      func()
 	// ShowUsage opens the /usage quota board (upstream showUsageDashboard).
 	ShowUsage func()
+	// ShowSessionStats opens the /session report in its own fullscreen view.
+	// snapshot takes a fresh reading of the session each time it is called.
+	// Nil keeps the report inline in the transcript, as print, RPC and
+	// headless modes do. ompig-slim addition.
+	ShowSessionStats func(snapshot func() sessionReport)
 	// ListResetCredits reads every stored account's saved rate-limit resets.
 	// Nil means the build wired no quota source.
 	ListResetCredits func(ctx context.Context) ([]UsageResetCreditAccount, error)
@@ -943,7 +948,12 @@ func copyHandler(sc *SlashContext) error {
 }
 
 func sessionHandler(sc *SlashContext) error {
-	render := sessionInfoRenderer(sc)
+	if sc.ShowSessionStats != nil {
+		sc.ShowSessionStats(func() sessionReport { return sessionInfoRenderer(sc) })
+		return nil
+	}
+	report := sessionInfoRenderer(sc)
+	render := func() string { return report(sessionTraceWidth) }
 	// upstream handleSessionCommand adds `new ThemedText(renderInfo, 1, 0)`: the text is built again on every render, so it follows theme changes.
 	switch {
 	case sc.AppendThemedText != nil:
@@ -956,6 +966,10 @@ func sessionHandler(sc *SlashContext) error {
 	return nil
 }
 
+// sessionReport builds the /session text with a time-trace track of
+// traceWidth cells, in the active theme's colors at the moment it runs.
+type sessionReport func(traceWidth int) string
+
 // sessionInfoRenderer mirrors upstream handleSessionCommand (interactive-mode.ts:6705-6779): it snapshots the session statistics, name, usage
 // breakdown, cache-warming status and mode, and the selected model, and returns renderInfo, which builds the text from them with the active
 // theme's bold and dim and the cache-warming status as of the moment it runs.
@@ -963,7 +977,7 @@ func sessionHandler(sc *SlashContext) error {
 // series and the subagent records, and renderInfo lays them out as a chart
 // report (model bars, timeline sparkline, subagent rollup) rather than the
 // upstream label list.
-func sessionInfoRenderer(sc *SlashContext) func() string {
+func sessionInfoRenderer(sc *SlashContext) sessionReport {
 	var sessionName string
 	if sc.GetSessionName != nil {
 		sessionName = sc.GetSessionName()
@@ -1000,7 +1014,7 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 	if sc.SelectedModelKey != nil {
 		selectedModelKey = sc.SelectedModelKey()
 	}
-	return func() string {
+	return func(traceWidth int) string {
 		// Section headings carry the accent color as well as bold. Upstream's
 		// /session writes theme.bold(heading) inside a themed report and relies on
 		// the overlay to color it; here the report is appended straight to the
@@ -1029,7 +1043,8 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 			}
 			fields = append(fields, sessionField{"File", path})
 		}
-		if started, ok := sessionHeaderTime(headerTimestamp); ok {
+		if ms := isoMillis(headerTimestamp); ms > 0 {
+			started := time.UnixMilli(ms)
 			value := started.Local().Format("2006-01-02 15:04")
 			if age := sessionAge(started); age != "now" {
 				value += " " + dim("("+age+" ago)")
@@ -1054,7 +1069,7 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		}
 		writeSessionFields(&b, fields, dim)
 
-		writeSessionTrace(&b, stats, subagentRecords, time.Now(), ansi, bold, dim)
+		writeSessionTrace(&b, stats, subagentRecords, time.Now(), traceWidth, ansi, bold, dim)
 		writeCacheWarmingSection(&b, mode, status, bold, dim)
 
 		if ts.Cost > 0 || stats.CacheWaste.MissedTokens > 0 {

@@ -48,12 +48,8 @@ func (m *InteractiveMode) showUsageDashboard() {
 		m.usageDashboard.handle.Focus()
 		return
 	}
-	previousMode := "regular"
-	if m.altScreen != nil {
-		previousMode = "fullscreen"
-	}
-	if previousMode == "regular" && !m.switchTuiMode("fullscreen", true, true) {
-		m.showWarning("Close active overlays before opening usage.")
+	previousMode, ok := m.enterBoardScreen("usage")
+	if !ok {
 		return
 	}
 
@@ -120,16 +116,7 @@ func (m *InteractiveMode) showUsageDashboard() {
 		RequestRender: m.requestRender,
 		OnClose:       m.closeUsageDashboard,
 	})
-	// The board owns the whole screen: 100% width and height with no margin,
-	// anchored bottom-center as upstream's showOverlay requests.
-	options := tui.OverlaySpec{
-		Width:     &tui.OverlayValue{Value: 100, Percent: true},
-		MaxHeight: &tui.OverlayValue{Value: 100, Percent: true},
-		Anchor:    "bottom-center",
-		Margin:    tui.OverlayMarginAll(0),
-	}.Options()
-	options.Fullscreen = true
-	handle := m.tuiInst.ShowOverlay(component, options)
+	handle := m.showBoard(component)
 	if handle == nil {
 		return
 	}
@@ -149,12 +136,46 @@ func (m *InteractiveMode) closeUsageDashboard() {
 	}
 	m.usageDashboard = nil
 	dashboard.component.Dispose()
+	m.leaveBoardScreen(dashboard.handle, dashboard.previousMode)
+}
+
+// enterBoardScreen moves a regular-mode chat to the alternate screen, where
+// fullscreen boards live, and reports the mode to restore afterwards. It
+// warns and reports false when an open overlay blocks the switch.
+func (m *InteractiveMode) enterBoardScreen(board string) (previousMode string, ok bool) {
+	if m.altScreen != nil {
+		return "fullscreen", true
+	}
+	if !m.switchTuiMode("fullscreen", true, true) {
+		m.showWarning("Close active overlays before opening " + board + ".")
+		return "", false
+	}
+	return "regular", true
+}
+
+// showBoard mounts component as an overlay that owns the whole screen: 100%
+// width and height with no margin, anchored bottom-center as upstream's
+// showOverlay requests.
+func (m *InteractiveMode) showBoard(component tui.Component) *tui.OverlayHandle {
+	options := tui.OverlaySpec{
+		Width:     &tui.OverlayValue{Value: 100, Percent: true},
+		MaxHeight: &tui.OverlayValue{Value: 100, Percent: true},
+		Anchor:    "bottom-center",
+		Margin:    tui.OverlayMarginAll(0),
+	}.Options()
+	options.Fullscreen = true
+	return m.tuiInst.ShowOverlay(component, options)
+}
+
+// leaveBoardScreen hides a board's overlay and restores the chat's previous
+// screen mode.
+func (m *InteractiveMode) leaveBoardScreen(handle *tui.OverlayHandle, previousMode string) {
 	// Hide removes the entry synchronously (overlayRemoveTarget runs under the
 	// overlay lock before apply returns), so HasOverlay is false for the
 	// renderer swap and switchTuiMode's own guard passes.
-	dashboard.handle.Hide()
-	if !m.isShuttingDownMode() && dashboard.previousMode != m.currentTuiMode() {
-		m.switchTuiMode(dashboard.previousMode, true, true)
+	handle.Hide()
+	if !m.isShuttingDownMode() && previousMode != m.currentTuiMode() {
+		m.switchTuiMode(previousMode, true, true)
 	}
 	m.requestRender()
 }

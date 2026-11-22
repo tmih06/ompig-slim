@@ -7,23 +7,29 @@ package codingagent
 // like the upstream sections do.
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/subagents"
+	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
-	"math"
 )
 
 const (
-	sessionTraceWidth          = 40
-	sessionMaxLaneNameWidth    = 24
-	sessionMaxSubagentLanes    = 12
-	sessionTraceBucketsPerCell = 2
+	// sessionTraceWidth is the track width in the transcript. The fullscreen
+	// view widens it to the terminal, within the two bounds.
+	sessionTraceWidth       = 40
+	sessionMinTraceWidth    = 28
+	sessionMaxTraceWidth    = 120
+	sessionMaxLaneNameWidth = 24
+	sessionMaxSubagentLanes = 12
+	// sessionLaneChrome is the width a lane row takes besides its name and
+	// track: marker, gaps, token count, and share.
+	sessionLaneChrome = 16
 )
 
 // sessionBarSlots cycles ANSI palette slots so adjacent lanes keep distinct
@@ -56,49 +62,47 @@ type sessionLane struct {
 	pct    string // share of session tokens, empty for rows outside the total
 }
 
-// writeSessionTrace renders the session as a time trace. Every lane shares
-// one track from the session's first to its last timed activity: a lane per
-// model the main agent used, then a lane per subagent, so work that ran at
-// the same time lines up in the same column. A cell is filled only where its
-// time slice held work, and each cell resolves two slices (▌ ▐ █), so gaps
-// and interleaving stay visible. Lanes without a time have an empty track.
-func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []subagents.Record, now time.Time, ansi func(int, string) string, bold, dim func(string) string) {
-	var models []sessionLane
-	if stats.Tokens.Total > 0 {
-		rows := slices.Clone(stats.UsageBreakdown)
-		slices.SortStableFunc(rows, func(left, right SessionUsageBreakdown) int {
-			switch {
-			case len(left.Spans) == 0 && len(right.Spans) > 0:
-				return 1
-			case len(left.Spans) > 0 && len(right.Spans) == 0:
-				return -1
-			case len(left.Spans) == 0:
-				return right.Tokens - left.Tokens
-			default:
-				return int(left.Spans[0].Start - right.Spans[0].Start)
-			}
-		})
-		for i, row := range rows {
-			slot := sessionBarSlots[i%len(sessionBarSlots)]
-			models = append(models, sessionLane{
-				marker: ansi(slot, "●"), name: row.Key, slot: slot, spans: row.Spans, tokens: row.Tokens,
-				pct: jsstring.ToFixed(float64(row.Tokens)*100/float64(stats.Tokens.Total), 0) + "%",
-			})
+// sessionModelLanes is one lane per model the main agent used: timed lanes
+// first, by start, then the untimed by size.
+func sessionModelLanes(stats SessionAccounting, ansi func(int, string) string) []sessionLane {
+	if stats.Tokens.Total <= 0 {
+		return nil
+	}
+	rows := slices.Clone(stats.UsageBreakdown)
+	slices.SortStableFunc(rows, func(left, right SessionUsageBreakdown) int {
+		timedLeft, timedRight := len(left.Spans) > 0, len(right.Spans) > 0
+		switch {
+		case timedLeft && timedRight:
+			return cmp.Compare(left.Spans[0].Start, right.Spans[0].Start)
+		case timedLeft:
+			return -1
+		case timedRight:
+			return 1
+		default:
+			return cmp.Compare(right.Tokens, left.Tokens)
+		}
+	})
+	lanes := make([]sessionLane, len(rows))
+	for i, row := range rows {
+		slot := sessionBarSlots[i%len(sessionBarSlots)]
+		lanes[i] = sessionLane{
+			marker: ansi(slot, "●"), name: row.Key, slot: slot, spans: row.Spans, tokens: row.Tokens,
+			pct: jsstring.ToFixed(float64(row.Tokens)*100/float64(stats.Tokens.Total), 0) + "%",
 		}
 	}
-	runs := slices.Clone(records)
-	slices.SortStableFunc(runs, func(left, right subagents.Record) int { return int(left.StartedAt - right.StartedAt) })
-	var agents []sessionLane
-	var agentTokens int64
-	var agentCost float64
-	for i, r := range runs {
-		agentTokens += r.Tokens
-		agentCost += r.Cost
-		if i >= sessionMaxSubagentLanes {
-			continue
+	return lanes
+}
+
+// sessionSubagentLanes is a lane for each of the first sessionMaxSubagentLanes
+// runs, which come sorted by start. A running subagent's span ends at now.
+// Slots continue after the model lanes' so every lane keeps its own hue.
+func sessionSubagentLanes(runs []subagents.Record, modelLanes int, now time.Time) []sessionLane {
+	lanes := make([]sessionLane, 0, min(len(runs), sessionMaxSubagentLanes))
+	for i, r := range runs[:cap(lanes)] {
+		lane := sessionLane{
+			marker: subagentIcon(r), name: strings.Repeat("  ", min(r.Depth, 2)) + subagentIdentity(r),
+			slot: sessionBarSlots[(modelLanes+i)%len(sessionBarSlots)], tokens: int(r.Tokens),
 		}
-		slot := sessionBarSlots[(len(models)+i)%len(sessionBarSlots)]
-		lane := sessionLane{marker: subagentIcon(r), name: strings.Repeat("  ", min(r.Depth, 2)) + subagentIdentity(r), slot: slot, tokens: int(r.Tokens)}
 		if r.StartedAt > 0 {
 			end := r.CompletedAt
 			if r.Active() {
@@ -106,20 +110,43 @@ func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []su
 			}
 			lane.spans = []SessionSpan{{r.StartedAt, max(end, r.StartedAt)}}
 		}
-		agents = append(agents, lane)
+		lanes = append(lanes, lane)
 	}
+	return lanes
+}
+
+// writeSessionTrace renders the session as a time trace. Every lane shares
+// one track from the session's first to its last timed activity: a lane per
+// model the main agent used, then a lane per subagent, so work that ran at
+// the same time lines up in the same column. A cell is filled only where its
+// time slice held work, and each cell resolves two slices (▌ ▐ █), so gaps
+// and interleaving stay visible. Lanes without a time have an empty track.
+// width is the track's length in cells.
+func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []subagents.Record, now time.Time, width int, ansi func(int, string) string, bold, dim func(string) string) {
+	models := sessionModelLanes(stats, ansi)
+	runs := slices.Clone(records)
+	slices.SortStableFunc(runs, func(left, right subagents.Record) int { return cmp.Compare(left.StartedAt, right.StartedAt) })
+	agents := sessionSubagentLanes(runs, len(models), now)
 	if len(models) == 0 && len(agents) == 0 {
 		return
+	}
+	var agentTokens int64
+	var agentCost float64
+	for _, r := range runs {
+		agentTokens += r.Tokens
+		agentCost += r.Cost
 	}
 
 	nameWidth := len("Subagents")
 	var all []SessionSpan
-	for _, lane := range slices.Concat(models, agents) {
-		nameWidth = max(nameWidth, widthx.VisibleWidth(lane.name))
-		all = append(all, lane.spans...)
+	for _, lanes := range [][]sessionLane{models, agents} {
+		for _, lane := range lanes {
+			nameWidth = max(nameWidth, widthx.VisibleWidth(lane.name))
+			all = append(all, lane.spans...)
+		}
 	}
 	nameWidth = min(nameWidth, sessionMaxLaneNameWidth)
-	axis := newTraceAxis(all)
+	axis := newTraceAxis(all, width)
 	writeLane := func(lane sessionLane) {
 		name := widthx.TruncateToWidth(lane.name, nameWidth, "…", true)
 		fmt.Fprintf(b, "%s %s %s  %6s %4s\n", lane.marker, name, sessionTraceTrack(lane, axis, ansi, dim), formatTokens(lane.tokens), lane.pct)
@@ -142,11 +169,11 @@ func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []su
 		}
 	}
 
-	b.WriteString(dim(strings.Repeat("─", 2+nameWidth+1+sessionTraceWidth+2+6+1+4)) + "\n")
+	b.WriteString(dim(strings.Repeat("─", nameWidth+width+sessionLaneChrome)) + "\n")
 	writeTotal := func(label, middle string, tokens int) {
 		fmt.Fprintf(b, "  %s %s  %6s %s\n",
 			widthx.TruncateToWidth(label, nameWidth, "…", true),
-			dim(fmt.Sprintf("%-*s", sessionTraceWidth, widthx.TruncateToWidth(middle, sessionTraceWidth, "…", false))),
+			dim(fmt.Sprintf("%-*s", width, widthx.TruncateToWidth(middle, width, "…", false))),
 			formatTokens(tokens), dim("tokens"))
 	}
 	if len(models) > 0 {
@@ -165,36 +192,33 @@ func writeSessionTrace(b *strings.Builder, stats SessionAccounting, records []su
 }
 
 // sessionTraceTrack draws one lane's track. The axis's active time is cut
-// into sessionTraceWidth*2 slices; a span marks every slice it touches, and
-// at least one so an instant stays visible.
+// into two slices per cell; a span marks every slice it touches, and at
+// least one so an instant stays visible.
 func sessionTraceTrack(lane sessionLane, axis traceAxis, ansi func(int, string) string, dim func(string) string) string {
-	const slices = sessionTraceWidth * sessionTraceBucketsPerCell
-	var busy [slices]bool
+	halves := axis.width * 2
+	busy := make([]bool, halves)
 	for _, s := range lane.spans {
-		lo, hi := 0, 0
-		if axis.active > 0 {
-			lo = int(axis.offset(s.Start) * slices / axis.active)
-			hi = int((axis.offset(s.End)*slices+axis.active-1)/axis.active) - 1
-		}
-		lo = min(max(lo, 0), slices-1)
-		hi = min(max(hi, lo), slices-1)
+		// A span has at least a millisecond on the axis, so active is positive.
+		lo := int(axis.offset(s.Start) * int64(halves) / axis.active)
+		hi := int((axis.offset(s.End)*int64(halves)+axis.active-1)/axis.active) - 1
+		lo = min(max(lo, 0), halves-1)
+		hi = min(max(hi, lo), halves-1)
 		for i := lo; i <= hi; i++ {
 			busy[i] = true
 		}
 	}
+	// Indexed by the left slice (2) and right slice (1) being busy.
+	glyphs := [4]string{dim("·"), ansi(lane.slot, "▐"), ansi(lane.slot, "▌"), ansi(lane.slot, "█")}
 	var out strings.Builder
-	for c := 0; c < sessionTraceWidth; c++ {
-		left, right := busy[2*c], busy[2*c+1]
-		switch {
-		case left && right:
-			out.WriteString(ansi(lane.slot, "█"))
-		case left:
-			out.WriteString(ansi(lane.slot, "▌"))
-		case right:
-			out.WriteString(ansi(lane.slot, "▐"))
-		default:
-			out.WriteString(dim("·"))
+	for c := 0; c < axis.width; c++ {
+		glyph := 0
+		if busy[2*c] {
+			glyph |= 2
 		}
+		if busy[2*c+1] {
+			glyph |= 1
+		}
+		out.WriteString(glyphs[glyph])
 	}
 	return out.String()
 }
@@ -211,12 +235,13 @@ type traceAxis struct {
 	runs   []traceRun
 	active int64 // total length of runs, in ms
 	idle   int64 // idle time of at least sessionIdleSkip that was cut, in ms
+	width  int   // track length in cells
 }
 
 // traceRun is one stretch of continuous work, starting active ms into the axis.
 type traceRun struct{ start, end, active int64 }
 
-func newTraceAxis(spans []SessionSpan) traceAxis {
+func newTraceAxis(spans []SessionSpan, width int) traceAxis {
 	timed := make([]SessionSpan, 0, len(spans))
 	for _, s := range spans {
 		if s.Start > 0 {
@@ -224,8 +249,8 @@ func newTraceAxis(spans []SessionSpan) traceAxis {
 			timed = append(timed, SessionSpan{s.Start, max(s.End, s.Start+1)})
 		}
 	}
-	slices.SortFunc(timed, func(left, right SessionSpan) int { return int(left.Start - right.Start) })
-	var c traceAxis
+	slices.SortFunc(timed, func(left, right SessionSpan) int { return cmp.Compare(left.Start, right.Start) })
+	c := traceAxis{width: width}
 	for _, s := range timed {
 		if n := len(c.runs); n > 0 && s.Start <= c.runs[n-1].end {
 			c.runs[n-1].end = max(c.runs[n-1].end, s.End)
@@ -273,17 +298,15 @@ func (c traceAxis) label() string {
 		layout = "Jan 02 15:04"
 	}
 	left, right := []rune(from.Format(layout)), []rune(to.Format(layout))
-	cells := []rune(strings.Repeat(" ", sessionTraceWidth))
-	if c.active > 0 {
-		for i := 1; i < len(c.runs); i++ {
-			if c.runs[i].start-c.runs[i-1].end >= sessionIdleSkip.Milliseconds() {
-				cells[min(int(c.runs[i].active*sessionTraceWidth/c.active), sessionTraceWidth-1)] = '┆'
-			}
+	cells := []rune(strings.Repeat(" ", c.width))
+	for i := 1; i < len(c.runs); i++ {
+		if c.runs[i].start-c.runs[i-1].end >= sessionIdleSkip.Milliseconds() {
+			cells[min(int(c.runs[i].active*int64(c.width)/c.active), c.width-1)] = '┆'
 		}
 	}
 	copy(cells, left)
 	if len(c.runs) > 1 || last > first+1 {
-		copy(cells[max(len(left)+1, sessionTraceWidth-len(right)):], right)
+		copy(cells[max(len(left)+1, c.width-len(right)):], right)
 	}
 	return string(cells)
 }
@@ -293,34 +316,9 @@ func (c traceAxis) summary() string {
 	if c.empty() {
 		return ""
 	}
-	text := sessionDuration(c.active) + " active"
+	text := tui.FormatDuration(c.active) + " active"
 	if c.idle > 0 {
-		text += " · " + sessionDuration(c.idle) + " idle cut ┆"
+		text += " · " + tui.FormatDuration(c.idle) + " idle cut ┆"
 	}
 	return text
-}
-
-// sessionDuration renders an active span as "45s", "1m 5s", "1h 23m", or
-// "2d 4h", matching the compact style the subagent rows use.
-func sessionDuration(ms int64) string {
-	d := max(0, ms)
-	switch d := time.Duration(d) * time.Millisecond; {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
-	}
-}
-
-// sessionHeaderTime parses the session header's millisecond ISO timestamp.
-func sessionHeaderTime(timestamp string) (time.Time, bool) {
-	ms := ai.DateParse(timestamp)
-	if math.IsNaN(ms) {
-		return time.Time{}, false
-	}
-	return time.UnixMilli(int64(ms)), true
 }

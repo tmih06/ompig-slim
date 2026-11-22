@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Verify the /session stats report renders the chart sections in a real PTY."""
+"""Verify /session opens its stats view on the alternate screen in a real PTY.
+
+The report must leave the transcript alone: it appears only in the view. A
+regular chat switches to the alternate screen for it and back on close; a
+fullscreen chat stays where it is."""
 import argparse
 import fcntl
 import http.server
@@ -12,6 +16,7 @@ import struct
 import subprocess
 import tempfile
 import termios
+import threading
 import time
 from pathlib import Path
 
@@ -39,7 +44,7 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
         self.wfile.write(wire)
 
 
-def run(binary, server):
+def run(binary, server, mode):
     with tempfile.TemporaryDirectory(prefix="ompig-session-stats-") as directory:
         root = Path(directory)
         agent = root / "agent"
@@ -49,7 +54,7 @@ def run(binary, server):
             "apiKey": "fixture", "models": [{"id": "stats-proof", "cost": {
                 "input": 2, "output": 4, "cacheRead": 1, "cacheWrite": 0}}]}}}))
         (agent / "settings.json").write_text(json.dumps({
-            "quietStartup": True, "enableInstallTelemetry": False}))
+            "quietStartup": True, "enableInstallTelemetry": False, "tuiMode": mode}))
         env = dict(os.environ, HOME=directory, PIG_HOME=directory, PI_HOME=directory,
                    PI_OFFLINE="1", PI_SKIP_VERSION_CHECK="1", PI_TELEMETRY="0",
                    PIG_STARTUP_TRACE="1",
@@ -90,20 +95,43 @@ def run(binary, server):
             wait_for(b"STATS_PROOF_DONE")
             os.write(master, b"Again.\r")
             wait_for(b"STATS_PROOF_DONE", count=2)
+            alt_on, alt_off = b"\x1b[?1049h", b"\x1b[?1049l"
+            before = len(captured)
             os.write(master, b"/session\r")
             wait_for(b"Tokens by model")
+            wait_for(b"esc close")
+            opened = bytes(captured[before:])
+            if mode == "regular":
+                assert alt_on in opened, "the view did not switch to the alternate screen"
+                assert opened.index(alt_on) < opened.index(b"Tokens by model"), \
+                    "the report was drawn before the alternate screen"
+            else:
+                assert alt_on not in opened, "fullscreen chat switched screens for the view"
+            os.write(master, b"r")  # refresh keeps the view open
+            wait_for(timeout=1)
+            assert alt_off not in bytes(captured[before:]), "refresh closed the view"
+            os.write(master, b"\x1b")
+            if mode == "regular":
+                wait_for(alt_off, timeout=10)
+            else:
+                wait_for(timeout=1)  # no screen switch to wait for; /quit below proves the view closed
+            closed_at = len(captured)
             os.write(master, b"/quit\r")
             wait_for()
             assert process.wait(timeout=5) == 0, "quit failed"
-            plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(captured)).decode(errors="replace")
+            assert b"Tokens by model" not in bytes(captured[closed_at:]), \
+                "the report leaked into the chat after the view closed"
+            plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(captured[before:])).decode(errors="replace")
             report = plain[plain.index("Session stats"):]
             for want in ("Session stats", "Messages", "Input tokens", "Started",
                          "Tokens by model", "stats-proof/stats-proof", "%",
                          "Total", "Cache Warming", "Cost"):
                 assert want in report, f"missing {want!r}:\n{report}"
             assert "█" in report, f"no model bars:\n{report}"
-            track = re.search(r"stats-proof/stats-proof\s+[·█▌▐]{40}\s", report)
-            assert track, f"no 40-cell time trace row:\n{report}"
+            track = re.search(r"stats-proof/stats-proof\s+([·█▌▐]+)\s", report)
+            assert track, f"no time trace row:\n{report}"
+            # The view widens the 40-cell transcript track to the 120-column terminal.
+            assert len(track.group(1)) > 40, f"trace was not widened: {len(track.group(1))} cells"
         finally:
             if process.poll() is None:
                 process.kill()
@@ -115,9 +143,9 @@ def main():
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
     server = http.server.HTTPServer(("127.0.0.1", 0), ModelServer)
-    import threading
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    run(args.binary.resolve(), server)
+    for mode in ("regular", "fullscreen"):
+        run(args.binary.resolve(), server, mode)
     print("PASS session-stats")
 
 
