@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -335,6 +336,13 @@ func (s *Session) DispatchSlash(line string) ([]string, error) {
 	internalSC.SettingsManager = s.SettingsManager()
 	internalSC.ShowStatus = func(message string) { output = append(output, message) }
 	internalSC.ShowError = func(message string) { output = append(output, "Error: "+message) }
+	// ompig-slim: feeds the headless /session "Subagents" section.
+	internalSC.SessionSubagents = func() ([]subagents.Record, subagents.Settings) {
+		if s.subagents == nil {
+			return nil, subagents.Settings{}
+		}
+		return s.subagents.Records(), s.subagents.Settings()
+	}
 	internalSC.Subagents = func(args string) error {
 		if s.subagents == nil {
 			return fmt.Errorf("subagents are unavailable")

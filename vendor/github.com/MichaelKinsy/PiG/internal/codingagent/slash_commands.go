@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -190,6 +191,10 @@ type SlashContext struct {
 
 	// Session accessors. May be nil; handlers must guard.
 	CurrentSession func() *Session
+	// SessionSubagents returns the subagent manager's record snapshot and its
+	// display settings for the /session "Subagents" section. Nil when no
+	// manager is bound. ompig-slim addition.
+	SessionSubagents func() ([]subagents.Record, subagents.Settings)
 	// ExportToJsonl writes the current branch to outputPath (upstream session.exportToJsonl). May be nil: /export then
 	// writes the branch of CurrentSession itself.
 	ExportToJsonl func(outputPath string) (string, error)
@@ -955,6 +960,10 @@ func sessionHandler(sc *SlashContext) error {
 // sessionInfoRenderer mirrors upstream handleSessionCommand (interactive-mode.ts:6705-6779): it snapshots the session statistics, name, usage
 // breakdown, cache-warming status and mode, and the selected model, and returns renderInfo, which builds the text from them with the active
 // theme's bold and dim and the cache-warming status as of the moment it runs.
+// ompig-slim: the snapshot also covers the header timestamp, the activity
+// series and the subagent records, and renderInfo lays them out as a chart
+// report (model bars, timeline sparkline, subagent rollup) rather than the
+// upstream label list.
 func sessionInfoRenderer(sc *SlashContext) func() string {
 	var sessionName string
 	if sc.GetSessionName != nil {
@@ -964,13 +973,19 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 	if sc.CurrentSession != nil {
 		session = sc.CurrentSession()
 	}
-	sessionID, sessionPath := "", ""
+	sessionID, sessionPath, headerTimestamp := "", "", ""
 	var stats SessionAccounting
 	if session != nil {
 		sessionID, sessionPath = session.ID(), session.Path()
+		headerTimestamp = session.GetHeader().Timestamp
 		stats = session.Accounting()
 	} else if sc.SessionInfo != nil {
 		sessionID, _, _ = sc.SessionInfo()
+	}
+	var subagentRecords []subagents.Record
+	var subagentSettings subagents.Settings
+	if sc.SessionSubagents != nil {
+		subagentRecords, subagentSettings = sc.SessionSubagents()
 	}
 	mode := defaultCacheWarmingMode
 	if sc.SettingsManager != nil {
@@ -994,9 +1009,14 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		// transcript, so a heading that is only bold reads as an unstyled line.
 		bold := func(s string) string { return tui.ChalkBold(tui.ActiveTheme().Fg("accent", s)) }
 		dim := func(s string) string { return tui.ActiveTheme().Fg("dim", s) }
+		ansi := tui.ActiveTheme().ANSIFg
 
 		var b strings.Builder
-		b.WriteString(bold("Session Info") + "\n\n")
+		b.WriteString(bold("Session Stats"))
+		if sessionID != "" {
+			b.WriteString("   " + dim(sessionID))
+		}
+		b.WriteString("\n\n")
 		if sessionName != "" {
 			fmt.Fprintf(&b, "%s %s\n", dim("Name:"), sessionName)
 		}
@@ -1006,9 +1026,6 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 				path = "In-memory"
 			}
 			fmt.Fprintf(&b, "%s %s\n", dim("File:"), path)
-			fmt.Fprintf(&b, "%s %s\n", dim("ID:"), sessionID)
-		} else if sessionID != "" {
-			fmt.Fprintf(&b, "%s %s\n", dim("ID:"), sessionID)
 		}
 
 		b.WriteString("\n" + bold("Messages") + "\n")
@@ -1031,6 +1048,10 @@ func sessionInfoRenderer(sc *SlashContext) func() string {
 		}
 		fmt.Fprintf(&b, "%s %s\n", dim("Output:"), formatNumber(ts.Output))
 		fmt.Fprintf(&b, "%s %s\n", dim("Total:"), formatNumber(ts.Total))
+
+		writeSessionModelBars(&b, stats, ansi, bold, dim)
+		writeSessionTimeline(&b, stats, headerTimestamp, ansi, bold, dim)
+		writeSessionSubagents(&b, subagentRecords, subagentSettings, bold, dim)
 		writeCacheWarmingSection(&b, mode, status, bold, dim)
 
 		if ts.Cost > 0 || stats.CacheWaste.MissedTokens > 0 {

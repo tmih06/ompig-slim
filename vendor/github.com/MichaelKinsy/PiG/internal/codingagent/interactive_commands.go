@@ -18,6 +18,7 @@ import (
 	"github.com/MichaelKinsy/PiG/internal/codingagent/tools"
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/nodeerrno"
+	"github.com/MichaelKinsy/PiG/internal/subagents"
 	"github.com/MichaelKinsy/PiG/tui"
 	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
@@ -322,6 +323,14 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 
 		// Session ops.
 		CurrentSession: func() *Session { return m.currentSession() },
+		// ompig-slim: feeds the /session "Subagents" section.
+		SessionSubagents: func() ([]subagents.Record, subagents.Settings) {
+			manager := m.subagentManager()
+			if manager == nil {
+				return nil, subagents.Settings{}
+			}
+			return manager.Records(), manager.Settings()
+		},
 		ExportToJsonl: func(outputPath string) (string, error) {
 			if m.opts.SessionHandle == nil {
 				return ExportSessionToJsonl(m.currentSession(), outputPath, nil)
