@@ -13,6 +13,6 @@
 /.github/CODEOWNERS     @tmih06
 /docs/quality-baseline* @tmih06
 /Makefile               @tmih06
-/.claude/               @tmih06
+/.githooks/             @tmih06
 /AGENTS.md              @tmih06
 /CLAUDE.md              @tmih06

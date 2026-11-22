@@ -12,7 +12,7 @@ fails (exit 1) when the diff:
   * modifies disposable ``vendor/`` files outside ``vendor/modules.txt`` and
     maintained ``vendor/github.com/MichaelKinsy/PiG/``
   * touches gate config, ``.semgrep/``, ``scripts/quality/``, ``Makefile``, CI
-    workflows, baseline, ``.claude/``, or ``AGENTS.md``/``CLAUDE.md`` without a
+    workflows, baseline, ``.githooks/``, or ``AGENTS.md``/``CLAUDE.md`` without a
     CODEOWNER approval signal
   * changes ``go.mod`` without a justification line in the PR description
   * exceeds the size cap calibrated to this repo's typical PR (unless owner-approved)
@@ -46,7 +46,7 @@ GATE_PATHS = re.compile(
     r"|\.github/workflows/"
     r"|docs/quality-baseline\.(json|md)$"
     r"|\.github/CODEOWNERS$"
-    r"|\.claude/"
+    r"|\.githooks/"
     r"|Makefile$"
     r"|AGENTS\.md$"
     r"|CLAUDE\.md$"

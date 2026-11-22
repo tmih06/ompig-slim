@@ -173,9 +173,10 @@ must verify that secrets do not appear in logs or snapshots.
 Every change must pass the gate before it is done. It is one command:
 
 ```sh
+make hooks       # configure git core.hooksPath=.githooks (also auto-wired by make build/check/gate)
 make gate        # full gate: build, lint(new code), vet, slop, diff, ratchet,
-                 # tests -race -shuffle, govulncheck, mod-tidy drift
-make gate-quick  # cheap subset for iteration (build, lint, vet, slop, diff, ratchet)
+                 # tests -race -shuffle, govulncheck, manifest drift
+make gate-quick  # cheap subset run by .githooks/pre-commit (build, lint, vet, slop, diff, ratchet)
 ```
 
 Run a single linter when iterating:
@@ -192,7 +193,7 @@ python3 scripts/quality/ratchet.py lint.json          # per-rule debt ratchet
 
 **Never bypass the gate.** Never add `//nolint`, `t.Skip`, or a disabled rule
 to make it pass. Never edit `.golangci.yml`, `.semgrep/`, `scripts/quality/`,
-`.github/workflows/`, `docs/quality-baseline.*`, `CODEOWNERS`, `.claude/`, or
+`.github/workflows/`, `docs/quality-baseline.*`, `CODEOWNERS`, `.githooks/`, or
 this file to loosen a check — those paths are CODEOWNER-protected and the
 diff-check fails the PR without owner approval. If a rule seems wrong, stop
 and ask a human; do not weaken the gate.

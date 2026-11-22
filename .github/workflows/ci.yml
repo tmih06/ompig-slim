@@ -493,7 +493,7 @@ jobs:
       - name: Validate scripts and whitespace
         run: |
           git diff-tree --check HEAD
-          for script in scripts/*.sh scripts/quality/*.sh .claude/hooks/*.sh; do bash -n "$script"; done
+          for script in scripts/*.sh scripts/quality/*.sh .githooks/*; do bash -n "$script"; done
           python3 - <<'PY'
           import ast, pathlib
           for pattern in ('scripts/*.py', 'scripts/quality/*.py'):
