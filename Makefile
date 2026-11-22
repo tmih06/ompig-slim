@@ -67,6 +67,7 @@ else
 	python3 scripts/smoke-test-logout.py ./bin/ompig-slim
 	python3 scripts/smoke-test-quit.py ./bin/ompig-slim
 	python3 scripts/smoke-test-slash-suggestions.py ./bin/ompig-slim
+	python3 scripts/smoke-test-session-stats.py ./bin/ompig-slim
 	python3 scripts/smoke-test-info-widgets.py ./bin/ompig-slim
 	python3 scripts/smoke-test-mistral-usage.py ./bin/ompig-slim
 	python3 scripts/smoke-test-mistral-content.py ./bin/ompig-slim
