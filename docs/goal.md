@@ -21,6 +21,13 @@ otherwise be poked forever.
 | active, paused | `complete` | complete |
 | any | `drop` | none |
 
+The operations are split by surface. The model's `goal` tool reports state and
+outcomes — `get`, `complete`, `pause`, `blocked`, and `progress` — and neither
+lists nor accepts `create`, `resume`, or `drop`: starting an objective, reviving
+stopped work, and discarding the goal are human decisions, so those controls
+live only in the `/goal` command. An operation the tool does not know is an
+error, so a guessed lifecycle call changes nothing.
+
 A settled goal accepts no blocker or progress report, so a late report or a
 pending automatic continuation cannot restart work a human stopped. An aborted
 run (`Esc`) pauses the goal rather than completing it. A model error also pauses
