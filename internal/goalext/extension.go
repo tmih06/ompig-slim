@@ -16,8 +16,9 @@ import (
 	"ompig-slim/internal/goal"
 )
 
-// Extension returns a hidden inline extension. The goal tool remains available
-// to the model while the slash command provides the human lifecycle controls.
+// Extension returns a hidden inline extension. The goal tool lets the model
+// report state and outcomes; the slash command owns the lifecycle, so create,
+// resume, and drop are absent from the tool the model can see or call.
 func Extension(api extension.API) error { return extensionWithTracker(api, goal.New()) }
 
 // extensionWithTracker is Extension over a caller-supplied tracker, so a test
@@ -25,19 +26,17 @@ func Extension(api extension.API) error { return extensionWithTracker(api, goal.
 func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 	var mu sync.Mutex
 	api.RegisterTool(extension.ToolDefinition{
-		Name: "goal", Label: "Goal", Description: "Track one persistent autonomous objective. Use create, get, complete, pause, resume, drop, blocked, or progress. Report blocked when the objective needs input or access you do not have, and progress when a turn advanced it without finishing.",
-		PromptSnippet: "Track one persistent autonomous objective",
+		Name: "goal", Label: "Goal", Description: "Report the state of the session's persistent autonomous objective. Use get, complete, pause, blocked, or progress. Report blocked when the objective needs input or access you do not have, and progress when a turn advanced it without finishing.",
+		PromptSnippet: "Report the state of the session's persistent autonomous objective",
 		PromptGuidelines: []string{
 			"Report a blocker with the goal tool instead of re-explaining it in prose: `blocked` names the missing input or access, and three reports of the same blocker pause the goal",
 			"Report `progress` after a turn that advanced the goal, including read-only research, tests, or verification that changed no file",
 		},
-		Parameters: json.RawMessage(`{"type":"object","required":["op"],"properties":{"op":{"type":"string","enum":["create","get","complete","pause","resume","drop","blocked","progress"]},"objective":{"type":"string"},"token_budget":{"type":"integer","minimum":1},"reason":{"type":"string","description":"What the goal is missing: the input, access, or decision only the user can supply"}}}`),
+		Parameters: json.RawMessage(`{"type":"object","required":["op"],"properties":{"op":{"type":"string","enum":["get","complete","pause","blocked","progress"]},"reason":{"type":"string","description":"What the goal is missing: the input, access, or decision only the user can supply"}}}`),
 		Execute: func(ctx context.Context, _ string, raw json.RawMessage, _ extension.AgentToolUpdateCallback) (extension.AgentToolResult, error) {
 			var input struct {
-				Op          string `json:"op"`
-				Objective   string `json:"objective"`
-				TokenBudget int    `json:"token_budget"`
-				Reason      string `json:"reason"`
+				Op     string `json:"op"`
+				Reason string `json:"reason"`
 			}
 			if err := json.Unmarshal(raw, &input); err != nil {
 				return extension.AgentToolResult{}, err
@@ -49,8 +48,6 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			// once, with the transition that caused it, never on a later read.
 			var extra string
 			switch input.Op {
-			case "create":
-				err = tracker.Create(input.Objective, input.TokenBudget)
 			case "get":
 			case "blocked":
 				var state *goal.State
@@ -65,10 +62,6 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 				err = tracker.Complete()
 			case "pause":
 				err = tracker.Pause()
-			case "resume":
-				_, err = tracker.Resume()
-			case "drop":
-				err = tracker.Drop()
 			default:
 				err = fmt.Errorf("unknown goal operation %q", input.Op)
 			}

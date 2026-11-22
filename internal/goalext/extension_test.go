@@ -222,7 +222,11 @@ func TestPausedGoalIsNotPokedAgain(t *testing.T) {
 // the model actually calls, rather than the tracker underneath it.
 func TestGoalToolRecordsBlockerAndProgress(t *testing.T) {
 	root := t.TempDir()
-	loaded, err := factoryload.LoadExtensionFromFactory(Extension, root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:goal>")
+	tracker := goal.New()
+	loaded, err := factoryload.LoadExtensionFromFactory(
+		func(api extension.API) error { return extensionWithTracker(api, tracker) },
+		root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:goal>",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +237,7 @@ func TestGoalToolRecordsBlockerAndProgress(t *testing.T) {
 	call := func(args string) (extension.AgentToolResult, error) {
 		return definition.Definition.Execute(context.Background(), "call", json.RawMessage(args), nil)
 	}
-	if _, err := call(`{"op":"create","objective":"ship the fix"}`); err != nil {
+	if err := tracker.Create("ship the fix", 0); err != nil {
 		t.Fatal(err)
 	}
 	for i := 1; i <= goal.BlockerThreshold; i++ {
@@ -248,16 +252,16 @@ func TestGoalToolRecordsBlockerAndProgress(t *testing.T) {
 	if _, err := call(`{"op":"blocked","reason":"needs the staging API token"}`); err != nil {
 		t.Fatal(err)
 	}
-	// Progress and resume are rejected on a paused goal, which keeps a late report
-	// from reviving work a human stopped.
+	// A paused goal accepts no report, and the tool cannot resume it, so nothing
+	// the model does revives work a human stopped.
 	if result, _ := call(`{"op":"progress"}`); !result.IsError {
 		t.Fatal("a paused goal accepted a progress report")
 	}
-	if result, _ := call(`{"op":"resume"}`); result.IsError {
-		t.Fatalf("resume failed: %+v", result.Content)
+	if result, _ := call(`{"op":"resume"}`); !result.IsError {
+		t.Fatal("the goal tool accepted a resume, which belongs to the human command")
 	}
-	if result, _ := call(`{"op":"progress"}`); result.IsError {
-		t.Fatalf("progress after resume failed: %+v", result.Content)
+	if result, _ := call(`{"op":"progress"}`); !result.IsError {
+		t.Fatal("a guessed resume revived a paused goal")
 	}
 	if result, _ := call(`{"op":"blocked","reason":" "}`); !result.IsError {
 		t.Fatal("a blank blocker was accepted")
@@ -308,7 +312,11 @@ func TestPauseNoticeNamesTheBlockerAndTheResumeAction(t *testing.T) {
 // that paused the goal returns it, and a later read does not.
 func TestToolShowsThePauseNoticeOnce(t *testing.T) {
 	root := t.TempDir()
-	loaded, err := factoryload.LoadExtensionFromFactory(Extension, root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:goal>")
+	tracker := goal.New()
+	loaded, err := factoryload.LoadExtensionFromFactory(
+		func(api extension.API) error { return extensionWithTracker(api, tracker) },
+		root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:goal>",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +329,9 @@ func TestToolShowsThePauseNoticeOnce(t *testing.T) {
 		}
 		return result.Content[0].(ai.TextContent).Text
 	}
-	call(`{"op":"create","objective":"ship the fix"}`)
+	if err := tracker.Create("ship the fix", 0); err != nil {
+		t.Fatal(err)
+	}
 	for i := 1; i < goal.BlockerThreshold; i++ {
 		if text := call(`{"op":"blocked","reason":"needs the staging API token"}`); strings.Contains(text, "/goal resume") {
 			t.Fatalf("report %d showed the pause notice early:\n%s", i, text)
@@ -333,6 +343,39 @@ func TestToolShowsThePauseNoticeOnce(t *testing.T) {
 	}
 	if reread := call(`{"op":"get"}`); strings.Contains(reread, "/goal resume") {
 		t.Fatalf("a status read repeated the pause notice:\n%s", reread)
+	}
+}
+
+// TestGoalToolOmitsHumanLifecycleControls pins the ownership boundary: create,
+// resume, and drop belong to the /goal command, so the tool the model sees
+// neither lists nor accepts them.
+func TestGoalToolOmitsHumanLifecycleControls(t *testing.T) {
+	root := t.TempDir()
+	loaded, err := factoryload.LoadExtensionFromFactory(Extension, root, extension.CreateEventBus(), extension.CreateExtensionRuntime(), "<inline:goal>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := loaded.RegisteredTool("goal")
+	if !ok {
+		t.Fatal("the goal tool was not registered")
+	}
+	for _, op := range []string{"create", "resume", "drop"} {
+		for _, surface := range []string{definition.Definition.Description, definition.Definition.PromptSnippet, string(definition.Definition.Parameters)} {
+			if strings.Contains(surface, op) {
+				t.Fatalf("the goal tool tells the model about %q: %s", op, surface)
+			}
+		}
+		args, err := json.Marshal(map[string]string{"op": op})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := definition.Definition.Execute(context.Background(), "call", args, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError {
+			t.Fatalf("the goal tool accepted %q", op)
+		}
 	}
 }
 
