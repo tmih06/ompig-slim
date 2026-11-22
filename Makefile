@@ -4,10 +4,10 @@ GOEXE := $(shell $(GO) env GOEXE)
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: deps build build-broker build-broker-image build-workspace-image run install check test race vet smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
+.PHONY: deps hooks build build-broker build-broker-image build-workspace-image run install check test race vet gate gate-quick smoke smoke-built release release-publish benchmark test-install test-self-update test-broker-container test-broker-cluster test-broker-codex-usage test-extensions
 
 build:
-	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim$(GOEXE) .
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim$(GOEXE) ./cmd/ompig-slim
 
 # Unmodified dependencies are restored locally; the patched PiG tree stays tracked.
 deps:
@@ -17,7 +17,17 @@ else
 	bash scripts/bootstrap-vendor.sh
 endif
 
-build build-broker run install check test race vet: | deps
+# Point Git at tracked hooks in config/githooks/ (Husky-style pre-commit gate).
+hooks:
+ifeq ($(OS),Windows_NT)
+	@git rev-parse --git-dir >NUL 2>&1 && git config core.hooksPath config/githooks || exit 0
+else
+	@if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1 && [ "$$(git config --get core.hooksPath 2>/dev/null || true)" != "config/githooks" ]; then \
+		git config core.hooksPath config/githooks; \
+	fi
+endif
+
+build build-broker run install check test race vet: | deps hooks
 
 build-broker:
 	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o bin/ompig-slim-broker$(GOEXE) ./cmd/ompig-slim-broker
@@ -25,23 +35,44 @@ build-broker:
 # The image is the deployable artifact for the storage service. Building it is
 # separate from testing it so CI can test the exact image it publishes.
 build-broker-image:
-	docker build -f Dockerfile.broker -t ompig-slim-broker .
+	docker build -f docker/Dockerfile.broker -t ompig-slim-broker .
 
 # The workspace image is the lightweight agent environment published with releases.
 build-workspace-image:
-	docker build -f Dockerfile.workspace -t ompig-slim-workspace .
+	docker build -f docker/Dockerfile.workspace -t ompig-slim-workspace .
 
 run:
-	$(GO) run -mod=vendor . $(ARGS)
+	$(GO) run -mod=vendor ./cmd/ompig-slim $(ARGS)
 
 install:
-	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o "$(BINDIR)/ompig-slim$(GOEXE)" .
+	$(GO) build -mod=vendor -trimpath -ldflags="-s -w" -o "$(BINDIR)/ompig-slim$(GOEXE)" ./cmd/ompig-slim
 
 check test race vet:
 ifeq ($(OS),Windows_NT)
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-go.ps1 -Mode $@
 else
 	bash scripts/check-go.sh $@
+endif
+
+# The quality gate is the single entry point every change must pass: build,
+# new-code lint, vet, slop rules, diff checks, debt ratchet, then tests. It
+# does not replace `make check`, which still vets the vendored PiG tree; the
+# gate owns the repo's own code and the AI-slop patterns. `--quick` runs only
+# the cheap pre-commit checks.
+gate: | deps hooks
+ifeq ($(OS),Windows_NT)
+	@echo "make gate is Linux/macOS only; run scripts/quality/gate.sh under Git Bash"
+	@exit 1
+else
+	bash scripts/quality/gate.sh
+endif
+
+gate-quick: | deps hooks
+ifeq ($(OS),Windows_NT)
+	@echo "make gate-quick is Linux/macOS only"
+	@exit 1
+else
+	bash scripts/quality/gate.sh --quick
 endif
 
 smoke: build
@@ -67,6 +98,7 @@ else
 	python3 scripts/smoke-test-logout.py ./bin/ompig-slim
 	python3 scripts/smoke-test-quit.py ./bin/ompig-slim
 	python3 scripts/smoke-test-slash-suggestions.py ./bin/ompig-slim
+	python3 scripts/smoke-test-session-stats.py ./bin/ompig-slim
 	python3 scripts/smoke-test-info-widgets.py ./bin/ompig-slim
 	python3 scripts/smoke-test-mistral-usage.py ./bin/ompig-slim
 	python3 scripts/smoke-test-mistral-content.py ./bin/ompig-slim

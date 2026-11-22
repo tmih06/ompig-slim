@@ -421,6 +421,8 @@ type InteractiveMode struct {
 	// session-history scanner, kept across opens so its per-file cache survives.
 	usageDashboard *usageDashboardState
 	usageActivity  *tui.UsageActivity
+	// textBoard is the mounted /session or /hotkeys board. ompig-slim addition.
+	textBoard *textBoardState
 	// usageService fetches provider quotas for the board. nil leaves the board
 	// without a quota source (no credentials wired), which it reports as empty.
 	usageService UsageQuotaService
@@ -1563,6 +1565,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.onStop(func() error {
 		m.backgroundCancel()
 		m.disposeUsageDashboard()
+		m.disposeTextBoard()
 		m.disposeMarkdownBlocks()
 		m.backgroundTasks.Wait()
 		m.userBashTasks = nil

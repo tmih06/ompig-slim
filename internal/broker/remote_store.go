@@ -13,9 +13,11 @@ import (
 // to the old local SQLite vault. Close owns no transport or database resources.
 type remoteStore struct{ client *Client }
 
-var _ ai.ApplicationCredentialStore = (*remoteStore)(nil)
-var _ ai.RemoteOAuthCredentialStore = (*remoteStore)(nil)
-var _ ai.AccountSessionStore = (*remoteStore)(nil)
+var (
+	_ ai.ApplicationCredentialStore = (*remoteStore)(nil)
+	_ ai.RemoteOAuthCredentialStore = (*remoteStore)(nil)
+	_ ai.AccountSessionStore        = (*remoteStore)(nil)
+)
 
 // snapshot fetches current enabled accounts through the client's short-lived
 // shared view; the response never has refreshes.

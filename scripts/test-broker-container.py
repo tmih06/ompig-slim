@@ -120,7 +120,7 @@ def wait_ready(base, timeout=60):
 def build_image(tag):
     """Build the deployable image from this checkout, refusing a stale context."""
     print(f"building {tag} from {REPO}")
-    docker("build", "-f", str(REPO / "Dockerfile.broker"), "-t", tag, str(REPO))
+    docker("build", "-f", str(REPO / "docker" / "Dockerfile.broker"), "-t", tag, str(REPO))
 
 
 def check_image(image):

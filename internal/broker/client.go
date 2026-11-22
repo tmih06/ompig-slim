@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -76,7 +77,7 @@ func Connect(ctx context.Context, dir string) (*Client, error) {
 	// Install before any filesystem or network work can fail.
 	installRemoteStore(c)
 	dir = c.dir
-	if err = os.MkdirAll(dir, 0700); err != nil {
+	if err = privatefs.EnsurePrivateDir(dir); err != nil {
 		return nil, err
 	}
 	return c, c.SyncFiles(ctx)
@@ -140,8 +141,8 @@ func (c *Client) request(ctx context.Context, method, path, revision string, bod
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == 412 {
-		return fmt.Errorf("broker revision conflict")
+	if response.StatusCode == http.StatusPreconditionFailed {
+		return errors.New("broker revision conflict")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("broker %s: HTTP %d", path, response.StatusCode)
@@ -153,7 +154,7 @@ func (c *Client) request(ctx context.Context, method, path, revision string, bod
 		}
 		if err := dec.Decode(new(any)); err != io.EOF {
 			if err == nil {
-				return fmt.Errorf("broker response contains multiple JSON values")
+				return errors.New("broker response contains multiple JSON values")
 			}
 			return err
 		}
@@ -178,7 +179,7 @@ func (c *Client) locked(ctx context.Context, run func() error) error {
 		return err
 	}
 	if !locked {
-		return fmt.Errorf("profile sync lock unavailable")
+		return errors.New("profile sync lock unavailable")
 	}
 	defer lock.Unlock()
 	return run()

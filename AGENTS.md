@@ -32,7 +32,7 @@ Important product boundaries are the following.
 
 ## Repository map
 
-- `main.go` owns executable registration, startup, broker setup, durable
+- `cmd/ompig-slim/` owns executable registration, startup, broker setup, durable
   dispatch, and delegation to the PiG CLI.
 - `internal/` contains project-owned agent state, broker, durable workdesk,
   loop guard, goals, self-update, and related integrations.
@@ -47,6 +47,10 @@ Important product boundaries are the following.
 - `docs/` contains durable behavior, broker contracts, model roles, tools,
   benchmarks, and other technical documentation.
 - `themes/` contains profile theme palettes.
+- `config/` contains the golangci-lint, semgrep, gitleaks, and git-hook
+  configuration for the quality gate.
+- `docker/` contains the broker and workspace Dockerfiles; `.github/` also holds
+  `CONTRIBUTING.md` and `SECURITY.md`.
 - `Makefile` contains the canonical developer commands.
 - `README.md` is user-facing. `CONTRIBUTING.md` contains contributor and
   dependency rules. `SECURITY.md` contains security-reporting guidance.
@@ -167,6 +171,135 @@ must verify that secrets do not appear in logs or snapshots.
 - **Encode recurring lessons.** When a rule needs repeating, prefer a test,
   type, lint, metadata flag, runtime check, or script over another paragraph
   of instructions.
+
+## Quality gate
+
+Every change must pass the gate before it is done. It is one command:
+
+```sh
+make hooks       # configure git core.hooksPath=config/githooks (also auto-wired by make build/check/gate)
+make gate        # full gate: build, lint(new code), vet, slop, diff, ratchet,
+                 # tests -race -shuffle, govulncheck, manifest drift
+make gate-quick  # cheap subset run by config/githooks/pre-commit (build, lint, vet, slop, diff, ratchet)
+```
+
+Run a single linter when iterating:
+
+```sh
+golangci-lint run -c config/golangci.yml --new-from-rev=origin/main ./...   # lint only new/changed code
+golangci-lint run -c config/golangci.yml ./internal/broker/                  # one package
+semgrep --config config/semgrep/slop.yml path/to/file.go    # slop rules on one file
+python3 scripts/quality/semgrep-diff.py --base origin/main
+python3 scripts/quality/ratchet.py lint.json          # per-rule debt ratchet
+```
+
+### Gate rules
+
+**Never bypass the gate.** Never add `//nolint`, `t.Skip`, or a disabled rule
+to make it pass. Never edit `config/` (lint, semgrep, gitleaks, hooks), `scripts/quality/`,
+`.github/workflows/`, `docs/quality-baseline.*`, `CODEOWNERS`, or
+this file to loosen a check on your own initiative. If a rule seems wrong, stop
+and ask a human; do not weaken the gate.
+
+New and changed code is gated strictly; existing debt lives in
+`docs/quality-baseline.json` and may only shrink (`scripts/quality/ratchet.py`).
+
+### Conventions (measured in docs/quality-discovery.md)
+
+- **Errors**: return `fmt.Errorf("context: %w", err)`; `errors.New` for
+  sentinels; `errors.Is`/`As` at boundaries; `errors.Join` for cleanup. See
+  `internal/workdesk/workdesk.go`.
+- **Logging/diagnostics**: write to an explicit `io.Writer`
+  (`fmt.Fprintln(os.Stderr, …)`), never a logger or `fmt.Print*`. See
+  `internal/broker/migrate.go`.
+- **Context**: `context.Context` is the first parameter. `context.Background()`
+  only at process root or in cleanup after a cancelled ctx; derive children
+  with `WithCancel`/`WithTimeout`. See `internal/broker/client.go`.
+- **Private state**: all credential/profile filesystem writes go through
+  `internal/privatefs` (`EnsurePrivateDir`, `RestrictFile`, `SyncDir`).
+- **Concurrency**: channels + `sync.WaitGroup` + `signal.NotifyContext`; no
+  errgroup. Every `go func` has a ctx/done contract. See `cmd/ompig-slim/main.go`.
+- **Tests**: stdlib `testing` only — no testify. `t.TempDir`, `httptest`,
+  fixture credentials, `t.Helper` in helpers. Platform splits via
+  `//go:build` + `_unix.go`/`_windows.go`.
+- **Imports**: `main`/`cmd` → `internal/*` + `prompts` + PiG; `internal/*`
+  may import PiG and siblings, never `main`.
+
+### Root-cause fixes must leave a guardrail
+Whenever you fix a bug or defect by finding its root cause, you MUST also add a
+rule that prevents the same class of problem from recurring, in the same PR.
+Do this in order of preference:
+
+1. **Mechanical enforcement**: a new or tightened golangci-lint setting, a
+   Semgrep rule (with positive and negative fixtures), a forbidigo/depguard
+   entry, or a regression test that fails without the fix.
+2. **A written rule** in the "Learned rules" section below, when it cannot be
+   enforced mechanically.
+
+Every entry in "Learned rules" must follow this format, be specific and
+testable, and be checked for duplicates first (merge with or sharpen an
+existing rule instead of adding near-copies):
+
+- **Rule**: one imperative sentence.
+- **Why**: the incident or bug that caused it (PR, commit, or issue link).
+- **Enforced by**: the lint rule, Semgrep id, or test name, or "manual" if none.
+
+A fix PR that adds no rule must say why in its description (for example,
+"one-off typo, no recurring class"). Do not add vague rules like "be careful
+with errors". If a rule can't be made specific enough to check, don't add it.
+
+### Learned rules
+
+- **Rule**: Scope `context.Background()`/`TODO()` to the process root or
+  cleanup-after-cancel; a function that takes a `ctx` must derive children
+  from it and never accumulate nested contexts in a loop.
+  **Why**: durable/goal lifecycle fixes (`#106`, `#99`, `#94`) traced to a
+  cancellation that never reached the work; a fresh root context would have
+  detached it.
+  **Enforced by**: `contextcheck`, `fatcontext`, `containedctx`, semgrep `slop.context-in-request`.
+
+- **Rule**: Give every goroutine a cancellation and a completion signal owned
+  by its caller (and call `wg.Add` before `go func`); no bare `go func(){...}()`.
+  **Why**: subagent/heartbeat lifecycle bugs (`#97`, `#95`, `a62bd87`) where a
+  worker outlived its run or missed its deadline.
+  **Enforced by**: semgrep `slop.bare-goroutine`, `slop.waitgroup-add-in-goroutine`, `go vet`, race tests.
+
+- **Rule**: Never discard an error with `_` on a result you must act on;
+  deliberate discards (cleanup, encode-after-headers) get a comment.
+  **Why**: credential-sync and migration paths (`#127`, `b6baba8`) where a
+  swallowed error could corrupt account or sync state.
+  **Enforced by**: `errcheck` (`check-blank`, `check-type-assertions`), `nilerr`, `nilnesserr`, `forcetypeassert`, semgrep `slop.blank-error-assign`, `slop.empty-err-check`.
+
+- **Rule**: Route all credential and profile filesystem writes through
+  `internal/privatefs` using explicit `0o` octal modes; do not hand-roll
+  `os.MkdirAll(0o700)`/`WriteFile(0o600)`.
+  **Why**: credential files must be 0700/0600 and atomic; a hand-rolled path
+  (`#127`, `4f1c7d5`) drifted from the enforced permission/atomicity contract.
+  **Enforced by**: semgrep `slop.reimplement-privatefs`, `slop.decimal-file-mode`.
+
+- **Rule**: Make enum/state switches exhaustive over every member; do not rely
+  on `default` to absorb a new state.
+  **Why**: goal/goalOp state machines (`#131`, `4caf517`) added operations that
+  a non-exhaustive switch silently dropped.
+  **Enforced by**: `exhaustive` linter.
+
+- **Rule**: Pass `context.Context` to `os/exec` and `net/http` using an
+  explicit `http.Client` with a timeout and `http.NewServeMux()`; never use
+  `exec.Command`, `http.DefaultClient`, or `http.DefaultServeMux`.
+  **Why**: a runaway child or request without a deadline blocked the update/
+  durable path.
+  **Enforced by**: `noctx`, `bodyclose`, `forbidigo`, semgrep `slop.http-default-client-or-mux`.
+
+- **Rule**: Do not place `defer` or `time.After` inside loops; close resources
+  per iteration (or via a helper) and use `time.NewTicker`/`time.NewTimer`.
+  **Why**: function-scoped `defer` holds open file handles (blocking Windows
+  rename/remove in `privatefs` and `selfupdate`) and `time.After` leaks timers
+  in long-running heartbeat/poll loops.
+  **Enforced by**: semgrep `slop.defer-in-loop`, `slop.time-after-in-loop`.
+
+Maintenance: when a learned rule becomes mechanically enforced, update its
+"Enforced by". Prune rules that no longer apply. Keep this file scannable — if
+it grows past ~200 lines, move detail to `docs/rules/` and link it.
 
 ## Commits
 

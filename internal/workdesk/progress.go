@@ -3,6 +3,7 @@ package workdesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -116,10 +117,10 @@ func progressTool(job assignment) *durable.ToolRegistration {
 					return nil, err
 				}
 				if checkpoint.AssignmentRequestID != "" && checkpoint.AssignmentRequestID != job.RequestID {
-					return nil, fmt.Errorf("progress belongs to another assignment")
+					return nil, errors.New("progress belongs to another assignment")
 				}
 				if checkpoint.Revision >= progressMaxRevision {
-					return nil, fmt.Errorf("progress revision limit reached")
+					return nil, errors.New("progress revision limit reached")
 				}
 				values := map[string]any{
 					"assignmentRequestId": job.RequestID, "revision": checkpoint.Revision + 1,
@@ -180,7 +181,7 @@ func readProgress(ctx context.Context, storage durable.Storage, conversationID d
 		return ProgressView{}, err
 	}
 	if checkpoint.AssignmentRequestID != requestID {
-		return ProgressView{}, fmt.Errorf("progress belongs to another assignment")
+		return ProgressView{}, errors.New("progress belongs to another assignment")
 	}
 	return ProgressView{Present: true, Checkpoint: checkpoint}, nil
 }

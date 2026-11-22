@@ -199,3 +199,30 @@ func TestRunResumeAndStatus(t *testing.T) {
 		t.Fatalf("missing structured worker event: %s", events)
 	}
 }
+
+func TestEventsFilePreservesExistingParentPermissions(t *testing.T) {
+	state, cwd := fixture(t, func(w http.ResponseWriter, r *http.Request) { answer(w, "ok") })
+	existingDir := t.TempDir()
+	makeWidePath(t, existingDir)
+	assertWidePath(t, existingDir)
+
+	eventsPath := filepath.Join(existingDir, "worker-events.jsonl")
+	args := []string{"run", "--state", state, "--cwd", cwd, "--model", "desk-fixture/fixture", "--request-id", "events-parent-1", "--events-file", eventsPath, "Record events"}
+	var out bytes.Buffer
+	if err := workdesk.Run(context.Background(), args, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertWidePath(t, existingDir)
+	assertPrivatePath(t, eventsPath)
+
+	state2, cwd2 := fixture(t, func(w http.ResponseWriter, r *http.Request) { answer(w, "ok") })
+	missingDir := filepath.Join(t.TempDir(), "nested-events")
+	nestedEventsPath := filepath.Join(missingDir, "worker-events.jsonl")
+	args2 := []string{"run", "--state", state2, "--cwd", cwd2, "--model", "desk-fixture/fixture", "--request-id", "events-parent-2", "--events-file", nestedEventsPath, "Record events"}
+	out.Reset()
+	if err := workdesk.Run(context.Background(), args2, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivatePath(t, missingDir)
+	assertPrivatePath(t, nestedEventsPath)
+}

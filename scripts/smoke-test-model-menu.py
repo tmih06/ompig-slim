@@ -87,12 +87,21 @@ def run(binary, label, wsl_environment):
         try:
             read_until(lambda data: b"interactive-ready" in data, "startup")
             send(b"/hotkeys\r")
-            shortcuts = read_until(
-                lambda data: b"Paste files on macOS" in visible_text(data), "shared shortcuts")
-            shortcuts = visible_text(shortcuts)
+            # /hotkeys opens a scrollable board, so page down until the last row
+            # shows. The footer's N/total position says when a page has landed.
+            shortcuts = visible_text(read_until(
+                lambda data: b"Keyboard Shortcuts" in visible_text(data) and board_position(data) > 0,
+                "shortcuts board"))
+            while b"Paste files on macOS" not in shortcuts:
+                shown = board_position(shortcuts)
+                send(b"\x1b[6~")  # Page Down
+                page = read_until(lambda data: board_position(data) > shown, "next shortcuts page")
+                shortcuts += visible_text(page)
             alt = b"Option" if sys.platform == "darwin" else b"Alt"
             for key in (b"Ctrl+-", b"Ctrl+Z", alt + b"+Q", b"Ctrl+V", alt + b"+P/Ctrl+L"):
                 assert key in shortcuts, f"{label}: missing shared shortcut {key!r}"
+            send(b"\x1b")
+            read_until(lambda data: b"\x1b[?1049l" in data, "restore main screen after shortcuts")
             send(b"/model\r")
             read_until(lambda data: b"All models" in data and b"Models" in data, "model hub")
             send(b"\x1b[A")
@@ -147,6 +156,12 @@ def run(binary, label, wsl_environment):
                 process.kill()
                 process.wait()
             os.close(master)
+
+
+def board_position(data):
+    """Last scroll position (the N of the footer's N/total) in the output, 0 if none."""
+    found = re.findall(rb"(\d+)/\d+ \xc2\xb7 ", visible_text(data))
+    return int(found[-1]) if found else 0
 
 
 def visible_text(data):

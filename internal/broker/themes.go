@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,7 +37,7 @@ func checkThemeDir(dir string) error {
 		return err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("themes must be a real directory")
+		return errors.New("themes must be a real directory")
 	}
 	return nil
 }
@@ -45,7 +46,7 @@ func checkThemeDir(dir string) error {
 // applies the same refusal. Only writers call it: creating storage is a write
 // side effect that a listing or a read must not perform.
 func prepareThemeDir(dir string) error {
-	if err := os.Mkdir(filepath.Join(dir, "themes"), 0700); err != nil && !os.IsExist(err) {
+	if err := os.Mkdir(filepath.Join(dir, "themes"), 0o700); err != nil && !os.IsExist(err) {
 		return err
 	}
 	return checkThemeDir(dir)
@@ -82,7 +83,7 @@ func (s *Store) themes(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	names, err := localThemes(s.dir)
 	if err != nil {
-		http.Error(w, "storage read failed", 500)
+		http.Error(w, "storage read failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -139,7 +140,7 @@ func (c *Client) themeFiles(ctx context.Context) ([]string, error) {
 	}
 	for _, name := range slices.Concat(local, remote, known) {
 		if !themeName(name) {
-			return nil, fmt.Errorf("invalid theme name in sync index")
+			return nil, errors.New("invalid theme name in sync index")
 		}
 	}
 	// A name present on either side keeps its ancestry: a local-only theme may be
@@ -178,7 +179,7 @@ func (c *Client) themeFiles(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if string(next) != string(data) {
+	if !bytes.Equal(next, data) {
 		if err := replaceFile(path, next); err != nil {
 			return nil, err
 		}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -70,7 +69,7 @@ func (s *Store) entries(ctx context.Context) ([]vaultEntry, error) {
 func (s *Store) snapshot(w http.ResponseWriter, r *http.Request) {
 	entries, err := s.entries(r.Context())
 	if err != nil {
-		http.Error(w, "vault read failed", 500)
+		http.Error(w, "vault read failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -84,7 +83,7 @@ func decodeVaultRequest(w http.ResponseWriter, r *http.Request) (vaultRequest, b
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxItemBytes))
 	dec.DisallowUnknownFields()
 	if dec.Decode(&request) != nil || dec.Decode(new(any)) != io.EOF || request.Provider == "" {
-		http.Error(w, "invalid credential request", 400)
+		http.Error(w, "invalid credential request", http.StatusBadRequest)
 		return request, false
 	}
 	return request, true
@@ -122,14 +121,15 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 	switch request.Operation {
 	case "save", "modify", "import":
 		if request.Credential == nil || (request.Credential.Type != ai.CredentialOAuth && request.Credential.Type != ai.CredentialAPIKey) || (request.Operation != "modify" && request.Credential.Refresh == remoteRefreshSentinel) {
-			http.Error(w, "invalid credential", 400)
+			http.Error(w, "invalid credential", http.StatusBadRequest)
 			return
 		}
-		if request.Operation == "import" {
+		switch request.Operation {
+		case "import":
 			result, err = s.vault.ImportBrokerAccount(ctx, request.Provider, request.AccountKey, *request.Credential)
-		} else if request.Operation == "save" {
+		case "save":
 			result, err = s.vault.SaveAccount(ctx, request.Provider, request.AccountKey, *request.Credential)
-		} else {
+		default:
 			modify := func(current *ai.Credential) (*ai.Credential, error) {
 				if !sameRedacted(current, request.Expected) {
 					return nil, errVaultConflict
@@ -156,7 +156,7 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 		}
 	case "session-account", "set-session-account":
 		if request.Route == nil || request.Route.SessionID == "" || request.Route.ModelID == "" {
-			http.Error(w, "invalid session route", 400)
+			http.Error(w, "invalid session route", http.StatusBadRequest)
 			return
 		}
 		if request.Operation == "session-account" {
@@ -166,7 +166,7 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 		}
 	case "select":
 		if request.AccountKey == nil {
-			http.Error(w, "account key required", 400)
+			http.Error(w, "account key required", http.StatusBadRequest)
 			return
 		}
 		result, err = s.vault.SelectAccount(ctx, request.Provider, *request.AccountKey)
@@ -181,15 +181,15 @@ func (s *Store) credential(w http.ResponseWriter, r *http.Request) {
 	case "clear-blocks":
 		err = s.vault.ClearAccountBlocks(ctx, request.Provider, request.AccountKey, request.Scopes)
 	default:
-		http.Error(w, "unknown credential operation", 400)
+		http.Error(w, "unknown credential operation", http.StatusBadRequest)
 		return
 	}
 	if errors.Is(err, errVaultConflict) {
-		http.Error(w, "credential changed", 412)
+		http.Error(w, "credential changed", http.StatusPreconditionFailed)
 		return
 	}
 	if err != nil {
-		http.Error(w, "vault operation failed", 500)
+		http.Error(w, "vault operation failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -205,12 +205,12 @@ func (s *Store) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !request.Explicit || request.Expected == nil {
-		http.Error(w, "explicit account and observed token required", 400)
+		http.Error(w, "explicit account and observed token required", http.StatusBadRequest)
 		return
 	}
 	credential, err := ai.RefreshVaultCredential(r.Context(), s.vault, request.Provider, request.AccountKey, request.Expected)
 	if err != nil {
-		http.Error(w, "OAuth refresh failed", 502)
+		http.Error(w, "OAuth refresh failed", http.StatusBadGateway)
 		return
 	}
 	var result *ai.Credential
@@ -246,7 +246,7 @@ func (s *Store) RunRefresher(ctx context.Context, report func(error)) {
 func (s *Store) sweep(ctx context.Context) error {
 	accounts, err := s.vault.ListAccounts(ctx)
 	if err != nil {
-		return fmt.Errorf("vault refresher: list failed")
+		return errors.New("vault refresher: list failed")
 	}
 	var failed bool
 	for _, account := range accounts {
@@ -272,7 +272,7 @@ func (s *Store) sweep(ctx context.Context) error {
 		}
 	}
 	if failed {
-		return fmt.Errorf("vault refresher: one or more accounts could not refresh")
+		return errors.New("vault refresher: one or more accounts could not refresh")
 	}
 	return nil
 }

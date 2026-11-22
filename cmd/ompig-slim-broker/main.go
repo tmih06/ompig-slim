@@ -4,9 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
+	"ompig-slim/internal/broker"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,8 +18,6 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"ompig-slim/internal/broker"
-	"ompig-slim/internal/privatefs"
 )
 
 // main reports startup/storage failures without printing any credentials. A
@@ -43,13 +44,13 @@ func run() error {
 	dir := flag.String("data-dir", "./broker-data", "persistent hosted profile storage")
 	flag.Parse()
 	if flag.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments")
+		return errors.New("unexpected arguments")
 	}
 	// Validate configuration before touching the filesystem: a missing secret is an
 	// operator mistake, and failing here leaves no data directory or lock behind.
 	token := os.Getenv("OMPIG_BROKER_TOKEN")
 	if strings.TrimSpace(token) == "" {
-		return fmt.Errorf("OMPIG_BROKER_TOKEN is required: set it to a long random secret and keep it out of committed files")
+		return errors.New("OMPIG_BROKER_TOKEN is required: set it to a long random secret and keep it out of committed files")
 	}
 	if err := privatefs.EnsurePrivateDir(*dir); err != nil {
 		return err
@@ -60,7 +61,7 @@ func run() error {
 		return err
 	}
 	if !locked {
-		return fmt.Errorf("broker data directory already in use")
+		return errors.New("broker data directory already in use")
 	}
 	defer lock.Unlock()
 	handler, err := broker.NewHandler(*dir, token)
@@ -84,7 +85,7 @@ func run() error {
 	go func() { result <- server.ListenAndServe() }()
 	select {
 	case err = <-result:
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err

@@ -57,7 +57,7 @@ for platform in "${platforms[@]}"; do
     fi
     mkdir -p "$package"
     printf 'Building %s\n' "$platform"
-    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags="$ldflags" -o "$package/$binary" .
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" "${GO:-go}" build -mod=vendor -trimpath -ldflags="$ldflags" -o "$package/$binary" ./cmd/ompig-slim
     cp README.md "$package/README.md"
     cp LICENSE NOTICE "$package/"
     while IFS= read -r -d '' license; do

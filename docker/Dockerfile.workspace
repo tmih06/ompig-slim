@@ -9,7 +9,7 @@ COPY . .
 RUN bash scripts/bootstrap-vendor.sh
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -mod=vendor -trimpath -ldflags="-s -w" \
-    -o /out/ompig-slim .
+    -o /out/ompig-slim ./cmd/ompig-slim
 
 FROM alpine:3.22
 ARG VERSION=dev

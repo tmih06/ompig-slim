@@ -4,6 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"ompig-slim/internal/agentstate"
+	"ompig-slim/internal/broker"
+	"ompig-slim/internal/loopguard"
+	"ompig-slim/internal/modelcontext"
+	"ompig-slim/internal/selfupdate"
+	"ompig-slim/internal/streamingrules"
+	"ompig-slim/internal/workdesk"
+	"ompig-slim/prompts"
 	"os"
 	"os/signal"
 	"slices"
@@ -19,16 +27,8 @@ import (
 
 	_ "modernc.org/sqlite" // Register the native driver used by shared Pi/OMP credentials.
 
-	"ompig-slim/internal/agentstate"
 	agentstateext "ompig-slim/internal/agentstate/ext"
-	"ompig-slim/internal/broker"
 	goalext "ompig-slim/internal/goalext"
-	"ompig-slim/internal/loopguard"
-	"ompig-slim/internal/modelcontext"
-	"ompig-slim/internal/selfupdate"
-	"ompig-slim/internal/streamingrules"
-	"ompig-slim/internal/workdesk"
-	"ompig-slim/prompts"
 )
 
 // brokerStartupNeeded reports whether normal CLI execution can use broker-backed

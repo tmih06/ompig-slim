@@ -227,6 +227,6 @@ func clone(state *State) *State {
 	if state == nil {
 		return nil
 	}
-	copy := *state
-	return &copy
+	next := *state
+	return &next
 }

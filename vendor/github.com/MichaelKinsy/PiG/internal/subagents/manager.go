@@ -302,6 +302,9 @@ func (m *Manager) Warnings() []string {
 	return slices.Clone(m.warnings)
 }
 func (m *Manager) Records() []Record {
+	if m == nil {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	records := make([]Record, 0, len(m.runs))

@@ -69,7 +69,7 @@ func (s *failureStreak) record(calls []ai.ToolCall, results []agent.ToolResultMe
 	}
 	var candidate failureFingerprint
 	var diagnostic *detection
-	var successes = make(map[[sha256.Size]byte]bool)
+	successes := make(map[[sha256.Size]byte]bool)
 	uncertain := false
 	observe := func(call ai.ToolCall, isError bool, text string) {
 		target, hasTarget := failureTarget(call)

@@ -7,16 +7,18 @@ on:
     # Every main push (including documentation-only merges) gets a beta.
   pull_request:
     paths-ignore: ['README.md', 'docs/**']
+  pull_request_review:
+    types: [submitted]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Only PRs share a group. Even cancel-in-progress:false replaces an older
-  # pending run, so main/tag/manual runs need unique groups to keep every run.
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Only PRs share a group; review-triggered gate refreshes use a separate group
+  # so a review never cancels an in-progress PR matrix run.
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'pull_request_review' && format('review-{0}', github.event.pull_request.number) || github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_review' }}
 
 env:
   GO_VERSION: '1.27.4'
@@ -25,6 +27,7 @@ env:
 jobs:
   version:
     name: Allocate the archive version
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -53,6 +56,7 @@ jobs:
 
   check:
     name: Go ${{ matrix.mode }} (${{ matrix.os }})
+    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
@@ -112,6 +116,7 @@ jobs:
 
   windows-check:
     name: Native Go ${{ matrix.mode }} (${{ matrix.os }})
+    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
@@ -319,8 +324,144 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  quality-gate:
+    # The agent-facing gate as a required status check. Local hooks can be
+    # skipped with --no-verify, so this is the real enforcement point: new and
+    # changed code must pass every check.
+    name: Quality gate (new + changed code)
+    if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Restore dependencies without replacing maintained PiG sources
+        run: bash scripts/bootstrap-vendor.sh
+      - name: Install golangci-lint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.15.0
+          golangci-lint version
+      - name: Install semgrep
+        run: |
+          python3 -m pip install --user semgrep==1.180.0 >/dev/null
+          ~/.local/bin/semgrep --version
+      - name: Install govulncheck built with the repo's Go
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Resolve PR base, body and owner approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          OWNER_APPROVED=false
+          check_pr_owner_approval() {
+            local pr="$1" author="$2"
+            if [[ "$author" == "tmih06" ]]; then
+              OWNER_APPROVED=true
+              return
+            fi
+            for reviewer in $(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" \
+                --jq '.[] | select(.state=="APPROVED") | .user.login' | sort -u); do
+              if [[ "$reviewer" == "tmih06" ]]; then OWNER_APPROVED=true; fi
+            done
+          }
+          if [[ "$EVENT" == pull_request || "$EVENT" == pull_request_review ]]; then
+            echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > "$RUNNER_TEMP/pr-body" || true
+            check_pr_owner_approval "$PR_NUMBER" "$PR_AUTHOR"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git rev-parse --verify "${BEFORE}^{commit}" >/dev/null 2>&1; then
+              BEFORE="HEAD~1"
+            fi
+            echo "PR_BASE=$BEFORE" >> "$GITHUB_ENV"
+            if [[ "$ACTOR" == "tmih06" ]]; then
+              OWNER_APPROVED=true
+            else
+              while IFS=$'\t' read -r pr author; do
+                [[ -n "$pr" ]] && check_pr_owner_approval "$pr" "$author"
+              done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+                --jq '.[] | "\(.number)\t\(.user.login)"' 2>/dev/null || true)
+            fi
+          fi
+          echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
+      - name: Run the quality gate
+        env:
+          PR_BODY_FILE: ${{ runner.temp }}/pr-body
+        run: |
+          export PATH="$PATH:$(go env GOPATH)/bin:$HOME/.local/bin"
+          export PR_BODY="$(cat "$PR_BODY_FILE" 2>/dev/null || true)"
+          make gate
+
+  guardrail-check:
+    # A PR titled `fix...` must leave a guardrail: a touched gate file
+    # (AGENTS.md, config/golangci.yml, config/semgrep/), a new regression test, or an
+    # explicit `No-guardrail: <reason>` in the description. Warn-only at first;
+    # flip continue-on-error to false once the team trusts it.
+    name: fix PR leaves a guardrail (warn)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the fix leaves a guardrail
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          # Collect commit messages too: a fix may be titled in any commit.
+          subjects="$PR_TITLE"
+          subjects+=$'\n'"$(git log --format=%s "origin/$BASE...HEAD" | head -20)"
+          if ! grep -qiE '^fix(\(|:)' <<< "$subjects"; then
+            echo "Not a fix PR; no guardrail required."
+            exit 0
+          fi
+          body="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body 2>/dev/null || true)"
+          if grep -qiE '^\s*No-guardrail:' <<< "$body"; then
+            echo "fix PR opted out: $(grep -iE 'No-guardrail:' <<< "$body" | head -1)"
+            exit 0
+          fi
+          changed="$(git diff --name-only "origin/$BASE...HEAD")"
+          if grep -qE 'AGENTS\.md|config/golangci\.yml|config/semgrep/|_test\.go$' <<< "$changed"; then
+            echo "fix PR leaves a guardrail (touched gate config or added a test)."
+            exit 0
+          fi
+          echo "::warning title=Missing guardrail::This fix PR touched no test, "
+          echo "::warning::lint config, config/semgrep/, or AGENTS.md, and has no "
+          echo "::warning::No-guardrail: <reason> line. Per AGENTS.md, a root-cause "
+          echo "::warning::fix should leave a regression test, a lint/semgrep rule, "
+          echo "::warning::or a learned rule — or explain why none applies."
+          # Warn-only for now; return 0 so this does not block until trusted.
+          exit 0
+
   hygiene:
     name: Workflow, scripts and full-history secret scan
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -352,11 +493,12 @@ jobs:
       - name: Validate scripts and whitespace
         run: |
           git diff-tree --check HEAD
-          for script in scripts/*.sh; do bash -n "$script"; done
+          for script in scripts/*.sh scripts/quality/*.sh config/githooks/*; do bash -n "$script"; done
           python3 - <<'PY'
           import ast, pathlib
-          for path in pathlib.Path('scripts').glob('*.py'):
-              ast.parse(path.read_text(), filename=str(path))
+          for pattern in ('scripts/*.py', 'scripts/quality/*.py'):
+              for path in pathlib.Path('.').glob(pattern):
+                  ast.parse(path.read_text(), filename=str(path))
           PY
       - name: Test benchmark fixtures, accounting and reporting
         run: python3 -m unittest discover -s scripts -p 'test_benchmark.py'
@@ -371,7 +513,7 @@ jobs:
           python3 scripts/smoke-test-windows.py --self-test
           python3 -m unittest discover -s scripts -p 'test_windows_release_fixture.py'
       - name: Scan every commit, including nested archives
-        run: gitleaks git --log-opts=--all --max-archive-depth=10 --redact --no-banner .
+        run: gitleaks git --config config/gitleaks.toml --log-opts=--all --max-archive-depth=10 --redact --no-banner .
 
   release:
     name: Build and verify six native archives
@@ -418,6 +560,7 @@ jobs:
     # non-interactive connection setup a provisioned machine uses. Both suites
     # build their images from this checkout.
     name: Broker storage contract and client cluster
+    if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -432,7 +575,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/go-build
-          key: broker-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'internal/broker/**', 'cmd/ompig-slim-broker/**', 'Dockerfile.broker') }}
+          key: broker-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-${{ hashFiles('go.mod', 'go.sum', 'vendor/**', 'vendor/modules.txt', '*.go', 'internal/broker/**', 'cmd/ompig-slim-broker/**', 'docker/Dockerfile.broker') }}
           restore-keys: |
             broker-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GO_VERSION }}-
       - name: Test the image and the clients that use it
@@ -453,7 +596,7 @@ jobs:
 
   container-image:
     name: Publish the broker image for linux/amd64 and linux/arm64
-    needs: [release, check, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
+    needs: [release, check, quality-gate, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
     # A release tag is the only trigger that may push an image: the tags it
     # publishes are what deployments pin, so a branch run must never create them.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -497,7 +640,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: ./Dockerfile.broker
+          file: ./docker/Dockerfile.broker
           platforms: linux/amd64,linux/arm64
           push: true
           # The tag reaches the binary, so the published image reports the
@@ -521,7 +664,7 @@ jobs:
 
   workspace-image:
     name: Publish the lightweight workspace image
-    needs: [release, check, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
+    needs: [release, check, quality-gate, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
     # Only release tags may create immutable image tags or move latest.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -557,7 +700,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: ./Dockerfile.workspace
+          file: ./docker/Dockerfile.workspace
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
@@ -578,7 +721,7 @@ jobs:
 
   publish-beta:
     name: Publish the verified main build as a beta
-    needs: [version, release, check, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
+    needs: [version, release, check, quality-gate, smoke, windows-check, windows-smoke, hygiene, benchmark, container]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -609,7 +752,7 @@ jobs:
 
   publish:
     name: Attach verified archives to the release
-    needs: [release, check, smoke, windows-check, windows-smoke, hygiene, benchmark, container, workspace-image]
+    needs: [release, check, quality-gate, smoke, windows-check, windows-smoke, hygiene, benchmark, container, workspace-image]
     # A tagged release must wait for every check, including the broker contract.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest

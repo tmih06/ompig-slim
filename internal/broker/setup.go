@@ -3,8 +3,10 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +81,7 @@ func Setup(ctx context.Context, dir string, options SetupOptions) (SetupResult, 
 		url = saved.URL
 	}
 	if url == "" {
-		return SetupResult{}, fmt.Errorf("a broker URL is required: pass --url or keep an existing connection")
+		return SetupResult{}, errors.New("a broker URL is required: pass --url or keep an existing connection")
 	}
 	secret, err := setupSecret(options)
 	if err != nil {
@@ -120,7 +122,7 @@ func Setup(ctx context.Context, dir string, options SetupOptions) (SetupResult, 
 	if err != nil {
 		return SetupResult{}, err
 	}
-	if err := os.MkdirAll(client.dir, 0700); err != nil {
+	if err := privatefs.EnsurePrivateDir(client.dir); err != nil {
 		return SetupResult{}, err
 	}
 	if err := replaceFile(path, data); err != nil {
@@ -153,7 +155,7 @@ func readSavedConnection(path string) (connection, error) {
 	}
 	var saved connection
 	if err := json.Unmarshal(data, &saved); err != nil {
-		return connection{}, fmt.Errorf("invalid local broker connection file")
+		return connection{}, errors.New("invalid local broker connection file")
 	}
 	return saved, nil
 }

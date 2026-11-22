@@ -1,0 +1,334 @@
+# golangci-lint configuration for ompig-slim.
+#
+# Purpose: gate NEW and changed code strictly. The existing tree is clean
+# (docs/quality-discovery.md), so most rules gate the diff via
+# `new-from-rev`; counts of existing debt live in docs/quality-baseline.md.
+#
+# Calibrated from docs/quality-discovery.md, not from defaults. Every enabled
+# linter has a one-line reason. Linter names verified against
+# `golangci-lint` 2.x `linters` output.
+version: "2"
+
+run:
+  timeout: 5m
+  # Paths in the exclusion rules below are relative to the repo root, not to
+  # this file's directory.
+  relative-path-mode: wd
+
+linters:
+  # Start from nothing; enable deliberately.
+  default: none
+  enable:
+    # --- Correctness -------------------------------------------------------
+    - govet          # canonical suspicious-construct checks; go vet already passes
+    - staticcheck    # bug-prone + perf simplifications; repo is largely clean
+    - errcheck       # unchecked errors; check-blank+assertions catches sloppy AI code
+    - errorlint      # %w/%v wrapping and errors.Is/As discipline the repo already uses
+    - nilerr         # returning nil after checking err != nil — a classic AI bug
+    - nilnesserr     # returning a different nil error var after checking err != nil
+    - ineffassign    # dead assignments hide real intent
+    - wastedassign   # reassigned values never read before overwrite
+    - copyloopvar    # Go<1.22 loop-var capture; go.mod is 1.27 but guards ports
+    - exhaustive     # enum switches must handle all members; auth/goal bugs love this
+    - durationcheck  # multiplying two time.Duration values (timeout * time.Second)
+    - forcetypeassert # unchecked v := x.(T) panics on mismatch; require , ok
+    - makezero       # make([]T, n) followed by append leaves n leading zero items
+    - asasalint      # passing []any as any to variadic func(...any) without ...
+    - musttag        # structs passed to json/yaml marshal/unmarshal must have tags
+    - iotamixing     # mixing iota with non-iota declarations in a const block
+    - recvcheck      # receiver types on a struct must be consistently value or pointer
+    # --- Error / context hygiene ------------------------------------------
+    - wrapcheck      # external errors should be wrapped with context (repo convention)
+    - contextcheck   # non-inherited ctx inside a ctx-taking call chain
+    - fatcontext     # nested context.With* accumulating inside a loop
+    - containedctx   # context.Context stored in a struct field instead of passed first
+    - noctx          # net/http + os/exec without context.Context; repo always passes one
+    - bodyclose      # HTTP response bodies must close; broker/selfupdate use net/http
+    - errname        # sentinel errors use Err* prefix; error types use *Error suffix
+    # --- Workaround / sloppy-AI detectors ---------------------------------
+    - nolintlint     # no unexplained or blanket //nolint; require-explanation+specific
+    - godox          # TODO/FIXME/HACK/XXX left behind; baseline has zero
+    - forbidigo      # ban time.Sleep / fmt.Print* / panic / log.Fatal / DefaultClient
+    - depguard       # enforce package layering and ban loggers / testify / errgroup
+    - gomoddirectives # ban replace/retract/exclude directives left in go.mod
+    - gochecknoglobals  # no new package-level mutable state; baseline ~5
+    - gochecknoinits    # no init(); baseline has zero (blank imports are not init)
+    - nakedret       # naked returns in long functions are hard to audit
+    - dogsled        # assignments with too many blank identifiers (x, _, _, _ := f())
+    - predeclared    # declarations that shadow Go built-ins (error, any, len, new, copy)
+    - reassign       # reassigning package-level variables or sentinel errors
+    # --- Complexity / duplication -----------------------------------------
+    - gocognit       # cognitive complexity; p90=19, p99=48 -> cap 40
+    - cyclop         # cyclomatic; p90=22, p95=29, p99=42 -> cap 30
+    - funlen         # all functions <60 lines today -> cap 100/60
+    - nestif         # deep if-nesting; p99=2 -> cap 5
+    - dupl           # clone detection; 19 blocks >=40 tok -> cap 150
+    - goconst        # repeated literal strings the repo centralizes anyway
+    # mnd is deliberately OFF: the repo legitimately uses file-mode, timeout and
+    # HTTP-status literals inline; it produced 52 mostly-justified hits for
+    # little signal. See docs/quality-baseline.md.
+    # --- Dead code ---------------------------------------------------------
+    - unused         # unused symbols; repo is clean
+    - unparam        # unused/always-same params; one benign hit today
+    - unconvert      # redundant type conversions
+    # --- Performance -------------------------------------------------------
+    - prealloc       # sized slice growth in loops
+    - perfsprint     # Sprintf that should be strconv/faster form
+    - gocritic       # diagnostic+performance+style; tuned below
+    # --- Security / network ------------------------------------------------
+    - gosec          # credential/crypto/exec paths benefit; audit into baseline
+    - bidichk        # dangerous Trojan Source bidirectional Unicode sequences
+    - asciicheck     # non-ASCII lookalike characters in identifiers
+    - nosprintfhostport # use net.JoinHostPort instead of Sprintf("%s:%d") for IPv6
+    - canonicalheader   # net/http.Header keys must use canonical casing
+    # --- Tests -------------------------------------------------------------
+    - thelper        # test helpers must call t.Helper; repo convention
+    - tparallel      # correct t.Parallel usage if/when used
+    # --- Formatting / style ------------------------------------------------
+    - misspell       # common typos
+    - whitespace     # stray blank lines at block edges
+    - usestdlibvars  # prefer stdlib vars (http.MethodGet etc.)
+    - mirror         # bytes/strings mirror misuse
+    - dupword        # duplicated words in comments/strings
+    - embeddedstructfieldcheck  # embedded field ordering
+    - exptostd       # golang.org/x/exp that should be stdlib now
+    - gocheckcompilerdirectives # malformed //go: directives
+    - goprintffuncname          # printf-like functions must end with f
+    - revive         # exported-docs + correctness rules; tuned below
+
+  settings:
+    errcheck:
+      # Discard-into-blank and unchecked type assertions are the AI slop we care about.
+      check-blank: true
+      check-type-assertions: true
+      # The repo's idiomatic safe discards stay allowed. Only signatures that are
+      # genuinely non-actionable in context are listed; everything else must
+      # handle the error (or justify a discard in the baseline).
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - io.WriteString
+        - (*bytes.Buffer).WriteString
+        - (*encoding/json.Encoder).Encode   # headers already sent; nothing to do
+        - (*github.com/gofrs/flock.Flock).Unlock  # release-side cleanup
+        - os.Remove                          # best-effort temp cleanup
+        - (*os.File).Close                   # defer cleanup
+        - (os.File).Close
+
+    wrapcheck:
+      # Only flag external-package errors returned bare; internal and sentinel
+      # errors need no wrap. The repo wraps I/O boundary errors but returns
+      # stdlib filesystem/serialization errors bare, so ignore those signatures
+      # and keep wrapcheck for the network/broker/HTTP boundaries.
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - errors.Is(
+        - errors.As(
+        - os.
+        - os/
+        - encoding/json.
+        - io/fs.
+        - path/filepath.
+        - strconv.
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+      ignore-package-globs:
+        - ompig-slim/*
+        - github.com/MichaelKinsy/PiG/*
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    exhaustive:
+      # Keep default-signaling explicit; repo's enum switches (goal state,
+      # conflict choices) must stay total.
+      default-signifies-exhaustive: false
+
+    depguard:
+      rules:
+        conventions:
+          deny:
+            - pkg: "log/slog"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/rs/zerolog"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "go.uber.org/zap"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/sirupsen/logrus"
+              desc: "this repo has no logger; write diagnostics to an explicit io.Writer"
+            - pkg: "github.com/stretchr/testify"
+              desc: "tests use stdlib testing only; use table-driven cases and t.Helper"
+            - pkg: "golang.org/x/sync/errgroup"
+              desc: "concurrency uses channels, sync.WaitGroup, and signal.NotifyContext"
+            - pkg: "github.com/pkg/errors"
+              desc: "use stdlib errors and fmt.Errorf with %w"
+            - pkg: "io/ioutil"
+              desc: "io/ioutil is deprecated; use io and os packages"
+        internal-layering:
+          files:
+            - "**/internal/**/*.go"
+          deny:
+            - pkg: "ompig-slim/cmd"
+              desc: "internal packages must never import cmd entry points"
+
+    forbidigo:
+      forbid:
+        # time.Sleep in production code is a timing workaround; tests keep it.
+        - pattern: '^time\.Sleep$'
+          msg: "use a condition/channel/deadline instead of time.Sleep; if a retry is needed, loop on a predicate"
+        # The repo writes diagnostics to an explicit io.Writer (os.Stderr/Stderr
+        # param), never to stdout defaults or a logger.
+        - pattern: '^fmt\.Print(ln|f)?$'
+          msg: "write to the explicit io.Writer passed in (os.Stdout/os.Stderr), not fmt.Print*"
+        - pattern: '^panic$'
+          msg: "return an error; do not panic. If this is a true invariant, document it"
+        - pattern: '^log\.Fatal(f|ln)?$'
+          msg: "return the error to the caller which owns process exit"
+        - pattern: '^os\.Exit$'
+          msg: "return an exit code to main; only main/Handle* may call os.Exit"
+        - pattern: '^http\.(DefaultClient|DefaultServeMux|Get|Post|PostForm|Head)$'
+          msg: "use an explicit http.Client with a Timeout, http.NewRequestWithContext, and http.NewServeMux()"
+        - pattern: '^exec\.Command$'
+          msg: "use exec.CommandContext(ctx, ...) so child processes respect cancellation and deadlines"
+      exclude-godoc-examples: false
+
+    godox:
+      keywords: [TODO, FIXME, HACK, XXX, WORKAROUND]
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    gocognit:
+      # p90=19, p99=48 (measured). Cap at 40: above that a function is doing
+      # more than one thing and becomes the class of bug the history shows.
+      min-complexity: 40
+
+    cyclop:
+      # p90=22, p95=29, p99=42, max=56. Cap at 30 ≈ p95.
+      max-complexity: 30
+      package-average: 0
+
+    funlen:
+      # Every function today is <60 lines / <40 statements except three stable
+      # entry/dispatch functions (see baseline). 100/60 leaves headroom while
+      # blocking the AI wall-of-code pattern.
+      lines: 100
+      statements: 60
+      ignore-comments: true
+
+    nestif:
+      # p99=2; deep nesting is rare and signals untangled branches.
+      min-complexity: 5
+
+    dupl:
+      # 19 blocks >=40 tokens today (mostly test-table shapes). 150 tokens keeps
+      # real clones gated without drowning in fixture boilerplate.
+      threshold: 150
+
+    goconst:
+      min-occurrences: 3
+      ignore-tests: false
+
+    unparam:
+      check-exported: false
+
+    gocritic:
+      # Focus on correctness and perf, not style nits the repo doesn't follow.
+      enabled-tags: [diagnostic, performance]
+      disabled-checks:
+        - hugeParam   # repo passes medium structs by value routinely
+        - rangeValCopy
+        - sloppyReassign  # err= vs err:= is stylistic; repo prefers reuse
+      settings:
+        captLocal:
+          paramsOnly: true
+
+    gosec:
+      excludes:
+        - G104   # errcheck already covers unhandled errors with better messages
+        - G306   # repo intentionally writes credential files 0600 via privatefs
+        - G304   # file paths from user config are the feature, not a bug
+
+    nakedret:
+      max-func-lines: 30
+
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: indent-error-flow
+        - name: early-return
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: time-equal
+        - name: string-of-int
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: unconditional-recursion
+        - name: waitgroup-by-value
+        - name: atomic
+        - name: range-val-in-closure
+        - name: range-val-address
+        - name: datarace
+        - name: identical-branches
+        - name: constant-logical-expr
+        - name: bool-literal-in-expr
+        - name: unnecessary-stmt
+
+  exclusions:
+    # Generated/vendored code is out of scope (none in root, but belt+braces).
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - vendor
+      - third_party
+    rules:
+      # Draining a body to io.Discard for connection reuse has no actionable write error.
+      - source: 'io\.Copy\(io\.Discard,'
+        linters: [errcheck]
+      # Tests legitimately discard errors, sleep, and use helpers heavily.
+      - path: _test\.go$
+        linters: [errcheck, forbidigo, forcetypeassert, containedctx, dogsled, errname, musttag, goconst, dupl, funlen, gocognit, cyclop, nestif, mnd, gosec, gochecknoglobals, wrapcheck]
+      # Main entry points may use os.Exit / context.Background legitimately.
+      - path: (^|/)main\.go$
+        linters: [forbidigo]
+      - path: cmd/ompig-slim-broker/main\.go$
+        linters: [forbidigo, wrapcheck]
+      # selfupdate's replace path retries on a timer on Windows by design.
+      - path: replace_windows\.go$
+        linters: [forbidigo]
+
+issues:
+  # Report every finding so baseline counts are honest and diffs can't hide
+  # behind per-linter caps.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - third_party
+      - _test\.go$

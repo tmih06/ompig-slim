@@ -66,7 +66,7 @@ make check
 VERSION="$version" make release
 local_binary=$(mktemp)
 trap 'rm -f "$local_binary"' EXIT
-go build -mod=vendor -trimpath -ldflags="-X github.com/MichaelKinsy/PiG/internal/coding/pigversion.HarnessVersion=$version" -o "$local_binary" .
+go build -mod=vendor -trimpath -ldflags="-X github.com/MichaelKinsy/PiG/internal/coding/pigversion.HarnessVersion=$version" -o "$local_binary" ./cmd/ompig-slim
 [[ "$($local_binary --version)" == "$version" ]] || { echo 'local binary reported the wrong version' >&2; exit 1; }
 python3 scripts/verify-releases.py bin/releases
 
