@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: MIT
+#
+# CodeRabbit reads this file from the default branch.
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+knowledge_base:
+  code_guidelines:
+    # Load the pstack review skills as code guidelines. They also live at
+    # .agents/skills/<name>/SKILL.md, which CodeRabbit auto-discovers; listing
+    # them here applies them to the whole repository explicitly.
+    filePatterns:
+      - files: ".agents/skills/simplify/SKILL.md"
+        applyTo: "**"
+      - files: ".agents/skills/optimize/SKILL.md"
+        applyTo: "**"
+      - files: ".agents/skills/poteto-mode/SKILL.md"
+        applyTo: "**"
+      - files: ".agents/skills/no-comments/SKILL.md"
+        applyTo: "**"
+      - files: ".agents/skills/no-comments/references/comment-sicko.md"
+        applyTo: "**"
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  collapse_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  review_status: false
+  auto_review:
+    enabled: true
+    # Review when a pull request opens, not again on every push. Comment
+    # "@coderabbitai review" on the pull request to request another pass.
+    auto_incremental_review: false
+    drafts: false
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Review against the project's skills, loaded as code guidelines:
+        simplify, optimize, poteto-mode, and no-comments.
+
+        Simplicity (simplify):
+        - Flag abstractions, wrappers, adapters, and extension points that
+          have a single caller or no current requirement.
+        - Flag duplicated logic that belongs in an existing helper or layer;
+          check for an existing owner before suggesting a new abstraction.
+        - Flag defensive checks inside trusted code for states the type
+          model or invariants already make impossible. Validation belongs at
+          boundaries: CLI args, env vars, config, RPC messages, DB rows,
+          serialized files, network payloads.
+        - Flag speculative configuration, feature flags with no consumer,
+          and fallback branches for states that should be impossible. The
+          fix is the invariant or type model, not the fallback.
+        - Flag new abstractions added only to shrink a diff. Direct readable
+          code beats cleverness and premature abstraction.
+
+        Domain and invariants (poteto-mode principles):
+        - Flag conditionals scattered across files that model one concept;
+          the domain belongs in a type, table, registry, or state machine.
+        - Flag types that permit illegal states: optional fields for
+          impossible states, stringly-typed data flowing unvalidated past a
+          boundary, booleans that encode a missing enum.
+        - Flag retry, resume, and recovery paths that are not idempotent.
+          Durable work must converge to the same state after a crash at any
+          step; watch for non-atomic writes and locks released early.
+        - Flag guards that mask a symptom instead of fixing the first place
+          the system went wrong.
+        - Flag business logic entangled with transport, TUI, or framework
+          code.
+
+        Performance (optimize):
+        - Flag wrong asymptotic complexity, the wrong data structure,
+          repeated work inside loops, and work performed in the wrong layer.
+        - Flag allocations, copies, locks held across I/O, or syscalls added
+          on hot paths without a measured need.
+        - Do not request speculative caching or micro-optimizations. When a
+          change claims a speedup or regression, require before/after
+          measurement; benchmarks/ holds the project's harnesses.
+
+        Comments (no-comments):
+        - Flag comments that narrate steps, restate the code, or explain
+          what a rename or extraction would make obvious. Flag
+          commented-out code and banner comments.
+        - Keep comments that state a real constraint, invariant, ownership
+          or concurrency rule, a non-obvious dependency/platform surprise,
+          or a public API contract. Do not flag those.
+        - Flag "IMPORTANT", "do not remove", or "talk to X" comments whose
+          constraint has no enforcing type, runtime check, test, or lint;
+          suggest encoding it instead.
+    - path: "**/*_test.go"
+      instructions: |
+        - Assert observable behavior through the caller's interface, not
+          private call order or helper internals. A test that must change
+          for a behavior-preserving refactor is over-fit; flag it.
+        - Flag tests that hide failures: swallowed errors, skipped
+          assertions, t.Skip without a tracked reason, timeouts that mask
+          hangs.
+        - Boundary code (parsing, RPC, DB, files) needs table-driven
+          coverage of edge cases and error paths; flag single-path tests.
+        - Flag tests that touch real user state (~/.pi, real credentials or
+          profiles). Tests must use temporary directories and fixtures.
+        - Flag assertions that re-derive the expected value by running the
+          same logic as the implementation.
+    - path: "scripts/**"
+      instructions: |
+        - Flag unquoted variable expansions, missing error handling on
+          destructive operations, and release or dependency steps that are
+          not idempotent or crash-safe.
+        - Flag any hardcoded credential, token, or path to private user
+          state.
+        - Keep script behavior aligned with the Makefile targets it backs.
+    - path: "**/*.md"
+      instructions: |
+        - Check prose against the behavior the code implements; flag stale
+          claims and undocumented contract changes, especially in
+          docs/durable.md, docs/remote-broker.md, and README.md.
+        - Flag prose slop: em dashes or colons used as mid-sentence
+          connectors, marketing adjectives, filler, and claims with no
+          evidence or source.
+        - Flag sections that merely restate code or repeat another doc.
+          Keep comments rare and useful; prose should be terse and
+          declarative.
+  path_filters:
+    # Vendored dependencies and lockfiles: reviewing them adds noise, not
+    # signal. Local PiG patches live in vendor/, but dependency sync diffs
+    # are too large to review usefully.
+    - "!vendor/**"
+    - "!**/go.sum"
+    - "!**/package-lock.json"
+    - "!**/Cargo.lock"
+    - "!skills-lock.json"
+    - "!themes/**"
+    - "!assets/**"
+chat:
+  auto_reply: true
