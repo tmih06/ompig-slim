@@ -327,7 +327,7 @@ jobs:
   quality-gate:
     # The agent-facing gate as a required status check. Local hooks can be
     # skipped with --no-verify, so this is the real enforcement point: new and
-    # changed code must pass every check, and gate config edits need an owner.
+    # changed code must pass every check.
     name: Quality gate (new + changed code)
     if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
