@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -236,9 +235,7 @@ func GoogleAntigravityProvider() *ModelsProvider {
 	for _, spec := range specs {
 		baseline = append(baseline, googleCloudCodeRuntimeModel(spec))
 	}
-	var discoveredMu sync.Mutex
-	var discovered []AnyModel
-	return CreateProvider(CreateProviderOptions{
+	return WithGoogleAntigravityModelDiscovery(CreateProvider(CreateProviderOptions{
 		ID:      GoogleAntigravityProviderID,
 		Name:    ptrString("Google Antigravity"),
 		BaseURL: googleAntigravityPrimaryEndpoint,
@@ -248,29 +245,74 @@ func GoogleAntigravityProvider() *ModelsProvider {
 		},
 		Models: baseline,
 		API:    GoogleCloudCodeAssistAPI(),
-		// The roster replaces the baseline once known; a failed discovery keeps it.
-		FetchModels: func(refresh RefreshModelsContext) ([]AnyModel, error) {
-			if refresh.Credential == nil || refresh.Credential.Type != CredentialOAuth || !refresh.AllowNetwork {
-				discoveredMu.Lock()
-				defer discoveredMu.Unlock()
-				return discovered, nil
-			}
-			signal := refresh.Signal
-			if signal == nil {
-				signal = context.Background()
-			}
-			roster, err := googleDiscoverAntigravityModels(signal, refresh.Credential)
-			if err != nil || len(roster) == 0 {
-				discoveredMu.Lock()
-				defer discoveredMu.Unlock()
-				return discovered, nil
-			}
-			discoveredMu.Lock()
-			discovered = roster
-			discoveredMu.Unlock()
-			return roster, nil
-		},
-	})
+	}))
+}
+
+// WithGoogleAntigravityModelDiscovery installs the account's live Cloud Code
+// Assist roster on the google-antigravity provider, scoped by credential
+// identity and endpoint, with the bundled catalog as baseline.
+func WithGoogleAntigravityModelDiscovery(provider *ModelsProvider) *ModelsProvider {
+	if provider == nil || provider.ID != GoogleAntigravityProviderID {
+		return provider
+	}
+	catalog := &accountModelCatalog{
+		providerID: GoogleAntigravityProviderID,
+		scopeLabel: "live",
+		endpoint:   googleAntigravityCatalogEndpoint,
+		identity:   googleAntigravityModelIdentity,
+		builtin:    func(modelID string) bool { return GetBuiltinModel(GoogleAntigravityProviderID, modelID) != nil },
+	}
+	return withAccountModelDiscovery(provider, catalog, fetchGoogleAntigravityModelRoster)
+}
+
+func googleAntigravityCatalogEndpoint(baseURL string) (string, error) {
+	base := strings.TrimSpace(baseURL)
+	if base == "" {
+		base = googleAntigravityPrimaryEndpoint
+	}
+	return strings.TrimRight(base, "/"), nil
+}
+
+// googleAntigravityModelIdentity derives a stable, non-secret roster key from
+// account-identifying credential claims (or a digest of a non-redacted refresh
+// token). Without an account discriminator it returns false so
+// accountModelCatalog falls back to an ephemeral access-token scope.
+func googleAntigravityModelIdentity(credential Credential) (string, bool) {
+	identity := []string{}
+	add := func(name, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			identity = append(identity, name, value)
+		}
+	}
+	add("account", credential.AccountID)
+	add("email", credential.EnterpriseDomain)
+	add("project", credential.ProjectID)
+	for _, key := range []string{"email", "userId"} {
+		add(key, stringClaim(credential, key))
+	}
+	if refresh := credential.Refresh; refresh != "" && refresh != RemoteRefreshSentinel {
+		add("refresh", accountModelsDigest(GoogleAntigravityProviderID, refresh)[:32])
+	}
+	if len(identity) == 0 {
+		return "", false
+	}
+	encoded, _ := json.Marshal(identity)
+	return string(encoded), true
+}
+
+func fetchGoogleAntigravityModelRoster(ctx context.Context, baseURL string, credential *Credential) ([]*Model, string, error) {
+	if credential == nil || credential.Type != CredentialOAuth || credential.Access == "" {
+		return nil, "", errors.New("Google Antigravity model discovery requires OAuth credentials")
+	}
+	roster, err := googleDiscoverAntigravityModelsAt(ctx, baseURL, credential)
+	if err != nil {
+		return nil, "", err
+	}
+	chat := chatModels(roster)
+	if len(chat) == 0 {
+		return nil, "", errors.New("Google Antigravity model discovery returned an empty roster")
+	}
+	return chat, "", nil
 }
 
 // GoogleGeminiCliProvider is the google-gemini-cli provider: Google's own roster through Cloud Code Assist.
@@ -322,12 +364,26 @@ type googleAntigravityDiscoveryResponse struct {
 // shipped baseline stays in place; a disabled or internal row is dropped, because Cloud Code lists it but
 // answers 404 for it.
 func googleDiscoverAntigravityModels(ctx context.Context, credential *Credential) ([]AnyModel, error) {
+	return googleDiscoverAntigravityModelsAt(ctx, "", credential)
+}
+
+func googleAntigravityDiscoveryEndpoints(baseURL string) []string {
+	primary := strings.TrimRight(googleAntigravityPrimaryEndpoint, "/")
+	sandbox := strings.TrimRight(googleAntigravitySandboxEndpoint, "/")
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base != "" && base != primary && base != sandbox {
+		return []string{base}
+	}
+	return []string{primary, sandbox}
+}
+
+func googleDiscoverAntigravityModelsAt(ctx context.Context, baseURL string, credential *Credential) ([]AnyModel, error) {
 	if credential == nil || credential.Access == "" {
 		return nil, nil
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, ccaDiscoveryTimeoutMs*time.Millisecond)
 	defer cancel()
-	endpoints := []string{strings.TrimRight(googleAntigravityPrimaryEndpoint, "/"), strings.TrimRight(googleAntigravitySandboxEndpoint, "/")}
+	endpoints := googleAntigravityDiscoveryEndpoints(baseURL)
 	var lastErr error
 	for _, endpoint := range endpoints {
 		body := "{}"
@@ -374,8 +430,10 @@ func googleDiscoverAntigravityModels(ctx context.Context, credential *Credential
 	return nil, lastErr
 }
 
-// googleAntigravityModelsFromResponse builds the roster rows. It keeps the baseline's reasoning and limits
-// for ids the baseline knows, and records each row's wire profile for the request constants.
+// googleAntigravityModelsFromResponse builds the roster rows. It preserves the
+// bundled catalog's costs, reasoning, and limits for known ids, falls back to
+// the default tier SKU for collapsed families, and records each row's wire
+// profile for the request constants.
 func googleAntigravityModelsFromResponse(payload googleAntigravityDiscoveryResponse, endpoint, accountKey string) []AnyModel {
 	ids := make([]string, 0, len(payload.Models))
 	for id := range payload.Models {
@@ -384,7 +442,7 @@ func googleAntigravityModelsFromResponse(payload googleAntigravityDiscoveryRespo
 	// Effort-tier SKUs collapse into logical families first, exactly as the catalog generator does, so the
 	// roster lists logical ids and the transport routes each effort to the wire id that serves it.
 	ids, families := ccaCollapseTierFamilies(ids)
-	for logicalID, family := range families {
+	for _, family := range families {
 		ccaRecordAccountFamily(accountKey, family)
 		for _, wireID := range family.Tiers {
 			info, ok := payload.Models[wireID]
@@ -395,11 +453,15 @@ func googleAntigravityModelsFromResponse(payload googleAntigravityDiscoveryRespo
 				ccaRecordAccountProfile(accountKey, wireID, *profile)
 			}
 		}
-		_ = logicalID
 	}
 	roster := make([]AnyModel, 0, len(ids))
 	for _, id := range ids {
-		info := payload.Models[id]
+		info, direct := payload.Models[id]
+		if !direct {
+			if family, isFamily := families[id]; isFamily {
+				info = payload.Models[family.Default]
+			}
+		}
 		if _, denied := googleAntigravityDiscoveryDenylist[id]; denied {
 			continue
 		}
@@ -409,31 +471,53 @@ func googleAntigravityModelsFromResponse(payload googleAntigravityDiscoveryRespo
 		if info.Disabled != nil && *info.Disabled {
 			continue
 		}
-		spec := googleCloudCodeModelSpec{ID: id, Name: id, Reasoning: true, Input: []ModelInputModality{ModelInputText, ModelInputImage}}
-		for _, baseline := range googleAntigravityBaseline {
-			if baseline.ID == id {
-				spec = baseline
-				break
+		model := GetBuiltinModel(GoogleAntigravityProviderID, id)
+		if model == nil {
+			spec := googleCloudCodeModelSpec{ID: id, Name: id, Reasoning: true, Input: []ModelInputModality{ModelInputText, ModelInputImage}}
+			for _, baseline := range googleAntigravityBaseline {
+				if baseline.ID == id {
+					spec = baseline
+					break
+				}
+			}
+			spec.Provider = GoogleAntigravityProviderID
+			spec.BaseURL = endpoint
+			model = googleCloudCodeRuntimeModel(spec)
+		} else {
+			model.ProviderMeta.BaseURL = endpoint
+		}
+		if info.DisplayName != "" && (direct || model.DisplayName == "" || model.DisplayName == id) {
+			model.DisplayName = info.DisplayName
+		}
+		if info.SupportsImages != nil {
+			if *info.SupportsImages {
+				if !slices.Contains(model.Input, ModelInputImage) {
+					model.Input = append(model.Input, ModelInputImage)
+				}
+				model.Capabilities.SupportsImages = true
+				if model.InputLimits == nil {
+					model.InputLimits = googleCloudCodeImageLimits()
+				}
+			} else {
+				model.Input = []ModelInputModality{ModelInputText}
+				model.Capabilities.SupportsImages = false
+				model.InputLimits = nil
 			}
 		}
-		if info.DisplayName != "" {
-			spec.Name = info.DisplayName
-		}
-		if info.SupportsImages != nil && !*info.SupportsImages {
-			spec.Input = []ModelInputModality{ModelInputText}
-		}
 		if info.SupportsThinking != nil {
-			spec.Reasoning = *info.SupportsThinking
+			model.ProviderMeta.Reasoning = *info.SupportsThinking
+			if !*info.SupportsThinking {
+				model.Capabilities.MaxThinking = ""
+			} else if model.Capabilities.MaxThinking == "" {
+				model.Capabilities.MaxThinking = ThinkingLevelHigh
+			}
 		}
 		if info.MaxTokens != nil && *info.MaxTokens > 0 {
-			spec.ContextWindow = *info.MaxTokens
+			model.Capabilities.ContextWindow = *info.MaxTokens
 		}
 		if info.MaxOutputTokens != nil && *info.MaxOutputTokens > 0 {
-			spec.MaxTokens = *info.MaxOutputTokens
+			model.Capabilities.MaxOutputTokens = *info.MaxOutputTokens
 		}
-		spec.Provider = GoogleAntigravityProviderID
-		spec.BaseURL = endpoint
-		model := googleCloudCodeRuntimeModel(spec)
 		if profile := googleAntigravityProfileFromInfo(info); profile != nil {
 			ccaRecordAccountProfile(accountKey, id, *profile)
 			model.ProviderMeta.Compat = withCCAWireProfile(model.ProviderMeta.Compat, id, profile)

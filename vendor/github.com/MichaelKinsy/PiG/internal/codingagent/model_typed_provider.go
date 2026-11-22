@@ -110,6 +110,7 @@ func builtinTypedBase(id string, fallback ai.ModelsStreamFunction) *ai.ModelsPro
 	base = ai.WithCodexModelDiscovery(base)
 	base = ai.WithDevinModelDiscovery(base)
 	base = ai.WithGitHubCopilotModelDiscovery(base)
+	base = ai.WithGoogleAntigravityModelDiscovery(base)
 	if len(implementations) > 0 {
 		base.Classify = func(ctx context.Context, model *ai.ClassifierModel, request ai.ClassifierContext, options ai.ClassifierOptions) (ai.ClassifierResult, error) {
 			implementation := implementations[model.API]

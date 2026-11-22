@@ -12,9 +12,10 @@ import (
 )
 
 // accountModelCatalog holds credential-scoped live model rosters per endpoint:
-// the account discovery shared by Codex and Devin. Each provider supplies how
-// its endpoint normalizes, which credential fields identify an account, which
-// models are built in, and how a roster is fetched.
+// the account discovery shared by Codex, Devin, GitHub Copilot, and Google
+// Antigravity. Each provider supplies how its endpoint normalizes, which
+// credential fields identify an account, which models are built in, and how a
+// roster is fetched.
 type accountModelCatalog struct {
 	providerID string
 	// scopeLabel names the roster kind inside scope ids, which persist as

@@ -396,9 +396,12 @@ func TestDevinCacheWriteRate(t *testing.T) {
 		"claude-opus-4-6":         1.25,
 		"claude-fable-5-2-high":   1.25,
 		"gpt-5-6-sol":             1.25,
+		"gpt-5-10":                1.25,
 		"gpt-6-sol":               1.25,
+		"gpt-6-2-astra-low":       1.25,
 		"gpt-6-sol-high-priority": 1.25,
 		"gpt-5-5":                 0,
+		"gpt-7-0":                 0,
 		"gemini-3-7-flash":        0,
 		"swe-2-max":               0,
 		"adaptive":                1.0,
@@ -424,6 +427,10 @@ func TestDevinFamilyCollapse(t *testing.T) {
 		devinTestConfig("glm-5-2-max", "GLM 5.2 Max", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(200000, 32000)) }),
 		devinTestConfig("glm-5-2-max-1m", "GLM 5.2 Max 1M", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(1000000, 32000)) }),
 		devinTestConfig("glm-5-2-1m", "GLM 5.2 1M", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(1000000, 32000)) }),
+		devinTestConfig("think-1-thinking", "Think 1 Thinking", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(128000, 16000)) }),
+		devinTestConfig("think-1-no-thinking", "Think 1 No Thinking", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(128000, 16000)) }),
+		devinTestConfig("bolt-fast", "Bolt Fast", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(128000, 16000)) }),
+		devinTestConfig("bolt-lightning", "Bolt Lightning", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(128000, 16000)) }),
 		devinTestConfig("fusion-swe-2-max-sidekick-glm-5-2", "Fusion", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(100000, 8000)) }),
 		devinTestConfig("solo-9-low", "Solo Low", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(64000, 8000)) }),
 	}
@@ -455,6 +462,26 @@ func TestDevinFamilyCollapse(t *testing.T) {
 	}
 	if got := lane("glm-5-2"); got != "" {
 		t.Fatalf("bare face glm-5-2 marked as lane %q", got)
+	}
+	// -no-thinking must match before -thinking, and both collapse under think-1.
+	if got := lane("think-1-no-thinking"); got != "think-1" {
+		t.Fatalf("think-1-no-thinking lane family %q, want think-1", got)
+	}
+	if got := lane("think-1-thinking"); got != "think-1" {
+		t.Fatalf("think-1-thinking lane family %q, want think-1", got)
+	}
+	if got := byID["think-1"]; got == nil || got.DisplayName != "Think 1" {
+		t.Fatalf("think-1 synthesized family = %+v", got)
+	}
+	if got := devinFamilyName("think-1", "Think 1 No Thinking"); got != "Think 1" {
+		t.Fatalf("devinFamilyName(No Thinking) = %q, want Think 1", got)
+	}
+	// A bare -fast face keeps itself while -lightning collapses under it regardless of order.
+	if got := lane("bolt-fast"); got != "" {
+		t.Fatalf("bolt-fast wrongly marked as lane %q", got)
+	}
+	if got := lane("bolt-lightning"); got != "bolt-fast" {
+		t.Fatalf("bolt-lightning lane family %q, want bolt-fast", got)
 	}
 	// The synthesized family routes through its strongest member.
 	family, ok := byID["swe-2"]
@@ -494,6 +521,17 @@ func TestDevinFamilyCollapse(t *testing.T) {
 	if _, ok := byID["solo-9"]; ok {
 		t.Fatal("phantom family synthesized for an orphan lane")
 	}
+	// Re-projecting a stored roster is idempotent and stays sorted.
+	reprojected := devinCollapseFamilies([]*Model{
+		{ID: "swe-2-medium", DisplayName: "SWE-2 Medium"},
+		{ID: "swe-2-max", DisplayName: "SWE-2 Max"},
+	})
+	if len(reprojected) != 3 || reprojected[0].ID != "swe-2" || reprojected[1].ID != "swe-2-max" || reprojected[2].ID != "swe-2-medium" {
+		t.Fatalf("reprojected stored roster = %+v", reprojected)
+	}
+	if again := devinCollapseFamilies(reprojected); len(again) != 3 {
+		t.Fatalf("re-projecting collapsed roster duplicated entries: %d", len(again))
+	}
 }
 
 func TestDevinModelScopeStoreKeyStability(t *testing.T) {
@@ -527,5 +565,24 @@ func TestDevinModelScopeStoreKeyStability(t *testing.T) {
 	}
 	if stable.ID == ephemeral.ID {
 		t.Fatal("stable and ephemeral credentials share a scope")
+	}
+
+	// Shared endpoint metadata alone (apiServerUrl without an account/org/user
+	// discriminator) must stay ephemeral so distinct users never share a key.
+	serverOnlyA := provider.ModelCatalog.Scope(provider.BaseURL, &Credential{
+		Type:   CredentialOAuth,
+		Access: "token-a",
+		Extra:  map[string]json.RawMessage{"apiServerUrl": json.RawMessage(`"https://server.codeium.com"`)},
+	})
+	serverOnlyB := provider.ModelCatalog.Scope(provider.BaseURL, &Credential{
+		Type:   CredentialOAuth,
+		Access: "token-b",
+		Extra:  map[string]json.RawMessage{"apiServerUrl": json.RawMessage(`"https://server.codeium.com"`)},
+	})
+	if serverOnlyA.StoreKey != "" || serverOnlyB.StoreKey != "" {
+		t.Fatalf("apiServerUrl-only scope persisted: %+v vs %+v", serverOnlyA, serverOnlyB)
+	}
+	if serverOnlyA.ID == "" || serverOnlyA.ID == serverOnlyB.ID {
+		t.Fatalf("apiServerUrl-only accounts collided: %+v vs %+v", serverOnlyA, serverOnlyB)
 	}
 }

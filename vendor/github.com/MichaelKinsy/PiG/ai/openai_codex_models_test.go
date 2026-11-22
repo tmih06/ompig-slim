@@ -355,6 +355,12 @@ func TestCodexModelStoreKeysSeparateProvidersAndAccounts(t *testing.T) {
 	if scope.StoreKey != "" || strings.Contains(scope.ID, "fixture-token") {
 		t.Fatalf("token-derived scope was persisted or exposed: %+v", scope)
 	}
+	// Shared plan/enterprise qualifiers without an account discriminator must stay ephemeral.
+	planOnlyA := openAI.ModelCatalog.Scope(baseURL, &Credential{Type: CredentialOAuth, Access: "token-a", EnterpriseDomain: "example.invalid"})
+	planOnlyB := openAI.ModelCatalog.Scope(baseURL, &Credential{Type: CredentialOAuth, Access: "token-b", EnterpriseDomain: "example.invalid"})
+	if planOnlyA.StoreKey != "" || planOnlyB.StoreKey != "" || planOnlyA.ID == planOnlyB.ID {
+		t.Fatalf("enterprise-only Codex scopes collided or persisted: %+v vs %+v", planOnlyA, planOnlyB)
+	}
 }
 
 func TestCodexDiscoveryRestoresBaselineMetadataAcrossAccounts(t *testing.T) {

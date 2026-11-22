@@ -12,8 +12,6 @@ package ai
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -45,33 +43,36 @@ func WithGitHubCopilotModelDiscovery(provider *ModelsProvider) *ModelsProvider {
 func copilotCatalogEndpoint(baseURL string) (string, error) {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
-		base = "https://api.individual.githubcopilot.com"
+		base = defaultCopilotBaseURL
 	}
 	return strings.TrimRight(base, "/"), nil
 }
 
-// copilotModelIdentity is a stable, non-secret roster key: the account,
-// enterprise, and apiEndpoint claims when the credential carries them, and a
-// digest of the refresh token — the durable account discriminator of both
-// credential shapes (a short-lived Copilot API token and a stored GitHub token
-// share the same refresh material). The digest, never the token, enters the
-// scope id; a broker-redacted refresh marker is not account material.
+// copilotModelIdentity is a stable, non-secret roster key: an account
+// discriminator (AccountID or a digest of the durable refresh token, skipping
+// the broker redaction sentinel) qualified by enterprise and apiEndpoint claims.
+// Without an account discriminator, it returns false so accountModelCatalog
+// falls back to an ephemeral access-token scope instead of collapsing separate
+// accounts onto a shared endpoint key.
 func copilotModelIdentity(credential Credential) (string, bool) {
+	hasAccount := false
 	identity := []string{}
 	add := func(name, value string) {
-		value = strings.TrimSpace(value)
-		if value != "" {
+		if value = strings.TrimSpace(value); value != "" {
 			identity = append(identity, name, value)
 		}
 	}
-	add("account", credential.AccountID)
+	if account := strings.TrimSpace(credential.AccountID); account != "" {
+		hasAccount = true
+		add("account", account)
+	}
 	add("enterprise", credential.EnterpriseDomain)
 	add("apiEndpoint", stringClaim(credential, "apiEndpoint"))
 	if refresh := credential.Refresh; refresh != "" && refresh != RemoteRefreshSentinel {
-		digest := sha256.Sum256([]byte(gitHubCopilotProviderID + "\x00" + refresh))
-		add("refresh", hex.EncodeToString(digest[:16]))
+		hasAccount = true
+		add("refresh", accountModelsDigest(gitHubCopilotProviderID, refresh)[:32])
 	}
-	if len(identity) == 0 {
+	if !hasAccount {
 		return "", false
 	}
 	encoded, _ := json.Marshal(identity)
@@ -94,7 +95,7 @@ func copilotModelAPIBase(credential *Credential) string {
 // only retain bundled ids. Picker ids without a bundled entry are dropped, as
 // upstream's filter drops them.
 func fetchGitHubCopilotModelRoster(ctx context.Context, _ string, credential *Credential) ([]*Model, string, error) {
-	if credential == nil || credential.Access == "" {
+	if credential == nil || credential.Type != CredentialOAuth || credential.Access == "" {
 		return nil, "", errors.New("GitHub Copilot model discovery requires OAuth credentials")
 	}
 	catalog, err := fetchGitHubCopilotModelsAtBase(ctx, copilotModelAPIBase(credential), credential.Access, copilotRetryPolicy{MaxRetries: 2, MaxElapsedMs: 5000})
@@ -105,7 +106,7 @@ func fetchGitHubCopilotModelRoster(ctx context.Context, _ string, credential *Cr
 	for _, id := range catalog.AvailableModelIDs {
 		available[id] = true
 	}
-	var models []*Model
+	models := make([]*Model, 0, len(catalog.AvailableModelIDs))
 	for _, generated := range ListModels(gitHubCopilotProviderID) {
 		if available[generated.ID] {
 			models = append(models, generated.ToModel())

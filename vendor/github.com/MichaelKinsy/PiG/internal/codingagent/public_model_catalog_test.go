@@ -150,7 +150,11 @@ func TestPublicCatalogRejectsUnsafeMembership(t *testing.T) {
 		}
 		rows = append(rows, row)
 	}
-	rows = append(rows, ai.ModelCatalogMetadataRow{Provider: "evil", ID: "new", ToolCall: &flag, Input: []string{"text"}, ContextWindow: &contextWindow, MaxTokens: &output}, ai.ModelCatalogMetadataRow{Provider: "cursor", ID: "new", ToolCall: &flag, Input: []string{"text"}, ContextWindow: &contextWindow, MaxTokens: &output})
+	rows = append(rows,
+		ai.ModelCatalogMetadataRow{Provider: "evil", ID: "new", ToolCall: &flag, Input: []string{"text"}, ContextWindow: &contextWindow, MaxTokens: &output},
+		ai.ModelCatalogMetadataRow{Provider: "cursor", ID: "new", ToolCall: &flag, Input: []string{"text"}, ContextWindow: &contextWindow, MaxTokens: &output},
+		ai.ModelCatalogMetadataRow{Provider: "github-copilot", ID: "unbundled-public-model", ToolCall: &flag, Input: []string{"text"}, ContextWindow: &contextWindow, MaxTokens: &output},
+	)
 	raw, err := ai.MarshalModelCatalogMetadataSnapshot(ai.ModelCatalogMetadataSnapshot{Version: ai.ModelCatalogMetadataVersion, FetchedAt: time.Now().UnixMilli(), CheckedAt: time.Now().UnixMilli(), Rows: rows})
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +170,8 @@ func TestPublicCatalogRejectsUnsafeMembership(t *testing.T) {
 	if len(models) != 1 || models[0].ID != "good" {
 		t.Fatal("invalid membership accepted", models)
 	}
-	if len(registry.publicCatalogAdditions("evil")) > 0 || len(registry.publicCatalogAdditions("cursor")) > 0 {
-		t.Fatal("untrusted provider membership")
+	if len(registry.publicCatalogAdditions("evil")) > 0 || len(registry.publicCatalogAdditions("cursor")) > 0 || len(registry.publicCatalogAdditions("github-copilot")) > 0 {
+		t.Fatal("untrusted or account-scoped provider membership accepted")
 	}
 	if model := registry.GetProviderModelDataByID("openai", "gpt-5.6-sol"); model.Capabilities.ContextWindow != 272000 {
 		t.Fatal("source overwrote curated limit", model.Capabilities.ContextWindow)

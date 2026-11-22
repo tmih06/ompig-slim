@@ -277,3 +277,32 @@ func TestGitHubCopilotModelDiscoveryKeepsBaselineWithoutRoster(t *testing.T) {
 		t.Fatalf("GetModels without roster = %d, want bundled %d", len(listed), len(baseline))
 	}
 }
+
+func TestGitHubCopilotModelScopeBrokerRedaction(t *testing.T) {
+	provider := copilotDiscoveryTestProvider(t, defaultCopilotBaseURL)
+	endpointClaim := map[string]json.RawMessage{
+		"apiEndpoint": json.RawMessage(`"https://api.individual.githubcopilot.com"`),
+	}
+
+	// Broker-redacted credentials without an account ID must not collapse onto
+	// a shared apiEndpoint store key: each falls back to an ephemeral scope.
+	redactedA := &Credential{Type: CredentialOAuth, Access: "access-a", Refresh: RemoteRefreshSentinel, Extra: endpointClaim}
+	redactedB := &Credential{Type: CredentialOAuth, Access: "access-b", Refresh: RemoteRefreshSentinel, Extra: endpointClaim}
+	scopeA := provider.ModelCatalog.Scope(provider.BaseURL, redactedA)
+	scopeB := provider.ModelCatalog.Scope(provider.BaseURL, redactedB)
+	if scopeA.ID == "" || scopeB.ID == "" || scopeA.ID == scopeB.ID {
+		t.Fatalf("redacted accounts collided: %+v vs %+v", scopeA, scopeB)
+	}
+	if scopeA.StoreKey != "" || scopeB.StoreKey != "" {
+		t.Fatalf("redacted accounts without AccountID persisted: %+v vs %+v", scopeA, scopeB)
+	}
+
+	// With AccountID present, broker-redacted credentials keep distinct stable store keys.
+	namedA := &Credential{Type: CredentialOAuth, Access: "access-a", Refresh: RemoteRefreshSentinel, AccountID: "acct-a", Extra: endpointClaim}
+	namedB := &Credential{Type: CredentialOAuth, Access: "access-b", Refresh: RemoteRefreshSentinel, AccountID: "acct-b", Extra: endpointClaim}
+	stableA := provider.ModelCatalog.Scope(provider.BaseURL, namedA)
+	stableB := provider.ModelCatalog.Scope(provider.BaseURL, namedB)
+	if stableA.StoreKey == "" || stableB.StoreKey == "" || stableA.StoreKey == stableB.StoreKey {
+		t.Fatalf("named broker scopes invalid: %+v vs %+v", stableA, stableB)
+	}
+}
