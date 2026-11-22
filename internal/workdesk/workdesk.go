@@ -3,6 +3,7 @@
 package workdesk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -278,7 +279,7 @@ type controlMessage struct {
 }
 
 func decodeControlMessages(data []byte) ([]controlMessage, int64) {
-	last := strings.LastIndexByte(string(data), '\n')
+	last := bytes.LastIndexByte(data, '\n')
 	if last < 0 {
 		return nil, 0
 	}

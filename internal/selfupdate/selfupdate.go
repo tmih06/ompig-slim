@@ -531,7 +531,13 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 		return canonicalUpdate(args), false, 0
 	}
 	if resolved.all {
-		if childCode := runPackageUpdate(executable, stdout, stderr); childCode != 0 {
+		// The package phase runs a child process before the self-update
+		// context exists; give it its own bound so a hung child cannot
+		// block the self-update that follows it.
+		packageCtx, packageCancel := context.WithTimeout(context.Background(), updateTimeout)
+		childCode := runPackageUpdate(packageCtx, executable, stdout, stderr)
+		packageCancel()
+		if childCode != 0 {
 			return nil, true, childCode
 		}
 	}
@@ -643,8 +649,8 @@ func canonicalUpdate(args []string) []string {
 
 // runPackageUpdate runs the package-manager phase of `update --all` through a
 // child process, because PiG's dispatch ends the process it runs in.
-func runPackageUpdate(executable string, stdout, stderr io.Writer) int {
-	command := exec.Command(executable, "update", "--extensions")
+func runPackageUpdate(ctx context.Context, executable string, stdout, stderr io.Writer) int {
+	command := exec.CommandContext(ctx, executable, "update", "--extensions")
 	command.Stdout = stdout
 	command.Stderr = stderr
 	if err := command.Run(); err != nil {
