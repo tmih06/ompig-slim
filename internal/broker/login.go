@@ -3,9 +3,11 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,9 +16,11 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 )
 
-const LoginProviderID = "remote-ompig-slim-broker"
-const LoginProviderName = "Remote ompig-slim broker"
-const connectionFile = "remote-broker.json"
+const (
+	LoginProviderID   = "remote-ompig-slim-broker"
+	LoginProviderName = "Remote ompig-slim broker"
+	connectionFile    = "remote-broker.json"
+)
 
 // connection is device-local bootstrap configuration, deliberately excluded
 // from SharedFiles and the credential snapshot so the sync secret never syncs.
@@ -71,10 +75,10 @@ func loadConnection(dir string) (connection, error) {
 	}
 	var saved connection
 	if err = json.Unmarshal(data, &saved); err != nil {
-		return saved, fmt.Errorf("invalid local broker connection file")
+		return saved, errors.New("invalid local broker connection file")
 	}
 	if saved.URL == "" {
-		return saved, fmt.Errorf("local broker connection has no URL")
+		return saved, errors.New("local broker connection has no URL")
 	}
 	if secret != "" {
 		saved.Secret = secret
@@ -101,11 +105,11 @@ func environmentSecret() (string, error) {
 // state; both startup and the login verification use the same URL constraints.
 func newClient(dir string, saved connection) (*Client, error) {
 	if strings.TrimSpace(saved.Secret) == "" {
-		return nil, fmt.Errorf("broker secret is required")
+		return nil, errors.New("broker secret is required")
 	}
 	u, err := url.Parse(saved.URL)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
-		return nil, fmt.Errorf("broker URL must be an HTTP(S) origin without credentials, path, query or fragment")
+		return nil, errors.New("broker URL must be an HTTP(S) origin without credentials, path, query or fragment")
 	}
 	dir, err = filepath.Abs(dir)
 	if err != nil {
@@ -143,7 +147,7 @@ func Login(ctx context.Context, dir string, interaction ai.AuthInteraction) erro
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(client.dir, 0700); err != nil {
+	if err = privatefs.EnsurePrivateDir(client.dir); err != nil {
 		return err
 	}
 	return replaceFile(filepath.Join(client.dir, connectionFile), data)

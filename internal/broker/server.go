@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"ompig-slim/internal/privatefs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +18,6 @@ import (
 	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"ompig-slim/internal/privatefs"
 )
 
 const maxItemBytes = 8 << 20
@@ -47,7 +48,7 @@ type Store struct {
 // the shared bearer; TLS is operator-owned.
 func NewHandler(dir, token string) (*Store, error) {
 	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("broker token is required")
+		return nil, errors.New("broker token is required")
 	}
 	if err := privatefs.EnsurePrivateDir(dir); err != nil {
 		return nil, fmt.Errorf("make data directory private: %w", err)
@@ -75,7 +76,7 @@ func NewHandler(dir, token string) (*Store, error) {
 		actual := sha256.Sum256([]byte(strings.TrimPrefix(raw, "Bearer ")))
 		if !strings.HasPrefix(raw, "Bearer ") || subtle.ConstantTimeCompare(digest[:], actual[:]) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -184,7 +185,7 @@ func (s *Store) get(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	item, err := s.read(name)
 	if err != nil {
-		http.Error(w, "storage read failed", 500)
+		http.Error(w, "storage read failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("ETag", `"`+item.Revision+`"`)
@@ -202,18 +203,18 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 	var next Item
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 12<<20))
 	if dec.Decode(&next) != nil || dec.Decode(new(any)) != io.EOF || len(next.Data) > maxItemBytes {
-		http.Error(w, "invalid item", 400)
+		http.Error(w, "invalid item", http.StatusBadRequest)
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, err := s.read(name)
 	if err != nil {
-		http.Error(w, "storage read failed", 500)
+		http.Error(w, "storage read failed", http.StatusInternalServerError)
 		return
 	}
 	if r.Header.Get("If-Match") != `"`+current.Revision+`"` {
-		http.Error(w, "revision conflict", 412)
+		http.Error(w, "revision conflict", http.StatusPreconditionFailed)
 		return
 	}
 	if next.Data == nil {
@@ -225,7 +226,7 @@ func (s *Store) put(w http.ResponseWriter, r *http.Request) {
 		err = publishDocument(s.dir, name, next.Data)
 	}
 	if err != nil {
-		http.Error(w, "storage write failed", 500)
+		http.Error(w, "storage write failed", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

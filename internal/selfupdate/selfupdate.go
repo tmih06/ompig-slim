@@ -11,16 +11,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"ompig-slim/internal/configroot"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	semver "github.com/MichaelKinsy/PiG/third_party/semver"
-
-	"ompig-slim/internal/configroot"
 )
 
 const (
@@ -235,7 +235,7 @@ func (o Options) latestBetaTag(ctx context.Context) (string, error) {
 	for page := 1; ; page++ {
 		query := endpoint.Query()
 		query.Set("per_page", "100")
-		query.Set("page", fmt.Sprint(page))
+		query.Set("page", strconv.Itoa(page))
 		endpoint.RawQuery = query.Encode()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 		if err != nil {
@@ -531,7 +531,13 @@ func Handle(args []string, version string, stdout, stderr io.Writer) (delegated 
 		return canonicalUpdate(args), false, 0
 	}
 	if resolved.all {
-		if childCode := runPackageUpdate(executable, stdout, stderr); childCode != 0 {
+		// The package phase runs a child process before the self-update
+		// context exists; give it its own bound so a hung child cannot
+		// block the self-update that follows it.
+		packageCtx, packageCancel := context.WithTimeout(context.Background(), updateTimeout)
+		childCode := runPackageUpdate(packageCtx, executable, stdout, stderr)
+		packageCancel()
+		if childCode != 0 {
 			return nil, true, childCode
 		}
 	}
@@ -643,8 +649,8 @@ func canonicalUpdate(args []string) []string {
 
 // runPackageUpdate runs the package-manager phase of `update --all` through a
 // child process, because PiG's dispatch ends the process it runs in.
-func runPackageUpdate(executable string, stdout, stderr io.Writer) int {
-	command := exec.Command(executable, "update", "--extensions")
+func runPackageUpdate(ctx context.Context, executable string, stdout, stderr io.Writer) int {
+	command := exec.CommandContext(ctx, executable, "update", "--extensions")
 	command.Stdout = stdout
 	command.Stderr = stderr
 	if err := command.Run(); err != nil {
@@ -733,7 +739,7 @@ func saveChannel(channel string) error {
 		return err
 	}
 	defer func() { _ = os.Remove(staged.Name()) }()
-	_, writeErr := io.WriteString(staged, strings.Join(lines, "\n")+"\n")
+	_, writeErr := staged.WriteString(strings.Join(lines, "\n") + "\n")
 	closeErr := staged.Close()
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err

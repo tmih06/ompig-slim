@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"ompig-slim/internal/goal"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
-	"ompig-slim/internal/goal"
 )
 
 // Extension returns a hidden inline extension. The goal tool lets the model
@@ -87,7 +88,7 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			commandContext := extension.CommandContextFromContext(ctx)
 			if commandContext == nil {
 				_ = tracker.Drop()
-				return fmt.Errorf("goal command context is unavailable")
+				return errors.New("goal command context is unavailable")
 			}
 			if err := commandContext.SendUserMessage(objective, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)}); err != nil {
 				_ = tracker.Drop()
@@ -115,7 +116,7 @@ func extensionWithTracker(api extension.API, tracker *goal.Tracker) error {
 			if err := resumeGoal(tracker, func(objective string) error {
 				commandContext := extension.CommandContextFromContext(ctx)
 				if commandContext == nil {
-					return fmt.Errorf("goal command context is unavailable")
+					return errors.New("goal command context is unavailable")
 				}
 				return commandContext.SendUserMessage(objective, &extension.SendUserMessageOptions{ExpandPromptTemplates: new(true)})
 			}); err != nil {
@@ -362,13 +363,13 @@ func render(state *goal.State) string {
 	}
 	budget := "unbounded"
 	if state.TokenBudget > 0 {
-		budget = fmt.Sprintf("%d", state.TokenBudget)
+		budget = strconv.Itoa(state.TokenBudget)
 	}
 	out := fmt.Sprintf("Goal: %s\nStatus: %s\nTokens: %d / %s\nPokes: %d", state.Objective, state.Status, state.TokensUsed, budget, state.Pokes)
 	if state.Blocker != "" {
 		// The text outlives the streak: it is the explanation of why the goal
 		// paused, and a resumed goal still needs it in its status.
-		out += fmt.Sprintf("\nBlocker: %s", state.Blocker)
+		out += "\nBlocker: " + state.Blocker
 		if state.BlockerCount > 0 {
 			out += fmt.Sprintf(" (reported %d×)", state.BlockerCount)
 		}

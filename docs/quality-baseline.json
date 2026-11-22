@@ -1,0 +1,39 @@
+{
+  "_comment": "Baseline lint debt measured before the quality gate (feat/better-lintin @ 8c628b8 + mechanical fixes). Per-rule totals may only go DOWN, never up. Regenerate: golangci-lint run --issues-exit-code=0 --output.json.path=lint.json ./... && python3 scripts/quality/ratchet.py lint.json --write",
+  "total": 135,
+  "rules": {
+    "contextcheck": 8,
+    "cyclop": 1,
+    "dupword": 2,
+    "embeddedstructfieldcheck": 6,
+    "errcheck": 17,
+    "errorlint": 3,
+    "exhaustive": 1,
+    "forbidigo": 1,
+    "funlen": 1,
+    "gochecknoglobals": 5,
+    "gocognit": 5,
+    "goconst": 12,
+    "gocritic": 14,
+    "gosec": 9,
+    "nestif": 1,
+    "noctx": 7,
+    "perfsprint": 3,
+    "prealloc": 1,
+    "revive": 2,
+    "thelper": 10,
+    "unparam": 4,
+    "unused": 1,
+    "usestdlibvars": 4,
+    "wrapcheck": 17
+  },
+  "semgrep_rules": {
+    "bare-goroutine": 2,
+    "blank-error-assign": 8,
+    "context-in-request": 7
+  },
+  "govulncheck": [
+    "GO-2026-6888",
+    "GO-2026-6865"
+  ]
+}

@@ -2,6 +2,7 @@ package streamingrules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -20,12 +21,12 @@ func (s *stringsField) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	}
 	if node.Kind != yaml.SequenceNode {
-		return fmt.Errorf("expected a string or list of strings")
+		return errors.New("expected a string or list of strings")
 	}
 	var values []string
 	for _, child := range node.Content {
 		if child.Tag != "!!str" {
-			return fmt.Errorf("expected a list of strings")
+			return errors.New("expected a list of strings")
 		}
 		values = append(values, child.Value)
 	}
@@ -72,11 +73,11 @@ func parseRule(name, file, source string, builtin bool) (*rule, bool, error) {
 	}
 	header, body, ok := strings.Cut(source[4:], "\n---")
 	if !ok || (body != "" && !strings.HasPrefix(body, "\n")) {
-		return nil, false, fmt.Errorf("unclosed frontmatter")
+		return nil, false, errors.New("unclosed frontmatter")
 	}
 	var meta metadata
 	if err := yaml.Unmarshal([]byte(header), &meta); err != nil {
-		return nil, false, fmt.Errorf("invalid frontmatter")
+		return nil, false, errors.New("invalid frontmatter")
 	}
 	if meta.Enabled != nil && !*meta.Enabled {
 		return nil, true, nil
@@ -88,11 +89,11 @@ func parseRule(name, file, source string, builtin bool) (*rule, bool, error) {
 		return nil, false, nil
 	}
 	if meta.ASTCondition != nil || meta.Question != nil || meta.Globs != nil || meta.Agents != nil || (meta.RepeatMode != "" && meta.RepeatMode != "once") {
-		return nil, false, fmt.Errorf("unsupported streaming rule metadata")
+		return nil, false, errors.New("unsupported streaming rule metadata")
 	}
 	r := &rule{name: name, file: file, body: strings.TrimSpace(body), builtin: builtin}
 	if r.body == "" {
-		return nil, false, fmt.Errorf("rule body is empty")
+		return nil, false, errors.New("rule body is empty")
 	}
 	r.summary = summarizePattern(meta.Description, r.body)
 	switch meta.InterruptMode {
@@ -100,15 +101,15 @@ func parseRule(name, file, source string, builtin bool) (*rule, bool, error) {
 		r.interrupt = true
 	case "never":
 	default:
-		return nil, false, fmt.Errorf("interruptMode must be always, tool-only, or never")
+		return nil, false, errors.New("interruptMode must be always, tool-only, or never")
 	}
 	for _, condition := range meta.Condition {
 		if condition == "" {
-			return nil, false, fmt.Errorf("condition is empty")
+			return nil, false, errors.New("condition is empty")
 		}
 		pattern, err := regexp2.Compile(condition, regexp2.ECMAScript)
 		if err != nil {
-			return nil, false, fmt.Errorf("invalid regex condition")
+			return nil, false, errors.New("invalid regex condition")
 		}
 		pattern.MatchTimeout = 50 * time.Millisecond
 		r.patterns = append(r.patterns, pattern)

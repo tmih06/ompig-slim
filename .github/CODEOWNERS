@@ -1,0 +1,18 @@
+# CODEOWNERS — require owner review on the quality gate so it cannot be
+# weakened to get a change through. Default owner is the repo maintainer.
+*                       @tmih06
+
+# Quality-gate surface: lint config, slop rules, gate scripts, CI, baseline,
+# coverage config and the agent instructions that define the contract.
+/.golangci.yml          @tmih06
+/.golangci.yaml         @tmih06
+/.semgrep/              @tmih06
+/.semgrepignore         @tmih06
+/scripts/quality/       @tmih06
+/.github/workflows/     @tmih06
+/.github/CODEOWNERS     @tmih06
+/docs/quality-baseline* @tmih06
+/Makefile               @tmih06
+/.githooks/             @tmih06
+/AGENTS.md              @tmih06
+/CLAUDE.md              @tmih06
