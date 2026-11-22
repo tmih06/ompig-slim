@@ -8,6 +8,7 @@
 | Prompt | Completed slash commands use distinct colors; suggestions match purpose keywords (`/clea` finds `/new (clear, fresh)`) and an unknown command names its closest match (`Did you mean /new?`); `/skill:` badges compose skills in prompts and `/goal` objectives; `/skill:` loads and `@path`/`@url` mentions are read up front and shown as a Read tree under the prompt |
 | Loop guard | [Corrective steers](loop-guard.md) after five identical tool-call turns or three recurring deterministic failures on the same target |
 | Streaming rules | [Code-pattern checks](streaming-rules.md) with 34 bundled correctness, security, and performance reminders plus custom Markdown rules that can block tool calls before execution |
+| Commit author | [Model author](model-author.md) rewrites the agent's `git commit` to author as its own model, chosen by model ID, off by default; enable with `/model-author on` or the `modelAuthor.enabled` setting |
 | Models | ~5,900 IDs across 90 catalog providers, OAuth, API keys, custom endpoints; [Gemini Decisions judge inference](gemini-decisions.md) |
 | Routing | Roles, fallback chains for chat, judge and compaction, auto thinking, `/model` manager, `Alt+P` picker |
 | Accounts | Multiple accounts per provider, single-account `/logout` picker, quota-aware routing, imported credentials, rate-limit resets |

@@ -7,6 +7,7 @@ import (
 	"ompig-slim/internal/agentstate"
 	"ompig-slim/internal/broker"
 	"ompig-slim/internal/loopguard"
+	"ompig-slim/internal/modelauthor"
 	"ompig-slim/internal/modelcontext"
 	"ompig-slim/internal/selfupdate"
 	"ompig-slim/internal/streamingrules"
@@ -132,6 +133,9 @@ func main() {
 		ExtensionFactories: []extension.InlineExtension{
 			extension.NamedInlineExtension{
 				Name: "model-context", Factory: modelcontext.Extension, Hidden: true,
+			},
+			extension.NamedInlineExtension{
+				Name: "model-author", Factory: modelauthor.Extension, Hidden: true,
 			},
 			extension.NamedInlineExtension{
 				Name: "streaming-rules", Factory: streamingrules.Extension(coding.DefaultAgentDir()), Hidden: true,
