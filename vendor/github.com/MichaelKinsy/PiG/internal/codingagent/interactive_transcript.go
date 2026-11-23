@@ -380,7 +380,7 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 		}
 	}
 	if m.transcriptHistory != nil && m.chatContainer.ChildCount() > m.transcriptHistory.baseCount {
-		m.transcriptHistory.units[0].firstComp = m.chatContainer.Children()[m.transcriptHistory.baseCount]
+		m.transcriptHistory.oldestComp = m.chatContainer.Children()[m.transcriptHistory.baseCount]
 	}
 	m.tuiInst.Render()
 }

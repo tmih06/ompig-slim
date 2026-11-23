@@ -1,9 +1,6 @@
-
 package codingagent
 
 import (
-	"slices"
-
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/tui"
@@ -12,17 +9,20 @@ import (
 const transcriptPageSize = 200
 
 type transcriptHistory struct {
-	boundaryID string
-	shown map[string]struct{}
-	units []transcriptHistoryUnit
-	baseCount int
+	// oldestID and oldestComp track the oldest painted unit: the paging
+	// frontier sits just above it, so the next page splices before
+	// oldestComp. A unit that rendered no children (undisplayed entries)
+	// still advances oldestID while oldestComp keeps pointing at the first
+	// rendered row below the frontier.
+	oldestID   string
+	oldestComp tui.Component
+	more       bool
+	shown      map[string]struct{}
+	// baseCount anchors page insertion at the first transcript child, so
+	// pre-transcript children (loaded resources, notices) stay above the
+	// paged history.
+	baseCount          int
 	pendingToolResults map[string]*agent.ToolResultMessage
-}
-
-type transcriptHistoryUnit struct {
-	startID string
-	more bool
-	firstComp tui.Component
 }
 
 func (m *InteractiveMode) initTranscriptHistory(boundaryID string, baseCount int, seedShown []string) {
@@ -36,9 +36,9 @@ func (m *InteractiveMode) initTranscriptHistory(boundaryID string, baseCount int
 		}
 	}
 	m.transcriptHistory = &transcriptHistory{
-		boundaryID:         boundaryID,
+		oldestID:           boundaryID,
+		more:               true,
 		shown:              shown,
-		units:              []transcriptHistoryUnit{{startID: boundaryID, more: true}},
 		baseCount:          baseCount,
 		pendingToolResults: make(map[string]*agent.ToolResultMessage),
 	}
@@ -79,24 +79,21 @@ func (m *InteractiveMode) pageTranscriptHistory() {
 	if h == nil || sess == nil {
 		return
 	}
+	// One call may cross several undisplayed intervals (usage entries and
+	// friends render nothing) before it reaches a page that paints.
 	for pages := 0; pages < 3; pages++ {
-		j := -1
-		for k := len(h.units) - 1; k >= 0; k-- {
-			if h.units[k].more {
-				j = k
-				break
-			}
-		}
-		if j < 0 {
+		if !h.more {
 			return
 		}
-		page, more, found := sess.BranchEntriesBefore(h.units[j].startID, h.shown, transcriptPageSize)
+		page, more, found := sess.BranchEntriesBefore(h.oldestID, h.shown, transcriptPageSize)
 		if !found {
+			// The boundary left the active path (leaf moved without a
+			// repaint): a page would splice against the wrong window.
 			m.transcriptHistory = nil
 			return
 		}
+		h.more = more
 		if len(page) == 0 {
-			h.units[j].more = false
 			return
 		}
 		for _, e := range page {
@@ -104,19 +101,18 @@ func (m *InteractiveMode) pageTranscriptHistory() {
 		}
 		box := m.renderTranscriptPage(page)
 		kids := box.Children()
-		unit := transcriptHistoryUnit{startID: page[0].Base().ID, more: more}
+		anchor := h.oldestComp
+		h.oldestID = page[0].Base().ID
 		if len(kids) > 0 {
-			unit.firstComp = kids[0]
+			h.oldestComp = kids[0]
 		}
-		h.units[j].more = false
-		h.units = slices.Insert(h.units, j, unit)
 		if len(kids) == 0 {
 			continue
 		}
 		if m.altScreen != nil {
 			m.altScreen.ResetTextSelection()
 		}
-		pos := m.spliceHistoryChildren(h.historyAnchor(j), kids)
+		pos := m.spliceHistoryChildren(anchor, kids)
 		m.compensateHistoryPrepend(box, pos)
 		if m.tuiInst != nil {
 			if m.altScreen != nil {
@@ -127,15 +123,6 @@ func (m *InteractiveMode) pageTranscriptHistory() {
 		}
 		return
 	}
-}
-
-func (h *transcriptHistory) historyAnchor(j int) tui.Component {
-	for k := j + 1; k < len(h.units); k++ {
-		if h.units[k].firstComp != nil {
-			return h.units[k].firstComp
-		}
-	}
-	return nil
 }
 
 func (m *InteractiveMode) spliceHistoryChildren(anchor tui.Component, kids []tui.Component) int {
@@ -169,6 +156,8 @@ func (m *InteractiveMode) compensateHistoryPrepend(box *tui.Container, pos int) 
 	if width <= 0 {
 		return
 	}
+	// A splice below the viewport must not shift it: only compensate when
+	// the insertion point's row offset is at or above the scroll offset.
 	beforeRows := 0
 	for _, component := range []*tui.Container{m.headerBox, m.loadedResourcesContainer} {
 		if component != nil {
@@ -185,6 +174,8 @@ func (m *InteractiveMode) compensateHistoryPrepend(box *tui.Container, pos int) 
 
 func (m *InteractiveMode) renderTranscriptPage(page []SessionEntry) *tui.Container {
 	box := tui.NewContainer()
+	// Render into a scratch container with live chrome detached: the
+	// warming notice belongs to the live tail, not the historical page.
 	prev, warming := m.chatContainer, m.cacheWarmingUsage
 	m.chatContainer, m.cacheWarmingUsage = box, nil
 	defer func() {

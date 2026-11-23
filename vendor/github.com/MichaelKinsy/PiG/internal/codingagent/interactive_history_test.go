@@ -155,8 +155,8 @@ func TestTranscriptHistoryPagingDecodesBounded(t *testing.T) {
 			t.Fatal("undisplayed tool results painted a chat child")
 		}
 	}
-	if mode.transcriptHistory == nil || len(mode.transcriptHistory.units) < 2 {
-		t.Fatalf("history units = %+v, want page units before the painted window", mode.transcriptHistory)
+	if mode.transcriptHistory == nil || mode.transcriptHistory.oldestComp == nil {
+		t.Fatalf("history state = %+v, want a rendered page above the painted window", mode.transcriptHistory)
 	}
 }
 
@@ -199,7 +199,7 @@ func TestTranscriptHistoryPagingRestoresOlderMessages(t *testing.T) {
 	if session.projectionCalls.Load() != calls {
 		t.Fatal("paging touched the model projection")
 	}
-	if mode.transcriptHistory.units[0].more {
+	if mode.transcriptHistory.more {
 		t.Fatal("paging left the frontier open after the last page")
 	}
 }
@@ -238,7 +238,7 @@ func TestTranscriptHistoryStaleBoundary(t *testing.T) {
 	session := loadFixtureSession(t, path)
 	mode := resumedCacheMode(session)
 	mode.renderSessionEntriesWithHistory(true)
-	mode.transcriptHistory.units[0].startID = "detached"
+	mode.transcriptHistory.oldestID = "detached"
 	mode.pageTranscriptHistory()
 	if mode.transcriptHistory != nil {
 		t.Fatal("stale boundary must drop the history window")
@@ -251,15 +251,16 @@ func TestTranscriptHistoryResetOnRepaint(t *testing.T) {
 	mode := resumedCacheMode(session)
 	mode.renderSessionEntriesWithHistory(true)
 	mode.pageTranscriptHistory()
-	if len(mode.transcriptHistory.units) != 2 {
-		t.Fatal("page did not register a unit")
+	if mode.transcriptHistory.oldestComp == nil {
+		t.Fatal("page did not paint any row")
 	}
+	window := mode.transcriptHistory
 	mode.chatContainer.Clear()
 	mode.renderSessionEntriesWithHistory(true)
-	if mode.transcriptHistory == nil || len(mode.transcriptHistory.units) != 1 {
+	if mode.transcriptHistory == nil || mode.transcriptHistory == window {
 		t.Fatal("repaint did not reset the history window")
 	}
-	if !mode.transcriptHistory.units[0].more {
+	if !mode.transcriptHistory.more {
 		t.Fatal("repainted window must reopen the paging frontier")
 	}
 }
@@ -283,18 +284,19 @@ func TestTranscriptHistoryPagingSkipsUndisplayedEntries(t *testing.T) {
 	mode := resumedCacheMode(session)
 	mode.renderSessionEntriesWithHistory(true)
 	mode.pageTranscriptHistory()
-	if mode.transcriptHistory == nil || len(mode.transcriptHistory.units) != 2 {
+	if mode.transcriptHistory == nil || mode.transcriptHistory.oldestID != "u0" {
 		t.Fatalf("usage page did not consume its interval: %+v", mode.transcriptHistory)
 	}
-	if mode.transcriptHistory.units[0].more {
+	if mode.transcriptHistory.more {
 		t.Fatal("usage page left the frontier open at the path root")
 	}
 	if got := transcriptText(mode, 100); !strings.Contains(got, "kept") {
 		t.Fatalf("painted window lost its kept prompt: %q", got)
 	}
+	oldest := mode.transcriptHistory.oldestID
 	mode.pageTranscriptHistory()
-	if len(mode.transcriptHistory.units) != 2 {
-		t.Fatal("exhausted paging invented another unit")
+	if mode.transcriptHistory.oldestID != oldest {
+		t.Fatal("exhausted paging moved the frontier")
 	}
 }
 
