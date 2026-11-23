@@ -79,7 +79,8 @@ Slash commands include `/login` `/model` `/settings` `/usage` `/goal` `/subagent
 - **Models:** ~5,900 IDs across 90 providers, OAuth, API keys, [custom endpoints](docs/custom-models.md), and
   [roles with fallback chains](docs/model-roles.md)
 - **Accounts:** multiple accounts per provider with [quota-aware routing](docs/account-routing.md)
-- **Subagents:** `Agent` with fixed roles, Agent Hub, and [explicit child outcomes](docs/subagents.md)
+- **Subagents:** `Agent` with fixed roles, Agent Hub, an [on-demand tree](docs/subagents.md#live-inspection),
+  and [explicit child outcomes](docs/subagents.md)
 - **Guardrails:** [loop guard](docs/loop-guard.md) and [streaming rules](docs/streaming-rules.md)
 - **Extensions:** TS, Go, Rust, Python, and Lisp; the [Herdr](https://herdr.dev) adapter is installable
 - **State:** Pi layout (`~/.pi/agent`, `.pi`), so existing sessions carry over

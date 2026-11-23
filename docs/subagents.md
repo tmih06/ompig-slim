@@ -88,9 +88,16 @@ for another retrieval.
 
 ## Live inspection
 
-The main view shows each active child as `@role name task usage`. The name
-uses the child's alias or handle instead of the generic `Agent` label. Role
-labels use the same configured color as the model hub.
+The footer reports `N subagents · M working` while eligible records exist.
+Press Down on an empty prompt to open the tree below the status line. Each row
+shows `@role name task usage`, with the configured role color. Up and Down move
+the highlight. Enter opens the child's transcript session. Escape or Up on the
+first row closes the tree. Alt+A opens the full Agent Hub.
+
+Prompt history keeps its normal Up and Down behavior. After Down restores an
+empty draft, another Down opens the tree. The Widget setting controls which
+children appear. Completed children remain inspectable. Queued children do not
+count as working.
 
 Provider-emitted thinking text streams beneath the child's row and in the
 Agent Hub inspector. Opening the child transcript shows its thinking blocks

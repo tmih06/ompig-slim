@@ -756,6 +756,10 @@ type Footer struct {
 	// Routed is where a virtual model sent the latest request. Its Model is
 	// "" for an ordinary model.
 	Routed RoutedModel
+	// Subagents counts records eligible for the tree. SubagentsWorking counts
+	// running records in that set.
+	Subagents        int
+	SubagentsWorking int
 	// ExtensionStatuses are the texts extensions set with setStatus, in the
 	// order of their keys, each on one line with runs of white space
 	// collapsed. They may carry ANSI styling.

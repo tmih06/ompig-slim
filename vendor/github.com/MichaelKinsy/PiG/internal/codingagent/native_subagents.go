@@ -21,10 +21,11 @@ import (
 )
 
 type subagentUIState struct {
-	manager     *subagents.Manager
-	hub         *agentHub
-	lastLeftTap time.Time
-	viewer      *subagentViewer
+	manager      *subagents.Manager
+	hub          *agentHub
+	lastLeftTap  time.Time
+	viewer       *subagentViewer
+	treeSelected string
 }
 
 func (m *InteractiveMode) subagentManager() *subagents.Manager {
@@ -51,7 +52,14 @@ func (m *InteractiveMode) bindSubagentUI() {
 	}
 	m.subagentUI = &subagentUIState{manager: manager}
 	if manager != nil {
-		manager.SetChanged(func() { m.wakeSpinner(); m.requestRender() })
+		footer := m.statusLine
+		manager.SetChanged(func() {
+			m.wakeSpinner()
+			if footer != nil {
+				footer.Invalidate()
+			}
+			m.requestRender()
+		})
 	}
 }
 func (m *InteractiveMode) subagentsActive() bool {
@@ -183,73 +191,139 @@ func clampAgentLine(s string, width int) string {
 	return widthx.TruncateToWidth(s, max(1, width), "…", false)
 }
 
-type nativeAgentWidget struct{ m *InteractiveMode }
-
-func (w *nativeAgentWidget) Invalidate() {}
-func (w *nativeAgentWidget) Render(width int) []string {
-	manager := w.m.subagentManager()
+func (m *InteractiveMode) agentTreeRecords() ([]subagents.Record, subagents.Settings) {
+	manager := m.subagentManager()
 	if manager == nil {
-		return nil
+		return nil, subagents.Settings{}
 	}
 	s := manager.Settings()
-	if !s.Enabled {
-		return nil
+	if !s.Enabled || s.WidgetMode == "off" {
+		return nil, s
 	}
-	if s.WidgetMode == "off" {
-		return nil
-	}
-	theme := tui.ActiveTheme()
-	lines := []string{}
-	queued := 0
-	overflow := 0
+	var rows []subagents.Record
 	for _, r := range manager.Records() {
 		if !r.TopLevel() || s.WidgetMode == "background" && !r.Background {
 			continue
 		}
-		if !r.Active() && time.Now().UnixMilli()-r.CompletedAt > 4000 {
-			continue
-		}
-		if r.Status == "queued" {
-			queued++
-			continue
-		}
-		if len(lines) > 8 {
-			overflow++
-			continue
-		}
-		lines = append(lines, theme.Fg("dim", "├─ ")+subagentIcon(r)+" "+w.m.subagentRow(r)+"  "+theme.Fg("muted", r.Description)+theme.Fg("dim", " · "+subagentStats(r, s)))
-		if r.Active() {
-			activity := r.Activity
-			if activity == "" {
-				activity = "thinking…"
-			}
-			lines = append(lines, theme.Fg("dim", "│    ⎿  "+activity))
-			if thinking := subagentThinkingPreview(manager, r.ID); thinking != "" {
-				lines = append(lines, theme.Fg("dim", "│       ")+subagentThinkingLine(thinking, width-8))
-			}
+		rows = append(rows, r)
+	}
+	return rows, s
+}
+
+func (m *InteractiveMode) subagentCounts() (total, working int) {
+	rows, _ := m.agentTreeRecords()
+	for _, r := range rows {
+		if r.Status == "running" {
+			working++
 		}
 	}
-	if queued > 0 {
-		lines = append(lines, theme.Fg("dim", fmt.Sprintf("├─ ◦ %d queued", queued)))
+	return len(rows), working
+}
+
+func (m *InteractiveMode) agentTreeIndex(rows []subagents.Record) int {
+	if m.subagentUI == nil {
+		return 0
 	}
-	if overflow > 0 {
-		lines = append(lines, theme.Fg("dim", fmt.Sprintf("├─ … %d more", overflow)))
+	for i, r := range rows {
+		if r.ID == m.subagentUI.treeSelected {
+			return i
+		}
 	}
-	if len(lines) == 0 {
+	return 0
+}
+
+func (m *InteractiveMode) agentRecordLines(r subagents.Record, s subagents.Settings, width int) []string {
+	theme := tui.ActiveTheme()
+	lines := []string{theme.Fg("dim", "├─ ") + subagentIcon(r) + " " + m.subagentRow(r) + "  " + theme.Fg("muted", r.Description) + theme.Fg("dim", " · "+subagentStats(r, s))}
+	if r.Status == "running" {
+		activity := r.Activity
+		if activity == "" {
+			activity = "thinking…"
+		}
+		lines = append(lines, theme.Fg("dim", "│    ⎿  "+activity))
+		if thinking := subagentThinkingPreview(m.subagentManager(), r.ID); thinking != "" {
+			lines = append(lines, theme.Fg("dim", "│       ")+subagentThinkingLine(thinking, max(1, width-10)))
+		}
+	}
+	return lines
+}
+
+type nativeAgentTree struct{ m *InteractiveMode }
+
+func (w *nativeAgentTree) Invalidate() {}
+func (w *nativeAgentTree) Render(width int) []string {
+	if w.m.editor == nil || w.m.subagentUI == nil {
 		return nil
 	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.Contains(lines[i], "├─") {
-			lines[i] = strings.Replace(lines[i], "├─", "└─", 1)
-			for below := i + 1; below < len(lines); below++ {
-				if strings.HasPrefix(widthx.StripTerminalSequences(lines[below]), "│") {
-					lines[below] = strings.Replace(lines[below], "│", " ", 1)
-				}
+	if w.m.editor.Text() != "" {
+		w.m.subagentUI.treeSelected = ""
+		return nil
+	}
+	if w.m.subagentUI.treeSelected == "" {
+		return nil
+	}
+	rows, s := w.m.agentTreeRecords()
+	if len(rows) == 0 {
+		w.m.subagentUI.treeSelected = ""
+		return nil
+	}
+	groups := make([][]string, len(rows))
+	for i, r := range rows {
+		groups[i] = w.m.agentRecordLines(r, s, width)
+	}
+	budget := 10
+	if w.m.tuiInst != nil {
+		// Reserve the prompt, footer, transcript, header, hint, and overflow markers.
+		budget = max(1, min(budget, w.m.tuiInst.Height()-10))
+	}
+	selected := w.m.agentTreeIndex(rows)
+	w.m.subagentUI.treeSelected = rows[selected].ID
+	groups[selected] = groups[selected][:min(len(groups[selected]), budget)]
+	start, end, used := selected, selected+1, len(groups[selected])
+	for {
+		if end < len(rows) && used+len(groups[end]) <= budget {
+			used += len(groups[end])
+			end++
+			continue
+		}
+		if start > 0 && used+len(groups[start-1]) <= budget {
+			used += len(groups[start-1])
+			start--
+			continue
+		}
+		break
+	}
+	theme := tui.ActiveTheme()
+	lines := []string{theme.Fg("accent", "● Agents")}
+	if start > 0 {
+		lines = append(lines, theme.Fg("dim", fmt.Sprintf("├─ … %d above", start)))
+	}
+	for i := start; i < end; i++ {
+		for j, line := range groups[i] {
+			prefix := "  "
+			if i == selected && j == 0 {
+				prefix = theme.Fg("accent", "›") + " "
 			}
-			break
+			lines = append(lines, prefix+line)
 		}
 	}
-	lines = append([]string{theme.Fg("accent", "● Agents")}, lines...)
+	below := len(rows) - end
+	if below > 0 {
+		lines = append(lines, theme.Fg("dim", fmt.Sprintf("└─ … %d below", below)))
+	} else {
+		for i := len(lines) - 1; i > 0; i-- {
+			if strings.Contains(lines[i], "├─") {
+				lines[i] = strings.Replace(lines[i], "├─", "└─", 1)
+				for tail := i + 1; tail < len(lines); tail++ {
+					if strings.Contains(widthx.StripTerminalSequences(lines[tail]), "│") {
+						lines[tail] = strings.Replace(lines[tail], "│", " ", 1)
+					}
+				}
+				break
+			}
+		}
+	}
+	lines = append(lines, theme.Fg("dim", "↑/↓ select · enter inspect · esc close"))
 	for i := range lines {
 		lines[i] = clampAgentLine(lines[i], width)
 	}
@@ -280,7 +354,50 @@ func (m *InteractiveMode) handleAgentKey(data string) bool {
 	}
 	if m.editor.Text() != "" {
 		m.subagentUI.lastLeftTap = time.Time{}
+		m.subagentUI.treeSelected = ""
 		return false
+	}
+	if m.subagentUI.treeSelected != "" {
+		rows, _ := m.agentTreeRecords()
+		if len(rows) == 0 {
+			m.subagentUI.treeSelected = ""
+		} else {
+			index := m.agentTreeIndex(rows)
+			switch {
+			case tui.MatchesKeyID(data, "escape"):
+				m.subagentUI.treeSelected = ""
+			case tui.MatchesKeyID(data, "up"):
+				if index == 0 {
+					m.subagentUI.treeSelected = ""
+				} else {
+					m.subagentUI.treeSelected = rows[index-1].ID
+				}
+			case tui.MatchesKeyID(data, "down"):
+				m.subagentUI.treeSelected = rows[min(index+1, len(rows)-1)].ID
+			case tui.MatchesKeyID(data, "enter"):
+				m.subagentUI.treeSelected = ""
+				m.openSubagentViewer(rows[index].ID, false, true)
+				return true
+			default:
+				m.subagentUI.treeSelected = ""
+				if !tui.MatchesKeyID(data, "left") {
+					m.requestRender()
+					return false
+				}
+			}
+			m.requestRender()
+			if !tui.MatchesKeyID(data, "left") {
+				return true
+			}
+		}
+	}
+	if tui.MatchesKeyID(data, "down") && !m.editor.AutocompleteOpen() {
+		rows, _ := m.agentTreeRecords()
+		if len(rows) > 0 {
+			m.subagentUI.treeSelected = rows[0].ID
+			m.requestRender()
+			return true
+		}
 	}
 	if tui.MatchesKeyID(data, "left") && len(manager.Records()) > 0 {
 		now := time.Now()
@@ -492,7 +609,7 @@ func (m *InteractiveMode) subagentSettings(ctx context.Context, manager *subagen
 			{"strictAgentFiles", "Strict agent files", "Refuse activation when a local agent file is invalid", nil},
 			{"agentMentions", "Agent mentions", "direct = start immediately without an orchestration model call; off = file mentions only", []string{"direct", "off"}},
 			{"rememberAgents", "Remember agents", "Keep completed agents addressable across session reloads", nil},
-			{"widgetMode", "Widget", "Which agents appear above the editor", []string{"background", "all", "off"}},
+			{"widgetMode", "Widget", "Which agents the tree below the status line lists", []string{"background", "all", "off"}},
 			{"toolDescriptionMode", "Tool description", "Compact by default; full or project-authored descriptions are opt-in", []string{"full", "compact", "custom"}},
 			{"outputTranscript", "Output transcript", "Write streaming JSONL .output files", nil},
 			{"worktreeIsolation", "Worktree isolation", "Allow temporary git worktrees for parallel edits", nil},
@@ -613,6 +730,9 @@ func (m *InteractiveMode) openSubagentViewer(id string, workflow bool, focus ...
 	manager := m.subagentManager()
 	if manager == nil || m.tuiInst == nil {
 		return
+	}
+	if m.subagentUI != nil {
+		m.subagentUI.treeSelected = ""
 	}
 	v := &subagentViewer{m: m, manager: manager, id: id, workflow: workflow, follow: true, markdown: manager.Settings().ViewerMarkdown}
 	if len(focus) > 0 && focus[0] {

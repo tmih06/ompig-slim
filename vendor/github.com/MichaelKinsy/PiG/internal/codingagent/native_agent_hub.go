@@ -65,6 +65,7 @@ func (m *InteractiveMode) toggleAgentHub() {
 	for m.subagentUI.viewer != nil {
 		m.subagentUI.viewer.close()
 	}
+	m.subagentUI.treeSelected = ""
 	h := &agentHub{m: m, manager: m.subagentManager(), done: make(chan struct{}), ranks: map[string]hubRank{}, depth: map[string]int{}, following: true}
 	m.subagentUI.hub = h
 	options := tui.OverlaySpec{Width: &tui.OverlayValue{Value: 100, Percent: true}, MaxHeight: &tui.OverlayValue{Value: 100, Percent: true}, Margin: tui.OverlayMarginAll(0)}.Options()
