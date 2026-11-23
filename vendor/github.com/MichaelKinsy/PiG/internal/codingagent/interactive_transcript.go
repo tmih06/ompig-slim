@@ -151,7 +151,7 @@ func (m *InteractiveMode) renderSessionEntriesWithHistory(populateHistory bool) 
 	if m.statusLine != nil {
 		m.statusLine.SetName(name)
 	}
-	m.renderSessionEntryListWithHistory(entries, true, populateHistory)
+	m.renderSessionEntryListWithHistory(entries, true, populateHistory, nil)
 }
 
 // addUserMessageToChat mounts one user bubble per submission, shared by live
@@ -197,15 +197,16 @@ func (m *InteractiveMode) addUserMessageToChat(msg agent.AgentMessage, text stri
 }
 
 func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bool) {
-	m.renderSessionEntryListWithHistory(entries, trim, false)
+	m.renderSessionEntryListWithHistory(entries, trim, false, nil)
 }
 
-func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEntry, trim, populateHistory bool) {
+func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEntry, trim, populateHistory bool, shownSeed []string) {
 	m.cacheWarmingUsage = nil
 	// Selection coordinates point into the transcript being replaced (upstream interactive-mode.ts renderSessionEntries, #9311).
 	if m.altScreen != nil {
 		m.altScreen.ResetTextSelection()
 	}
+	m.transcriptHistory = nil
 	m.previousThinkingDroppedCount = 0
 	m.restoreTodoWidget(entries)
 	m.disposeMarkdownBlocks()
@@ -348,198 +349,279 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
 		rendered = contextRenderOrder(branch, renderStart)
 	}
 
-	pendingCalls := make(map[string]ai.ToolCall)
-	// renderMessage renders one AgentMessage (user, assistant, toolResult, bashExecution)
-	// into the chat container with all its sub-components.
-	// Extracted so it can be called from both the session-entry path
-	// (primary) and the agent-message fallback path.
-	renderMessage := func(msg agent.AgentMessage, meta messageMeta) {
-		switch {
-		case msg.User != nil:
-			if text := extractAgentMessageText(msg); text != "" {
-				m.addUserMessageToChat(msg, text, meta)
-				if populateHistory && m.editor != nil {
-					m.editor.AddToHistory(text)
-				}
-			}
+	// The paint pass installs the transcript history window before any entry
+	// renders so a tool result whose call lies in the hidden prefix stashes
+	// for a later page. boundaryID is the first painted entry in branch
+	// order; everything before it on the active path is pageable history.
+	// baseCount anchors page insertion at the first transcript child, so
+	// pre-transcript children (loaded resources, notices) stay above the
+	// paged history.
+	boundaryID := ""
+	if renderStart < len(branch) {
+		boundaryID = branch[renderStart].entry.Base().ID
+	}
+	m.initTranscriptHistory(boundaryID, m.chatContainer.ChildCount(), shownSeed)
 
-		case msg.Assistant != nil:
-			// Render from the persisted content blocks, as upstream
-			// addMessageToChat → AssistantMessageComponent does. The runtime
-			// AssistantMessage.Thinking accumulator is not serialized, so it
-			// is empty for every message read back from the session file.
-			block := m.newAssistantMessageBlock(meta)
-			// A message read back never streams.
-			block.FinishStreaming()
-			updateAssistantMessageBlock(block, msg.Assistant)
-			m.chatContainer.Add(block)
-			m.assistantBlocks = append(m.assistantBlocks, block)
-			// Tool-use blocks.
-			for _, b := range msg.Assistant.Content {
-				call, ok := b.(ai.ToolCall)
-				if !ok {
-					continue
-				}
-				args, _ := jsonNoEscape(call.Arguments)
-				comp := m.newToolCard(call.Name, call.ID, json.RawMessage(args))
-				comp.BodyRenderer = toolBodyRendererForCall(call, agent.AgentToolResult{}, nil)
-				m.applyToolPresentation(comp, call.ID, call.Name, json.RawMessage(args))
-				comp.SetExpanded(m.toolsExpanded)
-				switch msg.Assistant.StopReason {
-				case ai.StopReasonAborted:
-					abortedText := m.abortedMessageText()
-					result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: abortedText}}, IsError: true}
-					comp.BodyRenderer = toolBodyRendererForCall(call, result, nil)
-					comp.SetResultValue(result)
-					comp.SetResult(abortedText, true, 0)
-					comp.MarkAborted() // pig additive (D91): a frontend shows it cancelled
-				case ai.StopReasonError:
-					errorMessage := msg.Assistant.ErrorMessage
-					if errorMessage == "" {
-						errorMessage = "Error"
-					}
-					result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: errorMessage}}, IsError: true}
-					comp.BodyRenderer = toolBodyRendererForCall(call, result, nil)
-					comp.SetResultValue(result)
-					comp.SetResult(errorMessage, true, 0)
-				default:
-					pendingCalls[call.ID] = call
-				}
-				m.toolMu.Lock()
-				m.toolByID[call.ID] = comp
-				m.toolOrder = append(m.toolOrder, comp)
-				m.toolMu.Unlock()
-				m.chatContainer.Add(comp)
-			}
-
-		case msg.Role() == agent.RoleBashExecution:
-			// Upstream addMessageToChat case "bashExecution" (interactive-mode.ts:3870-3887): a BashExecutionComponent over the
-			// command, its output appended, then completed with the exit code, cancelled and truncated flags and full-output path.
-			command, _ := msg.Custom["command"].(string)
-			excludeFromContext, _ := msg.Custom["excludeFromContext"].(bool)
-			block := tui.NewBashExecutionComponent(command, m.tuiInst, excludeFromContext, m.outputPad)
-			if output, _ := msg.Custom["output"].(string); output != "" {
-				block.AppendOutput(output)
-			}
-			var exitCode *int
-			if code, ok := msg.Custom["exitCode"].(float64); ok {
-				value := int(code)
-				exitCode = &value
-			}
-			cancelled, _ := msg.Custom["cancelled"].(bool)
-			truncated, _ := msg.Custom["truncated"].(bool)
-			fullOutputPath, _ := msg.Custom["fullOutputPath"].(string)
-			var truncationResult *tui.TruncationResult
-			if truncated {
-				truncationResult = &tui.TruncationResult{Truncated: true}
-			}
-			block.SetComplete(exitCode, cancelled, truncationResult, fullOutputPath)
-			m.toolMu.Lock()
-			m.bashOrder = append(m.bashOrder, block)
-			m.toolMu.Unlock()
-			// upstream: interactive-mode.ts:3871,7009,7037 never call setExpanded on a new BashExecutionComponent; it starts collapsed.
-			m.chatContainer.Add(block)
-		case msg.Role() == agent.RoleCustom:
-			// upstream addMessageToChat case "custom" (interactive-mode.ts:3901-3913): only a displayed message is drawn.
-			if entry, display := customMessageEntryOf(msg.Custom); display {
-				m.appendCustomMessage(entry)
-			}
-		case msg.Role() == agent.RoleCompactionSummary:
-			// upstream case "compactionSummary" (interactive-mode.ts:3915-3924): a message carries no usage, so no cost notice follows.
-			summary, _ := msg.Custom["summary"].(string)
-			tokensBefore, _ := msg.Custom["tokensBefore"].(float64)
-			m.addCompactionSummary(summary, int(tokensBefore), nil)
-		case msg.Role() == agent.RoleBranchSummary:
-			// upstream case "branchSummary" (interactive-mode.ts:3926-3935).
-			summary, _ := msg.Custom["summary"].(string)
-			m.addBranchSummary(summary, nil)
-		case msg.ToolResult != nil:
-			r := msg.ToolResult
-			if r.ToolName == "todo" {
-				if len(branch) == 0 {
-					m.updateTodoWidget(r.Result())
-				}
-			}
-			call, pending := pendingCalls[r.ToolCallID]
-			if !pending {
-				return
-			}
-			delete(pendingCalls, r.ToolCallID)
-			m.toolMu.Lock()
-			comp := m.toolByID[r.ToolCallID]
-			delete(m.toolByID, r.ToolCallID)
-			m.toolMu.Unlock()
-			if comp == nil {
-				return
-			}
-			result := r.Result()
-			took := recordedTook(call.Name, r.DurationMs, nil)
-			if comp.Rich {
-				took = nil // Restored cards also show timing only in their header.
-			}
-			comp.BodyRenderer = toolBodyRendererForCall(call, result, took)
-			final := ToolExecutionResultOf(result, 0)
-			final.IsError = r.IsError
-			final.DurationMs = r.DurationMs
-			if comp.Rich && (call.Name == "bash" || call.Name == "powershell") {
-				comp.SetExitCode(shellExitCode(result))
-			}
-			if call.Name == "todo" {
-				comp.SetResultMeta(todoCardMeta(result))
-			}
-			comp.UpdateResult(final, false)
-		}
+	pass := transcriptRenderPass{
+		pendingCalls:    make(map[string]ai.ToolCall),
+		populateHistory: populateHistory,
+		updateTodo:      len(branch) == 0,
 	}
 
 	// Render from pre-parsed branch entries (from the latest compaction
 	// boundary onward; see renderStart above).
 	for _, pe := range rendered {
-		if pe.entry.Base().Type != "usage" {
-			m.cacheWarmingUsage = nil
-		}
-		switch pe.entry.Base().Type {
-		case "message":
-			if pe.hasAgent {
-				renderMessage(pe.agent, messageMeta{ID: pe.entry.Base().ID, Timestamp: pe.entry.Base().Timestamp})
-				if notice := cacheMissNotices[pe.entry.Base().ID]; notice != "" {
-					m.addCacheMissNotice(notice)
-				}
-			}
-		case "compaction":
-			var ce CompactionEntry
-			if err := json.Unmarshal(pe.entry.Raw(), &ce); err == nil {
-				m.addCompactionSummary(ce.Summary, ce.TokensBefore, ce.Usage)
-			}
-		case "branch_summary":
-			var be BranchSummaryEntry
-			if err := json.Unmarshal(pe.entry.Raw(), &be); err == nil && be.Summary != "" {
-				m.addBranchSummary(be.Summary, be.Usage)
-			}
-		case "custom_message":
-			var cm CustomMessageEntry
-			if err := json.Unmarshal(pe.entry.Raw(), &cm); err == nil && cm.Display {
-				m.appendCustomMessage(cm)
-			}
-		case "custom":
-			var ce CustomEntry
-			if err := json.Unmarshal(pe.entry.Raw(), &ce); err == nil {
-				m.addCustomEntryToChat(ce)
-			}
-		case "usage":
-			if usage, ok := decodeUsageEntry(pe.entry.Raw()); ok && usage.Kind == "cache_warm" {
-				m.addCacheWarmingUsage(usage)
-			} else {
-				m.cacheWarmingUsage = nil
-			}
-		}
+		m.renderParsedSessionEntry(pe, cacheMissNotices, pass)
 	}
 	if len(branch) == 0 && trim && m.agent != nil {
 		// Fallback: no session available: render from agent messages only.
 		for _, msg := range m.agent.Messages() {
-			renderMessage(msg.Clone(), messageMeta{})
+			m.renderSessionMessage(msg.Clone(), messageMeta{}, pass)
 		}
 	}
+	if m.transcriptHistory != nil && m.chatContainer.ChildCount() > m.transcriptHistory.baseCount {
+		m.transcriptHistory.units[0].firstComp = m.chatContainer.Children()[m.transcriptHistory.baseCount]
+	}
 	m.tuiInst.Render()
+}
+
+// sessionEntryAgentMessage decodes a message entry's AgentMessage and
+// returns the clone renderSessionMessage paints. The clone is required:
+// the decoded message may be a projection shared with context reads.
+func sessionEntryAgentMessage(sess *Session, e SessionEntry) (agent.AgentMessage, bool) {
+	decode := asMessage
+	if sess != nil {
+		decode = sess.messageFor
+	}
+	me, ok := decode(e)
+	if !ok {
+		return agent.AgentMessage{}, false
+	}
+	return me.Message.Clone(), true
+}
+
+// transcriptRenderPass is the state one transcript paint pass shares with
+// renderSessionMessage: calls awaiting their tool result, the
+// editor-history option, and whether a todo result updates the widget
+// (only the agent-message fallback).
+type transcriptRenderPass struct {
+	pendingCalls    map[string]ai.ToolCall
+	populateHistory bool
+	updateTodo      bool
+}
+
+// renderParsedSessionEntry paints one parsed session entry: the entry-type
+// switch of the transcript paint pass, shared by full renders and
+// transcript-history pages. cacheMissNotices is nil for a page: miss
+// notices are computed per full render, not replayed.
+func (m *InteractiveMode) renderParsedSessionEntry(pe parsedEntry, cacheMissNotices map[string]string, pass transcriptRenderPass) {
+	if pe.entry.Base().Type != "usage" {
+		m.cacheWarmingUsage = nil
+	}
+	switch pe.entry.Base().Type {
+	case "message":
+		if pe.hasAgent {
+			m.renderSessionMessage(pe.agent, messageMeta{ID: pe.entry.Base().ID, Timestamp: pe.entry.Base().Timestamp}, pass)
+			if notice := cacheMissNotices[pe.entry.Base().ID]; notice != "" {
+				m.addCacheMissNotice(notice)
+			}
+		}
+	case "compaction":
+		var ce CompactionEntry
+		if err := json.Unmarshal(pe.entry.Raw(), &ce); err == nil {
+			m.addCompactionSummary(ce.Summary, ce.TokensBefore, ce.Usage)
+		}
+	case "branch_summary":
+		var be BranchSummaryEntry
+		if err := json.Unmarshal(pe.entry.Raw(), &be); err == nil && be.Summary != "" {
+			m.addBranchSummary(be.Summary, be.Usage)
+		}
+	case "custom_message":
+		var cm CustomMessageEntry
+		if err := json.Unmarshal(pe.entry.Raw(), &cm); err == nil && cm.Display {
+			m.appendCustomMessage(cm)
+		}
+	case "custom":
+		var ce CustomEntry
+		if err := json.Unmarshal(pe.entry.Raw(), &ce); err == nil {
+			m.addCustomEntryToChat(ce)
+		}
+	case "usage":
+		if usage, ok := decodeUsageEntry(pe.entry.Raw()); ok && usage.Kind == "cache_warm" {
+			m.addCacheWarmingUsage(usage)
+		} else {
+			m.cacheWarmingUsage = nil
+		}
+	}
+}
+
+// renderSessionMessage renders one AgentMessage (user, assistant,
+// toolResult, bashExecution) into the chat container with all its
+// sub-components, for the session-entry path and the agent-message
+// fallback. Mirrors upstream addMessageToChat.
+func (m *InteractiveMode) renderSessionMessage(msg agent.AgentMessage, meta messageMeta, pass transcriptRenderPass) {
+	populateHistory := pass.populateHistory
+	pendingCalls := pass.pendingCalls
+	switch {
+	case msg.User != nil:
+		if text := extractAgentMessageText(msg); text != "" {
+			m.addUserMessageToChat(msg, text, meta)
+			if populateHistory && m.editor != nil {
+				m.editor.AddToHistory(text)
+			}
+		}
+
+	case msg.Assistant != nil:
+		// Render from the persisted content blocks, as upstream
+		// addMessageToChat → AssistantMessageComponent does. The runtime
+		// AssistantMessage.Thinking accumulator is not serialized, so it
+		// is empty for every message read back from the session file.
+		block := m.newAssistantMessageBlock(meta)
+		// A message read back never streams.
+		block.FinishStreaming()
+		updateAssistantMessageBlock(block, msg.Assistant)
+		m.chatContainer.Add(block)
+		m.assistantBlocks = append(m.assistantBlocks, block)
+		// Tool-use blocks.
+		for _, b := range msg.Assistant.Content {
+			call, ok := b.(ai.ToolCall)
+			if !ok {
+				continue
+			}
+			args, _ := jsonNoEscape(call.Arguments)
+			comp := m.newToolCard(call.Name, call.ID, json.RawMessage(args))
+			comp.BodyRenderer = toolBodyRendererForCall(call, agent.AgentToolResult{}, nil)
+			m.applyToolPresentation(comp, call.ID, call.Name, json.RawMessage(args))
+			comp.SetExpanded(m.toolsExpanded)
+			switch msg.Assistant.StopReason {
+			case ai.StopReasonAborted:
+				abortedText := m.abortedMessageText()
+				result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: abortedText}}, IsError: true}
+				comp.BodyRenderer = toolBodyRendererForCall(call, result, nil)
+				comp.SetResultValue(result)
+				comp.SetResult(abortedText, true, 0)
+				comp.MarkAborted() // pig additive (D91): a frontend shows it cancelled
+			case ai.StopReasonError:
+				errorMessage := msg.Assistant.ErrorMessage
+				if errorMessage == "" {
+					errorMessage = "Error"
+				}
+				result := agent.AgentToolResult{Content: []ai.ToolResultMessageContent{ai.TextContent{Text: errorMessage}}, IsError: true}
+				comp.BodyRenderer = toolBodyRendererForCall(call, result, nil)
+				comp.SetResultValue(result)
+				comp.SetResult(errorMessage, true, 0)
+			default:
+				pendingCalls[call.ID] = call
+			}
+			m.toolMu.Lock()
+			m.toolByID[call.ID] = comp
+			m.toolOrder = append(m.toolOrder, comp)
+			m.toolMu.Unlock()
+			m.chatContainer.Add(comp)
+			// A call whose result the paint pass already saw (the result
+			// sits inside the painted window, the call above it) completes
+			// at once instead of waiting for a result that never re-renders.
+			if h := m.transcriptHistory; h != nil {
+				if r, ok := h.pendingToolResults[call.ID]; ok {
+					delete(h.pendingToolResults, call.ID)
+					delete(pendingCalls, call.ID)
+					m.toolMu.Lock()
+					delete(m.toolByID, call.ID)
+					m.toolMu.Unlock()
+					applyRestoredToolResult(comp, call, r)
+				}
+			}
+		}
+
+	case msg.Role() == agent.RoleBashExecution:
+		// Upstream addMessageToChat case "bashExecution" (interactive-mode.ts:3870-3887): a BashExecutionComponent over the
+		// command, its output appended, then completed with the exit code, cancelled and truncated flags and full-output path.
+		command, _ := msg.Custom["command"].(string)
+		excludeFromContext, _ := msg.Custom["excludeFromContext"].(bool)
+		block := tui.NewBashExecutionComponent(command, m.tuiInst, excludeFromContext, m.outputPad)
+		if output, _ := msg.Custom["output"].(string); output != "" {
+			block.AppendOutput(output)
+		}
+		var exitCode *int
+		if code, ok := msg.Custom["exitCode"].(float64); ok {
+			value := int(code)
+			exitCode = &value
+		}
+		cancelled, _ := msg.Custom["cancelled"].(bool)
+		truncated, _ := msg.Custom["truncated"].(bool)
+		fullOutputPath, _ := msg.Custom["fullOutputPath"].(string)
+		var truncationResult *tui.TruncationResult
+		if truncated {
+			truncationResult = &tui.TruncationResult{Truncated: true}
+		}
+		block.SetComplete(exitCode, cancelled, truncationResult, fullOutputPath)
+		m.toolMu.Lock()
+		m.bashOrder = append(m.bashOrder, block)
+		m.toolMu.Unlock()
+		// upstream: interactive-mode.ts:3871,7009,7037 never call setExpanded on a new BashExecutionComponent; it starts collapsed.
+		m.chatContainer.Add(block)
+	case msg.Role() == agent.RoleCustom:
+		// upstream addMessageToChat case "custom" (interactive-mode.ts:3901-3913): only a displayed message is drawn.
+		if entry, display := customMessageEntryOf(msg.Custom); display {
+			m.appendCustomMessage(entry)
+		}
+	case msg.Role() == agent.RoleCompactionSummary:
+		// upstream case "compactionSummary" (interactive-mode.ts:3915-3924): a message carries no usage, so no cost notice follows.
+		summary, _ := msg.Custom["summary"].(string)
+		tokensBefore, _ := msg.Custom["tokensBefore"].(float64)
+		m.addCompactionSummary(summary, int(tokensBefore), nil)
+	case msg.Role() == agent.RoleBranchSummary:
+		// upstream case "branchSummary" (interactive-mode.ts:3926-3935).
+		summary, _ := msg.Custom["summary"].(string)
+		m.addBranchSummary(summary, nil)
+	case msg.ToolResult != nil:
+		r := msg.ToolResult
+		if r.ToolName == "todo" && pass.updateTodo {
+			m.updateTodoWidget(r.Result())
+		}
+		call, pending := pendingCalls[r.ToolCallID]
+		if !pending {
+			// A result whose call lies in the hidden prefix stashes
+			// for the page that renders the call; without a transcript
+			// history window it stays undisplayed, as before.
+			if h := m.transcriptHistory; h != nil && r.ToolCallID != "" {
+				h.pendingToolResults[r.ToolCallID] = r
+			}
+			return
+		}
+		delete(pendingCalls, r.ToolCallID)
+		m.toolMu.Lock()
+		comp := m.toolByID[r.ToolCallID]
+		delete(m.toolByID, r.ToolCallID)
+		m.toolMu.Unlock()
+		if comp == nil {
+			return
+		}
+		applyRestoredToolResult(comp, call, r)
+	}
+}
+
+// applyRestoredToolResult completes a rendered tool card with the
+// persisted result, as the toolResult case of renderSessionMessage does:
+// body renderer, exit code for shell cards, todo metadata, then the
+// result itself.
+func applyRestoredToolResult(comp *tui.ToolExecutionComponent, call ai.ToolCall, r *agent.ToolResultMessage) {
+	result := r.Result()
+	took := recordedTook(call.Name, r.DurationMs, nil)
+	if comp.Rich {
+		took = nil // Restored cards also show timing only in their header.
+	}
+	comp.BodyRenderer = toolBodyRendererForCall(call, result, took)
+	final := ToolExecutionResultOf(result, 0)
+	final.IsError = r.IsError
+	final.DurationMs = r.DurationMs
+	if comp.Rich && (call.Name == "bash" || call.Name == "powershell") {
+		comp.SetExitCode(shellExitCode(result))
+	}
+	if call.Name == "todo" {
+		comp.SetResultMeta(todoCardMeta(result))
+	}
+	comp.UpdateResult(final, false)
 }
 
 // addCustomEntryToChat renders a custom session entry (appended via the

@@ -636,6 +636,10 @@ type InteractiveMode struct {
 	editorContainer *tui.Container
 	// transcriptScrollView is the scrollable conversation view in fullscreen mode.
 	transcriptScrollView *tui.ScrollView
+	// transcriptHistory is the paint pass's display-history window: the
+	// paged-in pre-boundary entries and the cursor above them. Nil unless a
+	// transcript render installed it (interactive_history.go).
+	transcriptHistory *transcriptHistory
 	// tuiTornDown guards stopInteractiveTui so the renderer is stopped and the
 	// transcript view disposed exactly once across the explicit-quit, ctx.Done,
 	// and input-error exit paths. Mirrors upstream's single stopInteractiveTui().
