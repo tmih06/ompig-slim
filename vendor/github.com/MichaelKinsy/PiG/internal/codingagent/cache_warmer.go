@@ -388,7 +388,7 @@ func (w *CacheWarmer) Status() CacheWarmingStatus {
 	if !run.warmable {
 		// A deadline-only run schedules no refresh; it reports its pending
 		// offer, or inactivity once the offer was consumed.
-		if run.timer != nil || w.idleOfferPendingLocked(run) {
+		if run.timer != nil || run.offering || w.idleOfferPendingLocked(run) {
 			return CacheWarmingStatus{State: "scheduled", NextWarmAt: run.nextWarmAt}
 		}
 		return w.inactive

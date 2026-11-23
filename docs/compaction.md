@@ -61,7 +61,8 @@ policy in your global `~/.pi/agent/settings.json`:
 `compaction.enabled: false` disables both idle and threshold compaction.
 `compaction.keepRecentTokens` controls the retained tail. Set
 `compaction.idleDelaySeconds` to change the fallback delay for providers without
-cache metadata. The separate
+cache metadata. Values must be positive, finite, and no more than 1800 seconds;
+an out-of-range value falls back to the 240-second default. The separate
 `cacheWarming` setting controls cache-refresh requests, not checkpoint summaries.
 Durable headless execution has its own [compaction contract](durable.md).
 

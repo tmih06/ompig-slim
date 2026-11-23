@@ -258,7 +258,7 @@ func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.C
 	var entry icodingagent.SessionEntry
 	var haveEntry bool
 	s.mu.Lock()
-	estimatedTokensAfter = estimateMessagesTokens(s.agent.Messages())
+	estimatedTokensAfter = estimateMessagesTokens(s.agent.MessagesSnapshot())
 	entry, haveEntry = s.inner.GetEntry(entryID)
 	s.mu.Unlock()
 	if haveEntry {
@@ -320,7 +320,8 @@ func (s *Session) idleSummarize(ctx context.Context, request *icodingagent.Cache
 
 func (s *Session) idleCompactionTranscript(request *icodingagent.CacheWarmRequest) ai.TranscriptContext {
 	messages := request.Context.Messages()
-	if last := lastAssistantMessage(s.agent.Messages()); last != nil && last.StopReason == ai.StopReasonStop {
+	// The offer goroutine runs off the owner loop, so it reads the lock-guarded snapshot.
+	if last := lastAssistantMessage(s.agent.MessagesSnapshot()); last != nil && last.StopReason == ai.StopReasonStop {
 		duplicate := false
 		if n := len(messages); n > 0 {
 			if tail, ok := messages[n-1].(ai.AssistantMessage); ok {

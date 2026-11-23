@@ -855,7 +855,7 @@ func TestSessionIdleCompactionBeforeCompactCancel(t *testing.T) {
 				return extension.SessionBeforeCompactResult{Cancel: true}, nil
 			}},
 		},
-	}, nil, t.TempDir(), nil, nil)
+	}}, nil, t.TempDir(), nil, nil)
 	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -889,7 +889,7 @@ func TestSessionIdleCompactionBeforeCompactCustomResult(t *testing.T) {
 				}}, nil
 			}},
 		},
-	}, nil, t.TempDir(), nil, nil)
+	}}, nil, t.TempDir(), nil, nil)
 	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
