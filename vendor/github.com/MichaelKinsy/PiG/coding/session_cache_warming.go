@@ -148,6 +148,7 @@ func (s *Session) installCacheWarmer(inner *icodingagent.Session, supplied Cache
 	}
 	warmer := icodingagent.NewCacheWarmer(s.streamWarmRequest, inner, s.SettingsManager().GetCacheWarmingMode, s.decideCacheWarming)
 	warmer.SetOnWarmed(s.emitEntryAppended)
+	warmer.SetIdleCompaction(s.idleCompactionDeadline, s.idleCompactionPolicy)
 	s.warming.warmer, s.warming.sessionID = warmer, inner.ID()
 }
 
@@ -183,8 +184,33 @@ func (s *Session) startCacheWarming(model *ai.Model, transcript ai.TranscriptCon
 	if warmer == nil || options.SessionID != sessionID {
 		return
 	}
-	request := icodingagent.CacheWarmRequest{Model: model, Context: transcript, Options: options}
+	request := icodingagent.CacheWarmRequest{
+		Model: model, Context: transcript, Options: options,
+		IdleEligible: s.idleCompactionEligibility(),
+	}
 	warmer.Start(request, s.cacheContextIsCurrent(model))
+}
+
+// idleCompactionEligibility captures the logical context at request time and
+// reports whether it still extends the captured prefix by exactly the
+// successful response that answered the request. Idle compaction may run only
+// while this holds: the preserved request context plus that one response is
+// everything the summary request covers, so an extra message, a context edit,
+// or a failed or missing final response must decline the offer instead of
+// compacting content the summary never saw.
+func (s *Session) idleCompactionEligibility() func() bool {
+	messages := s.agent.MessagesSnapshot()
+	return func() bool {
+		current := s.agent.MessagesSnapshot()
+		if len(current) != len(messages)+1 {
+			return false
+		}
+		final := current[len(messages)].Assistant
+		if final == nil || final.StopReason != ai.StopReasonStop {
+			return false
+		}
+		return slices.EqualFunc(messages, current[:len(messages)], sameAgentMessage)
+	}
 }
 
 // cacheContextIsCurrent keeps warming while the current transcript still
@@ -272,6 +298,14 @@ func (s *Session) SetCacheWarmingMode(mode icodingagent.CacheWarmingMode) error 
 func (s *Session) OnAgentSettled() {
 	if warmer := s.cacheWarmerHooks(); warmer != nil {
 		warmer.OnAgentSettled()
+	}
+}
+
+// notifyWarmerIdle tells the warmer the session just became idle, so an
+// idle-compaction offer deferred by settling work can run now.
+func (s *Session) notifyWarmerIdle() {
+	if warmer, _ := s.cacheWarmer(); warmer != nil {
+		warmer.OnIdle()
 	}
 }
 

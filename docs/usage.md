@@ -62,6 +62,18 @@ the missing input ([goal contract](goal.md)). Interrupting with `Esc` or `/goal 
 immediately and starts no further turn, and an ordinary follow-up afterwards does not resume the objective:
 only `/goal resume` does, and it restarts the same paused objective. `ompig-slim --help` lists every flag.
 
+## Session history and compaction
+
+Resuming a session initially loads its retained context. Scroll upward in fullscreen
+mode to load the older transcript across compaction boundaries. Display history
+does not expand the model context.
+
+Idle checkpoints run before the selected model's estimated cache expiry when
+there is enough history to compact. This is a paid summary request, not a guarantee
+of a cache hit or lower cost. `compaction.idleEnabled: false` disables the idle
+policy. See [transcript history and idle compaction](compaction.md) for settings,
+provider metadata requirements, and regular-mode behavior.
+
 ## Durable headless work
 
 Daily interactive usage is unchanged. For unattended work with crash recovery:

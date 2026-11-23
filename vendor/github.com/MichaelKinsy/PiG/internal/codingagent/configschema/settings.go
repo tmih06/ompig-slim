@@ -6,7 +6,7 @@ import "github.com/MichaelKinsy/PiG/ai"
 
 // settingsDefaults is SETTINGS_DEFAULTS, the defaults the published JSON Schema carries.
 var settingsDefaults = struct {
-	transport, steeringMode, followUpMode                                               string
+	transport, steeringMode, followUpMode                                                 string
 	compactionEnabled                                                                     bool
 	compactionReserveTokens, compactionKeepRecentTokens                                   int
 	branchSummaryReserveTokens                                                            int
@@ -15,7 +15,7 @@ var settingsDefaults = struct {
 	retryMaxRetries, retryBaseDelayMs, retryMaxAgentDelayMs, retryProviderMaxRetryDelayMs int
 	hideThinkingBlock, showCacheMissNotices, quietStartup                                 bool
 	defaultProjectTrust                                                                   string
-	enableSkillCommands                                                                 bool
+	enableSkillCommands                                                                   bool
 	terminalShowImages                                                                    bool
 	terminalImageWidthCells                                                               int
 	terminalClearOnShrink, terminalShowTerminalProgress                                   bool
@@ -71,6 +71,8 @@ func settingsSchema() *Schema {
 		Optional("enabled", Boolean(Default(d.compactionEnabled))),
 		Optional("reserveTokens", nonNegativeSafeInteger(Default(d.compactionReserveTokens))),
 		Optional("keepRecentTokens", nonNegativeSafeInteger(Default(d.compactionKeepRecentTokens))),
+		Optional("idleEnabled", Boolean(D(`Automatically compact when a settled session reaches a cache-warming deadline. Global only.`), Default(true))),
+		Optional("idleDelaySeconds", Number(D(`Settled-idle seconds before idle compaction for models without a promptCache lifetime; no cache-expiry guarantee. Global only.`), Default(240))),
 		Optional("modelThresholds", Record(Union([]*Schema{Number(), String(), Literal(nil)}))),
 		Optional("modelThresholdsEnabled", Boolean(Default(true))),
 		Optional("thresholdPercent", Number()),

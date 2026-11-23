@@ -440,7 +440,10 @@ func (a *rpcAdmission) prompt(id rpcRequestID, cmd RPCPromptCommand) {
 
 func (a *rpcAdmission) promptInput(id rpcRequestID, cmd RPCPromptCommand) {
 	fail := func(err error) { a.turn.Microtask(func() { a.write(rpcError(id, "prompt", err.Error())) }) }
-	if a.session.IsCompacting() {
+	// An idle compaction is preemptible: cancel it so user input is never
+	// lost behind background work, then keep Pi's rejection for real
+	// compaction or tree navigation.
+	if a.session.IsCompacting() && !a.session.CancelIdleCompaction(a.ctx) {
 		fail(fmt.Errorf("Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry."))
 		return
 	}

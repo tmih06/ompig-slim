@@ -182,8 +182,10 @@ type Session struct {
 	// compacting is true while any compaction (manual or auto) is in flight.
 	manualCompacting      bool
 	compacting            atomic.Bool        // true while Compact() or runAutoCompaction() is in flight
+	idleCompacting        bool               // the in-flight claim belongs to an idle compaction; protected by compactMu
 	compactMu             sync.Mutex         // protects compaction and tree-navigation ownership
 	compactCancel         context.CancelFunc // non-nil while Compact() or runAutoCompaction() is in flight
+	compactCancelSeq      uint64             // bumped at every compactCancel install so an old compaction cannot clear a successor's
 	compactDone           chan struct{}      // closed when the current compaction releases ownership
 	compactAbortRequested bool               // cancellation arrived before compactCancel was installed
 	branchSumCancel       context.CancelFunc // non-nil while tree navigation owns its abortable operation
@@ -2969,6 +2971,7 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 	compactCtx, cancel := context.WithCancel(ctx)
 	s.compactMu.Lock()
 	s.compactCancel = cancel
+	s.compactCancelSeq++
 	abortRequested := s.compactAbortRequested
 	s.compactMu.Unlock()
 	if abortRequested {
@@ -3176,6 +3179,7 @@ func (s *Session) finishCompaction() {
 	s.compactMu.Lock()
 	s.compacting.Store(false)
 	s.manualCompacting = false
+	s.idleCompacting = false
 	done := s.compactDone
 	s.compactDone = nil
 	s.compactAbortRequested = false
@@ -3196,6 +3200,13 @@ func (s *Session) navigateTree(ctx context.Context, targetID string, opts Naviga
 	}
 
 	branchCtx, cancel := context.WithCancel(ctx)
+	// An idle compaction never blocks tree navigation: preempt it, let its
+	// stale-commit check drop the result, then wait for it to release the
+	// slot. Other claims keep the rejection.
+	if !s.CancelIdleCompaction(ctx) || !s.waitIdleCompactionRelease(ctx) {
+		cancel()
+		return NavigateTreeResult{}, errors.New(treeNavigationInProgressError)
+	}
 	s.compactMu.Lock()
 	if s.compacting.Load() || s.branchSumCancel != nil {
 		s.compactMu.Unlock()
@@ -3593,6 +3604,7 @@ func (s *Session) runAutoCompaction(ctx context.Context, reason string, willRetr
 	compactCtx, cancel := context.WithCancel(ctx)
 	s.compactMu.Lock()
 	s.compactCancel = cancel
+	s.compactCancelSeq++
 	abortRequested := s.compactAbortRequested
 	s.compactMu.Unlock()
 	if abortRequested {

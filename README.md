@@ -82,6 +82,7 @@ Slash commands include `/login` `/model` `/settings` `/usage` `/goal` `/subagent
 - **Subagents:** `Agent` with fixed roles, Agent Hub, and [explicit child outcomes](docs/subagents.md)
 - **Guardrails:** [loop guard](docs/loop-guard.md) and [streaming rules](docs/streaming-rules.md)
 - **Extensions:** TS, Go, Rust, Python, and Lisp; the [Herdr](https://herdr.dev) adapter is installable
+- **Sessions:** [pre-compaction scrollback and cache-aware idle checkpoints](docs/compaction.md)
 - **State:** Pi layout (`~/.pi/agent`, `.pi`), so existing sessions carry over
 - **Themes:** `system`/`dark`/`light` built in, [100 optional palettes](themes/README.md)
 

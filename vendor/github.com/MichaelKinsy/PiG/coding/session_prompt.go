@@ -196,6 +196,11 @@ func (s *Session) preparePromptInvocation(ctx context.Context, text string, opti
 	if s.isManualCompacting() {
 		return nil, errPromptDuringCompaction
 	}
+	// An idle compaction never blocks user input: preempt it and let the
+	// stale-commit check drop its result.
+	if !s.CancelIdleCompaction(ctx) {
+		return nil, errPromptDuringCompaction
+	}
 	source := options.Source
 	if source == "" {
 		source = extension.InputSourceUser

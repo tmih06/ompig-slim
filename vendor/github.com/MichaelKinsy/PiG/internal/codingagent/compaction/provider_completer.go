@@ -54,6 +54,30 @@ func (c ProviderCompleter) CompleteSimple(
 		SystemPrompt: systemPrompt,
 		Messages:     llmMessages,
 	})
+	return c.completeTranscript(ctx, model, transcript, options)
+}
+
+// CompleteSimpleTranscript is CompleteSimple for a caller that already holds
+// the normalized transcript: an idle compaction re-sends a warm request's
+// preserved prefix verbatim, so nothing converts through agent messages.
+func (c ProviderCompleter) CompleteSimpleTranscript(
+	ctx context.Context,
+	model *ai.Model,
+	transcript ai.TranscriptContext,
+	options ai.StreamOptions,
+) (string, *ai.Usage, error) {
+	return c.completeTranscript(ctx, model, transcript, options)
+}
+
+// completeTranscript streams the transcript and validates the summary
+// response: provider errors and a token-cap stop reject, tool calls are
+// refused, and the text blocks join into the summary.
+func (c ProviderCompleter) completeTranscript(
+	ctx context.Context,
+	model *ai.Model,
+	transcript ai.TranscriptContext,
+	options ai.StreamOptions,
+) (string, *ai.Usage, error) {
 	var stream *ai.AssistantMessageEventStream
 	var err error
 	if c.StreamFn != nil {
