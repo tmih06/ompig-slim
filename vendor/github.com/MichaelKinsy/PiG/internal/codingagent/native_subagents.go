@@ -200,8 +200,9 @@ func (m *InteractiveMode) agentTreeRecords() ([]subagents.Record, subagents.Sett
 	if !s.Enabled || s.WidgetMode == "off" {
 		return nil, s
 	}
-	var rows []subagents.Record
-	for _, r := range manager.Records() {
+	records := manager.Records()
+	rows := records[:0]
+	for _, r := range records {
 		if !r.TopLevel() || s.WidgetMode == "background" && !r.Background {
 			continue
 		}
@@ -221,9 +222,6 @@ func (m *InteractiveMode) subagentCounts() (total, working int) {
 }
 
 func (m *InteractiveMode) agentTreeIndex(rows []subagents.Record) int {
-	if m.subagentUI == nil {
-		return 0
-	}
 	for i, r := range rows {
 		if r.ID == m.subagentUI.treeSelected {
 			return i
@@ -267,10 +265,6 @@ func (w *nativeAgentTree) Render(width int) []string {
 		w.m.subagentUI.treeSelected = ""
 		return nil
 	}
-	groups := make([][]string, len(rows))
-	for i, r := range rows {
-		groups[i] = w.m.agentRecordLines(r, s, width)
-	}
 	budget := 10
 	if w.m.tuiInst != nil {
 		// Reserve the prompt, footer, transcript, header, hint, and overflow markers.
@@ -278,30 +272,36 @@ func (w *nativeAgentTree) Render(width int) []string {
 	}
 	selected := w.m.agentTreeIndex(rows)
 	w.m.subagentUI.treeSelected = rows[selected].ID
-	groups[selected] = groups[selected][:min(len(groups[selected]), budget)]
-	start, end, used := selected, selected+1, len(groups[selected])
-	for {
-		if end < len(rows) && used+len(groups[end]) <= budget {
-			used += len(groups[end])
-			end++
-			continue
+	groups := [][]string{w.m.agentRecordLines(rows[selected], s, width)}
+	groups[0] = groups[0][:min(len(groups[0]), budget)]
+	start, end, used := selected, selected+1, len(groups[0])
+	for end < len(rows) {
+		group := w.m.agentRecordLines(rows[end], s, width)
+		if used+len(group) > budget {
+			break
 		}
-		if start > 0 && used+len(groups[start-1]) <= budget {
-			used += len(groups[start-1])
-			start--
-			continue
+		groups = append(groups, group)
+		used += len(group)
+		end++
+	}
+	for start > 0 {
+		group := w.m.agentRecordLines(rows[start-1], s, width)
+		if used+len(group) > budget {
+			break
 		}
-		break
+		groups = append([][]string{group}, groups...)
+		used += len(group)
+		start--
 	}
 	theme := tui.ActiveTheme()
 	lines := []string{theme.Fg("accent", "● Agents")}
 	if start > 0 {
 		lines = append(lines, theme.Fg("dim", fmt.Sprintf("├─ … %d above", start)))
 	}
-	for i := start; i < end; i++ {
-		for j, line := range groups[i] {
+	for i, group := range groups {
+		for j, line := range group {
 			prefix := "  "
-			if i == selected && j == 0 {
+			if start+i == selected && j == 0 {
 				prefix = theme.Fg("accent", "›") + " "
 			}
 			lines = append(lines, prefix+line)
