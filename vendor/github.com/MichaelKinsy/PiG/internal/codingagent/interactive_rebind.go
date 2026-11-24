@@ -163,6 +163,7 @@ func (m *InteractiveMode) applyRuntimeSettings() {
 // renderCurrentSessionState clears transient state and redraws the current Session, including its footer name
 // (interactive-mode.ts renderCurrentSessionState). The transcript repaint also forgets the pending tool cards.
 func (m *InteractiveMode) renderCurrentSessionState() {
+	m.hideIdleCompactionCountdown()
 	if m.loadedResourcesContainer != nil {
 		m.loadedResourcesContainer.Clear()
 	}

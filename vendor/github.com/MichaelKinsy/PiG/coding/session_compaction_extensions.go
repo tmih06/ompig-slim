@@ -17,6 +17,9 @@ type sessionCompactionData struct {
 	TokensBefore     int
 	Usage            *ai.Usage
 	Details          any
+	// Models names the provider/model identities the summary ran on, empty
+	// for a hook's summary and for paths the host cannot attribute.
+	Models []string
 }
 
 func (s *Session) extensionCompaction(
@@ -92,6 +95,7 @@ func generatedCompactionData(result compaction.CompactionResult) *sessionCompact
 		TokensBefore:     result.TokensBefore,
 		Usage:            result.Usage,
 		Details:          result.Details,
+		Models:           result.Models,
 	}
 }
 

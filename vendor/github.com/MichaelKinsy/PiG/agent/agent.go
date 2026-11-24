@@ -605,7 +605,10 @@ type CompactionEndEvent struct {
 	EstimatedTokensAfter int
 	Usage                *ai.Usage
 	Details              any
-	ErrorMessage         string
+	// Info is the frozen record of the completed operation; nil for
+	// aborted, failed and externally appended compactions.
+	Info         *CompactionInfo
+	ErrorMessage string
 }
 
 func (AgentStartEvent) agentEvent()          {}

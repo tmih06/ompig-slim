@@ -429,7 +429,7 @@ func (m *InteractiveMode) renderParsedSessionEntry(pe parsedEntry, cacheMissNoti
 	case "compaction":
 		var ce CompactionEntry
 		if err := json.Unmarshal(pe.entry.Raw(), &ce); err == nil {
-			m.addCompactionSummary(ce.Summary, ce.TokensBefore, ce.Usage)
+			m.addCompactionSummary(ce.Summary, ce.TokensBefore, ce.Usage, ce.Info)
 		}
 	case "branch_summary":
 		var be BranchSummaryEntry
@@ -569,7 +569,7 @@ func (m *InteractiveMode) renderSessionMessage(msg agent.AgentMessage, meta mess
 		// upstream case "compactionSummary" (interactive-mode.ts:3915-3924): a message carries no usage, so no cost notice follows.
 		summary, _ := msg.Custom["summary"].(string)
 		tokensBefore, _ := msg.Custom["tokensBefore"].(float64)
-		m.addCompactionSummary(summary, int(tokensBefore), nil)
+		m.addCompactionSummary(summary, int(tokensBefore), nil, nil)
 	case msg.Role() == agent.RoleBranchSummary:
 		// upstream case "branchSummary" (interactive-mode.ts:3926-3935).
 		summary, _ := msg.Custom["summary"].(string)

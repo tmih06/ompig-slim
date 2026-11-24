@@ -350,10 +350,16 @@ type InteractiveMode struct {
 	frontendActions remoteEventQueue
 	// frontendActs feeds the session's selector actions through the input
 	// path as the keys they stand for.
-	frontendActs                   frontendActFeed
-	workingMessage                 *string // nil: the default label
-	workingVisible                 bool
-	statusContainer                *tui.Container // standalone fallback when the editor does not embed status
+	frontendActs    frontendActFeed
+	workingMessage  *string // nil: the default label
+	workingVisible  bool
+	statusContainer *tui.Container // standalone fallback when the editor does not embed status
+	// idleCountdownContainer is the dedicated nonanimated row under the
+	// status container; idleCountdownShown caches its rendered label.
+	idleCountdownContainer *tui.Container
+	idleCountdownShown     string
+	// idleCountdownQueued is set while a countdown tick waits in uiTaskCh.
+	idleCountdownQueued            atomic.Bool
 	pendingMessagesContainer       *tui.Container // queued steering/follow-up display (between chat and status)
 	activeStatusIndicator          *tui.StatusIndicator
 	activeWorkingIndicatorEmbedded bool
@@ -1691,6 +1697,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.maybeWarnAboutAnthropicSubscriptionAuthAsync()
 
 	m.statusContainer = tui.NewContainer()
+	m.idleCountdownContainer = tui.NewContainer()
 	m.pendingMessagesContainer = tui.NewContainer()
 	m.widgetContainer = tui.NewContainer(tui.NewSpacer(1))
 	m.mountInteractiveTui(false)
@@ -1913,6 +1920,7 @@ func (m *InteractiveMode) run(ctx context.Context) error {
 	// Start spinner ticker
 	go m.tickSpinner(ctx)
 	m.startPromptQuota(m.backgroundCtx)
+	m.startIdleCompactionCountdown(m.backgroundCtx)
 
 	m.startGitBranchWatcher(ctx)
 

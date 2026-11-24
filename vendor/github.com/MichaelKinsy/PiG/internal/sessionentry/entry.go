@@ -87,6 +87,10 @@ type CompactionEntry struct {
 	// SystemMessage is the complete prompt and tool state at this compaction
 	// boundary. It is absent when the projected context has no system state.
 	SystemMessage json.RawMessage `json:"systemMessage,omitempty"`
+	// Info is the host-observed record of the operation that produced the
+	// summary. It is absent on entries written by older builds and on ones
+	// an extension appended directly.
+	Info *agent.CompactionInfo `json:"info,omitempty"`
 }
 
 // UnmarshalJSON keeps the member order of `details`, the object an extension wrote (session-manager.ts appendCompaction).

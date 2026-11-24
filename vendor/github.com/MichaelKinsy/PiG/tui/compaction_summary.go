@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/MichaelKinsy/PiG/agent"
 )
 
 // customMsgLabelFg is the foreground color for the [compaction] label.
@@ -19,6 +22,7 @@ type CompactionSummaryMessageComponent struct {
 	*Box
 	summary       string
 	tokensBefore  int
+	info          *agent.CompactionInfo
 	expanded      bool
 	markdownTheme *MarkdownTheme
 }
@@ -28,6 +32,9 @@ type CompactionSummaryMessageComponent struct {
 type CompactionSummaryMessage struct {
 	Summary      string
 	TokensBefore int
+	// Info is the host-observed record of the compaction that wrote the
+	// summary; nil for entries without one.
+	Info *agent.CompactionInfo
 }
 
 // NewCompactionSummaryMessageComponent is Pi's constructor(message, markdownTheme = getMarkdownTheme(), outputPad = 1)
@@ -42,6 +49,7 @@ func NewCompactionSummaryMessageComponent(message CompactionSummaryMessage, mark
 		Box:           NewPaddedBox(padX, 1, func(text string) string { return ActiveTheme().Bg("customMessageBg", text) }),
 		summary:       message.Summary,
 		tokensBefore:  message.TokensBefore,
+		info:          message.Info,
 		markdownTheme: markdownTheme,
 	}
 	component.updateDisplay()
@@ -68,14 +76,23 @@ func (c *CompactionSummaryMessageComponent) updateDisplay() {
 	content.Add(NewText(theme.Fg("customMessageLabel", "\x1b[1m[compaction]\x1b[22m")))
 	content.Add(NewSpacer(1))
 	if c.expanded {
-		header := "**Compacted from " + tokenStr + " tokens**\n\n"
-		content.Add(finishedMarkdown(NewMarkdownWithOptions(header+c.summary, 0, 0, c.markdownTheme, &DefaultTextStyle{
+		header := "**Compacted from " + tokenStr + " tokens**"
+		content.Add(finishedMarkdown(NewMarkdownWithOptions(header, 0, 0, c.markdownTheme, &DefaultTextStyle{
+			Color: func(text string) string { return ActiveTheme().Fg("customMessageText", text) },
+		}, nil)))
+		if info := compactionInfoText(c.info); info != "" {
+			content.Add(NewText(theme.Fg("dim", info)))
+		}
+		content.Add(finishedMarkdown(NewMarkdownWithOptions(c.summary, 0, 0, c.markdownTheme, &DefaultTextStyle{
 			Color: func(text string) string { return ActiveTheme().Fg("customMessageText", text) },
 		}, nil)))
 	} else {
 		content.Add(NewText(theme.Fg("customMessageText", "Compacted from "+tokenStr+" tokens (") +
 			theme.Fg("dim", AppKeyText("app.tools.expand", "ctrl+o")) +
 			theme.Fg("customMessageText", " to expand)")))
+		if info := compactionInfoText(c.info); info != "" {
+			content.Add(NewText(theme.Fg("dim", info)))
+		}
 	}
 	c.AddChild(NewMouseRegion(content, func(event TuiMouseEvent) *TuiMouseEventResult {
 		if event.Type != MouseClick || event.Button != MouseButtonLeft {
@@ -84,6 +101,46 @@ func (c *CompactionSummaryMessageComponent) updateDisplay() {
 		c.SetExpanded(!c.expanded)
 		return &TuiMouseEventResult{Handled: true}
 	}))
+}
+
+// compactionInfoText is the one-line provenance of a completed compaction:
+// its reason, the distinct model identities that produced the summary, and
+// the operation's elapsed time. An absent record or empty members leave them
+// unnamed rather than guessed.
+func compactionInfoText(info *agent.CompactionInfo) string {
+	if info == nil {
+		return ""
+	}
+	reason := info.Reason
+	if reason == "" {
+		reason = "unknown"
+	}
+	models := "model unknown"
+	if len(info.Models) > 0 {
+		models = strings.Join(info.Models, ", ")
+	}
+	elapsed := ""
+	if info.ElapsedMs >= 0 {
+		elapsed = compactionElapsedText(info.ElapsedMs)
+	}
+	if elapsed == "" {
+		return reason + " · " + models
+	}
+	return reason + " · " + models + " · " + elapsed
+}
+
+// compactionElapsedText renders a nonnegative millisecond duration as the
+// card's compact "Ns" or "M:SS" label.
+func compactionElapsedText(elapsedMs int64) string {
+	if elapsedMs < 60_000 {
+		text := fmt.Sprintf("%.1fs", float64(elapsedMs)/1000)
+		if strings.HasSuffix(text, ".0s") {
+			text = strings.TrimSuffix(text, ".0s") + "s"
+		}
+		return text
+	}
+	total := elapsedMs / 1000
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
 }
 
 // formatThousands is Number.prototype.toLocaleString for an integer: comma thousands separators and a leading minus sign, e.g. 87432 → "87,432" and -1234 → "-1,234".

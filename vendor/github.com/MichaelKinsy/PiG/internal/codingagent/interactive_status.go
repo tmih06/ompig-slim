@@ -40,6 +40,7 @@ func (m *InteractiveMode) showStatusIndicator(indicator *tui.StatusIndicator) {
 	if !m.activeWorkingIndicatorEmbedded {
 		m.statusContainer.Add(indicator)
 	}
+	m.refreshIdleCompactionCountdown(time.Now())
 	m.reconfigureRemoteEditor()
 	m.resetSpinnerInterval()
 }
@@ -63,6 +64,7 @@ func (m *InteractiveMode) clearStatusIndicator(kind string) {
 			m.statusContainer.Add(&tui.IdleStatus{})
 		}
 	}
+	m.refreshIdleCompactionCountdown(time.Now())
 	m.reconfigureRemoteEditor()
 	m.resetSpinnerInterval()
 }
@@ -82,6 +84,8 @@ func (m *InteractiveMode) showCompactionStatusIndicator(reason, model string) {
 		label = "Compacting context... "
 	case "overflow":
 		label = "Context overflow detected, Auto-compacting... "
+	case "idle":
+		label = "Idle-compacting... "
 	}
 	if model != "" {
 		label += "with " + model + " "

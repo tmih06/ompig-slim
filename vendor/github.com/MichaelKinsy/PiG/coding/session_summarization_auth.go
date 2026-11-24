@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -33,6 +34,64 @@ type compactionFallbackState struct {
 	ownerRole  string
 	ownerChain string
 	tried      map[string]struct{}
+}
+
+// compactionModelCollector records the distinct provider/model identities
+// one Compact attempt's successful summary responses showed, in encounter
+// order. The collector is attempt-local: a failed attempt's identities are
+// discarded with it, so fallback losers never reach the completed record.
+type compactionModelCollector struct {
+	models []string
+}
+
+// observe records the identity of a validated summary response: its reported
+// (responseModel) or declared model wins over the resolved request identity,
+// and a missing provider falls back to the request's.
+func (c *compactionModelCollector) observe(request *ai.Model, message *ai.AssistantMessage) {
+	provider := message.Provider
+	if provider == "" {
+		provider = providerID(request)
+	}
+	model := message.ResponseModel
+	if model == "" {
+		model = message.Model
+	}
+	if model == "" && request != nil {
+		model = request.ID
+	}
+	c.add(compactionModelIdentity(provider, model))
+}
+
+// addRequest records the resolved request identity, the only attribution a
+// text-only injected completer or stream function can carry.
+func (c *compactionModelCollector) addRequest(request *ai.Model) {
+	c.add(compactionModelIdentity(providerID(request), request.ID))
+}
+
+func (c *compactionModelCollector) add(identity string) {
+	if identity == "" || slices.Contains(c.models, identity) {
+		return
+	}
+	c.models = append(c.models, identity)
+}
+
+func (c *compactionModelCollector) identities() []string {
+	if len(c.models) == 0 {
+		return nil
+	}
+	return slices.Clone(c.models)
+}
+
+// compactionModelIdentity joins provider and model into the display identity
+// used by /session and compaction cards.
+func compactionModelIdentity(provider, model string) string {
+	if provider == "" {
+		return model
+	}
+	if model == "" {
+		return provider
+	}
+	return provider + "/" + model
 }
 
 func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.CompactionPreparation, model *ai.Model, customInstructions, reason string) (compaction.CompactionResult, error) {
@@ -91,11 +150,30 @@ func (s *Session) runDefaultCompaction(ctx context.Context, prep compaction.Comp
 		retry, retryCallbacks := s.summarizationRetryOptions("compaction", reason, compactionModelLabel(request.model))
 		// upstream compact(preparation, model, apiKey, headers, customInstructions, signal, thinkingLevel, this.agent.streamFunction, env, retry, callbacks, sessionId): request.completer holds the Agent's stream function.
 		streamFn := request.streamFn
+		var identities compactionModelCollector
 		if streamFn == nil {
-			streamFn = compaction.CompleterStreamFn(request.completer)
+			if providerCompleter, ok := request.completer.(compaction.ProviderCompleter); ok {
+				providerCompleter.OnComplete = identities.observe
+				streamFn = compaction.CompleterStreamFn(providerCompleter)
+			} else if providerCompleter, ok := request.completer.(*compaction.ProviderCompleter); ok && providerCompleter != nil {
+				observed := *providerCompleter
+				observed.OnComplete = identities.observe
+				streamFn = compaction.CompleterStreamFn(observed)
+			} else {
+				streamFn = compaction.CompleterStreamFn(request.completer)
+			}
 		}
 		result, compactErr := compaction.Compact(ctx, prep, request.model, request.apiKey, request.headers, customInstructions, request.thinkingLevel, streamFn, request.env, retry, retryCallbacks, "")
-		if compactErr == nil || ctx.Err() != nil || errors.Is(compactErr, context.Canceled) || errors.Is(compactErr, context.DeadlineExceeded) || ai.IsContextOverflow(ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: compactErr.Error()}, 0) {
+		if compactErr == nil {
+			// A completer or stream override that reports no response identity
+			// attributes the summary to the resolved request that produced it.
+			if len(identities.models) == 0 {
+				identities.addRequest(request.model)
+			}
+			result.Models = identities.identities()
+			return result, nil
+		}
+		if ctx.Err() != nil || errors.Is(compactErr, context.Canceled) || errors.Is(compactErr, context.DeadlineExceeded) || ai.IsContextOverflow(ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: compactErr.Error()}, 0) {
 			return result, compactErr
 		}
 		policy := s.SettingsManager().Get().Retry

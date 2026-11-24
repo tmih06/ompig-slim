@@ -1082,15 +1082,22 @@ func (s *Session) AppendUsage(kind, provider, model string, usage ai.Usage, note
 // compaction retains no preceding entries. The entry also records the current
 // projected system state, when there is one, stamped with the entry time.
 func (s *Session) AppendCompaction(summary, firstKeptEntryID string, tokensBefore int, details any, fromHook bool, usage *ai.Usage) (string, error) {
-	return s.appendCompaction(summary, firstKeptEntryID, tokensBefore, details, fromHook, false, usage)
+	return s.appendCompaction(summary, firstKeptEntryID, tokensBefore, details, fromHook, false, usage, nil)
 }
 
 // AppendCompactionHookUndefined is AppendCompaction for a caller that leaves fromHook undefined, as an extension's SessionManager.appendCompaction may: the entry then has no fromHook member.
 func (s *Session) AppendCompactionHookUndefined(summary, firstKeptEntryID string, tokensBefore int, details any, usage *ai.Usage) (string, error) {
-	return s.appendCompaction(summary, firstKeptEntryID, tokensBefore, details, false, true, usage)
+	return s.appendCompaction(summary, firstKeptEntryID, tokensBefore, details, false, true, usage, nil)
 }
 
-func (s *Session) appendCompaction(summary, firstKeptEntryID string, tokensBefore int, details any, fromHook, fromHookUndefined bool, usage *ai.Usage) (string, error) {
+// AppendCompactionWithInfo is AppendCompaction carrying the host-observed
+// record of the operation that produced the summary. A nil info persists
+// the same entry AppendCompaction writes.
+func (s *Session) AppendCompactionWithInfo(summary, firstKeptEntryID string, tokensBefore int, details any, fromHook bool, usage *ai.Usage, info *agent.CompactionInfo) (string, error) {
+	return s.appendCompaction(summary, firstKeptEntryID, tokensBefore, details, fromHook, false, usage, info)
+}
+
+func (s *Session) appendCompaction(summary, firstKeptEntryID string, tokensBefore int, details any, fromHook, fromHookUndefined bool, usage *ai.Usage, info *agent.CompactionInfo) (string, error) {
 	now := time.Now().UTC()
 	// compactionSystemMessage only reads the context's latest system message, so it reads the kept projection rather than a copy of the
 	// whole context projected again.
@@ -1122,6 +1129,7 @@ func (s *Session) appendCompaction(summary, firstKeptEntryID string, tokensBefor
 		FromHook:         fromHook,
 		FromHookAbsent:   fromHookUndefined,
 		SystemMessage:    systemMessage,
+		Info:             info,
 	}
 	if err := s.AppendEntry(entry); err != nil {
 		return "", err

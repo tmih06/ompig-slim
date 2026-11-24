@@ -403,6 +403,36 @@ func (w *CacheWarmer) Status() CacheWarmingStatus {
 	return CacheWarmingStatus{State: state, NextWarmAt: run.nextWarmAt, Decision: &decision, ExtensionOverride: run.extensionOverride}
 }
 
+// PendingIdleCompaction is the warmer's armed idle-compaction offer as the
+// UI reads it: the absolute deadline at which the session's offer check
+// fires, not a promise that compaction runs then. A deadline in the past
+// stays pending until the next idle signal consumes it.
+type PendingIdleCompaction struct {
+	// DeadlineAtMs is the offer deadline, a Unix millisecond time.
+	DeadlineAtMs int64
+}
+
+// PendingIdleCompaction reports the armed idle-compaction deadline of the
+// current run. It answers whether the offer is still pending, not whether
+// the deadline's check would claim it: a busy session keeps a past deadline
+// pending, and a session that will decline still counts down first. The
+// second result is false once the offer was made, the run ended or
+// changed, the session is no longer the request's context, or the run lost
+// its idle eligibility.
+func (w *CacheWarmer) PendingIdleCompaction() (PendingIdleCompaction, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	run := w.run
+	if w.closed || run == nil || run.ctx.Err() != nil || run.phase != "idle" || run.offering ||
+		run.idleDeadlineAt <= 0 || !run.isCurrent() || !w.idleOfferPendingLocked(run) {
+		return PendingIdleCompaction{}, false
+	}
+	if run.IdleEligible != nil && !run.IdleEligible() {
+		return PendingIdleCompaction{}, false
+	}
+	return PendingIdleCompaction{DeadlineAtMs: run.idleDeadlineAt}, true
+}
+
 // Start keeps the prompt cache entry written by request warm while isCurrent
 // holds. A request that cannot be replayed still starts a run when an idle
 // compaction deadline is armed, so the session can compact at the boundary.

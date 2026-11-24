@@ -3008,6 +3008,9 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 	if modelErr != nil {
 		return fail(modelErr, false)
 	}
+	// The operation's clock starts with its start event and freezes once a
+	// validated summary enters the commit path.
+	compactionStart := time.Now()
 	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: "manual", Model: compactionModelLabel(compactionModel)})
 	if model == nil {
 		return fail(errors.New(icodingagent.FormatNoModelSelectedMessage()), false)
@@ -3047,9 +3050,10 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 	if err != nil {
 		return fail(err, compactCtx.Err() != nil || cancelledByExtension)
 	}
+	info := &agent.CompactionInfo{Reason: "manual", ElapsedMs: time.Since(compactionStart).Milliseconds(), Models: result.Models}
 
 	s.mu.Lock()
-	entryID, err := s.inner.AppendCompaction(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage)
+	entryID, err := s.inner.AppendCompactionWithInfo(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage, info)
 	if err != nil {
 		s.mu.Unlock()
 		return fail(fmt.Errorf("coding: Compact: persist: %w", err), false)
@@ -3072,6 +3076,7 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 		EstimatedTokensAfter: estimatedTokensAfter,
 		Usage:                result.Usage,
 		Details:              result.Details,
+		Info:                 info,
 	})
 	return &CompactionResult{
 		Summary:              result.Summary,
@@ -3080,6 +3085,7 @@ func (s *Session) compact(ctx context.Context, customInstructions string) (*Comp
 		EstimatedTokensAfter: estimatedTokensAfter,
 		Usage:                result.Usage,
 		Details:              result.Details,
+		Info:                 info,
 	}, nil
 }
 
@@ -3626,6 +3632,7 @@ func (s *Session) runAutoCompaction(ctx context.Context, reason string, willRetr
 		statusModel = selected
 	}
 	s.emitCompactionEvent(agent.CompactionStartEvent{Reason: reason, Model: compactionModelLabel(statusModel)})
+	compactionStart := time.Now()
 	if compactCtx.Err() != nil {
 		s.emitOrderedEventSync(agent.CompactionEndEvent{Reason: reason, Aborted: true})
 		s.emitSessionCompactFailed(ctx, extension.SessionCompactFailedEvent{Reason: reason, Aborted: true})
@@ -3647,9 +3654,13 @@ func (s *Session) runAutoCompaction(ctx context.Context, reason string, willRetr
 	if err == nil && compactCtx.Err() != nil {
 		err = errCompactionCancelled
 	}
+	var info *agent.CompactionInfo
+	if err == nil {
+		info = &agent.CompactionInfo{Reason: reason, ElapsedMs: time.Since(compactionStart).Milliseconds(), Models: result.Models}
+	}
 	var entryID string
 	if err == nil {
-		entryID, err = s.inner.AppendCompaction(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage)
+		entryID, err = s.inner.AppendCompactionWithInfo(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage, info)
 	}
 	if err != nil {
 		aborted := compactCtx.Err() != nil || cancelledByExtension
@@ -3679,6 +3690,7 @@ func (s *Session) runAutoCompaction(ctx context.Context, reason string, willRetr
 		Usage:                result.Usage,
 		Details:              result.Details,
 		WillRetry:            willRetry,
+		Info:                 info,
 	})
 	return true, nil
 }

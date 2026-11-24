@@ -52,12 +52,6 @@ func (s *Session) idleCompactionDeadline(ctx context.Context, request *icodingag
 		s.mu.Unlock()
 		return icodingagent.IdleOfferDeclined
 	}
-	compactionModel, modelErr := s.compactionModel(model)
-	if modelErr != nil || compactionModel == nil ||
-		providerID(compactionModel) != providerID(request.Model) || compactionModel.ID != request.Model.ID {
-		s.mu.Unlock()
-		return icodingagent.IdleOfferDeclined
-	}
 	compactionSettings, settingsErr := s.compactionSettings()
 	if settingsErr != nil || !compactionSettings.Enabled {
 		s.mu.Unlock()
@@ -79,7 +73,7 @@ func (s *Session) idleCompactionDeadline(ctx context.Context, request *icodingag
 	if outcome := s.claimIdleCompaction(request, &snapshot); outcome != icodingagent.IdleOfferClaimed {
 		return outcome
 	}
-	s.runIdleCompaction(ctx, request, compactionModel, *prep, snapshot)
+	s.runIdleCompaction(ctx, request, model, *prep, snapshot)
 	return icodingagent.IdleOfferClaimed
 }
 
@@ -89,13 +83,11 @@ func (s *Session) idleCompactionDeadline(ctx context.Context, request *icodingag
 // runState.mu, compactMu.
 func (s *Session) claimIdleCompaction(request *icodingagent.CacheWarmRequest, snapshot *idleCompactionSnapshot) icodingagent.IdleOfferResult {
 	s.pendingBashMu.Lock()
-	defer s.pendingBashMu.Unlock()
 	s.runState.mu.Lock()
-	defer s.runState.mu.Unlock()
 	snapshot.runSeq = s.runState.generation
-	busy := s.runState.active.Load() || s.settlementBusyLocked() ||
-		s.runState.userRunsPending.Load() > 0 || s.agent.HasQueuedMessages() ||
-		len(s.runState.pendingCustom) > 0 || len(s.pendingBashMessages) > 0
+	busy := s.idleOfferBusyLocked()
+	s.runState.mu.Unlock()
+	s.pendingBashMu.Unlock()
 	if busy {
 		return icodingagent.IdleOfferBusy
 	}
@@ -104,7 +96,7 @@ func (s *Session) claimIdleCompaction(request *icodingagent.CacheWarmRequest, sn
 	}
 	s.compactMu.Lock()
 	defer s.compactMu.Unlock()
-	if s.compacting.Load() || s.branchSumCancel != nil {
+	if s.idleOfferOccupiedLocked() {
 		return icodingagent.IdleOfferBusy
 	}
 	s.compacting.Store(true)
@@ -112,6 +104,64 @@ func (s *Session) claimIdleCompaction(request *icodingagent.CacheWarmRequest, sn
 	s.compactDone = make(chan struct{})
 	s.compactAbortRequested = false
 	return icodingagent.IdleOfferClaimed
+}
+
+// idleOfferBusyLocked is the settling and pending-work check of an idle
+// offer, shared by claimIdleCompaction and the countdown snapshot.
+// pendingBashMu and runState.mu must be held.
+func (s *Session) idleOfferBusyLocked() bool {
+	return s.runState.active.Load() || s.settlementBusyLocked() ||
+		s.runState.userRunsPending.Load() > 0 || s.agent.HasQueuedMessages() ||
+		len(s.runState.pendingCustom) > 0 || len(s.pendingBashMessages) > 0
+}
+
+// idleOfferOccupiedLocked is the compaction slot's busy predicate of an idle
+// offer. compactMu must be held.
+func (s *Session) idleOfferOccupiedLocked() bool {
+	return s.compacting.Load() || s.branchSumCancel != nil
+}
+
+// PendingIdleCompaction reports the armed idle-compaction deadline the
+// Session's cache warmer carries, for the countdown the interactive UI
+// shows. The second result is false while the session cannot observe a
+// pending offer: no native idle hook, active or queued work, or an occupied
+// compaction slot. A busy session keeps its deadline pending rather than
+// re-arming it, so the returned deadline may already be past.
+func (s *Session) PendingIdleCompaction() (icodingagent.PendingIdleCompaction, bool) {
+	settings := s.SettingsManager()
+	if !settings.GetCompactionEnabled() || !settings.GetCompactionIdleEnabled() {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	s.mu.Lock()
+	inner := s.inner
+	model := s.Model()
+	s.mu.Unlock()
+	if inner == nil || model == nil {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	warmer, sessionID := s.cacheWarmer()
+	if warmer == nil || sessionID != inner.ID() {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	pending, ok := warmer.PendingIdleCompaction()
+	if !ok {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	s.pendingBashMu.Lock()
+	s.runState.mu.Lock()
+	busy := s.idleOfferBusyLocked()
+	s.runState.mu.Unlock()
+	s.pendingBashMu.Unlock()
+	if busy {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	s.compactMu.Lock()
+	occupied := s.idleOfferOccupiedLocked()
+	s.compactMu.Unlock()
+	if occupied {
+		return icodingagent.PendingIdleCompaction{}, false
+	}
+	return pending, true
 }
 
 // The caller holds runState.mu.
@@ -172,7 +222,7 @@ func (s *Session) waitIdleCompactionRelease(ctx context.Context) bool {
 // released before end events so listeners can submit prompts; the start event
 // is queued without waiting, so a listener that preempts or prompts from the
 // event cannot deadlock the claim.
-func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.CacheWarmRequest, model *ai.Model, prep compaction.CompactionPreparation, snapshot idleCompactionSnapshot) {
+func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.CacheWarmRequest, chatModel *ai.Model, prep compaction.CompactionPreparation, snapshot idleCompactionSnapshot) {
 	compactCtx, cancel := context.WithCancel(ctx)
 	s.compactMu.Lock()
 	s.compactCancel = cancel
@@ -205,7 +255,15 @@ func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.C
 		s.emitSessionCompactFailed(ctx, extension.SessionCompactFailedEvent{Reason: "idle", ErrorMessage: errorMessage, Aborted: aborted, FromExtension: fromExtension})
 	}
 
-	s.emitOrderedEvent(agent.CompactionStartEvent{Reason: "idle", Model: compactionModelLabel(model)})
+	compactionModel, modelErr := s.compactionModel(chatModel)
+	if modelErr != nil {
+		fail(modelErr, false)
+		return
+	}
+	s.emitOrderedEvent(agent.CompactionStartEvent{Reason: "idle", Model: compactionModelLabel(compactionModel)})
+	// The operation's clock starts with its start event and freezes once a
+	// validated summary enters the commit path.
+	compactionStart := time.Now()
 	if compactCtx.Err() != nil {
 		fail(errCompactionCancelled, true)
 		return
@@ -215,20 +273,33 @@ func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.C
 	fromExtension = fromExt
 	cancelledByExtension := isCompactionCancelled(err)
 	if err == nil && result == nil {
-		var summary string
-		var usage *ai.Usage
-		summary, usage, err = s.idleSummarize(compactCtx, request)
-		if err == nil && summary == "" {
-			err = errors.New("provider returned an empty summary")
-		}
-		if err == nil {
-			readFiles, modifiedFiles := compaction.ComputeFileLists(prep.FileOps)
-			result = &sessionCompactionData{
-				Summary:          summary,
-				FirstKeptEntryID: prep.FirstKeptEntryID,
-				TokensBefore:     prep.TokensBefore,
-				Usage:            usage,
-				Details:          compaction.CompactionDetails{ReadFiles: readFiles, ModifiedFiles: modifiedFiles},
+		if s.SettingsManager().Get().ModelRoles["compact"] != "" {
+			// An assigned @compact owns the summary model like every other
+			// compaction: role thinking, virtual routing, retry and fallback
+			// all apply to it instead of the captured chat request.
+			var generated compaction.CompactionResult
+			generated, err = s.runDefaultCompaction(compactCtx, prep, chatModel, "", "idle")
+			if err == nil {
+				result = generatedCompactionData(generated)
+			}
+		} else {
+			var summary string
+			var usage *ai.Usage
+			var models []string
+			summary, usage, models, err = s.idleSummarize(compactCtx, request)
+			if err == nil && summary == "" {
+				err = errors.New("provider returned an empty summary")
+			}
+			if err == nil {
+				readFiles, modifiedFiles := compaction.ComputeFileLists(prep.FileOps)
+				result = &sessionCompactionData{
+					Summary:          summary,
+					FirstKeptEntryID: prep.FirstKeptEntryID,
+					TokensBefore:     prep.TokensBefore,
+					Usage:            usage,
+					Details:          compaction.CompactionDetails{ReadFiles: readFiles, ModifiedFiles: modifiedFiles},
+					Models:           models,
+				}
 			}
 		}
 	}
@@ -240,8 +311,9 @@ func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.C
 		fail(err, aborted)
 		return
 	}
+	info := &agent.CompactionInfo{Reason: "idle", ElapsedMs: time.Since(compactionStart).Milliseconds(), Models: result.Models}
 
-	entryID, persistErr := s.commitIdleCompaction(compactCtx, request, result, fromExtension, snapshot)
+	entryID, persistErr := s.commitIdleCompaction(compactCtx, request, result, fromExtension, info, snapshot)
 	finish()
 	if persistErr != nil {
 		errorMessage := "Idle compaction failed: " + persistErr.Error()
@@ -272,13 +344,14 @@ func (s *Session) runIdleCompaction(ctx context.Context, request *icodingagent.C
 		EstimatedTokensAfter: estimatedTokensAfter,
 		Usage:                result.Usage,
 		Details:              result.Details,
+		Info:                 info,
 	})
 }
 
 // commitIdleCompaction persists the summary only while the request context is
 // still exactly the messages the summary covered: same run, same leaf, same
 // model, and the captured prefix plus only its successful response.
-func (s *Session) commitIdleCompaction(ctx context.Context, request *icodingagent.CacheWarmRequest, result *sessionCompactionData, fromExtension bool, snapshot idleCompactionSnapshot) (string, error) {
+func (s *Session) commitIdleCompaction(ctx context.Context, request *icodingagent.CacheWarmRequest, result *sessionCompactionData, fromExtension bool, info *agent.CompactionInfo, snapshot idleCompactionSnapshot) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.runState.mu.Lock()
@@ -296,7 +369,7 @@ func (s *Session) commitIdleCompaction(ctx context.Context, request *icodingagen
 	if request.IdleEligible != nil && !request.IdleEligible() {
 		return "", nil
 	}
-	entryID, err := s.inner.AppendCompaction(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage)
+	entryID, err := s.inner.AppendCompactionWithInfo(result.Summary, result.FirstKeptEntryID, result.TokensBefore, result.Details, fromExtension, result.Usage, info)
 	if err != nil {
 		return "", err
 	}
@@ -311,11 +384,19 @@ func sameLeafID(a, b *string) bool {
 	return *a == *b
 }
 
-func (s *Session) idleSummarize(ctx context.Context, request *icodingagent.CacheWarmRequest) (string, *ai.Usage, error) {
+func (s *Session) idleSummarize(ctx context.Context, request *icodingagent.CacheWarmRequest) (string, *ai.Usage, []string, error) {
 	transcript := s.idleCompactionTranscript(request)
 	// Anthropic derives cache-keyed thinking budgets from maxTokens.
-	completer := compaction.ProviderCompleter{StreamFn: s.streamWarmRequest}
-	return completer.CompleteSimpleTranscript(ctx, request.Model, transcript, request.Options)
+	var identities compactionModelCollector
+	completer := compaction.ProviderCompleter{StreamFn: s.streamWarmRequest, OnComplete: identities.observe}
+	summary, usage, err := completer.CompleteSimpleTranscript(ctx, request.Model, transcript, request.Options)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if len(identities.models) == 0 {
+		identities.addRequest(request.Model)
+	}
+	return summary, usage, identities.identities(), nil
 }
 
 func (s *Session) idleCompactionTranscript(request *icodingagent.CacheWarmRequest) ai.TranscriptContext {

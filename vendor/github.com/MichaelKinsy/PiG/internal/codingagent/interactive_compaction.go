@@ -30,8 +30,8 @@ func (m *InteractiveMode) addCompactionCostNotice(kind string, usage *ai.Usage) 
 	m.chatContainer.Add(themedNotice("warning", fmt.Sprintf("%s: %s tokens billed%s", label, formatTokens(tokens), cost), 1))
 }
 
-func (m *InteractiveMode) addCompactionSummary(summary string, tokensBefore int, usage *ai.Usage) {
-	component := tui.NewCompactionSummaryMessageComponent(tui.CompactionSummaryMessage{Summary: summary, TokensBefore: tokensBefore}, m.markdownThemeWithSettings(), m.outputPad)
+func (m *InteractiveMode) addCompactionSummary(summary string, tokensBefore int, usage *ai.Usage, info *agent.CompactionInfo) {
+	component := tui.NewCompactionSummaryMessageComponent(tui.CompactionSummaryMessage{Summary: summary, TokensBefore: tokensBefore, Info: info}, m.markdownThemeWithSettings(), m.outputPad)
 	if m.toolsExpanded {
 		component.SetExpanded(true)
 	}
@@ -53,5 +53,5 @@ func (m *InteractiveMode) renderCompactionResult(event agent.CompactionEndEvent,
 		entries = entries[1:]
 	}
 	m.renderSessionEntryListWithHistory(entries, false, false, seed)
-	m.addCompactionSummary(event.Summary, event.TokensBefore, event.Usage)
+	m.addCompactionSummary(event.Summary, event.TokensBefore, event.Usage, event.Info)
 }

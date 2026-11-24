@@ -70,6 +70,10 @@ type CompactionResult struct {
 	// Usage is the combined usage of the summarization LLM call(s), if the
 	// completer reported it. Mirrors upstream CompactionResult.usage.
 	Usage *ai.Usage
+	// Models is populated by the caller that ran the summary: the distinct
+	// provider/model identities its validated responses or resolved request
+	// showed, in encounter order. Compact itself leaves it empty.
+	Models []string
 }
 
 // combineUsage sums two usage snapshots for the split-turn case (history +

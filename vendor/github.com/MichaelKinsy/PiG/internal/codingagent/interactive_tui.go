@@ -48,7 +48,7 @@ func (m *InteractiveMode) buildChatViewport() ChatViewport {
 		InfoWidgets:         m.ensureInfoWidgets(),
 		Document:            tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer),
 		PendingMessages:     m.pendingMessagesContainer,
-		Status:              m.statusContainer,
+		Status:              m.statusDock(),
 		WidgetsAbove:        m.widgetContainer,
 		Editor:              m.editorContainer,
 		WidgetsBelow:        m.widgetContainerBelow,
@@ -67,6 +67,16 @@ func (m *InteractiveMode) ensureLoadedResourcesContainer() {
 	}
 }
 
+// statusDock is the row stack under the transcript: the animated status
+// container, then the dedicated nonanimated idle-compaction countdown row.
+func (m *InteractiveMode) statusDock() *tui.Container {
+	children := []tui.Component{m.statusContainer}
+	if m.idleCountdownContainer != nil {
+		children = append(children, m.idleCountdownContainer)
+	}
+	return tui.NewContainer(children...)
+}
+
 // mountInteractiveTui builds the mode-appropriate layout from the shared component tree and, when start is set, starts and paints the renderer at once, as a live tui-mode switch needs. Init starts the renderer with startInteractiveTui instead. Fullscreen arranges the transcript scroll view over the dock and enters the alt screen; regular adds the flat layout to the main screen. The initial paint does not depend on a welcome header or input. Run and live tui-mode switching reuse the same containers across renderer mounts.
 func (m *InteractiveMode) mountInteractiveTui(start bool) {
 	m.bindSubagentUI()
@@ -80,7 +90,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		m.loadedResourcesContainer,
 		m.chatContainer,
 		m.pendingMessagesContainer,
-		m.statusContainer,
+		m.statusDock(),
 		m.widgetContainer,
 		m.editorContainer,
 		m.widgetContainerBelow,
@@ -94,7 +104,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		// dock as separate regions of the same component tree.
 		m.surface.SetLayout(
 			&tui.InfoWidgetLayout{Content: tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer), Widgets: m.ensureInfoWidgets()},
-			tui.NewContainer(m.pendingMessagesContainer, m.statusContainer, m.widgetContainer, m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine, &nativeAgentTree{m: m}),
+			tui.NewContainer(m.pendingMessagesContainer, m.statusDock(), m.widgetContainer, m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine, &nativeAgentTree{m: m}),
 		)
 		if start {
 			m.surface.Start()
