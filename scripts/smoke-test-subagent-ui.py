@@ -409,7 +409,9 @@ def run(binary, mode):
                 idle(0.4)
                 ModelServer.finished.set()
                 wait(b"1 subagent \xc2\xb7 0 working")
-                assert screen.row_of("● Agents") == -1, "completion reopened the tree"
+                # A lone Esc resolves after the terminal escape timeout; the
+                # completion frame can land first, so wait out the redraw.
+                wait_gone(r"● Agents", 5)
                 wait_gone(r"\d+ subagents? ·", 35)
                 os.write(master, b"\x1b[B")
                 idle(0.6)

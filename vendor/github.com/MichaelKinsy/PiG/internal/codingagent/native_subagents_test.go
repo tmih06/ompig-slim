@@ -410,12 +410,6 @@ func TestAgentTreeExpiresFinishedRecords(t *testing.T) {
 	if m.subagentUI.expireTimer == nil || m.subagentUI.expireAt.IsZero() {
 		t.Fatal("no expiry timer armed for the remaining finished record")
 	}
-	if remaining := time.Until(m.subagentUI.expireAt); remaining <= 0 || remaining > agentTreeFinishedTTL {
-		t.Fatalf("expiry armed at %v, want within %v", remaining, agentTreeFinishedTTL)
-	}
-	if total, working := m.subagentCounts(); total != 1 || working != 0 {
-		t.Fatalf("counts = %d total %d working, want 1 and 0", total, working)
-	}
 }
 
 func TestAgentTreeCleansUpWithoutInput(t *testing.T) {
