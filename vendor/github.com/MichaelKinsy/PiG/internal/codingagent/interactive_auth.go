@@ -842,6 +842,7 @@ func (m *InteractiveMode) footerUsingSubscription(model *ai.Model) bool {
 func (m *InteractiveMode) newFooter() *FooterComponent {
 	footer := NewFooterComponentForSession(m, NewFooterDataProvider())
 	footer.SetSubscriptionResolver(m.footerUsingSubscription)
+	footer.agents = m.subagentCounts
 	footer.SetModel(m.opts.Model)
 	footer.SetThinkingLevel(m.sessionThinkingLevel())
 	return footer

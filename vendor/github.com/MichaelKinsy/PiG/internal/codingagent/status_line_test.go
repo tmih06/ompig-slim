@@ -560,6 +560,29 @@ func TestFooterPullRequestShowsCISummary(t *testing.T) {
 	}
 }
 
+func TestFooterShowsSubagentCounts(t *testing.T) {
+	line := widthx.StripTerminalSequences(renderFooter(footerData{agents: 3, agentsWorking: 2}, 160)[1])
+	if !strings.Contains(line, "3 subagents · 2 working ↓") {
+		t.Fatalf("subagent summary missing: %q", line)
+	}
+	line = widthx.StripTerminalSequences(renderFooter(footerData{agents: 1, agentsWorking: 0}, 160)[1])
+	if !strings.Contains(line, "1 subagent · 0 working ↓") {
+		t.Fatalf("completed-agent summary missing: %q", line)
+	}
+	line = widthx.StripTerminalSequences(renderFooter(footerData{}, 160)[1])
+	if strings.Contains(line, "subagent") || strings.Contains(line, "working") {
+		t.Fatalf("an agent-free session drew the summary: %q", line)
+	}
+	line = widthx.StripTerminalSequences(renderFooter(footerData{
+		agents:        2,
+		agentsWorking: 1,
+		usage:         footerUsageTotals{input: 12500, output: 3400, cacheRead: 900000, cacheWrite: 100, cost: 0.42},
+	}, 30)[1])
+	if !strings.HasPrefix(line, "2 subagents") {
+		t.Fatalf("long stats pushed the summary off the row: %q", line)
+	}
+}
+
 // TestFooterContextThresholds covers the context window's color levels: the
 // window is statusLineContext below 50%, warning above 50%, thinkingHigh above
 // 70%, and error above 90%.

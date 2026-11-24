@@ -49,10 +49,10 @@ func (m *InteractiveMode) buildChatViewport() ChatViewport {
 		Document:            tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer),
 		PendingMessages:     m.pendingMessagesContainer,
 		Status:              m.statusContainer,
-		WidgetsAbove:        tui.NewContainer(m.widgetContainer, &nativeAgentWidget{m: m}),
+		WidgetsAbove:        m.widgetContainer,
 		Editor:              m.editorContainer,
 		WidgetsBelow:        m.widgetContainerBelow,
-		Footer:              tui.NewContainer(m.extFooter, m.statusLine),
+		Footer:              tui.NewContainer(m.extFooter, m.statusLine, &nativeAgentTree{m: m}),
 		Scrollbar:           (&SettingsManager{merged: m.opts.Settings}).GetFullscreenScrollbar(),
 		ScrollbarTrackStyle: themedScrollbarTrackStyle,
 		ScrollbarThumbStyle: themedScrollbarThumbStyle,
@@ -82,11 +82,11 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		m.pendingMessagesContainer,
 		m.statusContainer,
 		m.widgetContainer,
-		&nativeAgentWidget{m: m},
 		m.editorContainer,
 		m.widgetContainerBelow,
 		m.extFooter,
 		m.statusLine,
+		&nativeAgentTree{m: m},
 	}
 	m.layout = tui.NewContainer(layoutChildren...)
 	if m.surface != nil {
@@ -94,7 +94,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 		// dock as separate regions of the same component tree.
 		m.surface.SetLayout(
 			&tui.InfoWidgetLayout{Content: tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer), Widgets: m.ensureInfoWidgets()},
-			tui.NewContainer(m.pendingMessagesContainer, m.statusContainer, m.widgetContainer, m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine),
+			tui.NewContainer(m.pendingMessagesContainer, m.statusContainer, m.widgetContainer, m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine, &nativeAgentTree{m: m}),
 		)
 		if start {
 			m.surface.Start()
@@ -106,7 +106,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 			// Anchor directly to the prompt, including when other status or
 			// extension widgets occupy rows between it and the transcript.
 			renderer.SetInfoWidgets(m.ensureInfoWidgets(), tui.NewContainer(
-				m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine))
+				m.editorContainer, m.widgetContainerBelow, m.extFooter, m.statusLine, &nativeAgentTree{m: m}))
 		}
 		m.tuiInst.Add(m.layout)
 		if !start {

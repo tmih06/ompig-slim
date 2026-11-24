@@ -233,6 +233,8 @@ func footerNode(d footerData) frontend.Footer {
 		Model:             model,
 		Provider:          provider,
 		ThinkingLevel:     thinkingLevel,
+		Subagents:         d.agents,
+		SubagentsWorking:  d.agentsWorking,
 		ExtensionStatuses: footerStatusesWithText(d.extensionStatuses),
 	}
 	if d.routed != nil && d.routed.Model != nil {

@@ -60,6 +60,8 @@ type FooterComponent struct {
 	// callback rather than a SetRole setter because every model change already rebinds the footer, and a role can change without the physical model
 	// changing (fallback restoration, a cycle onto another role that shares the model), so no single setter call would keep it current.
 	activeRole func() (role, color string)
+	agents     func() (total, working int)
+
 	// subscriptionFor decides the "(sub)" marker for a newly bound model.
 	subscriptionFor func(*ai.Model) bool
 
@@ -325,7 +327,7 @@ func (s *FooterComponent) Render(width int) []string {
 // the session's locks, without holding s.mu.
 func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelection, footerSnapshot) {
 	s.mu.RLock()
-	source, routedSource, roleSource := s.usageTotals, s.routedModel, s.activeRole
+	source, routedSource, roleSource, agentSource := s.usageTotals, s.routedModel, s.activeRole, s.agents
 	s.mu.RUnlock()
 	var totals footerUsageTotals
 	if source != nil {
@@ -340,7 +342,11 @@ func (s *FooterComponent) footerSources() (footerUsageTotals, *RoutedModelSelect
 		role, roleColor = roleSource()
 	}
 	cwd, gitBranch, providerCount, extensionStatuses, gitStatus, pullRequest := s.snapshot()
-	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, gitStatus: gitStatus, pullRequest: pullRequest, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor}
+	agents, working := 0, 0
+	if agentSource != nil {
+		agents, working = agentSource()
+	}
+	return totals, routed, footerSnapshot{cwd: cwd, gitBranch: gitBranch, gitStatus: gitStatus, pullRequest: pullRequest, providerCount: providerCount, extensionStatuses: extensionStatuses, role: role, roleColor: roleColor, agents: agents, agentsWorking: working}
 }
 
 // footerSnapshot is the footer data provider's state, read together without holding s.mu.
@@ -353,7 +359,9 @@ type footerSnapshot struct {
 	// role is the logical role of the current selection, or "" when it has none.
 	role string
 	// roleColor is that role's theme color token, as the model catalog paints it.
-	roleColor string
+	roleColor     string
+	agents        int
+	agentsWorking int
 }
 
 // footerDataLocked snapshots the footer's inputs; the caller holds s.mu.
@@ -380,6 +388,8 @@ func (s *FooterComponent) footerDataLocked(totals footerUsageTotals, routed *Rou
 		roleColor:              snap.roleColor,
 		usingSubscription:      s.usingSubscription,
 		extensionStatuses:      snap.extensionStatuses,
+		agents:                 snap.agents,
+		agentsWorking:          snap.agentsWorking,
 	}
 }
 
@@ -423,7 +433,9 @@ type footerData struct {
 	// roleColor is the theme token the role is painted with. It comes from the role
 	// metadata the model manager uses, so the same role reads the same hue in both
 	// places; empty or unknown falls back to statusLineContext.
-	roleColor string
+	roleColor     string
+	agents        int
+	agentsWorking int
 }
 
 // footerUsageTotals is upstream footer.ts's usageTotals over every session
@@ -799,10 +811,18 @@ func cutLeaf(leaf string, budget int, allow bool) (string, bool) {
 	return widthx.TruncateToWidth(leaf, budget, "…", false), true
 }
 
-// footerStats renders line 2's left side: the token counters, the cost and the
-// context window.
+// footerStats renders line 2's left side: the subagent summary, the token
+// counters, the cost and the context window.
 func footerStats(d footerData) string {
 	parts := footerUsageParts(d.usage, d.usingSubscription)
+
+	if d.agents > 0 {
+		label := "subagents"
+		if d.agents == 1 {
+			label = "subagent"
+		}
+		parts = append([]string{footerToken(tui.ThemeColorStatusLineSubagents, fmt.Sprintf("%d %s · %d working ↓", d.agents, label, d.agentsWorking))}, parts...)
+	}
 
 	// Context usage: context%/window (auto). The percentage takes over the
 	// segment's color as the window fills, because at that point the number is

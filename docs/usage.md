@@ -41,6 +41,7 @@ appended to the conversation rather than rewriting its cached prefix.
 | `Alt+Q` | restore queued messages to the editor |
 | `Alt+W` | fold the task/quota widget to its border control |
 | `Alt+A` | Agent Hub (live subagents) |
+| `↓` on an empty prompt | open the subagent tree below the status line; `↑`/`↓` select, `Enter` inspect, `Esc` close |
 | `Esc` | interrupt |
 
 Default shortcuts are the same on every OS. Your `~/.pi/agent/keybindings.json`
