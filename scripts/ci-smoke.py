@@ -6,8 +6,13 @@ profile and loopback servers. Read it through make rather than duplicating its
 list here: new scenarios must automatically run in CI as well as locally.
 """
 import argparse
+import concurrent.futures
 import shlex
 import subprocess
+
+# The scenarios are I/O-bound (loopback providers, PTY waits, timers) and
+# documented as independent, so a shard runs them through a bounded pool.
+WORKERS = 4
 
 
 def commands(recipe):
@@ -31,9 +36,19 @@ def main():
     recipe = subprocess.check_output(
         ["make", "--no-print-directory", "--dry-run", "smoke-built"], text=True,
     )
-    for command in commands(recipe)[args.shard::2]:
+
+    def execute(command):
         print(shlex.join(command), flush=True)
         subprocess.run(command, check=True)
+
+    futures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for command in commands(recipe)[args.shard::2]:
+            futures.append(pool.submit(execute, command))
+        # Submitting first, then joining in order, keeps the failure of the
+        # first broken scenario the reported error while later ones drain.
+        for future in futures:
+            future.result()
 
 
 if __name__ == "__main__":
