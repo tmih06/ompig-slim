@@ -94,7 +94,11 @@ func rpcAgentEvent(event agent.AgentEvent) ([]any, error) {
 		}
 		return []any{out}, nil
 	case agent.AutoRetryStartEvent:
-		return []any{rpcObject{{"type", "auto_retry_start"}, {"attempt", event.Attempt}, {"maxAttempts", event.MaxAttempts}, {"delayMs", event.DelayMs}, {"errorMessage", event.ErrorMessage}}}, nil
+		out := rpcObject{{"type", "auto_retry_start"}, {"attempt", event.Attempt}, {"maxAttempts", event.MaxAttempts}, {"delayMs", event.DelayMs}, {"errorMessage", event.ErrorMessage}}
+		if event.Reason != "" {
+			out = append(out, rpcField{"reason", event.Reason})
+		}
+		return []any{out}, nil
 	case agent.AutoRetryEndEvent:
 		out := rpcObject{{"type", "auto_retry_end"}, {"success", event.Success}, {"attempt", event.Attempt}}
 		if event.FinalError != "" {

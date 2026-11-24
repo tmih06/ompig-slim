@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
@@ -287,9 +286,8 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
 	if icodingagent.IsRetryableError(message, s.contextWindowFor(message)) {
 		cfg := s.SettingsManager().GetRetrySettings()
 		available := int(s.retryAttempt.Load()) < cfg.MaxRetries
-		if delay := fallbackRetryDelay(message.ErrorMessage); cfg.MaxDelayMs > 0 && delay > time.Duration(cfg.MaxDelayMs)*time.Millisecond {
-			available = false
-		}
+		_, allowed := sessionRetryDelay(message, cfg, int(s.retryAttempt.Load())+1)
+		available = available && cfg.Enabled && allowed
 		if hopped, err := s.tryModelFallback(ctx, message, available); hopped || err != nil {
 			return hopped, err
 		}
@@ -327,6 +325,17 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
 	return !s.agentRunAborted(ctx) && s.agent.HasQueuedMessages(), nil
 }
 
+func sessionRetryDelay(message *agent.AssistantMessage, cfg icodingagent.RetryConfig, attempt int) (int, bool) {
+	llm := message.LLMMessage()
+	failure := ai.ProviderFailureForMessage(llm)
+	delay := ai.RetryDelayForAssistant(ai.RetryPolicy{BaseDelayMs: cfg.BaseDelayMs, MaxAgentDelayMs: &cfg.MaxAgentDelayMs}, attempt, llm)
+	if failure.Kind == "rate_limit" && failure.RetryAt == 0 {
+		delay = max(delay, 30_000)
+	}
+	allowed := cfg.MaxDelayMs <= 0 || delay <= cfg.MaxDelayMs || cfg.WaitForUsageReset && failure.Kind == "quota" && failure.RetryAt > 0
+	return delay, allowed
+}
+
 // prepareRetry schedules one automatic retry of a retryable error: it emits
 // auto_retry_start, omits the failed attempt, and waits out the backoff
 // (agent-session.ts _prepareRetry). It reports false when retries are
@@ -345,14 +354,8 @@ func (s *Session) prepareRetry(ctx context.Context, message *agent.AssistantMess
 			s.retryAttempt.Add(-1)
 			return nil, nil
 		}
-		delayMs := ai.RetryDelayMs(ai.RetryPolicy{BaseDelayMs: cfg.BaseDelayMs, MaxAgentDelayMs: &cfg.MaxAgentDelayMs}, attempt)
-		hint := fallbackRetryDelay(message.ErrorMessage)
-		if hint > 0 {
-			delayMs = max(delayMs, int(hint.Milliseconds()))
-		} else if text := strings.ToLower(message.ErrorMessage); strings.Contains(text, "concurrent") || strings.Contains(text, "rate limit") || strings.Contains(text, "rate_limit") {
-			delayMs = max(delayMs, int(fallbackReasonDelay(message.ErrorMessage).Milliseconds()))
-		}
-		if cfg.MaxDelayMs > 0 && delayMs > cfg.MaxDelayMs && !(cfg.WaitForUsageReset && isModelUsageLimit(message.ErrorMessage) && hint > 0) {
+		delayMs, allowed := sessionRetryDelay(message, cfg, attempt)
+		if !allowed {
 			s.retryAttempt.Add(-1)
 			return nil, nil
 		}
@@ -366,7 +369,15 @@ func (s *Session) prepareRetry(ctx context.Context, message *agent.AssistantMess
 		s.retryMu.Lock()
 		s.retryCancel = wait
 		s.retryMu.Unlock()
-		s.emitEvent(agent.AutoRetryStartEvent{Attempt: attempt, MaxAttempts: cfg.MaxRetries, DelayMs: delayMs, ErrorMessage: errorMessage})
+		failure := ai.ProviderFailureForMessage(message.LLMMessage())
+		reason := message.Provider + " provider recovery"
+		switch failure.Kind {
+		case "quota":
+			reason = message.Provider + " quota reset"
+		case "rate_limit":
+			reason = message.Provider + " rate limit"
+		}
+		s.emitEvent(agent.AutoRetryStartEvent{Attempt: attempt, MaxAttempts: cfg.MaxRetries, DelayMs: delayMs, ErrorMessage: errorMessage, Reason: reason})
 		if err := s.omitRecoveryAttempt(message); err != nil {
 			cancel()
 			s.retryMu.Lock()

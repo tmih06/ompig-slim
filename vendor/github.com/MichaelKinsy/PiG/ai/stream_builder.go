@@ -488,6 +488,7 @@ func (builder *assistantStreamBuilder) failFaux(reason StopReason, err error) {
 
 // recordTransportFailure appends the provider_transport_failure diagnostic for a transport failure; the message, stop reason and events are untouched.
 func (builder *assistantStreamBuilder) recordTransportFailure(err error) {
+	RecordProviderFailure(builder.partial, err)
 	if err == nil {
 		return
 	}

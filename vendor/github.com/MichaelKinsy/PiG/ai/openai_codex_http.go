@@ -54,7 +54,15 @@ func codexRetryDelay(headers http.Header, attempt, maxDelayMs int) (time.Duratio
 }
 
 // statusText is the response's reason phrase (fetchStatusText).
-func codexHTTPError(status int, statusText string, raw []byte) error {
+func codexHTTPError(status int, statusText string, raw []byte, headers ...http.Header) (result error) {
+	defer func() {
+		var header http.Header
+		if len(headers) > 0 {
+			header = headers[0]
+		}
+		facts := &providerError{status: &status, headers: header, body: json.RawMessage(raw), message: string(raw)}
+		result = &providerFailureError{cause: result, failure: ClassifyProviderFailure(facts)}
+	}()
 	// `raw || response.statusText || "Request failed"` (openai-codex-responses.ts:1598).
 	message := cmp.Or(string(raw), statusText, "Request failed")
 	// parseErrorResponse (openai-codex-responses.ts:1596-1621) reads `parsed?.error` and acts only when it is truthy; a body without one (an object
@@ -182,7 +190,7 @@ func (p *openAIResponsesProvider) doCodexSSERequest(request *http.Request, opts 
 					delay, err = codexRetryDelay(response.Header, attempt, maxDelay)
 				} else {
 					// parseErrorResponse reads `new Response(errorText)` with text() again, which drops up to two more byte order marks.
-					err = codexHTTPError(status, fetchStatusText(response.Status, status), webTextBytes(raw))
+					err = codexHTTPError(status, fetchStatusText(response.Status, status), webTextBytes(raw), response.Header)
 				}
 			}
 		}

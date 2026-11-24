@@ -2922,7 +2922,11 @@ func (s *Session) willRetryAfterAgentEnd(message *agent.AssistantMessage) bool {
 	if !retryCfg.Enabled || int(s.retryAttempt.Load()) >= retryCfg.MaxRetries {
 		return false
 	}
-	return icodingagent.IsRetryableError(message, s.contextWindowFor(message))
+	if !icodingagent.IsRetryableError(message, s.contextWindowFor(message)) {
+		return false
+	}
+	_, allowed := sessionRetryDelay(message, retryCfg, int(s.retryAttempt.Load())+1)
+	return allowed
 }
 
 // CompactionResult is the result returned by manual compaction. The interactive session handle returns the same type.

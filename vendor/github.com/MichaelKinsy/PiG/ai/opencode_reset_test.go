@@ -163,11 +163,7 @@ func TestQuotaResetSurvivesChatAndClassifierFailures(t *testing.T) {
 					if !strings.Contains(message, quota.providerMessage) {
 						t.Fatalf("provider message missing from %q", message)
 					}
-					capMessage := "Server requested 3600s retry delay (max: 60s)"
-					if retries == 1 && !strings.Contains(message, capMessage) {
-						t.Fatalf("retry cap missing from %q", message)
-					}
-					if retries == 0 && strings.Contains(message, capMessage) {
+					if strings.Contains(message, "Server requested 3600s retry delay (max: 60s)") {
 						t.Fatalf("unexpected retry cap in %q", message)
 					}
 				})

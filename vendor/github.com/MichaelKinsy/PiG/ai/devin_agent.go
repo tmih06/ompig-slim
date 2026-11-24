@@ -341,7 +341,7 @@ func devinUnary[T any](ctx context.Context, client *http.Client, baseURL, path s
 	}
 	op := path[strings.LastIndex(path, "/")+1:]
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, devinHTTPError(op, resp.StatusCode, resp.Status, resp.Header.Get("Content-Type"), payload)
+		return nil, devinHTTPError(op, resp.StatusCode, resp.Status, resp.Header.Get("Content-Type"), payload, resp.Header)
 	}
 	decoded := decodeDevinUnaryMessage(payload, decode)
 	if decoded == nil {
@@ -591,7 +591,7 @@ func (p *devinAgentProvider) runTurn(ctx context.Context, client *http.Client, o
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, devinMaxConnectFrameBytes+1))
-		fail(devinHTTPError("API", resp.StatusCode, resp.Status, resp.Header.Get("Content-Type"), payload))
+		fail(devinHTTPError("API", resp.StatusCode, resp.Status, resp.Header.Get("Content-Type"), payload, resp.Header))
 		return
 	}
 	if resp.Body == nil {

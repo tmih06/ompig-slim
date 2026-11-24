@@ -2392,11 +2392,12 @@ type ProviderRetryConfig struct {
 // Mirrors upstream SettingsManager.getRetrySettings (settings-manager.ts:683-690).
 func (sm *SettingsManager) GetRetrySettings() RetryConfig {
 	result := RetryConfig{
-		Enabled:         true,
-		MaxRetries:      10, // OMP session/settings.ts retry.maxRetries.
-		BaseDelayMs:     500,
-		MaxAgentDelayMs: 8000, // OMP's exponential backoff ceiling; provider hints may be longer.
-		MaxDelayMs:      300000,
+		Enabled:           true,
+		MaxRetries:        10, // OMP session/settings.ts retry.maxRetries.
+		BaseDelayMs:       500,
+		MaxAgentDelayMs:   8000, // OMP's exponential backoff ceiling; provider hints may be longer.
+		MaxDelayMs:        300000,
+		WaitForUsageReset: true,
 	}
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

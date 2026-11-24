@@ -369,10 +369,16 @@ func ompJSONIsWorkspaceDenied(payload map[string]any) bool {
 // retryAfterFromHeaders is getRetryAfterMsFromHeaders for the headers a poll answers with: the
 // largest of retry-after-ms, retry-after (seconds or a date) and the x-ratelimit-reset variants.
 func retryAfterFromHeaders(headers http.Header) time.Duration {
-	now := time.Now().UnixMilli()
+	return retryAfterFromHeadersAt(headers, time.Now().UnixMilli())
+}
+
+// retryAfterFromHeadersAt is retryAfterFromHeaders with the reference instant supplied, so
+// callers whose clock is not the wall clock still read relative and absolute delays alike.
+func retryAfterFromHeadersAt(headers http.Header, nowMs int64) time.Duration {
+	now := nowMs
 	var best int64
 	consider := func(ms int64) {
-		if ms > best {
+		if ms > best && ms <= math.MaxInt64/int64(time.Millisecond) {
 			best = ms
 		}
 	}

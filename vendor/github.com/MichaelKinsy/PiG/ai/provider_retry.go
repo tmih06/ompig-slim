@@ -3,6 +3,7 @@ package ai
 // Ports packages/ai/src/utils/provider-retry.ts.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -273,6 +274,10 @@ func RetryProviderRequest[T any](ctx context.Context, request func() (T, error),
 		if reported := failure.ProviderStatus(); reported != nil {
 			status = *reported
 		}
+		facts := ClassifyProviderFailure(err)
+		if facts.Kind == "quota" || facts.Kind != "unknown" && !facts.Retryable() {
+			return zero, err
+		}
 		if !isRetryableProviderResponse(status, headers) {
 			return zero, err
 		}
@@ -282,6 +287,10 @@ func RetryProviderRequest[T any](ctx context.Context, request func() (T, error),
 		retryIndex := maxRetries - retriesRemaining
 		retriesRemaining--
 		delay, delayErr := providerRetryDelay(headers, retryIndex, maxRetryDelayMs, failure.Error())
+		if delayErr == nil && facts.RetryAt > 0 {
+			delay = max(delay, time.Until(time.UnixMilli(facts.RetryAt)))
+			delay, delayErr = validateServerRetryDelay(float64(delay)/float64(time.Millisecond), maxRetryDelayMs, failure.Error())
+		}
 		if delayErr != nil {
 			if exceeded, ok := errors.AsType[*providerRetryDelayError](delayErr); ok {
 				exceeded.cause = err
@@ -344,6 +353,23 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		if retriesRemaining <= 0 || !isRetryableProviderResponse(status, headers) {
 			return resp, err
+		}
+
+		if resp != nil && resp.Body != nil {
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+			if readErr != nil {
+				drainClose(resp)
+				return nil, fmt.Errorf("read provider error: %w", readErr)
+			}
+			resp.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(body), resp.Body), resp.Body}
+			failure := ClassifyProviderFailure(&providerError{status: &status, headers: headers, message: string(body)})
+			_, bodyWait := providerFailureBody(string(body), time.Now())
+			if !failure.Retryable() || failure.Kind == "quota" || bodyWait > retryAfterFromHeaders(headers) {
+				return resp, err
+			}
 		}
 
 		// Retrying re-sends the request body; skip if it cannot be rewound.

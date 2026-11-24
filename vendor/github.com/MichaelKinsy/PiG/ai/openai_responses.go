@@ -2415,11 +2415,11 @@ func processResponsesStream(ctx context.Context, decoder providerSSEDecoder, bui
 					msg = "incomplete: " + d.Reason
 				}
 			}
-			builder.failUnfinished(StopReasonError, errors.New(msg))
+			builder.failUnfinished(StopReasonError, providerWireError(msg, data))
 			return
 
 		case "error":
-			builder.failUnfinished(StopReasonError, fmt.Errorf("Error Code %s: %s", jsStateString(event.Code), jsStateString(event.Message)))
+			builder.failUnfinished(StopReasonError, providerWireError(fmt.Sprintf("Error Code %s: %s", jsStateString(event.Code), jsStateString(event.Message)), data))
 			return
 		}
 	}

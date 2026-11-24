@@ -59,7 +59,7 @@ func mapCodexEvent(event map[string]any, data []byte) (codexMappedEvent, error) 
 		if detail == "" {
 			detail = string(data)
 		}
-		return codexMappedEvent{}, errors.New("Codex error: " + detail)
+		return codexMappedEvent{}, providerWireError("Codex error: "+detail, string(data))
 	case "response.failed":
 		message := "Codex response failed"
 		if response, _ := event["response"].(map[string]any); response != nil {
@@ -69,7 +69,7 @@ func mapCodexEvent(event map[string]any, data []byte) (codexMappedEvent, error) 
 				}
 			}
 		}
-		return codexMappedEvent{}, errors.New(message)
+		return codexMappedEvent{}, providerWireError(message, string(data))
 	case "response.done", "response.completed", "response.incomplete":
 		if response, _ := event["response"].(map[string]any); response != nil {
 			if status, _ := response["status"].(string); !codexResponseStatuses[status] {

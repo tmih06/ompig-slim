@@ -532,7 +532,7 @@ func (p *mistralProvider) Stream(ctx context.Context, transcript TranscriptConte
 				errText = fmt.Sprintf("Request failed with status %d", resp.StatusCode)
 			}
 		}
-		return nil, fmt.Errorf("Mistral API error (%d): %s", resp.StatusCode, errText)
+		return nil, NewProviderError(fmt.Sprintf("Mistral API error (%d): %s", resp.StatusCode, errText), &resp.StatusCode, nil, resp.Header)
 	}
 
 	builder := newObservedProviderBuilder(ctx, outputAPI(p.cfg.ModelMetadata, APIMistralConversations), p.cfg.ProviderID, p.cfg.Model)

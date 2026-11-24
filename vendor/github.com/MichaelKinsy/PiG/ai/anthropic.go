@@ -740,9 +740,9 @@ func isThinkingSignatureError(body []byte) bool {
 
 // anthHTTPError reconstructs the Anthropic SDK's thrown status error: client.js reads the body as text, parses it with safeJSON, and
 // APIError.makeMessage composes "<status> <message>" from the parsed body's message, the stringified body, or the text.
-func anthHTTPError(status int, body []byte) error {
+func anthHTTPError(status int, body []byte, headers http.Header) error {
 	// The stream reports the SDK error's own message, with no body appended.
-	return &providerError{status: new(status), message: anthHTTPErrorMessage(status, body)}
+	return &providerError{status: new(status), message: anthHTTPErrorMessage(status, body), headers: headers.Clone()}
 }
 
 // anthHTTPErrorMessage is the message of the SDK error anthHTTPError reconstructs.
@@ -1290,7 +1290,7 @@ func (p *anthropicProvider) streamResponse(ctx, requestContext context.Context, 
 			}
 			retry, err = p.prepareRequest(ctx, request.baseURL, request.client, request.params.request, model, opts)
 		default:
-			return anthHTTPError(resp.StatusCode, b)
+			return anthHTTPError(resp.StatusCode, b, resp.Header)
 		}
 		if err != nil {
 			return err
@@ -1302,7 +1302,7 @@ func (p *anthropicProvider) streamResponse(ctx, requestContext context.Context, 
 		if resp.StatusCode != http.StatusOK {
 			b2, _ := readWebText(resp.Body)
 			_ = resp.Body.Close()
-			return anthHTTPError(resp.StatusCode, b2)
+			return anthHTTPError(resp.StatusCode, b2, resp.Header)
 		}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -1798,7 +1798,7 @@ func (p *anthropicProvider) do(ctx context.Context, httpReq *http.Request, opts 
 		default:
 			// retryProviderRequest throws validateServerRetryDelayMs's error with the SDK status error's own message appended.
 			if exceeded, ok := errors.AsType[*providerRetryDelayError](err); ok && exceeded.status != 0 {
-				if sdkErr, ok := errors.AsType[*providerError](anthHTTPError(exceeded.status, exceeded.body)); ok {
+				if sdkErr, ok := errors.AsType[*providerError](anthHTTPError(exceeded.status, exceeded.body, exceeded.headers)); ok {
 					return nil, &nodeTransportError{message: exceeded.head + ". " + sdkErr.message, cause: err}
 				}
 			}

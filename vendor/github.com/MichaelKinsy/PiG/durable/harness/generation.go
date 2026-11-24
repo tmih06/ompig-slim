@@ -1203,7 +1203,7 @@ func classify(ctx context.Context, runtime generationRuntime, request generation
 	retry := message.StopReason == ai.StopReasonError && !overflow && ai.IsRetryableAssistantError(message) && policy.Enabled && attempt <= policy.MaxRetries
 	until := 0.0
 	if retry {
-		until = runtime.Now() + float64(ai.RetryDelayMs(ai.RetryPolicy{BaseDelayMs: policy.BaseDelayMs, MaxAgentDelayMs: policy.MaxAgentDelayMs}, attempt))
+		until = runtime.Now() + float64(ai.RetryDelayForAssistant(ai.RetryPolicy{BaseDelayMs: policy.BaseDelayMs, MaxAgentDelayMs: policy.MaxAgentDelayMs}, attempt, message))
 	}
 	return runtime.Commit(ctx, func(tx durable.Tx, _ durable.RunningTask[GenerationInput, GenerationCheckpoint, GenerationResult]) (*generationNext, error) {
 		// Read before the first table write; only a failure uses it.

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"regexp"
 	"runtime"
 	"strings"
@@ -1111,16 +1112,16 @@ func devinErrorDetail(contentType string, payload []byte) string {
 }
 
 // devinHTTPError builds "Devin <op> error <status>: <detail>".
-func devinHTTPError(operation string, statusCode int, statusText, contentType string, payload []byte) error {
+func devinHTTPError(operation string, statusCode int, statusText, contentType string, payload []byte, headers ...http.Header) error {
 	status := fmt.Sprintf("%d", statusCode)
 	if statusText != "" {
 		status += " " + statusText
 	}
 	detail := devinErrorDetail(contentType, payload)
 	if detail != "" {
-		return fmt.Errorf("Devin %s error %s: %s", operation, status, detail)
+		return NewProviderError(fmt.Sprintf("Devin %s error %s: %s", operation, status, detail), &statusCode, nil, headers...)
 	}
-	return fmt.Errorf("Devin %s error %s", operation, status)
+	return NewProviderError(fmt.Sprintf("Devin %s error %s", operation, status), &statusCode, nil, headers...)
 }
 
 // devinTrailerError is a parsed Connect end-stream error.

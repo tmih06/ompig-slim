@@ -66,8 +66,9 @@ func TestOpenCodeFreeQuotaErrorShowsResetTime(t *testing.T) {
 			if count := strings.Count(result.ErrorMessage, "resets in 1h00m"); count != 1 {
 				t.Fatalf("reset countdown count = %d, error = %q", count, result.ErrorMessage)
 			}
-			if retries == 1 && !strings.Contains(result.ErrorMessage, "Server requested 3600s retry delay (max: 60s)") {
-				t.Fatalf("retry cap missing from error: %q", result.ErrorMessage)
+			failure := ai.ProviderFailureForMessage(*result)
+			if failure.Kind != "quota" || failure.RetryAt == 0 {
+				t.Fatalf("quota reset metadata missing: %+v", failure)
 			}
 			if got := requests.Load(); got != 1 {
 				t.Fatalf("request count = %d, want 1", got)
