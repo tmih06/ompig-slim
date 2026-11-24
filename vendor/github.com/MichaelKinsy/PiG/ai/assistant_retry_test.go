@@ -39,10 +39,16 @@ func TestRetryDelayForMessageHonorsQuotaResets(t *testing.T) {
 	capped := ai.RetryPolicy{BaseDelayMs: 1000, MaxAgentDelayMs: &cap}
 	// An exhausted account's stated reset is the real deadline: it is honored at full length
 	// even past the agent cap, since retrying early only meets the same block.
-	if got := ai.RetryDelayForAssistant(capped, 1, ai.AssistantMessage{ErrorMessage: "All eligible accounts are temporarily unavailable. Try again in 2 min when the quota resets."}); got < 119_999 || got > 120_000 {
+	before := time.Now().UnixMilli()
+	got := ai.RetryDelayForAssistant(capped, 1, ai.AssistantMessage{ErrorMessage: "All eligible accounts are temporarily unavailable. Try again in 2 min when the quota resets."})
+	elapsed := time.Now().UnixMilli() - before
+	if got < 120_000-int(elapsed) || got > 120_000 {
 		t.Fatalf("a quota reset past the cap must still be honored, got %d", got)
 	}
-	if got := ai.RetryDelayForAssistant(capped, 1, ai.AssistantMessage{ErrorMessage: "provider returned error; retry in 5 min"}); got < 299_999 {
+	before = time.Now().UnixMilli()
+	got = ai.RetryDelayForAssistant(capped, 1, ai.AssistantMessage{ErrorMessage: "provider returned error; retry in 5 min"})
+	elapsed = time.Now().UnixMilli() - before
+	if got < 300_000-int(elapsed) || got > 300_000 {
 		t.Fatalf("a provider deadline must not be shortened, got %d", got)
 	}
 	// A hint shorter than the backoff yields to the backoff.
