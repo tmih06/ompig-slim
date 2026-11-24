@@ -78,8 +78,9 @@ returns to zero.
 
 `/goal`, `/goal show`, `/goal status`, and `/goal get` report the objective, status,
 tokens, poke count, and, when one is recorded, the blocker with its consecutive
-count. In the TUI, an active goal stays in one compact line below the prompt box,
-and lifecycle commands send a notification. The widget disappears when no goal is active. `/goal help` shows the available controls. `/goal drop`
+count. In the TUI, an active goal stays in a compact status below the prompt box,
+capped at two rows with an ellipsis when the objective is longer, and lifecycle
+commands send a notification. The widget disappears when no goal is active. `/goal help` shows the available controls. `/goal drop`
 discards the goal, so the next objective starts with no inherited blocker.
 
 The short form `/goal <objective>` and `/goal set <objective>` preserve the

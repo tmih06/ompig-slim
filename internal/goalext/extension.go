@@ -15,6 +15,8 @@ import (
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding/extension"
+	"github.com/MichaelKinsy/PiG/tui"
+	"github.com/MichaelKinsy/PiG/tui/widthx"
 )
 
 // Extension returns a hidden inline extension. The goal tool lets the model
@@ -240,16 +242,54 @@ func goalCompletions(prefix string) ([]extension.AutocompleteItem, error) {
 	return items, nil
 }
 
-func goalWidget(state *goal.State) []string {
-	if state == nil {
-		return nil
+// goalWidgetRows bounds the widget below the prompt box, so a long objective
+// cannot flood the screen; /goal shows the full status.
+const goalWidgetRows = 2
+
+// goalStatusWidget renders the one-line goal status wrapped at the host's
+// width, capped at goalWidgetRows rows. A SetWidget text line wraps with no row
+// cap, so the bound lives in the extension's own component.
+type goalStatusWidget struct {
+	tui.BaseComponent
+
+	line string
+}
+
+func (w *goalStatusWidget) Render(width int) []string {
+	// The same side margin the host's text widget uses (tui text.go).
+	paddingX := min(1, max(0, (width-1)/2))
+	contentWidth := max(1, width-2*paddingX)
+	rows := widthx.WrapTextWithAnsi(w.line, contentWidth)
+	truncated := len(rows) > goalWidgetRows
+	if truncated {
+		rows = rows[:goalWidgetRows]
 	}
-	objective := strings.Join(strings.Fields(state.Objective), " ")
-	line := fmt.Sprintf("◆ Goal · %s · %s", state.Status, objective)
+	margin := strings.Repeat(" ", paddingX)
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		if truncated && i == len(rows)-1 {
+			// The ellipsis marks dropped rows, so it is appended even when the
+			// kept row already fits.
+			row = widthx.TruncateToWidth(row, max(0, contentWidth-1), "", false) + "…"
+		}
+		padded := margin + row + margin
+		out[i] = padded + strings.Repeat(" ", max(0, width-widthx.VisibleWidth(padded)))
+	}
+	return out
+}
+
+// Dispose is a no-op: the widget holds nothing to release.
+func (*goalStatusWidget) Dispose() {}
+
+func goalWidgetLine(state *goal.State) string {
+	if state == nil {
+		return ""
+	}
+	line := fmt.Sprintf("◆ Goal · %s · %s", state.Status, strings.Join(strings.Fields(state.Objective), " "))
 	if state.Blocker != "" {
 		line += " · blocker: " + strings.Join(strings.Fields(state.Blocker), " ")
 	}
-	return []string{line}
+	return line
 }
 
 func presentGoal(ctx context.Context, text, kind string) {
@@ -267,8 +307,22 @@ func presentGoal(ctx context.Context, text, kind string) {
 func updateGoalWidget(ctx context.Context, state *goal.State) {
 	if extCtx := extension.FromContext(ctx); extCtx != nil {
 		if ui, err := extCtx.UI(); err == nil {
-			ui.SetWidget("goal", goalWidget(state), &extension.ExtensionWidgetOptions{Placement: extension.WidgetPlacementBelowEditor})
+			ui.SetWidgetFactory("goal", goalWidgetFactory(state), &extension.ExtensionWidgetOptions{Placement: extension.WidgetPlacementBelowEditor})
 		}
+	}
+}
+
+// goalWidgetFactory builds the below-editor widget for state, nil when there is
+// no goal to show, which removes the widget. It is a component factory rather
+// than text lines because the row cap applies after wrapping at the host's
+// width.
+func goalWidgetFactory(state *goal.State) extension.WidgetFactory {
+	line := goalWidgetLine(state)
+	if line == "" {
+		return nil
+	}
+	return func(tui.TUI, *tui.Theme) extension.DisposableComponent {
+		return &goalStatusWidget{line: line}
 	}
 }
 

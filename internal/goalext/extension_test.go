@@ -53,10 +53,15 @@ type recordingUI struct {
 
 func (u *recordingUI) Notify(message, kind string) { u.notices = append(u.notices, kind+": "+message) }
 
-func (u *recordingUI) SetWidget(key string, content []string, opts *extension.ExtensionWidgetOptions) {
-	if key == "goal" {
-		u.widget = content
+func (u *recordingUI) SetWidgetFactory(key string, factory extension.WidgetFactory, opts *extension.ExtensionWidgetOptions) {
+	if key != "goal" {
+		return
 	}
+	if factory == nil {
+		u.widget = nil
+		return
+	}
+	u.widget = factory(nil, nil).Render(80)
 }
 
 type settledGoal struct {
@@ -134,6 +139,31 @@ func TestModelErrorPausesTheGoalInsteadOfPoking(t *testing.T) {
 
 	if result := g.settle(t, extension.AgentActivityCompleted); result.Continue || len(g.sent) != 0 {
 		t.Fatal("a paused goal was poked at the next boundary")
+	}
+}
+
+// TestGoalWidgetCapsRows pins the below-editor bound: a long objective wraps to
+// goalWidgetRows rows at any width, ends in an ellipsis, and never floods the
+// screen; a short one still paints whole.
+func TestGoalWidgetCapsRows(t *testing.T) {
+	long := goalWidgetFactory(&goal.State{Status: goal.StatusActive, Objective: strings.Repeat("wrap the objective across many rows ", 20)})
+	if long == nil {
+		t.Fatal("an active goal builds no widget")
+	}
+	if rows := long(nil, nil).Render(40); len(rows) != goalWidgetRows || !strings.Contains(rows[goalWidgetRows-1], "…") {
+		t.Fatalf("long objective rows = %q, want %d rows ending in an ellipsis", rows, goalWidgetRows)
+	}
+	for _, width := range []int{3, 10, 41, 120} {
+		if rows := long(nil, nil).Render(width); len(rows) > goalWidgetRows {
+			t.Fatalf("width %d painted %d rows, want at most %d", width, len(rows), goalWidgetRows)
+		}
+	}
+	short := goalWidgetFactory(&goal.State{Status: goal.StatusActive, Objective: "ship the fix"})
+	if rows := short(nil, nil).Render(80); len(rows) != 1 || !strings.Contains(rows[0], "ship the fix") {
+		t.Fatalf("short objective rows = %q", rows)
+	}
+	if cleared := goalWidgetFactory(nil); cleared != nil {
+		t.Fatal("a dropped goal still builds a widget")
 	}
 }
 
