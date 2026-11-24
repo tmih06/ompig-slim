@@ -5,8 +5,8 @@ package ai
 
 import (
 	"encoding/base64"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/internal/jsstring"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
@@ -187,7 +187,8 @@ func AccountRequestBlockScopes(provider, modelID string) []string {
 	return scopes
 }
 
-// MinAccountBlockMs is how long every account-scoped rejection blocks its account at least.
+// MinAccountBlockMs suppresses rejections without a provider-stated reset.
+// Explicit deadlines must not be extended beyond the provider's reset.
 const MinAccountBlockMs = int64(60_000)
 
 var (
@@ -255,6 +256,8 @@ type AccountFailureScope struct {
 	Scope string
 	// Until is the block deadline in epoch milliseconds.
 	Until int64
+	// RetryAt is zero for heuristic suppression, auth, and policy blocks.
+	RetryAt int64
 }
 
 // AccountFailureBlock classifies a failed request as a rejection of the account, or of the
@@ -265,7 +268,10 @@ type AccountFailureScope struct {
 // status is the response status, or 0 when no response arrived. retryAfterMs is the parsed
 // Retry-After delay, or nil.
 func AccountFailureBlock(provider, modelID, message string, status int, retryAfterMs *int64) *AccountFailureScope {
-	now := nowMillis()
+	return accountFailureBlockAt(provider, modelID, message, status, retryAfterMs, nowMillis(), "")
+}
+
+func accountFailureBlockAt(provider, modelID, message string, status int, retryAfterMs *int64, now int64, kind string) *AccountFailureScope {
 	id := AccountPolicyModelID(modelID)
 	if match := accountPolicyDeniedModel.FindStringSubmatch(message); match != nil {
 		if !isCodexAccountProvider(provider) || AccountPolicyModelID(match[1]) != id {
@@ -276,29 +282,32 @@ func AccountFailureBlock(provider, modelID, message string, status int, retryAft
 	if provider == "cursor" && accountPolicyCursorDenial.MatchString(message) && accountPolicyCursorDetail.MatchString(message) {
 		return &AccountFailureScope{Scope: "model-policy:" + id, Until: now + MinAccountBlockMs}
 	}
-	if status == 403 || accountPolicyDeniedAccount.MatchString(message) {
+	if kind == "auth" {
+		return &AccountFailureScope{Scope: "auth", Until: now + MinAccountBlockMs}
+	}
+	if kind == "permission" || status == 403 || accountPolicyDeniedAccount.MatchString(message) {
 		return &AccountFailureScope{Scope: "account-policy", Until: now + MinAccountBlockMs}
 	}
-	if IsAccountQuotaErrorMessage(message) || (status == 429 && !accountPolicyConcurrency.MatchString(message)) {
-		delay := MinAccountBlockMs
-		if retryAfterMs != nil && *retryAfterMs > delay {
-			delay = *retryAfterMs
+	if kind == "quota" || IsAccountQuotaErrorMessage(message) || (status == 429 && !accountPolicyConcurrency.MatchString(message)) {
+		stated := ProviderRetryHintDelay(message).Milliseconds()
+		if retryAfterMs != nil && *retryAfterMs > stated {
+			stated = *retryAfterMs
 		}
 		if minutes := accountPolicyRetryMinutes.FindStringSubmatch(message); minutes != nil {
-			if value, err := strconv.ParseFloat(minutes[1], 64); err == nil {
-				if scaled := int64(value * float64(MinAccountBlockMs)); scaled > delay {
-					delay = scaled
-				}
-			}
+			stated = max(stated, providerDelay(minutes[1], time.Minute).Milliseconds())
 		}
 		if seconds := accountPolicyRetrySeconds.FindStringSubmatch(message); seconds != nil {
-			if value, err := strconv.ParseFloat(seconds[1], 64); err == nil {
-				if scaled := int64(value * 1000); scaled > delay {
-					delay = scaled
-				}
-			}
+			stated = max(stated, providerDelay(seconds[1], time.Second).Milliseconds())
 		}
-		return &AccountFailureScope{Scope: AccountQuotaScope(provider, modelID), Until: now + delay}
+		delay := MinAccountBlockMs
+		if stated > 0 {
+			delay = stated
+		}
+		block := &AccountFailureScope{Scope: AccountQuotaScope(provider, modelID), Until: now + delay}
+		if stated > 0 && (kind == "" || kind == "unknown" || kind == "quota") {
+			block.RetryAt = block.Until
+		}
+		return block
 	}
 	if status == 401 || accountPolicyAuthFailure.MatchString(message) {
 		return &AccountFailureScope{Scope: "auth", Until: now + MinAccountBlockMs}

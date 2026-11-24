@@ -56,8 +56,8 @@ func TestResetClearsOnlyCoveredLocalBlocks(t *testing.T) {
 	router := NewAccountRouter(nil)
 	key := new("account")
 	until := timeNowMillis() + 60_000
-	router.rememberBlock("openai-codex", key, "chat", until)
-	router.rememberBlock("openai-codex", key, "auth", until)
+	router.rememberBlock("openai-codex", key, "chat", until, until)
+	router.rememberBlock("openai-codex", key, "auth", until, 0)
 	router.ClearResetBlocks("openai-codex", key, []string{"chat", "shared"})
 	if got := router.localBlockedUntil("openai-codex", key, []string{"chat"}, timeNowMillis()); got != 0 {
 		t.Fatalf("quota block survived reset: %d", got)

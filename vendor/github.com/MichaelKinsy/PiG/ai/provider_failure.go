@@ -109,7 +109,7 @@ func classifyProviderFailureAt(err error, now time.Time) ProviderFailure {
 		failure.Kind = "quota"
 	case failure.Status >= 400 && failure.Status < 500 && failure.Status != 408 && failure.Status != 409 && failure.Status != 429:
 		failure.Kind = "invalid"
-	case failure.Status == 429 || strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "throttl") || strings.Contains(lower, "rate_limit"):
+	case failure.Status == 429 || accountPolicyConcurrency.MatchString(lower) || strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "throttl") || strings.Contains(lower, "rate_limit"):
 		failure.Kind = "rate_limit"
 	case failure.Status == 408 || failure.Status == 409 || failure.Status >= 500 && failure.Status <= 599 || strings.Contains(lower, "overloaded_error") || retryableProviderErrorPattern.MatchString(text):
 		failure.Kind = "transient"

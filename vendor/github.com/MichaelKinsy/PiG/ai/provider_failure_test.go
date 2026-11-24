@@ -31,6 +31,7 @@ func TestProviderFailureClassification(t *testing.T) {
 		{"numeric quota code", 429, `{"error":{"code":1308,"message":"limit"}}`, nil, "quota", false, 0},
 		{"overflow hint with valid header", 429, "rate limit", http.Header{"Retry-After-Ms": {"10000000000000"}, "Retry-After": {"2"}}, "rate_limit", true, 2 * time.Second},
 		{"server", 503, "service unavailable", nil, "transient", true, 0},
+		{"stream concurrency", 200, `{"error":{"code":"concurrency_limit","message":"concurrent request limit reached"}}`, nil, "rate_limit", true, 0},
 		{"no retry", 503, "service unavailable", http.Header{"X-Should-Retry": {"false"}}, "permanent", false, 0},
 		{"malformed delay", 429, "rate_limit_error", http.Header{"Retry-After": {"NaN"}}, "rate_limit", true, 0},
 	} {

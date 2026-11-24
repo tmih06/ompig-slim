@@ -58,7 +58,6 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 	}
 	var lastFailure *ErrorEvent
 	var lastSetupError error
-	var earliest *int64
 	var previous *accountFailure
 	for _, account := range candidates.accounts {
 		if context.Cause(ctx) != nil {
@@ -71,7 +70,6 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 			return
 		}
 		if until != nil && *until > r.nowMillis() {
-			earliest = earliestDeadline(earliest, *until)
 			continue
 		}
 		if previous != nil {
@@ -92,7 +90,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 					pushAccountSetupError(outer, model, AbortReason(ctx))
 					return
 				}
-				block := r.Fail(ctx, model, account, accountErrorText(openErr), observed.get())
+				block := r.FailError(ctx, model, account, openErr, observed.get())
 				if block == nil {
 					pushAccountSetupError(outer, model, openErr)
 					return
@@ -118,6 +116,15 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 			break
 		}
 	}
+	earliest, err := r.nearestQuotaReset(ctx, model, candidates.accounts)
+	if err != nil {
+		pushAccountSetupError(outer, model, err)
+		return
+	}
+	if earliest != nil {
+		pushAccountSetupError(outer, model, accountUnavailableError(model.ProviderID(), model.ModelID(), earliest, r.now()))
+		return
+	}
 	if lastFailure != nil {
 		_ = outer.Push(*lastFailure)
 		return
@@ -126,7 +133,7 @@ func (r *AccountRouter) streamRoutes(ctx context.Context, outer *AssistantMessag
 		pushAccountSetupError(outer, model, lastSetupError)
 		return
 	}
-	pushAccountSetupError(outer, model, errors.New(accountUnavailableMessage(model.ProviderID(), model.ModelID(), earliest)))
+	pushAccountSetupError(outer, model, accountUnavailableError(model.ProviderID(), model.ModelID(), earliest, r.now()))
 }
 
 // accountStreamOutcome is what one attempt's event run decided.
@@ -163,7 +170,7 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 			if shouldRetryWithRefresh(account, forceOAuthRefresh, observed.get()) {
 				return accountStreamOutcome{retryRefresh: true}
 			}
-			block := r.Fail(ctx, model, account, errorMessageOf(failure), observed.get())
+			block := r.failMessage(ctx, model, account, failure.Error, observed.get())
 			if block != nil {
 				return accountStreamOutcome{rotated: true, failure: &accountFailure{account: account, scope: block.Scope}, event: &failure}
 			}
@@ -227,7 +234,7 @@ func (r *AccountRouter) driveAttempt(ctx context.Context, outer *AssistantMessag
 		event := ErrorEvent{Reason: message.StopReason, Error: message}
 		var block *AccountFailureScope
 		if account != nil {
-			block = r.Fail(ctx, model, account, message.ErrorMessage, observed.get())
+			block = r.failMessage(ctx, model, account, message, observed.get())
 		}
 		if block != nil {
 			return accountStreamOutcome{rotated: true, failure: &accountFailure{account: account, scope: block.Scope}, event: &event}
@@ -339,7 +346,6 @@ func routeAccountResult[T any](
 	lastFailed := false
 	var lastError error
 	var previous *accountFailure
-	var earliest *int64
 	for _, account := range candidates.accounts {
 		if err := context.Cause(ctx); err != nil {
 			return zero, err
@@ -349,7 +355,6 @@ func routeAccountResult[T any](
 			return zero, blockErr
 		}
 		if until != nil && *until > router.nowMillis() {
-			earliest = earliestDeadline(earliest, *until)
 			continue
 		}
 		if previous != nil {
@@ -368,7 +373,7 @@ func routeAccountResult[T any](
 				if err := context.Cause(ctx); err != nil {
 					return zero, err
 				}
-				block := router.Fail(ctx, model, account, accountErrorText(attemptErr), observed.get())
+				block := router.FailError(ctx, model, account, attemptErr, observed.get())
 				if block == nil {
 					return zero, attemptErr
 				}
@@ -398,13 +403,20 @@ func routeAccountResult[T any](
 			break
 		}
 	}
+	earliest, err := router.nearestQuotaReset(ctx, model, candidates.accounts)
+	if err != nil {
+		return zero, err
+	}
+	if earliest != nil {
+		return zero, accountUnavailableError(model.ProviderID(), model.ModelID(), earliest, router.now())
+	}
 	if lastFailed {
 		return last, nil
 	}
 	if lastError != nil {
 		return zero, lastError
 	}
-	return zero, errors.New(accountUnavailableMessage(model.ProviderID(), model.ModelID(), earliest))
+	return zero, accountUnavailableError(model.ProviderID(), model.ModelID(), earliest, router.now())
 }
 
 // attemptContext marks the context of one attempt with the account it resolves, so every auth
@@ -446,6 +458,7 @@ func accountTerminalMessage(model AnyModel, err error, reason StopReason) *Assis
 	message := &AssistantMessage{Content: []AssistantContentBlock{}, StopReason: reason, ErrorBeforeTimestamp: true, Timestamp: time.Now().UnixMilli()}
 	if err != nil {
 		message.ErrorMessage = err.Error()
+		RecordProviderFailure(message, err)
 	}
 	if model != nil {
 		message.Provider = model.ProviderID()

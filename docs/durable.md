@@ -85,6 +85,11 @@ that restarts itself.
 - Interrupted model calls count as failed attempts and may be resent under the
   retry policy. A committed partial is an aborted attempt, not an exact-token
   continuation. Model usage and charges can repeat after interruption.
+- Generation and compaction retries share the provider failure categories and
+  honor known retry deadlines. The scheduled retry time belongs to PiG's
+  existing persisted checkpoint. Authentication, billing, invalid requests,
+  and quota failures without a known reset remain terminal unless an existing
+  account fallback resolves them. Resumption does not reset the retry budget.
 - Tools follow PiG's replay policies. Unsafe interrupted calls are **not**
   automatically rerun: the next model request receives an interruption result
   saying they may have partially executed. Completed calls remain completed.

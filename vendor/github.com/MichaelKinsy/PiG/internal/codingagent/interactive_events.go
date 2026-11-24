@@ -536,7 +536,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 		m.tuiInst.Render()
 
 	case agent.AutoRetryStartEvent:
-		m.showRetryStatusIndicator(e.Attempt, e.MaxAttempts, e.DelayMs)
+		m.showRetryStatusIndicator(e.Attempt, e.MaxAttempts, e.DelayMs, e.Reason)
 		m.tuiInst.Render()
 
 	case agent.AutoRetryEndEvent:
@@ -554,7 +554,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
 
 	case agent.SummarizationRetryScheduledEvent:
 		m.showError(e.ErrorMessage)
-		m.showRetryStatusIndicator(e.Attempt, e.MaxAttempts, e.DelayMs)
+		m.showRetryStatusIndicator(e.Attempt, e.MaxAttempts, e.DelayMs, "")
 		m.tuiInst.Render()
 
 	case agent.SummarizationRetryAttemptStartEvent:

@@ -26,6 +26,11 @@ codemode calls, display-only persistence, and rendering after session resume.
 Catalog scenarios check new Go, JavaScript/TypeScript, Python, and Rust rules,
 including batched pokes, repeated writes, and disabling all or selected built-ins.
 
+`scripts/smoke-test-provider-recovery.py` checks quota-reset waits, bounded retries,
+permanent failures, and transport retry budgets against OpenAI-compatible,
+Anthropic, and Gemini fixtures. It also drives the TUI waiting border, automatic
+continuation, account-pool reset selection, and Escape cancellation.
+
 ## Gotchas
 
 A provider/model fixture is required for deterministic no-network runs. Do not

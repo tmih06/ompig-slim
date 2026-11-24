@@ -84,6 +84,7 @@ ifeq ($(OS),Windows_NT)
 	python scripts/smoke-test-windows.py ./bin/ompig-slim.exe
 else
 	python3 scripts/smoke-test-account-routing.py ./bin/ompig-slim
+	python3 scripts/smoke-test-provider-recovery.py ./bin/ompig-slim
 	python3 scripts/smoke-test-codex-account-policy.py ./bin/ompig-slim
 	python3 scripts/smoke-test-model-discovery.py ./bin/ompig-slim
 	python3 scripts/measure-startup.py ./bin/ompig-slim --isolated --model @default --runs 1
