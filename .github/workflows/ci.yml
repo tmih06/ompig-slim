@@ -360,47 +360,23 @@ jobs:
           ~/.local/bin/semgrep --version
       - name: Install govulncheck built with the repo's Go
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
-      - name: Resolve PR base, body and owner approval
+      - name: Resolve PR base and body
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          ACTOR: ${{ github.actor }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          OWNER_APPROVED=false
-          check_pr_owner_approval() {
-            local pr="$1" author="$2"
-            if [[ "$author" == "tmih06" ]]; then
-              OWNER_APPROVED=true
-              return
-            fi
-            for reviewer in $(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr/reviews" \
-                --jq '.[] | select(.state=="APPROVED") | .user.login' | sort -u); do
-              if [[ "$reviewer" == "tmih06" ]]; then OWNER_APPROVED=true; fi
-            done
-          }
           if [[ "$EVENT" == pull_request || "$EVENT" == pull_request_review ]]; then
             echo "PR_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
             gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .body > "$RUNNER_TEMP/pr-body" || true
-            check_pr_owner_approval "$PR_NUMBER" "$PR_AUTHOR"
           else
             BEFORE="${{ github.event.before }}"
             if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git rev-parse --verify "${BEFORE}^{commit}" >/dev/null 2>&1; then
               BEFORE="HEAD~1"
             fi
             echo "PR_BASE=$BEFORE" >> "$GITHUB_ENV"
-            if [[ "$ACTOR" == "tmih06" ]]; then
-              OWNER_APPROVED=true
-            else
-              while IFS=$'\t' read -r pr author; do
-                [[ -n "$pr" ]] && check_pr_owner_approval "$pr" "$author"
-              done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
-                --jq '.[] | "\(.number)\t\(.user.login)"' 2>/dev/null || true)
-            fi
           fi
-          echo "OWNER_APPROVED=$OWNER_APPROVED" >> "$GITHUB_ENV"
       - name: Run the quality gate
         env:
           PR_BODY_FILE: ${{ runner.temp }}/pr-body

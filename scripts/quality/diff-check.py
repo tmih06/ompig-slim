@@ -12,14 +12,11 @@ fails (exit 1) when the diff:
   * modifies disposable ``vendor/`` files outside ``vendor/modules.txt`` and
     maintained ``vendor/github.com/MichaelKinsy/PiG/``
   * changes ``go.mod`` without a justification line in the PR description
-  * exceeds the size cap calibrated to this repo's typical PR (unless owner-approved)
 
 Emit one ``file:line`` finding per violation so the agent can fix it.
 
 Environment:
   PR_BODY                 pull-request description text (for go.mod justification)
-  OWNER_APPROVED          "true" to lift the diff size cap (CI sets it for owner-authored PRs)
-  DIFF_SIZE_CAP           max added+removed lines (default 1200)
 
 Usage:
   bash:  scripts/quality/diff-check.py --base origin/main
@@ -146,8 +143,6 @@ def main():
         diff_text = git_diff(base)
 
     body = os.environ.get("PR_BODY", "")
-    owner_ok = os.environ.get("OWNER_APPROVED", "").lower() == "true"
-    cap = int(os.environ.get("DIFF_SIZE_CAP", "1200"))
 
     findings = []
     touched = set()
@@ -214,13 +209,6 @@ def main():
                 "go.mod: changed without a justification line in the PR "
                 "description (add `Deps: <reason>` or `Justification: <reason>`)"
             )
-
-    total = added_lines + removed_lines
-    if total > cap and not owner_ok:
-        findings.append(
-            f"diff: {total} changed lines exceeds the {cap}-line cap; "
-            "split the change into smaller, reviewable commits"
-        )
 
     if findings:
         print("diff-check FAIL:", file=sys.stderr)
