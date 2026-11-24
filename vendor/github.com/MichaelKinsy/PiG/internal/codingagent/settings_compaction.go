@@ -36,11 +36,18 @@ func (s *CompactionSettingsJSON) UnmarshalJSON(data []byte) error {
 	*s = CompactionSettingsJSON{extra: fields}
 	s.ReserveTokens = readCompactionNumber(fields, "reserveTokens")
 	s.KeepRecentTokens = readCompactionNumber(fields, "keepRecentTokens")
+	s.IdleDelaySeconds = readCompactionNumber(fields, "idleDelaySeconds")
 	if raw, ok := fields["enabled"]; ok {
 		if err := json.Unmarshal(raw, &s.Enabled); err != nil {
 			return err
 		}
 		delete(fields, "enabled")
+	}
+	if raw, ok := fields["idleEnabled"]; ok {
+		if err := json.Unmarshal(raw, &s.IdleEnabled); err != nil {
+			return err
+		}
+		delete(fields, "idleEnabled")
 	}
 	if raw, ok := fields["modelOverrides"]; ok {
 		if err := json.Unmarshal(raw, &s.ModelOverrides); err != nil {
@@ -71,12 +78,26 @@ func (s CompactionSettingsJSON) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.IdleDelaySeconds != nil {
+		raw, e := json.Marshal(*s.IdleDelaySeconds)
+		if e != nil {
+			return nil, e
+		}
+		fields["idleDelaySeconds"] = raw
+	}
 	if s.Enabled != nil {
 		raw, e := json.Marshal(*s.Enabled)
 		if e != nil {
 			return nil, e
 		}
 		fields["enabled"] = raw
+	}
+	if s.IdleEnabled != nil {
+		raw, e := json.Marshal(*s.IdleEnabled)
+		if e != nil {
+			return nil, e
+		}
+		fields["idleEnabled"] = raw
 	}
 	if s.ModelOverrides != nil {
 		raw, e := json.Marshal(s.ModelOverrides)

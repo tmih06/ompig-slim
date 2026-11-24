@@ -44,9 +44,14 @@ func (m *InteractiveMode) addCompactionSummary(summary string, tokensBefore int,
 func (m *InteractiveMode) renderCompactionResult(event agent.CompactionEndEvent, entries []SessionEntry) {
 	m.chatContainer.Clear()
 	m.tuiInst.ForceFullRender()
+	// The live compaction card renders at the end (interactive-mode.ts
+	// :3708-3721), out of branch order, so the transcript history window
+	// seeds it shown: paging above the kept tail must not paint it twice.
+	var seed []string
 	if len(entries) > 0 {
+		seed = []string{entries[0].Base().ID}
 		entries = entries[1:]
 	}
-	m.renderSessionEntryList(entries, false)
+	m.renderSessionEntryListWithHistory(entries, false, false, seed)
 	m.addCompactionSummary(event.Summary, event.TokensBefore, event.Usage)
 }

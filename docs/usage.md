@@ -41,6 +41,7 @@ appended to the conversation rather than rewriting its cached prefix.
 | `Alt+Q` | restore queued messages to the editor |
 | `Alt+W` | fold the task/quota widget to its border control |
 | `Alt+A` | Agent Hub (live subagents) |
+| `↓` on an empty prompt | open the subagent tree below the status line; `↑`/`↓` select, `Enter` inspect, `Esc` close |
 | `Esc` | interrupt |
 
 Default shortcuts are the same on every OS. Your `~/.pi/agent/keybindings.json`
@@ -61,6 +62,18 @@ its own until you stop it, and a goal that reports the same blocker three times 
 the missing input ([goal contract](goal.md)). Interrupting with `Esc` or `/goal pause` takes effect
 immediately and starts no further turn, and an ordinary follow-up afterwards does not resume the objective:
 only `/goal resume` does, and it restarts the same paused objective. `ompig-slim --help` lists every flag.
+
+## Session history and compaction
+
+Resuming a session initially loads its retained context. Scroll upward in fullscreen
+mode to load the older transcript across compaction boundaries. Display history
+does not expand the model context.
+
+Idle checkpoints run before the selected model's estimated cache expiry when
+there is enough history to compact. This is a paid summary request, not a guarantee
+of a cache hit or lower cost. `compaction.idleEnabled: false` disables the idle
+policy. See [transcript history and idle compaction](compaction.md) for settings,
+provider metadata requirements, and regular-mode behavior.
 
 ## Durable headless work
 

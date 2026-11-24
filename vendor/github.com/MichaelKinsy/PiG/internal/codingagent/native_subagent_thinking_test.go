@@ -77,6 +77,9 @@ func liveThinkingFixture(t *testing.T, updates ...agent.MessageUpdateEvent) (*In
 	m.tuiInst.SetRenderDeadline(func(time.Time) {})
 	m.subagentUI = &subagentUIState{manager: manager}
 	t.Cleanup(func() {
+		if m.subagentUI.expireTimer != nil {
+			m.subagentUI.expireTimer.Stop()
+		}
 		if m.subagentUI.hub != nil {
 			m.subagentUI.hub.close()
 		}
@@ -120,8 +123,13 @@ func TestSubagentThinkingLinesLimitsToTail(t *testing.T) {
 
 func TestSubagentWidgetStreamsLiveThinking(t *testing.T) {
 	m, _ := liveThinkingFixture(t, thinkingUpdate("THOUGHT_ONE", false, ""), thinkingUpdate("THOUGHT_ONE THOUGHT_TWO", false, ""))
-	widget := &nativeAgentWidget{m: m}
-	lines := widget.Render(120)
+	if lines := (&nativeAgentTree{m: m}).Render(120); lines != nil {
+		t.Fatalf("tree showed before Down: %q", lines)
+	}
+	if !m.handleAgentKey("\x1b[B") {
+		t.Fatal("Down on the empty prompt did not open the tree")
+	}
+	lines := (&nativeAgentTree{m: m}).Render(120)
 	plain := widthx.StripTerminalSequences(strings.Join(lines, "\n"))
 	if !strings.Contains(plain, "THOUGHT_ONE THOUGHT_TWO") {
 		t.Fatalf("widget lost the streamed thinking: %q", plain)
@@ -144,7 +152,10 @@ func TestSubagentWidgetStreamsLiveThinking(t *testing.T) {
 
 func TestSubagentWidgetAlignsContinuationRows(t *testing.T) {
 	m, _ := liveThinkingFixture(t, thinkingUpdate("THOUGHT_ALIGNED", false, ""))
-	lines := (&nativeAgentWidget{m: m}).Render(120)
+	if !m.handleAgentKey("\x1b[B") {
+		t.Fatal("Down on the empty prompt did not open the tree")
+	}
+	lines := (&nativeAgentTree{m: m}).Render(120)
 	plain := widthx.StripTerminalSequences(strings.Join(lines, "\n"))
 	if strings.Contains(plain, "├─") {
 		t.Fatalf("last branch was not closed: %q", plain)
@@ -166,7 +177,10 @@ func TestSubagentThinkingHidesRedactedAndSignatures(t *testing.T) {
 		t.Fatalf("redacted or signed thinking leaked: %q", text)
 	}
 	m, _ := liveThinkingFixture(t, thinkingUpdate("visible thought", false, "sig-should-not-render"))
-	rendered := strings.Join((&nativeAgentWidget{m: m}).Render(120), "\n")
+	if !m.handleAgentKey("\x1b[B") {
+		t.Fatal("Down on the empty prompt did not open the tree")
+	}
+	rendered := strings.Join((&nativeAgentTree{m: m}).Render(120), "\n")
 	if strings.Contains(widthx.StripAnsi(rendered), "sig-should-not-render") {
 		t.Fatal("widget rendered a thinking signature")
 	}

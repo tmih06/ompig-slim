@@ -64,6 +64,8 @@ type ScrollView struct {
 	followingEnd              bool
 	followSuppressedAtEnd     bool
 	requestRenderCallback     func()
+	onScrollChanged           func(delta int)
+	renderContentWidth        int
 	transientScrollbarVisible bool
 	scrollbarActive           bool
 	scrollbarHideTimer        *time.Timer
@@ -201,10 +203,67 @@ func (s *ScrollView) SetScrollbar(scrollbar ScrollViewScrollbar) {
 func (s *ScrollView) GetContentWidth(width int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.getContentWidthLocked(width)
+}
+
+// getContentWidthLocked is GetContentWidth with s.mu held.
+func (s *ScrollView) getContentWidthLocked(width int) int {
 	if s.currentScrollbar == ScrollbarAlways && width > 1 {
 		return width - 1
 	}
 	return width
+}
+
+// RenderedContentWidth returns the content width the child was last rendered
+// at, or 0 before the first render. A caller measuring inserted rows must
+// render at this width so the row count matches what the viewport lays out.
+func (s *ScrollView) RenderedContentWidth() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.renderContentWidth
+}
+
+// SetOnScrollChanged installs a callback invoked after every scroll request,
+// even one that could not move the view because it already is at the edge.
+// delta is the requested scroll direction: negative is toward the start, so a
+// repeat wheel-up at the top still reaches a lazy loader. The callback runs
+// with the scroll lock released and must not mutate the component tree
+// itself; it should post work to the owning UI loop.
+func (s *ScrollView) SetOnScrollChanged(cb func(delta int)) {
+	s.mu.Lock()
+	s.onScrollChanged = cb
+	s.mu.Unlock()
+}
+
+// fireScrollChanged runs the scroll-change callback installed by
+// SetOnScrollChanged with the requested direction, if any.
+func (s *ScrollView) fireScrollChanged(delta int) {
+	s.mu.Lock()
+	cb := s.onScrollChanged
+	s.mu.Unlock()
+	if cb != nil {
+		cb(delta)
+	}
+}
+
+// CompensatePrepend shifts the scroll offset by rows, keeping the content the
+// viewport shows stable after rows worth of content was spliced in above it.
+// A view following its end needs no shift: the next layout pass already pins
+// it to the end of the taller content. The shift is capped so the offset
+// stays inside the range the next layout accepts.
+func (s *ScrollView) CompensatePrepend(rows int) {
+	if rows <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if s.followingEnd {
+		s.mu.Unlock()
+		return
+	}
+	maxScrollTop := max(0, s.contentHeight-s.currentViewportHeight)
+	s.currentScrollTop = min(s.currentScrollTop+rows, maxScrollTop+rows)
+	s.markScrollbarActivity()
+	s.mu.Unlock()
 }
 
 // markScrollbarActivity shows the transient scrollbar and arms the hide timer.
@@ -281,6 +340,7 @@ func (s *ScrollView) ScrollTo(scrollTop int, opts ...ScrollViewScrollToOptions) 
 		options = opts[0]
 	}
 	s.mu.Lock()
+	prev := s.currentScrollTop
 	maxScrollTop := max(0, s.contentHeight-s.currentViewportHeight)
 	next := max(0, min(maxScrollTop, scrollTop))
 	nextFollowSuppressedAtEnd := options.DisableFollow && next == maxScrollTop
@@ -288,6 +348,7 @@ func (s *ScrollView) ScrollTo(scrollTop int, opts ...ScrollViewScrollToOptions) 
 	if next == s.currentScrollTop && nextFollowingEnd == s.followingEnd &&
 		nextFollowSuppressedAtEnd == s.followSuppressedAtEnd {
 		s.mu.Unlock()
+		s.fireScrollChanged(scrollTop - prev)
 		return
 	}
 	moved := next != s.currentScrollTop
@@ -302,6 +363,7 @@ func (s *ScrollView) ScrollTo(scrollTop int, opts ...ScrollViewScrollToOptions) 
 	if cb != nil {
 		cb()
 	}
+	s.fireScrollChanged(scrollTop - prev)
 }
 
 // ScrollBy scrolls by a relative number of lines and returns the leftover lines
@@ -310,6 +372,7 @@ func (s *ScrollView) ScrollBy(lines int) int {
 	s.mu.Lock()
 	if lines == 0 {
 		s.mu.Unlock()
+		s.fireScrollChanged(0)
 		return 0
 	}
 	maxScrollTop := max(0, s.contentHeight-s.currentViewportHeight)
@@ -334,12 +397,14 @@ func (s *ScrollView) ScrollBy(lines int) int {
 	if cb != nil {
 		cb()
 	}
+	s.fireScrollChanged(lines)
 	return lines - moved
 }
 
 // ScrollToStart scrolls to the top.
 func (s *ScrollView) ScrollToStart() {
 	s.mu.Lock()
+	prev := s.currentScrollTop
 	changed := s.currentScrollTop != 0 ||
 		s.followingEnd != (s.followEnd && s.contentHeight <= s.currentViewportHeight)
 	s.currentScrollTop = 0
@@ -354,11 +419,15 @@ func (s *ScrollView) ScrollToStart() {
 	if cb != nil {
 		cb()
 	}
+	// Top is always an upward request: even at the start the direction is
+	// toward earlier content, which is what a lazy loader keys on.
+	s.fireScrollChanged(-max(prev, 1))
 }
 
 // ScrollToEnd scrolls to the bottom.
 func (s *ScrollView) ScrollToEnd() {
 	s.mu.Lock()
+	prev := s.currentScrollTop
 	next := max(0, s.contentHeight-s.currentViewportHeight)
 	changed := s.currentScrollTop != next || s.followingEnd != s.followEnd
 	s.currentScrollTop = next
@@ -373,6 +442,7 @@ func (s *ScrollView) ScrollToEnd() {
 	if cb != nil {
 		cb()
 	}
+	s.fireScrollChanged(next - prev)
 }
 
 // UpdateLayout is called by the layout engine each pass with the measured
@@ -413,7 +483,10 @@ func (s *ScrollView) Clear() { panic("ScrollView child cannot be cleared") }
 // Render ports upstream ScrollView.render: render the child at the content width,
 // padding each line by a column when a scrollbar column is reserved.
 func (s *ScrollView) Render(width int) []string {
-	contentWidth := s.GetContentWidth(width)
+	s.mu.Lock()
+	contentWidth := s.getContentWidthLocked(width)
+	s.renderContentWidth = contentWidth
+	s.mu.Unlock()
 	lines := s.child.Render(contentWidth)
 	if contentWidth == width {
 		return lines

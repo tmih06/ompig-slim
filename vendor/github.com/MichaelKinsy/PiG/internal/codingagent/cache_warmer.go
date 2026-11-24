@@ -188,7 +188,29 @@ type CacheWarmRequest struct {
 	Model   *ai.Model
 	Context ai.TranscriptContext
 	Options ai.StreamOptions
+	// IdleEligible, when set, reports whether the session's live context is
+	// still exactly the request's context plus the successful response that
+	// answered it. Idle compaction declines an offer once it reports false:
+	// anything else (custom messages, bash results, context edits, a failed
+	// or extra response) is not covered by the summary the offer would send.
+	IdleEligible func() bool
 }
+
+// IdleOfferResult is the session's answer to an idle-compaction deadline
+// offer. A busy answer leaves the offer pending; the warmer re-offers it when
+// the session next becomes idle. Claimed and declined latch the offer.
+type IdleOfferResult int
+
+const (
+	// IdleOfferBusy means the session was still settling or held pending
+	// work: retry the same offer when it next goes idle.
+	IdleOfferBusy IdleOfferResult = iota
+	// IdleOfferClaimed means the session ran idle compaction for the offer.
+	IdleOfferClaimed
+	// IdleOfferDeclined means the offer no longer matches the session; it is
+	// not offered again.
+	IdleOfferDeclined
+)
 
 // CacheWarmerSessionManager is the Session surface the warmer uses. Mirrors
 // Pick<SessionManager, "appendUsage" | "getBranch">.
@@ -201,6 +223,18 @@ type CacheWarmerSessionManager interface {
 // back to Pi's decision.
 type CacheWarmingDecide func(context.Context, CacheWarmingDecisionEvent) (CacheWarmingAction, error)
 
+// IdleCompactionPolicy configures the idle-compaction deadline the warmer
+// offers the session at a cache boundary.
+type IdleCompactionPolicy struct {
+	// Enabled gates the offer entirely (compaction.enabled and
+	// compaction.idleEnabled on the session side).
+	Enabled bool
+	// DelaySeconds is the settled-idle wait used when the request's model
+	// carries no promptCache lifetime. It is a provider-neutral fallback
+	// (compaction.idleDelaySeconds), not a guessed cache TTL.
+	DelaySeconds float64
+}
+
 type cacheWarmingRun struct {
 	CacheWarmRequest
 	// isCurrent is false once the session's model or messages no longer
@@ -208,6 +242,23 @@ type cacheWarmingRun struct {
 	isCurrent func() bool
 	ttlMs     float64
 	delayMs   float64
+	// warmable is false when the request cannot be replayed (no cache
+	// lifetime, replay-unsafe thinking, or warming disabled): the run then
+	// exists only to carry its idle-compaction deadline.
+	warmable bool
+	// idleArmed marks a run that may offer its deadline to idle compaction.
+	// idleTried latches once the offer is made, claimed or declined: at most
+	// one idle compaction attempt per captured request.
+	idleArmed bool
+	idleTried bool
+	// offering serializes offer callbacks: a deadline timer and an idle
+	// notification never run two offers for one run.
+	offering bool
+	// idleDeadlineAt is the offer's absolute deadline in Unix milliseconds.
+	// A run with a promptCache lifetime anchors it to the request start; a
+	// non-warmable run without a lifetime anchors it at settle, using the
+	// policy delay current then. Zero means the settle anchor is pending.
+	idleDeadlineAt int64
 	// refreshDeadlineAt is the latest safe time to send this refresh,
 	// leaving half the original expiry margin.
 	refreshDeadlineAt int64
@@ -219,7 +270,7 @@ type cacheWarmingRun struct {
 	// extensionOverride is set while a refresh that an extension forced is
 	// in flight.
 	extensionOverride bool
-	// timer is nil while a refresh is running.
+	// timer is nil while a refresh or the idle-compaction offer is running.
 	timer *time.Timer
 }
 
@@ -240,6 +291,14 @@ type CacheWarmer struct {
 	getMode        func() CacheWarmingMode
 	decide         CacheWarmingDecide
 	onWarmed       func(context.Context, UsageEntry)
+	// idleCompaction, when set, is offered each armed run's deadline once.
+	// It runs on a goroutine tracked by tasks and must stop once the run's
+	// context ends. IdleOfferBusy leaves the offer pending for the next idle
+	// notification; the other answers latch it.
+	idleCompaction func(ctx context.Context, request *CacheWarmRequest) IdleOfferResult
+	// idlePolicy is re-read for every arming and offer, so a toggled or
+	// retimed setting applies without reinstalling the hook.
+	idlePolicy func() IdleCompactionPolicy
 	tasks          sync.WaitGroup
 	// lifetime is cancelled by Close. publishMu is held while onWarmed runs,
 	// so Close can wait out a report that began before it.
@@ -285,6 +344,30 @@ func (w *CacheWarmer) SetOnWarmed(onWarmed func(context.Context, UsageEntry)) {
 	}
 }
 
+// SetIdleCompaction installs the session's idle-compaction hook and policy
+// getter. The callback fires at an armed run's deadline instead of (or
+// without) a warm refresh, before Pi's warm-or-stop evaluation can end the
+// run. It is offered once per captured request.
+func (w *CacheWarmer) SetIdleCompaction(cb func(ctx context.Context, request *CacheWarmRequest) IdleOfferResult, policy func() IdleCompactionPolicy) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		w.idleCompaction = cb
+		w.idlePolicy = policy
+	}
+}
+
+func (w *CacheWarmer) idlePolicyEnabled() bool {
+	return w.idlePolicy != nil && w.idlePolicy().Enabled
+}
+
+func (w *CacheWarmer) idlePolicyDelayMs() float64 {
+	if w.idlePolicy == nil {
+		return 0
+	}
+	return w.idlePolicy().DelaySeconds * 1000
+}
+
 // Status reports the current warming state and the policy inputs that
 // produced it.
 func (w *CacheWarmer) Status() CacheWarmingStatus {
@@ -301,7 +384,15 @@ func (w *CacheWarmer) Status() CacheWarmingStatus {
 		return inactiveCacheWarming("conversation context changed")
 	}
 	decision := w.evaluate(run)
-	refreshing := run.timer == nil
+	refreshing := run.timer == nil && run.warmable
+	if !run.warmable {
+		// A deadline-only run schedules no refresh; it reports its pending
+		// offer, or inactivity once the offer was consumed.
+		if run.timer != nil || run.offering || w.idleOfferPendingLocked(run) {
+			return CacheWarmingStatus{State: "scheduled", NextWarmAt: run.nextWarmAt}
+		}
+		return w.inactive
+	}
 	if !decision.EconomicsAvailable && !refreshing {
 		return inactiveCacheWarming("cache economics unavailable")
 	}
@@ -313,7 +404,8 @@ func (w *CacheWarmer) Status() CacheWarmingStatus {
 }
 
 // Start keeps the prompt cache entry written by request warm while isCurrent
-// holds.
+// holds. A request that cannot be replayed still starts a run when an idle
+// compaction deadline is armed, so the session can compact at the boundary.
 func (w *CacheWarmer) Start(request CacheWarmRequest, isCurrent func() bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -321,24 +413,47 @@ func (w *CacheWarmer) Start(request CacheWarmRequest, isCurrent func() bool) {
 		return
 	}
 	w.clearRunLocked()
-	if reason := w.startStopReason(request); reason != "" {
-		w.stopLocked(reason, nil, false)
-		return
+	startedAt := cacheWarmingNowMs()
+	ttlMs, hasLifetime := GetPromptCacheTtlMs(request.Model, request.Options)
+	var ttlDelayMs float64
+	if hasLifetime {
+		ttlDelayMs, _ = GetCacheWarmingDelayMs(ttlMs)
 	}
-	ttlMs, _ := GetPromptCacheTtlMs(request.Model, request.Options)
-	delayMs, _ := GetCacheWarmingDelayMs(ttlMs)
+	// A known cache deadline anchors the offer to the request, so a run that
+	// outlives it still offers. Without a lifetime the offer anchors at
+	// settle: the delay is a provider-neutral fallback, not a guessed TTL.
+	var idleDeadlineAt int64
+	if ttlDelayMs > 0 {
+		idleDeadlineAt = saturateToMillis(float64(startedAt) + ttlDelayMs)
+	}
+	idleArmed := w.idleCompaction != nil && w.idlePolicyEnabled() && (idleDeadlineAt > 0 || w.idlePolicyDelayMs() > 0)
 	ctx, cancel := context.WithCancel(context.Background())
-	w.run = &cacheWarmingRun{
+	run := &cacheWarmingRun{
 		CacheWarmRequest: request,
 		isCurrent:        isCurrent,
 		ttlMs:            ttlMs,
-		delayMs:          delayMs,
-		startedAt:        cacheWarmingNowMs(),
+		startedAt:        startedAt,
 		ctx:              ctx,
 		cancel:           cancel,
 		phase:            "streaming",
+		idleArmed:        idleArmed,
+		idleDeadlineAt:   idleDeadlineAt,
 	}
-	w.scheduleLocked(w.run)
+	if reason := w.startStopReason(request); reason != "" {
+		if !idleArmed {
+			cancel()
+			w.stopLocked(reason, nil, false)
+			return
+		}
+		// Not replayable: the run carries only its idle-compaction deadline,
+		// which OnAgentSettled anchors to the moment the session goes idle.
+		w.run = run
+		return
+	}
+	run.delayMs = ttlDelayMs
+	run.warmable = true
+	w.run = run
+	w.scheduleLocked(run)
 }
 
 // startStopReason says why a request cannot be warmed, or "" when it can.
@@ -360,7 +475,8 @@ func (w *CacheWarmer) startStopReason(request CacheWarmRequest) string {
 }
 
 // OnAgentSettled moves the run to its idle phase, or stops it in streaming
-// mode.
+// mode. A run whose idle-compaction deadline is still pending survives the
+// settle in any mode: its offer replaces the work streaming mode would skip.
 func (w *CacheWarmer) OnAgentSettled() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -368,15 +484,184 @@ func (w *CacheWarmer) OnAgentSettled() {
 	if run == nil {
 		return
 	}
+	run.phase = "idle"
+	if !run.warmable {
+		w.scheduleIdleDeadlineLocked(run)
+		return
+	}
 	if w.getMode() == "streaming" {
+		if w.idleOfferPendingLocked(run) {
+			return
+		}
 		w.stopLocked("agent run settled", nil, false)
 		return
 	}
-	run.phase = "idle"
-	deadline := run.startedAt + maxIdleWarmingAgeMs
+	deadline := saturateToMillis(float64(run.startedAt) + float64(maxIdleWarmingAgeMs))
 	if run.nextWarmAt > deadline || cacheWarmingNowMs() >= deadline {
-		w.stopLocked("30-minute idle safety limit reached", nil, false)
+		w.degradeToIdleDeadlineLocked(run, "30-minute idle safety limit reached")
 	}
+}
+
+// OnIdle reports that the session just became idle. An armed run whose
+// deadline passed, or whose last offer found the session busy, is offered
+// again; anything else is left alone. The offer runs on a tracked task so
+// the session's idle path never waits for compaction work.
+func (w *CacheWarmer) OnIdle() {
+	w.mu.Lock()
+	run := w.run
+	if run == nil || !w.offerIdleDeadlineLocked(run) {
+		w.mu.Unlock()
+		return
+	}
+	w.tasks.Add(1)
+	w.mu.Unlock()
+	go func() {
+		defer w.tasks.Done()
+		defer RecoverUncaught()
+		w.runIdleOffer(run)
+	}()
+}
+
+// offerIdleDeadlineLocked consumes the run's timer and marks its offer in
+// flight when the deadline is due and no offer is running. w.mu must be held.
+func (w *CacheWarmer) offerIdleDeadlineLocked(run *cacheWarmingRun) bool {
+	if w.run != run || run.phase != "idle" || run.offering || !w.idleOfferPendingLocked(run) || cacheWarmingNowMs() < run.idleDeadlineAt {
+		return false
+	}
+	if run.timer != nil && run.timer.Stop() {
+		// The stopped AfterFunc cannot run, so its task accounting ends here.
+		w.tasks.Done()
+	}
+	run.timer = nil
+	run.offering = true
+	return true
+}
+
+// runIdleOffer delivers a due deadline to the session hook. A busy answer
+// leaves the run pending for the next idle signal; claimed and declined
+// latch idleTried so the offer is made once per captured request. It runs on
+// a tasks-tracked goroutine, so the post-offer refresh work may run inline.
+func (w *CacheWarmer) runIdleOffer(run *cacheWarmingRun) {
+	w.mu.Lock()
+	cb := w.idleCompaction
+	w.mu.Unlock()
+	result := IdleOfferDeclined
+	if cb != nil {
+		result = cb(run.ctx, &run.CacheWarmRequest)
+	}
+	w.mu.Lock()
+	run.offering = false
+	if w.run != run {
+		w.mu.Unlock()
+		return
+	}
+	switch result {
+	case IdleOfferClaimed:
+		run.idleTried = true
+		w.rescheduleAfterIdleLocked(run)
+		w.mu.Unlock()
+	case IdleOfferBusy:
+		// Keep the entry warm while the session finishes settling; the offer
+		// stays pending for the next idle signal.
+		if run.warmable {
+			w.scheduleLocked(run)
+		}
+		w.mu.Unlock()
+	default: // IdleOfferDeclined
+		run.idleTried = true
+		if !run.warmable {
+			w.stopLocked("inactive", nil, false)
+			w.mu.Unlock()
+			return
+		}
+		w.mu.Unlock()
+		// Declined: the normal warm-or-stop evaluation runs instead.
+		w.refresh(run)
+	}
+}
+
+// rescheduleAfterIdleLocked keeps the cache entry warm past a claimed idle
+// compaction when the mode would still refresh it; otherwise the run ends.
+// w.mu must be held.
+func (w *CacheWarmer) rescheduleAfterIdleLocked(run *cacheWarmingRun) {
+	if run.warmable && w.getMode() == "idle" {
+		w.scheduleLocked(run)
+		return
+	}
+	w.stopLocked("inactive", nil, false)
+}
+
+// idleOfferPendingLocked reports whether the run can still be offered to idle
+// compaction. w.mu must be held.
+func (w *CacheWarmer) idleOfferPendingLocked(run *cacheWarmingRun) bool {
+	return run.idleArmed && !run.idleTried && w.idleCompaction != nil && w.idlePolicyEnabled()
+}
+
+// scheduleIdleDeadlineLocked arms the run's offer deadline. A deadline-less
+// run anchors at this settle with the current policy delay; a run that
+// already passed its absolute deadline stays pending for the idle signal
+// that follows this settle instead of offering inside settling work.
+// w.mu must be held.
+func (w *CacheWarmer) scheduleIdleDeadlineLocked(run *cacheWarmingRun) {
+	if run.timer != nil || run.offering {
+		return
+	}
+	now := cacheWarmingNowMs()
+	if run.idleDeadlineAt == 0 {
+		run.idleDeadlineAt = saturateToMillis(float64(now) + w.idlePolicyDelayMs())
+	}
+	run.nextWarmAt = run.idleDeadlineAt
+	if now >= run.idleDeadlineAt {
+		return
+	}
+	w.tasks.Add(1)
+	run.timer = time.AfterFunc(clampMillisDuration(run.idleDeadlineAt-now), func() {
+		defer w.tasks.Done()
+		defer RecoverUncaught()
+		w.onTimer(run)
+	})
+}
+
+// degradeToIdleDeadlineLocked ends a run's refresh work while preserving its
+// pending idle-compaction offer: the run continues as deadline-only, the
+// warming cap no longer applying to the one-shot compaction offer. A run
+// without a pending offer stops for the given reason. w.mu must be held.
+func (w *CacheWarmer) degradeToIdleDeadlineLocked(run *cacheWarmingRun, reason string) {
+	if !w.idleOfferPendingLocked(run) {
+		w.stopLocked(reason, nil, false)
+		return
+	}
+	run.warmable = false
+	w.scheduleIdleDeadlineLocked(run)
+}
+
+// saturateToMillis clamps a computed millisecond time to the int64 range, so
+// a promptCache lifetime that overflows it schedules for the far future
+// instead of wrapping to a past or undefined value.
+func saturateToMillis(value float64) int64 {
+	switch {
+	case math.IsNaN(value):
+		return 0
+	case value >= math.MaxInt64:
+		return math.MaxInt64
+	case value <= math.MinInt64:
+		return math.MinInt64
+	default:
+		return int64(value)
+	}
+}
+
+// clampMillisDuration converts a millisecond distance to a positive
+// time.Duration without overflowing int64 nanoseconds.
+func clampMillisDuration(ms int64) time.Duration {
+	const maxMillis = int64(math.MaxInt64) / int64(time.Millisecond)
+	if ms <= 0 {
+		return time.Millisecond
+	}
+	if ms > maxMillis {
+		ms = maxMillis
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // OnModeChanged reconciles an active run after the persisted mode changes.
@@ -454,23 +739,52 @@ func (w *CacheWarmer) scheduleLocked(run *cacheWarmingRun) {
 	if run.phase == "idle" {
 		limit, reason = maxIdleWarmingAgeMs, "30-minute idle safety limit reached"
 	}
-	if deadline := run.startedAt + limit; next > float64(deadline) || now >= deadline {
-		w.stopLocked(reason, nil, false)
+	if deadline := saturateToMillis(float64(run.startedAt) + float64(limit)); next > float64(deadline) || now >= deadline {
+		w.degradeToIdleDeadlineLocked(run, reason)
 		return
 	}
-	run.nextWarmAt = int64(next)
+	run.nextWarmAt = saturateToMillis(next)
 	// A timer can run late after sleep or a stalled process. Keep half of the
 	// planned pre-expiry margin for that delay and request dispatch; a late
 	// refresh is likely a full-price cache write, not a cache warm.
-	run.refreshDeadlineAt = run.nextWarmAt + int64(math.Floor((run.ttlMs-run.delayMs)/2))
+	run.refreshDeadlineAt = saturateToMillis(float64(run.nextWarmAt) + math.Floor((run.ttlMs-run.delayMs)/2))
 	w.tasks.Add(1)
-	run.timer = time.AfterFunc(time.Duration(max(0, run.nextWarmAt-now))*time.Millisecond, func() {
+	run.timer = time.AfterFunc(clampMillisDuration(run.nextWarmAt-now), func() {
 		defer w.tasks.Done()
 		// pig additive (D102): a panic outside the request upstream catches reaches the interactive uncaught handler, as
 		// upstream's floating refresh promise reaches uncaughtException.
 		defer RecoverUncaught()
-		w.refresh(run)
+		w.onTimer(run)
 	})
+}
+
+// onTimer is the deadline callback for warmable and deadline-only runs. An
+// armed run offers its deadline to idle compaction first: the session claims
+// it (compaction refreshes the cache entry itself, so the run reschedules
+// while warming is still wanted), reports itself busy and keeps the offer
+// pending for the next idle signal, or declines and the normal warm-or-stop
+// evaluation runs instead.
+func (w *CacheWarmer) onTimer(run *cacheWarmingRun) {
+	w.mu.Lock()
+	if w.offerIdleDeadlineLocked(run) {
+		w.mu.Unlock()
+		w.runIdleOffer(run)
+		return
+	}
+	warmable := w.run == run && run.warmable
+	pendingOffer := w.run == run && (w.idleOfferPendingLocked(run) || run.offering)
+	w.mu.Unlock()
+	if warmable {
+		w.refresh(run)
+		return
+	}
+	if !pendingOffer {
+		w.mu.Lock()
+		if w.run == run && !run.warmable && !w.idleOfferPendingLocked(run) && !run.offering {
+			w.stopLocked("inactive", nil, false)
+		}
+		w.mu.Unlock()
+	}
 }
 
 func (w *CacheWarmer) refresh(run *cacheWarmingRun) {
@@ -527,7 +841,8 @@ func (w *CacheWarmer) applyDecision(run *cacheWarmingRun, decision CacheWarmingD
 		case decision.EconomicsAvailable:
 			reason = "expected savings below threshold"
 		}
-		w.stopLocked(reason, &decision, extensionOverride)
+		// An economic stop ends refreshes, not a pending idle-compaction offer.
+		w.degradeToIdleDeadlineLocked(run, reason)
 		return extensionOverride, false
 	}
 	run.extensionOverride = extensionOverride
@@ -607,7 +922,7 @@ func (w *CacheWarmer) refreshDeadlineMissedLocked(run *cacheWarmingRun) bool {
 	if cacheWarmingNowMs() <= run.refreshDeadlineAt {
 		return false
 	}
-	w.stopLocked("cache refresh deadline missed", nil, false)
+	w.degradeToIdleDeadlineLocked(run, "cache refresh deadline missed")
 	return true
 }
 
@@ -633,6 +948,11 @@ func (w *CacheWarmer) validateRunLocked(run *cacheWarmingRun) bool {
 }
 
 func (w *CacheWarmer) modeStopReason(run *cacheWarmingRun) string {
+	// An armed run waiting to offer its idle-compaction deadline survives
+	// modes that no longer pay for refreshes.
+	if w.idleOfferPendingLocked(run) {
+		return ""
+	}
 	switch mode := w.getMode(); {
 	case mode == "off":
 		return "cache warming disabled"

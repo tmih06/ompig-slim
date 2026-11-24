@@ -112,7 +112,8 @@ func (s *Session) settlementBusyLocked() bool {
 	return s.runState.settling.Load() || len(s.runState.deferred) > 0 || s.runState.runningDeferred > 0
 }
 
-// notifyIdleWaiters wakes WaitForIdle callers to re-check the idle state.
+// notifyIdleWaiters wakes WaitForIdle callers to re-check the idle state,
+// and tells the warmer so a deferred idle-compaction offer can run.
 func (s *Session) notifyIdleWaiters() {
 	s.runState.mu.Lock()
 	if s.runState.idle != nil {
@@ -120,6 +121,7 @@ func (s *Session) notifyIdleWaiters() {
 		s.runState.idle = nil
 	}
 	s.runState.mu.Unlock()
+	s.notifyWarmerIdle()
 }
 
 // RequestAbort stops Session continuations and cancels the Agent's signal without cancelling its caller context. An awaited before-settle hook still commits its drafts, but cannot continue. Extensions do not await the run they stop.
@@ -213,6 +215,14 @@ func (s *Session) installAgentRun(cancel context.CancelFunc, clearAbortRequest b
 	}
 	// Compaction before the prompt may have scheduled a retry; the new prompt replaces it. upstream: agent-session.ts:1851-1856 (_startRun)
 	s.failedResponse.Store(nil)
+	s.compactMu.Lock()
+	if s.idleCompacting {
+		s.compactAbortRequested = true
+		if idleCancel := s.compactCancel; idleCancel != nil {
+			idleCancel()
+		}
+	}
+	s.compactMu.Unlock()
 	s.recordSelection()
 	s.clearPendingTools()
 	return func() {
@@ -248,7 +258,8 @@ func (s *Session) BeginRunStart() (*RunStart, error) {
 }
 
 // beginRunStartLocked is BeginRunStart for a caller that holds pendingBashMu and found the Session idle, so the busy decision is atomic with
-// the decisions of other sends and of recorded bash results.
+// the decisions of other sends and of recorded bash results. A starting run preempts an idle compaction: the idle goroutine sees the new
+// generation or the abort flag and drops its commit.
 func (s *Session) beginRunStartLocked() *RunStart {
 	s.runState.mu.Lock()
 	defer s.runState.mu.Unlock()
@@ -256,6 +267,7 @@ func (s *Session) beginRunStartLocked() *RunStart {
 	s.runState.cancel = nil
 	s.runState.abortRequested.Store(false)
 	s.runState.active.Store(true)
+	s.requestIdleCompactionAbortLocked()
 	return &RunStart{session: s, generation: s.runState.generation}
 }
 
@@ -328,6 +340,7 @@ func (s *Session) finishAgentRun(generation uint64) {
 	if idle != nil {
 		close(idle)
 	}
+	s.notifyWarmerIdle()
 }
 
 // endAgentRun ends a run whose caller owns agent_settled (RunAgentPrompt).

@@ -163,7 +163,15 @@ type CompactionSettingsJSON struct {
 	// ModelOverrides maps exact "provider/modelId" keys to token settings
 	// that take precedence for that model.
 	ModelOverrides map[string]CompactionModelOverride `json:"modelOverrides,omitempty"`
-	extra          map[string]json.RawMessage
+	// IdleEnabled gates idle compaction (default true). Global-only: like the
+	// paid cache-warming mode, project settings cannot spend money, so the
+	// merge step below deliberately does not copy it.
+	IdleEnabled *bool `json:"idleEnabled,omitempty"`
+	// IdleDelaySeconds is the settled-idle delay before an idle compaction
+	// when the model carries no promptCache lifetime to anchor the deadline
+	// to. It retains the JavaScript number until getter validation. Global-only.
+	IdleDelaySeconds *float64 `json:"idleDelaySeconds,omitempty"`
+	extra            map[string]json.RawMessage
 }
 
 // CompactionModelOverride mirrors upstream CompactionModelOverride. Pointers
@@ -794,6 +802,8 @@ func cloneCompactionSettings(v *CompactionSettingsJSON) *CompactionSettingsJSON 
 		extra:            maps.Clone(v.extra),
 		ReserveTokens:    cloneFloatPtr(v.ReserveTokens),
 		KeepRecentTokens: cloneFloatPtr(v.KeepRecentTokens),
+		IdleEnabled:      cloneBoolPtr(v.IdleEnabled),
+		IdleDelaySeconds: cloneFloatPtr(v.IdleDelaySeconds),
 	}
 	if v.ModelOverrides != nil {
 		out.ModelOverrides = make(map[string]CompactionModelOverride, len(v.ModelOverrides))
@@ -2063,6 +2073,62 @@ func compactionModelKey(model []*ai.Model) (provider, id string) {
 
 func compactionEnabled(s *CompactionSettingsJSON) bool {
 	return s == nil || s.Enabled == nil || *s.Enabled
+}
+
+// defaultIdleCompactionDelaySeconds is the settled-idle wait before an idle
+// compaction when the model carries no promptCache lifetime. It is a
+// provider-neutral fallback with no cache-expiry guarantee, not a guessed TTL.
+const defaultIdleCompactionDelaySeconds = 240
+
+// GetCompactionIdleEnabled reports the global idle-compaction toggle
+// (default true). Like the paid cache-warming mode it is read from the global
+// layer only: project settings cannot opt a shared user out of, or into,
+// spending.
+func (sm *SettingsManager) GetCompactionIdleEnabled() bool {
+	enabled := readGlobal(sm, func(s *Settings) *bool {
+		if s.Compaction == nil {
+			return nil
+		}
+		return s.Compaction.IdleEnabled
+	})
+	return enabled == nil || *enabled
+}
+
+// GetCompactionIdleDelaySeconds returns the global settled-idle delay used
+// when the request's model has no promptCache lifetime to anchor the
+// deadline. An absent or invalid value yields the 240-second default.
+func (sm *SettingsManager) GetCompactionIdleDelaySeconds() float64 {
+	seconds := readGlobal(sm, func(s *Settings) *float64 {
+		if s.Compaction == nil {
+			return nil
+		}
+		return s.Compaction.IdleDelaySeconds
+	})
+	if seconds == nil || math.IsNaN(*seconds) || math.IsInf(*seconds, 0) || *seconds <= 0 || *seconds > float64(maxIdleWarmingAgeMs)/1000 {
+		return defaultIdleCompactionDelaySeconds
+	}
+	return *seconds
+}
+
+// SetCompactionIdleEnabled persists the global idle-compaction toggle.
+func (sm *SettingsManager) SetCompactionIdleEnabled(enabled bool) error {
+	return sm.UpdateGlobal(func(s *Settings) {
+		if s.Compaction == nil {
+			s.Compaction = &CompactionSettingsJSON{}
+		}
+		s.Compaction.IdleEnabled = &enabled
+	})
+}
+
+// SetCompactionIdleDelaySeconds persists the global no-metadata idle delay;
+// a non-positive value restores the default on read.
+func (sm *SettingsManager) SetCompactionIdleDelaySeconds(seconds float64) error {
+	return sm.UpdateGlobal(func(s *Settings) {
+		if s.Compaction == nil {
+			s.Compaction = &CompactionSettingsJSON{}
+		}
+		s.Compaction.IdleDelaySeconds = &seconds
+	})
 }
 
 // GetCompactionReserveTokens resolves and validates the reserve token setting for the optional model (upstream getCompactionReserveTokens(model?)).
