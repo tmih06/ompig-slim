@@ -94,8 +94,13 @@ func (t *Tool) Schema() ai.ToolSchema {
 		}
 		required = []string{"prompt", "description", "role", "tool"}
 	case "get_subagent_result":
-		description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll. The result details carry outcome: running, completed, failed, canceled or exhausted, plus partial when the text stopped short of a finished answer. An empty result with outcome completed is the agent's real answer."
-		props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false.")}
+		if t.Owner == "" {
+			description = "Retrieve the agent's exact final result. Returns immediately: a finished agent yields its result; a running one returns a pending receipt and its exact result arrives automatically as a completion notification when it finishes. Do not poll or re-request while pending. The result details carry outcome: running, completed, failed, canceled or exhausted, plus partial when the text stopped short of a finished answer. An empty result with outcome completed is the agent's real answer."
+			props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Accepted for compatibility; the call always returns immediately. Default false.")}
+		} else {
+			description = "Retrieve the agent's exact final result. Short notifications already contain a preview. Use wait:true when completion is required; do not poll. The result details carry outcome: running, completed, failed, canceled or exhausted, plus partial when the text stopped short of a finished answer. An empty result with outcome completed is the agent's real answer."
+			props = map[string]any{"agent_id": property("string", "Agent ID or handle."), "wait": property("boolean", "Wait for completion. Default false.")}
+		}
 		required = []string{"agent_id"}
 	case "steer_subagent":
 		description = "Send a message to a running agent. Delivered after the current tool execution as a user message, without restarting."
@@ -212,24 +217,49 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 			return agent.AgentToolResult{}, err
 		}
 		var r Record
-		var err error
-		if p.Wait {
-			r, err = t.Manager.Wait(ctx, p.ID, t.Owner, false)
-		} else {
-			r, err = t.Manager.Consume(p.ID, t.Owner)
-		}
-		if err != nil {
-			if wf, ok := t.Manager.Workflow(p.ID); ok {
-				if p.Wait || !wf.Active() {
-					var waitErr error
-					wf, waitErr = t.Manager.WaitWorkflow(ctx, p.ID)
-					if waitErr != nil {
-						return agent.AgentToolResult{}, waitErr
+		if t.Owner != "" {
+			// A nested agent has no notification route of its own, so it keeps
+			// the synchronous contract: wait:true blocks for its own child and
+			// wait:false observes without claiming anything.
+			var err error
+			if p.Wait {
+				r, err = t.Manager.Wait(ctx, p.ID, t.Owner, false)
+			} else {
+				r, err = t.Manager.Consume(p.ID, t.Owner)
+			}
+			if err != nil {
+				if wf, ok := t.Manager.Workflow(p.ID); ok {
+					if p.Wait || !wf.Active() {
+						var waitErr error
+						wf, waitErr = t.Manager.WaitWorkflow(ctx, p.ID)
+						if waitErr != nil {
+							return agent.AgentToolResult{}, waitErr
+						}
 					}
+					return textResult(wf.ResultText(), wf), nil
+				}
+				return agent.AgentToolResult{}, err
+			}
+		} else {
+			if err := ctx.Err(); err != nil {
+				return agent.AgentToolResult{}, err
+			}
+			var d resultDisposition
+			var reqErr error
+			r, d, reqErr = t.Manager.RequestResult(p.ID)
+			if reqErr != nil {
+				wf, wd, werr := t.Manager.RequestWorkflowResult(p.ID)
+				if werr != nil {
+					return agent.AgentToolResult{}, reqErr
+				}
+				if wd != resultReady {
+					return textResult(resultRequestText(wf.ID, "a workflow", wd), wf), nil
 				}
 				return textResult(wf.ResultText(), wf), nil
 			}
-			return agent.AgentToolResult{}, err
+			if d != resultReady {
+				return textResult(resultRequestText(r.ID, "an agent", d), r.Envelope()), nil
+			}
 		}
 		// Retrieval reports an incomplete child as a failure result as well, so a
 		// caller that reads only the result shape is not told it succeeded.
@@ -263,4 +293,14 @@ func (t *Tool) Execute(ctx context.Context, callID string, raw json.RawMessage, 
 }
 func backgroundResult(r Record) string {
 	return fmt.Sprintf("Agent launched in background.\nagent_id: %s\nhandle: @%s\noutput_file: %s\nYou will be notified on completion. Continue other work; use get_subagent_result for the full result or steer_subagent to redirect it.", r.ID, r.Handle, r.OutputFile)
+}
+
+func resultRequestText(id, kind string, d resultDisposition) string {
+	status := fmt.Sprintf("Result pending: %s %s is still running.", kind, id)
+	if d == resultRepeated {
+		status += " Its exact result is already pending"
+	} else {
+		status += " Its exact result is pending"
+	}
+	return status + " and will arrive automatically when the agent finishes; do not re-request or poll."
 }

@@ -64,6 +64,7 @@ type Workflow struct {
 	replayLive     bool
 	nested         int
 	consumed       bool
+	demand         *resultDemand
 	pause          chan struct{}
 	journalWriteMu *sync.Mutex
 }
@@ -137,7 +138,39 @@ func (m *Manager) WaitWorkflow(ctx context.Context, id string) (Workflow, error)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	target.consumed = true
+	if target.demand != nil {
+		target.demand.resolved = true
+	}
+	m.signalDeliveries()
 	return copyWorkflow(target), nil
+}
+
+// RequestWorkflowResult is the workflow half of RequestResult: a terminal
+// workflow returns its snapshot consumed, an active one claims its completion
+// delivery once for the root.
+func (m *Manager) RequestWorkflowResult(id string) (Workflow, resultDisposition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, w := range m.workflows {
+		if w.ID != id {
+			continue
+		}
+		if !w.Active() {
+			w.consumed = true
+			if w.demand != nil {
+				w.demand.resolved = true
+			}
+			m.signalDeliveries()
+			return copyWorkflow(w), resultReady, nil
+		}
+		if w.demand != nil {
+			return copyWorkflow(w), resultRepeated, nil
+		}
+		w.demand = &resultDemand{}
+		m.signalDeliveries()
+		return copyWorkflow(w), resultPending, nil
+	}
+	return Workflow{}, resultReady, fmt.Errorf("workflow not found: %s", id)
 }
 
 func (m *Manager) PauseWorkflow(id string) error {
@@ -396,8 +429,13 @@ func (m *Manager) runWorkflow(ctx context.Context, w *Workflow, body string) {
 	w.Result = result
 	w.CompletedAt = time.Now().UnixMilli()
 	snapshot := copyWorkflow(w)
-	if !m.closed && !w.consumed {
-		m.notifications = append(m.notifications, completion{w.ID, w.CompletedAt})
+	requested := ""
+	if w.demand != nil {
+		requested = fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n%s\n<requested>true</requested>\n</task-notification>", w.ID, w.Status, xmlEscape(w.ResultText()))
+	}
+	if !m.closed && (w.demand != nil || !w.consumed) {
+		m.notifications = append(m.notifications, completion{id: w.ID, at: w.CompletedAt, demand: w.demand, full: requested})
+		m.signalDeliveries()
 		if m.notificationTimer == nil && (m.host.ParentRunning == nil || !m.host.ParentRunning()) {
 			m.notificationTimer = time.AfterFunc(40*time.Millisecond, m.flushNotifications)
 		}

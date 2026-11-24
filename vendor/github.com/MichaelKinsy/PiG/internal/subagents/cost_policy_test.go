@@ -263,7 +263,7 @@ func TestCompletionNotificationRequestsFetchOnlyForTruncation(t *testing.T) {
 		}, Notify: func(text string) { notification = text }})
 		m.mu.Lock()
 		m.runs[0].consumed = false
-		m.notifications = []completion{{"a", 1}}
+		m.notifications = []completion{{id: "a", at: 1}}
 		m.mu.Unlock()
 		m.flushNotifications()
 		m.Close()
@@ -336,7 +336,7 @@ func TestSmartNotificationPreservesResponsiveness(t *testing.T) {
 			m.settings.DefaultJoinMode = test.mode
 			m.runs[0].consumed = false
 			m.runs[1].Status = "running"
-			m.notifications = []completion{{"a", at}}
+			m.notifications = []completion{{id: "a", at: at}}
 			m.mu.Unlock()
 			m.flushNotifications()
 			if notifications.Load() != 1 {
@@ -357,7 +357,7 @@ func TestSmartNotificationsBatchSiblingCompletions(t *testing.T) {
 	m.mu.Lock()
 	m.runs[0].consumed, m.runs[1].consumed = false, false
 	m.runs[1].Status = "running"
-	m.notifications = []completion{{"a", now}}
+	m.notifications = []completion{{id: "a", at: now}}
 	m.mu.Unlock()
 	m.flushNotifications()
 	mu.Lock()
@@ -370,7 +370,7 @@ func TestSmartNotificationsBatchSiblingCompletions(t *testing.T) {
 	m.runs[1].Status = "completed"
 	m.runs[1].CompletedAt = now
 	m.runs[1].Result = "config.go"
-	m.notifications = append(m.notifications, completion{"b", now})
+	m.notifications = append(m.notifications, completion{id: "b", at: now})
 	m.mu.Unlock()
 	m.flushNotifications()
 	mu.Lock()

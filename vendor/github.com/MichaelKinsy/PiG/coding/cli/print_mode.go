@@ -533,6 +533,21 @@ func runPrintModeIn(ctx context.Context, rt *coding.Runtime, opts printModeOptio
 	for _, message := range opts.Messages {
 		send(message, nil)
 	}
+	if runErr == nil {
+		for manager := current().Subagents(); manager != nil; {
+			if err := manager.WaitResultDeliveries(ctx); err != nil {
+				runErr = fmt.Errorf("wait for subagent results: %w", err)
+				break
+			}
+			if err := current().WaitForIdle(ctx); err != nil {
+				runErr = fmt.Errorf("wait for result turn: %w", err)
+				break
+			}
+			if !manager.ResultDeliveriesOutstanding() {
+				break
+			}
+		}
+	}
 	// A run that a signal's disposal cut short never resolves Pi's prompt; one that ended first prints its result before
 	// the disposal goes on.
 	resultMu.Lock()

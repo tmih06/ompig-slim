@@ -73,13 +73,18 @@ func (m *InteractiveMode) resolveToolRenderers(name string) *extension.ToolRende
 			definition = tools.StaticExtendedBuiltinDefinition(name)
 			ok = definition.Name != ""
 		}
-		if !ok && (name == "read" || name == "write" || name == "edit" || name == "codemode" || name == "Agent") {
+		if !ok && (name == "read" || name == "write" || name == "edit" || name == "codemode" || name == "Agent" || name == "get_subagent_result") {
 			// codemode is a built-in tool, not an extension, so the runner holds no registration of it: the card is drawn
 			// by the definition's own renderers (core/tools/codemode/renderer.ts).
 			definition, ok = extension.ToolDefinition{Name: name}, true
 			if name == "edit" {
 				// upstream: core/tools/edit.ts renderShell: "self"
 				definition.RenderShell = extension.ToolRenderShellSelf
+			}
+			if name == "get_subagent_result" {
+				// Same renderers as session_subagents' WithSubagentRenderers for the
+				// extension-free path, where the runner holds no registration.
+				definition = WithSubagentRenderers(definition)
 			}
 		}
 		if !ok {

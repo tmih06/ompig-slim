@@ -38,9 +38,21 @@ foreground `Agent` call that is cancelled hands off to the background instead.
 
 ## Retrieval
 
-`get_subagent_result` returns the exact result text for a `completed` child,
-including an intentionally empty one. It does not prepend status prose, inflate
-the text with the transcript, or truncate it.
+`get_subagent_result` always returns immediately at root. A finished child
+resolves inline with its exact result text, including an intentionally empty
+one; it does not prepend status prose, inflate the text with the transcript,
+or truncate it. A running child returns a pending receipt instead, and the
+exact full result arrives on its own as a completion notification once the
+child finishes. `wait` changes nothing at root and stays accepted for
+compatibility. A second read while the request is outstanding reports the
+request is already pending and does not schedule another delivery. Reading
+the terminal result before that notification fires consumes it, so the parent
+is never told twice.
+
+In headless `--print` mode, the process waits for pending result deliveries
+and their triggered turns before exiting. The tool still returns a pending
+receipt immediately. The exact result arrives in a notification turn before
+the session ends.
 
 For `failed`, `canceled`, and `exhausted`, the text states the outcome first and
 then the partial output, so a bounded read cannot mistake it for a finished
@@ -68,12 +80,28 @@ An incomplete child returns an error result, on both the `Agent` launch path and
 retrieval, so a `failed`, `canceled`, or `exhausted` child reads as a failure in
 the tool result itself and not only in its text.
 
+Result tool cards show four wrapped lines by default. Ctrl+O expands the full
+result. Folding changes only the transcript display, not the stored result or
+the text sent to the model.
+
+A nested agent keeps the synchronous contract: `wait:true` still blocks for its
+own child and `wait:false` observes without claiming, because the notification
+route delivers to the root parent only.
+
+A resumed child may outlive its own completion notice. A demanded delivery owns
+a frozen snapshot of the generation that produced it, so the result a parent
+requested still arrives exact even when the record has moved on.
+
 ## Notifications
 
 A completion notification keeps its bounded preview. It adds `<outcome>` and,
 for incomplete text, `<partial>true</partial>`. The truncation hint still appears
 only when the preview is shorter than the result, so a short result never asks
 for another retrieval.
+
+A requested full result replaces the preview entirely instead of batching with
+siblings. Its envelope adds `<requested>true</requested>`, and the frozen
+`<result>` holds exactly the text a terminal read would return.
 
 ```xml
 <task-notification>
