@@ -650,6 +650,44 @@ func TestWaitResultDeliveries(t *testing.T) {
 	}
 }
 
+func TestWaitResultDeliveriesWakesAllWaiters(t *testing.T) {
+	release := make(chan struct{})
+	notes := &resultRequestNotify{}
+	m := resultRequestManager(t, notes, release, func(string) (string, error) { return "exact", nil })
+	r, err := m.Spawn(t.Context(), Params{Prompt: "work", Background: new(true)}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultTool(t, m, fmt.Sprintf(`{"agent_id":%q}`, r.ID))
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	const waiters = 8
+	done := make(chan error, waiters)
+	var wg sync.WaitGroup
+	wg.Add(waiters)
+	for range waiters {
+		go func() {
+			defer wg.Done()
+			done <- m.WaitResultDeliveries(ctx)
+		}()
+	}
+	close(release)
+	await(t, func() bool { current, _ := m.Find(r.ID); return !current.Active() })
+	if got := resultToolText(resultTool(t, m, fmt.Sprintf(`{"agent_id":%q}`, r.ID))); got != "exact" {
+		t.Fatalf("terminal read returned %q", got)
+	}
+	wg.Wait()
+	for range waiters {
+		if err := <-done; err != nil {
+			t.Fatalf("terminal read did not wake a delivery waiter: %v", err)
+		}
+	}
+	m.flushNotifications()
+	if got := notes.all(); len(got) != 0 {
+		t.Fatalf("a consumed result still delivered: %v", got)
+	}
+}
+
 func TestResultRequestConsumedGenerationStaysConsumedAfterResume(t *testing.T) {
 	release := make(chan struct{})
 	notes := &resultRequestNotify{}

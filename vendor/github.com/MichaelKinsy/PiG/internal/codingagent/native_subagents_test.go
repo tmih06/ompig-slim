@@ -668,6 +668,24 @@ func TestResultCardWrapsAndReflowsWithWidth(t *testing.T) {
 	}
 }
 
+func TestResultCardRedrawAndResizePreserveRows(t *testing.T) {
+	text := strings.Repeat("Unicode λ \x1b[31mcolored\x1b[0m <result> & exact text. ", 100) + "\n\nRESULT_TAIL\n"
+	for _, expanded := range []bool{false, true} {
+		result := agent.AgentToolResult{
+			Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}},
+			Details: subagents.OutcomeEnvelope{AgentID: "agent_resize", Outcome: subagents.OutcomeCompleted},
+		}
+		component := subagentResultRenderResult(result, extension.ToolRenderResultOptions{Expanded: expanded}, nil, extension.ToolRenderContext{})
+		for _, width := range []int{80, 80, 30, 30, 0, -1, 80, 1, 80} {
+			got := component.Render(width)
+			want := resultCardResult(t, result.Details, text, false, expanded, width)
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("redraw at width %d expanded=%t changed rows", width, expanded)
+			}
+		}
+	}
+}
+
 func TestResultCardMarksIncompleteOutcomes(t *testing.T) {
 	for _, test := range []struct {
 		outcome subagents.Outcome

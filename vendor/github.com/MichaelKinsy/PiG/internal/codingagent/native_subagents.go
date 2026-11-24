@@ -1287,9 +1287,14 @@ func subagentResultRenderResult(result extension.AgentToolResult, options extens
 		header += "  " + theme.Fg("muted", id)
 	}
 	text := value.Text()
+	// Text, expansion and theme are fixed for this component; only width varies.
+	cachedWidth, cached := -1, []string(nil)
 	return linesComponent{render: func(width int) []string {
 		if width <= 0 {
 			return nil
+		}
+		if width == cachedWidth {
+			return cached
 		}
 		lines := []string{clampAgentLine(header, width)}
 		if text == "" {
@@ -1310,7 +1315,8 @@ func subagentResultRenderResult(result extension.AgentToolResult, options extens
 		if hidden > 0 {
 			lines = append(lines, clampAgentLine(theme.Fg("dim", fmt.Sprintf("    \u2026 %d more lines (ctrl+o to expand)", hidden)), width))
 		}
-		return lines
+		cached, cachedWidth = lines, width
+		return cached
 	}}
 }
 

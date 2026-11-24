@@ -234,7 +234,7 @@ const (
 func New(host Host) *Manager {
 	s, w := LoadSettings(host.CWD, host.AgentDir)
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{host: host, settings: s, warnings: w, ctx: ctx, cancel: cancel, deliveryBroadcast: make(chan struct{})}
+	m := &Manager{host: host, settings: s, warnings: w, ctx: ctx, cancel: cancel}
 	configs, cw := m.reloadConfigs(s)
 	m.configs = configs
 	m.warnings = append(m.warnings, cw...)
@@ -1398,11 +1398,7 @@ func (m *Manager) Wait(ctx context.Context, ref, owner string, allowHandoff bool
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !r.Active() {
-		r.consumed = true
-		if r.demand != nil {
-			r.demand.resolved = true
-		}
-		m.signalDeliveries()
+		m.consumeResultLocked(r)
 	}
 	return cloneRecord(r.Record), nil
 }
@@ -1414,13 +1410,17 @@ func (m *Manager) Consume(ref, owner string) (Record, error) {
 		return Record{}, fmt.Errorf("agent not found: %s", ref)
 	}
 	if !r.Active() {
-		r.consumed = true
-		if r.demand != nil {
-			r.demand.resolved = true
-		}
-		m.signalDeliveries()
+		m.consumeResultLocked(r)
 	}
 	return cloneRecord(r.Record), nil
+}
+
+func (m *Manager) consumeResultLocked(r *run) {
+	r.consumed = true
+	if r.demand != nil {
+		r.demand.resolved = true
+	}
+	m.signalDeliveries()
 }
 
 // RequestResult resolves a root result request atomically. A terminal record
@@ -1435,11 +1435,7 @@ func (m *Manager) RequestResult(ref string) (Record, resultDisposition, error) {
 		return Record{}, resultReady, fmt.Errorf("agent not found: %s", ref)
 	}
 	if !r.Active() {
-		r.consumed = true
-		if r.demand != nil {
-			r.demand.resolved = true
-		}
-		m.signalDeliveries()
+		m.consumeResultLocked(r)
 		return cloneRecord(r.Record), resultReady, nil
 	}
 	if r.demand != nil {
@@ -1460,6 +1456,9 @@ func (m *Manager) WaitResultDeliveries(ctx context.Context) error {
 		if !m.resultDeliveriesOutstandingLocked() {
 			m.mu.Unlock()
 			return nil
+		}
+		if m.deliveryBroadcast == nil {
+			m.deliveryBroadcast = make(chan struct{})
 		}
 		ch := m.deliveryBroadcast
 		m.mu.Unlock()
@@ -1509,8 +1508,10 @@ func (m *Manager) resultDeliveriesOutstandingLocked() bool {
 // signalDeliveries wakes WaitResultDeliveries after a claim transition. It
 // must run with m.mu held.
 func (m *Manager) signalDeliveries() {
-	close(m.deliveryBroadcast)
-	m.deliveryBroadcast = make(chan struct{})
+	if m.deliveryBroadcast != nil {
+		close(m.deliveryBroadcast)
+		m.deliveryBroadcast = nil
+	}
 }
 
 func requestedNotification(id string, record Record) string {
