@@ -16,6 +16,8 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
     stage = 0
     failure = ""
     children = 0
+    agent_id = ""
+    wf_id = ""
     structured_retries = 0
     lock = threading.Lock()
 
@@ -62,6 +64,8 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
                 cls.stage += 1
             results = [m for m in messages if m["role"] == "tool"]
             last = results[-1].get("content", "") if results else ""
+            everything = "\n".join(str(m.get("content", "")) for m in messages)
+            wait = False
             if stage == 0:
                 delta, reason = self.tool("subagent_rpc_proof", {})
             elif stage == 1:
@@ -74,27 +78,54 @@ class ModelServer(http.server.BaseHTTPRequestHandler):
                     cls.failure = "background agent did not return an id: " + str(last)
                     delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
                 else:
+                    cls.agent_id = match[0]
                     delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
             elif stage == 3:
-                if "CHILD_SESSION_OK" not in str(last):
+                # The requested full result may still be in flight; the read
+                # returns immediately with a pending receipt and the exact
+                # result arrives as a completion notification instead.
+                if "CHILD_SESSION_OK" in everything:
+                    delta, reason = self.tool("SubagentWorkflow", {"script": "export const meta={name:'smoke',description:'Native workflow proof'}; const result=await pipeline(args,item=>agent(item,{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}})); return result;", "args": ["one", "two"]})
+                elif "<task-id>" + cls.agent_id in everything:
+                    # The demanded delivery arrived without the sentinel: the
+                    # child finished with a different or failed result.
                     cls.failure = "background result missing: " + str(last)
-                delta, reason = self.tool("SubagentWorkflow", {"script": "export const meta={name:'smoke',description:'Native workflow proof'}; const result=await pipeline(args,item=>agent(item,{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}})); return result;", "args": ["one", "two"]})
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+                elif "pending" in str(last):
+                    delta, reason = {"role": "assistant", "content": "awaiting background result"}, "stop"
+                    wait = True
+                else:
+                    cls.failure = "background result missing: " + str(last)
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
             elif stage == 4:
                 match = re.search(r"wf_[a-z0-9]+", str(last))
                 if not match:
                     cls.failure = "workflow did not return run id: " + str(last)
                     delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
                 else:
+                    cls.wf_id = match[0]
                     delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
-            else:
-                if stage == 5 and "STRUCTURED_CHILD_OK" not in str(last):
-                    cls.failure = "structured workflow result missing: " + str(last)
-                if stage == 5:
+            elif stage == 5:
+                if "STRUCTURED_CHILD_OK" in everything:
                     delta, reason = self.tool("Agent", {"prompt": "Rejected role proof", "description": "Rejected role proof", "role": "@default", "tool": ["read"]})
+                elif "<task-id>" + cls.wf_id in everything:
+                    cls.failure = "structured workflow result missing: " + str(last)
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+                elif "pending" in str(last):
+                    delta, reason = {"role": "assistant", "content": "awaiting workflow result"}, "stop"
+                    wait = True
                 else:
-                    if "expected one of" not in str(last) or any(role not in str(last) for role in offered_roles) or "agent_" in str(last):
-                        cls.failure = "unlisted role was not rejected before launch: " + str(last)
-                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED" if cls.failure else "SUBAGENT_RUNTIME_OK"}, "stop"
+                    cls.failure = "structured workflow result missing: " + str(last)
+                    delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+            else:
+                if "expected one of" not in str(last) or any(role not in str(last) for role in offered_roles) or "agent_" in str(last):
+                    cls.failure = "unlisted role was not rejected before launch: " + str(last)
+                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED" if cls.failure else "SUBAGENT_RUNTIME_OK"}, "stop"
+            if wait:
+                # A waiting turn must not advance the stage counter, because
+                # the notification-triggered request replays this stage.
+                with cls.lock:
+                    cls.stage = stage
         chunks = [{"id": "subagent-smoke", "object": "chat.completion.chunk", "created": 0, "model": "subagent-smoke", "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}, {"id": "subagent-smoke", "choices": [{"index": 0, "delta": {}, "finish_reason": reason}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}}]
         wire = "".join("data: " + json.dumps(c) + "\n\n" for c in chunks) + "data: [DONE]\n\n"
         self.send_response(200)
@@ -136,18 +167,23 @@ class BudgetServer(http.server.BaseHTTPRequestHandler):
         else:
             results = [m for m in messages if m["role"] == "tool"]
             last = str(results[-1].get("content", "")) if results else ""
+            everything = "\n".join(str(m.get("content", "")) for m in messages)
             if not results:
                 delta, reason = self.tool("Agent", {"prompt": "EXHAUST_TURNS", "description": "Budget exhaustion proof", "role": "@task", "tool": ["read"]})
+            elif "subagent_outcome: exhausted" in everything:
+                delta, reason = {"role": "assistant", "content": "BUDGET_RUNTIME_OK"}, "stop"
+            elif "subagent_outcome:" in everything:
+                cls.failure = "budget exhaustion reported the wrong outcome: " + last
+                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
+            elif "pending" in last:
+                # The read claimed the delivery; pause until the notification
+                # turn carries the terminal outcome.
+                delta, reason = {"role": "assistant", "content": "awaiting exhausted result"}, "stop"
             elif match := re.search(r"\bagent_[a-z0-9]{6,}", last):
                 delta, reason = self.tool("get_subagent_result", {"agent_id": match[0], "wait": True})
-            elif "subagent_outcome: exhausted" not in last:
+            else:
                 cls.failure = "budget exhaustion lost its outcome: " + last
                 delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
-            elif "subagent_outcome: canceled" in last:
-                cls.failure = "budget exhaustion reported cancellation: " + last
-                delta, reason = {"role": "assistant", "content": "SUBAGENTS_FAILED"}, "stop"
-            else:
-                delta, reason = {"role": "assistant", "content": "BUDGET_RUNTIME_OK"}, "stop"
         wire = "".join("data: " + json.dumps(c) + "\n\n" for c in [
             {"id": "budget-smoke", "object": "chat.completion.chunk", "created": 0, "model": "budget-smoke", "choices": [{"index": 0, "delta": delta, "finish_reason": None}]},
             {"id": "budget-smoke", "choices": [{"index": 0, "delta": {}, "finish_reason": reason}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}},

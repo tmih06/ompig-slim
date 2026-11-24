@@ -162,6 +162,7 @@ type run struct {
 	handoff       chan struct{}
 	handed        bool
 	consumed      bool
+	demand        *resultDemand
 	pending       []string
 	history       []agent.AgentMessage
 	pool          string
@@ -179,38 +180,56 @@ type run struct {
 }
 
 type Manager struct {
-	persistMu         sync.Mutex
-	hubActivity       []HubActivity
-	hubNext           int
-	hubSequence       uint64
-	hubTools          map[string]int
-	mu                sync.Mutex
-	mutationMu        sync.Mutex
-	host              Host
-	settings          Settings
-	configs           []Config
-	warnings          []string
-	runs              []*run
-	ctx               context.Context
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
-	closed            bool
-	notifications     []completion
-	notificationTimer *time.Timer
-	bg, fg            int
-	jobs              []*Job
-	workflows         []*Workflow
-	onChange          func()
-	unsubscribe       func()
-	scheduleLock      *flock.Flock
-	groupIndex        int
-	pendingUsage      ai.Usage
+	persistMu          sync.Mutex
+	hubActivity        []HubActivity
+	hubNext            int
+	hubSequence        uint64
+	hubTools           map[string]int
+	mu                 sync.Mutex
+	mutationMu         sync.Mutex
+	host               Host
+	settings           Settings
+	configs            []Config
+	warnings           []string
+	runs               []*run
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	closed             bool
+	notifications      []completion
+	notificationTimer  *time.Timer
+	deliveryBroadcast  chan struct{}
+	deliveriesInFlight int
+	bg, fg             int
+	jobs               []*Job
+	workflows          []*Workflow
+	onChange           func()
+	unsubscribe        func()
+	scheduleLock       *flock.Flock
+	groupIndex         int
+	pendingUsage       ai.Usage
 }
 
 type completion struct {
-	id string
-	at int64
+	id     string
+	at     int64
+	demand *resultDemand
+	full   string
 }
+
+// A completion retains its demand across resume, including a terminal read's
+// resolution. All accesses are protected by Manager.mu.
+type resultDemand struct {
+	resolved bool
+}
+
+type resultDisposition int
+
+const (
+	resultReady resultDisposition = iota
+	resultPending
+	resultRepeated
+)
 
 func New(host Host) *Manager {
 	s, w := LoadSettings(host.CWD, host.AgentDir)
@@ -484,6 +503,7 @@ func (m *Manager) Close() {
 		m.notificationTimer.Stop()
 	}
 	m.notifications = nil
+	m.signalDeliveries()
 	for _, r := range m.runs {
 		if r.evictionTimer != nil {
 			r.evictionTimer.Stop()
@@ -635,6 +655,8 @@ func (m *Manager) spawn(ctx context.Context, p Params, owner, workflowID string,
 		r.Killed = false
 		r.retry = false
 		r.consumed = false
+		r.demand = nil
+		m.signalDeliveries()
 		r.limited = false
 		r.budget = false
 		if r.Requests == 0 {
@@ -1160,10 +1182,15 @@ func (m *Manager) finish(r *run, status, text string, err error) {
 	r.pool = ""
 	r.cancel()
 	snapshot := cloneRecord(r.Record)
+	requested := ""
+	if r.demand != nil {
+		requested = requestedNotification(r.ID, snapshot)
+	}
 	// Human-directed child conversations are visible in the Hub already;
 	// completing one must not purchase a separate parent synthesis turn.
-	if r.Background && r.TopLevel() && !r.Params.Detached && !r.consumed && !m.closed {
-		m.notifications = append(m.notifications, completion{r.ID, r.CompletedAt})
+	if !m.closed && (r.demand != nil || r.Background && r.TopLevel() && !r.Params.Detached && !r.consumed) {
+		m.notifications = append(m.notifications, completion{id: r.ID, at: r.CompletedAt, demand: r.demand, full: requested})
+		m.signalDeliveries()
 		if m.notificationTimer == nil && (m.host.ParentRunning == nil || !m.host.ParentRunning()) {
 			m.notificationTimer = time.AfterFunc(40*time.Millisecond, m.flushNotifications)
 		}
@@ -1207,10 +1234,31 @@ func (m *Manager) flushNotifications() {
 	for _, pending := range m.notifications {
 		if strings.HasPrefix(pending.id, "wf_") {
 			for _, w := range m.workflows {
-				if w.ID == pending.id && !w.consumed && !w.Active() && w.CompletedAt == pending.at {
+				if w.ID != pending.id || w.CompletedAt != pending.at {
+					continue
+				}
+				if pending.demand != nil {
+					if !pending.demand.resolved {
+						pending.demand.resolved = true
+						w.consumed = true
+						messages = append(messages, pending.full)
+					}
+					continue
+				}
+				if !w.consumed && !w.Active() {
 					messages = append(messages, fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n%s\n</task-notification>", w.ID, w.Status, xmlEscape(w.ResultText())))
 					w.consumed = true
 				}
+			}
+			continue
+		}
+		if pending.demand != nil {
+			if !pending.demand.resolved {
+				pending.demand.resolved = true
+				if r := m.findLocked(pending.id, ""); r != nil && r.demand == pending.demand {
+					r.consumed = true
+				}
+				messages = append(messages, pending.full)
 			}
 			continue
 		}
@@ -1243,6 +1291,7 @@ func (m *Manager) flushNotifications() {
 		}
 	}
 	m.notifications = retained
+	m.signalDeliveries()
 	if m.notificationTimer != nil {
 		m.notificationTimer.Stop()
 	}
@@ -1250,10 +1299,19 @@ func (m *Manager) flushNotifications() {
 	if len(retained) > 0 && !m.closed {
 		m.notificationTimer = time.AfterFunc(time.Second, m.flushNotifications)
 	}
-	closed := m.closed
+	deliver := !m.closed && len(messages) > 0 && m.host.Notify != nil
+	if deliver {
+		m.deliveriesInFlight++
+		m.wg.Add(1)
+	}
 	m.mu.Unlock()
-	if !closed && len(messages) > 0 && m.host.Notify != nil {
+	if deliver {
+		defer m.wg.Done()
 		m.host.Notify(strings.Join(messages, "\n\n"))
+		m.mu.Lock()
+		m.deliveriesInFlight--
+		m.signalDeliveries()
+		m.mu.Unlock()
 	}
 }
 
@@ -1340,7 +1398,7 @@ func (m *Manager) Wait(ctx context.Context, ref, owner string, allowHandoff bool
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !r.Active() {
-		r.consumed = true
+		m.consumeResultLocked(r)
 	}
 	return cloneRecord(r.Record), nil
 }
@@ -1352,9 +1410,117 @@ func (m *Manager) Consume(ref, owner string) (Record, error) {
 		return Record{}, fmt.Errorf("agent not found: %s", ref)
 	}
 	if !r.Active() {
-		r.consumed = true
+		m.consumeResultLocked(r)
 	}
 	return cloneRecord(r.Record), nil
+}
+
+func (m *Manager) consumeResultLocked(r *run) {
+	r.consumed = true
+	if r.demand != nil {
+		r.demand.resolved = true
+	}
+	m.signalDeliveries()
+}
+
+// RequestResult resolves a root result request atomically. A terminal record
+// returns its snapshot consumed; an active run claims its completion delivery
+// once, so the exact result arrives through the notification queue without
+// the caller blocking or polling.
+func (m *Manager) RequestResult(ref string) (Record, resultDisposition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.findLocked(ref, "")
+	if r == nil {
+		return Record{}, resultReady, fmt.Errorf("agent not found: %s", ref)
+	}
+	if !r.Active() {
+		m.consumeResultLocked(r)
+		return cloneRecord(r.Record), resultReady, nil
+	}
+	if r.demand != nil {
+		return cloneRecord(r.Record), resultRepeated, nil
+	}
+	r.demand = &resultDemand{}
+	m.signalDeliveries()
+	return cloneRecord(r.Record), resultPending, nil
+}
+
+// WaitResultDeliveries blocks until no result claim remains outstanding: every
+// demanded completion notification was dispatched, or its result was consumed
+// by a terminal read first. A headless caller waits here before tearing the
+// session down, so the turn a delivery triggers still gets to run.
+func (m *Manager) WaitResultDeliveries(ctx context.Context) error {
+	for {
+		m.mu.Lock()
+		if !m.resultDeliveriesOutstandingLocked() {
+			m.mu.Unlock()
+			return nil
+		}
+		if m.deliveryBroadcast == nil {
+			m.deliveryBroadcast = make(chan struct{})
+		}
+		ch := m.deliveryBroadcast
+		m.mu.Unlock()
+		select {
+		case <-ch:
+		case <-m.ctx.Done():
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// ResultDeliveriesOutstanding reports whether any result claim still awaits
+// its completion delivery.
+func (m *Manager) ResultDeliveriesOutstanding() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.resultDeliveriesOutstandingLocked()
+}
+
+func (m *Manager) resultDeliveriesOutstandingLocked() bool {
+	if m.closed {
+		return false
+	}
+	if m.deliveriesInFlight > 0 {
+		return true
+	}
+	for _, pending := range m.notifications {
+		if pending.demand != nil && !pending.demand.resolved {
+			return true
+		}
+	}
+	for _, r := range m.runs {
+		if r.demand != nil && r.Active() {
+			return true
+		}
+	}
+	for _, w := range m.workflows {
+		if w.demand != nil && w.Active() {
+			return true
+		}
+	}
+	return false
+}
+
+// signalDeliveries wakes WaitResultDeliveries after a claim transition. It
+// must run with m.mu held.
+func (m *Manager) signalDeliveries() {
+	if m.deliveryBroadcast != nil {
+		close(m.deliveryBroadcast)
+		m.deliveryBroadcast = nil
+	}
+}
+
+func requestedNotification(id string, record Record) string {
+	partial := ""
+	if record.Partial() {
+		partial = "\n<partial>true</partial>"
+	}
+	return fmt.Sprintf("<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<outcome>%s</outcome>\n<summary>%s</summary>\n<result>%s</result>%s\n<requested>true</requested>\n</task-notification>",
+		id, record.Status, record.Outcome(), xmlEscape(record.Description), xmlEscape(retrievalText(record)), partial)
 }
 func (m *Manager) Steer(ref, message, owner string) error {
 	if strings.TrimSpace(message) == "" {
@@ -1466,6 +1632,7 @@ func (m *Manager) Transcript(ref string) ([]json.RawMessage, error) {
 	}
 	return out, nil
 }
+
 // NewestAssistantMessage is the most recent assistant message recorded for ref, or nil. It reads
 // the tail without copying the transcript, so a render loop can poll it every frame.
 func (m *Manager) NewestAssistantMessage(ref string) *agent.AssistantMessage {

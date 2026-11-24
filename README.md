@@ -81,7 +81,8 @@ Slash commands include `/login` `/model` `/settings` `/usage` `/goal` `/subagent
 - **Accounts:** multiple accounts per provider with [quota-aware routing](docs/account-routing.md)
 - **Recovery:** [provider-aware retries](docs/provider-recovery.md), quota-reset waits, and visible wait status
 - **Subagents:** `Agent` with fixed roles, Agent Hub, an [on-demand tree](docs/subagents.md#live-inspection),
-  and [explicit child outcomes](docs/subagents.md)
+  and [explicit child outcomes](docs/subagents.md); `get_subagent_result` claims a running child once
+  and delivers the exact full result when it finishes
 - **Guardrails:** [loop guard](docs/loop-guard.md) and [streaming rules](docs/streaming-rules.md)
 - **Extensions:** TS, Go, Rust, Python, and Lisp; the [Herdr](https://herdr.dev) adapter is installable
 - **Sessions:** [pre-compaction scrollback and cache-aware idle checkpoints](docs/compaction.md)

@@ -582,3 +582,149 @@ six</result></task-notification>`}
 		}
 	}
 }
+
+func TestResultCallCardShowsRequestedAgent(t *testing.T) {
+	def := WithSubagentRenderers(extension.ToolDefinition{Name: "get_subagent_result"})
+	call := def.RenderCall(json.RawMessage(`{"agent_id":"agent_ab12"}`), nil, extension.ToolRenderContext{})
+	lines := call.Render(80)
+	if len(lines) != 1 {
+		t.Fatalf("result call must stay one line: %q", lines)
+	}
+	text := widthx.StripTerminalSequences(lines[0])
+	if !strings.Contains(text, "Get Agent Result") || !strings.Contains(text, "agent_ab12") {
+		t.Fatalf("call header lost the requested agent: %q", text)
+	}
+	if lines := call.Render(10); len(lines) != 1 || widthx.VisibleWidth(lines[0]) > 10 {
+		t.Fatalf("call header must clamp to width: %q", lines)
+	}
+}
+
+func resultCardResult(t *testing.T, details any, text string, isError bool, expanded bool, width int) []string {
+	t.Helper()
+	def := WithSubagentRenderers(extension.ToolDefinition{Name: "get_subagent_result"})
+	if def.RenderResult == nil {
+		t.Fatal("get_subagent_result has no result renderer")
+	}
+	result := agent.AgentToolResult{
+		Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}},
+		Details: details,
+		IsError: isError,
+	}
+	component := def.RenderResult(result, extension.ToolRenderResultOptions{Expanded: expanded}, nil, extension.ToolRenderContext{IsError: isError})
+	if component == nil {
+		t.Fatal("result renderer returned no component")
+	}
+	return component.Render(width)
+}
+
+func TestResultCardFoldsExactResultAndNamesCanonicalID(t *testing.T) {
+	text := strings.Join([]string{"line one", "line two", "line three", "line four", "line five", "RESULT_TAIL"}, "\n")
+	envelope := subagents.OutcomeEnvelope{AgentID: "agent_canon", Outcome: subagents.OutcomeCompleted}
+	collapsed := strings.Join(resultCardResult(t, envelope, text, false, false, 80), "\n")
+	clean := widthx.StripTerminalSequences(collapsed)
+	if !strings.Contains(clean, "agent_canon") {
+		t.Fatalf("result card lost the canonical id: %q", clean)
+	}
+	if strings.Contains(clean, "RESULT_TAIL") || !strings.Contains(clean, "ctrl+o") {
+		t.Fatalf("collapsed card did not fold behind the expand hint: %q", clean)
+	}
+	expanded := strings.Join(resultCardResult(t, envelope, text, false, true, 80), "\n")
+	if !strings.Contains(widthx.StripTerminalSequences(expanded), "RESULT_TAIL") {
+		t.Fatalf("expanded card hid the tail: %q", expanded)
+	}
+}
+
+func TestResultCardWrapsAndReflowsWithWidth(t *testing.T) {
+	long := strings.Repeat("wrappable tokens of a long line ", 8)
+	text := long + "\n" + strings.Repeat("second row of wrapped output ", 8) + "\n" + strings.Repeat("third row ", 30)
+	envelope := subagents.OutcomeEnvelope{AgentID: "agent_wrap", Outcome: subagents.OutcomeCompleted}
+	for _, width := range []int{30, 80} {
+		lines := resultCardResult(t, envelope, text, false, false, width)
+		for _, line := range lines {
+			if widthx.VisibleWidth(line) > width {
+				t.Fatalf("card line overflows %d: %q", width, line)
+			}
+		}
+	}
+	narrow := resultCardResult(t, envelope, text, false, true, 30)
+	wide := resultCardResult(t, envelope, text, false, true, 80)
+	if len(narrow) <= len(wide) {
+		t.Fatalf("expanded rows did not reflow with width: %d vs %d lines", len(narrow), len(wide))
+	}
+	countBody := func(lines []string) int {
+		n := 0
+		for _, line := range lines {
+			if strings.Contains(line, "⎿") {
+				n++
+			}
+		}
+		return n
+	}
+	if got := countBody(resultCardResult(t, envelope, text, false, false, 30)); got != 4 {
+		t.Fatalf("narrow folded body is not bounded: %d lines", got)
+	}
+	if got := countBody(resultCardResult(t, envelope, text, false, false, 80)); got != 4 {
+		t.Fatalf("wide folded body is not bounded: %d lines", got)
+	}
+}
+
+func TestResultCardRedrawAndResizePreserveRows(t *testing.T) {
+	text := strings.Repeat("Unicode λ \x1b[31mcolored\x1b[0m <result> & exact text. ", 100) + "\n\nRESULT_TAIL\n"
+	for _, expanded := range []bool{false, true} {
+		result := agent.AgentToolResult{
+			Content: []ai.ToolResultMessageContent{ai.TextContent{Text: text}},
+			Details: subagents.OutcomeEnvelope{AgentID: "agent_resize", Outcome: subagents.OutcomeCompleted},
+		}
+		component := subagentResultRenderResult(result, extension.ToolRenderResultOptions{Expanded: expanded}, nil, extension.ToolRenderContext{})
+		for _, width := range []int{80, 80, 30, 30, 0, -1, 80, 1, 80} {
+			got := component.Render(width)
+			want := resultCardResult(t, result.Details, text, false, expanded, width)
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("redraw at width %d expanded=%t changed rows", width, expanded)
+			}
+		}
+	}
+}
+
+func TestResultCardMarksIncompleteOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		outcome subagents.Outcome
+		want    string
+	}{
+		{subagents.OutcomeCompleted, "✓"},
+		{subagents.OutcomeFailed, "✗"},
+		{subagents.OutcomeCanceled, "✗"},
+		{subagents.OutcomeExhausted, "✗"},
+		{subagents.OutcomeRunning, "…"},
+	} {
+		envelope := subagents.OutcomeEnvelope{AgentID: "a", Outcome: test.outcome}
+		rendered := widthx.StripTerminalSequences(strings.Join(resultCardResult(t, envelope, "text", test.outcome != subagents.OutcomeCompleted && test.outcome != subagents.OutcomeRunning, false, 80), "\n"))
+		if !strings.HasPrefix(rendered, test.want+" Get Agent Result") {
+			t.Fatalf("outcome %s rendered %q, want the %s mark", test.outcome, rendered, test.want)
+		}
+	}
+}
+
+func TestResultRequestDeliveryKeepsFrozenResultInCard(t *testing.T) {
+	_, manager := observerFixture(t)
+	// The record holds a newer generation's result; a requested delivery owns
+	// its frozen payload and must not be overwritten by the live record.
+	card := &subagentNotificationCard{
+		manager: manager,
+		text:    `<task-notification><task-id>agent_test</task-id><status>completed</status><outcome>completed</outcome><summary>Audit</summary><result>frozen old generation</result><requested>true</requested></task-notification>`,
+	}
+	rendered := widthx.StripTerminalSequences(strings.Join(card.Render(80), "\n"))
+	if !strings.Contains(rendered, "frozen old generation") {
+		t.Fatalf("requested delivery lost its frozen payload: %q", rendered)
+	}
+	if strings.Contains(rendered, "Found auth.go") {
+		t.Fatalf("requested delivery substituted the live record: %q", rendered)
+	}
+	plain := &subagentNotificationCard{
+		manager: manager,
+		text:    `<task-notification><task-id>agent_test</task-id><status>completed</status><summary>Audit</summary><result>preview</result></task-notification>`,
+	}
+	if rendered := widthx.StripTerminalSequences(strings.Join(plain.Render(80), "\n")); !strings.Contains(rendered, "Found auth.go") {
+		t.Fatalf("ordinary preview stopped substituting the record: %q", rendered)
+	}
+}

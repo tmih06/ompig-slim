@@ -22,11 +22,12 @@ func (c *subagentNotificationCard) Invalidate() {}
 func (c *subagentNotificationCard) Render(width int) []string {
 	var root struct {
 		Tasks []struct {
-			ID      string `xml:"task-id"`
-			Status  string `xml:"status"`
-			Summary string `xml:"summary"`
-			Result  string `xml:"result"`
-			Text    string `xml:",chardata"`
+			ID        string `xml:"task-id"`
+			Status    string `xml:"status"`
+			Summary   string `xml:"summary"`
+			Result    string `xml:"result"`
+			Requested string `xml:"requested"`
+			Text      string `xml:",chardata"`
 		} `xml:"task-notification"`
 	}
 	if xml.Unmarshal([]byte("<notifications>"+c.text+"</notifications>"), &root) != nil || len(root.Tasks) == 0 {
@@ -40,9 +41,13 @@ func (c *subagentNotificationCard) Render(width int) []string {
 			if r, ok := c.manager.Find(task.ID); ok {
 				label = subagentName(r) + " · " + r.Description
 				stats = subagentStats(r, c.manager.Settings())
-				result = r.Result
-				if r.Error != "" {
-					result += "\n" + r.Error
+				// A requested delivery owns a frozen payload; substituting the
+				// live record would show a newer generation in its place.
+				if task.Requested == "" {
+					result = r.Result
+					if r.Error != "" {
+						result += "\n" + r.Error
+					}
 				}
 			}
 		}
@@ -67,9 +72,9 @@ func (c *subagentNotificationCard) Render(width int) []string {
 			body = append(body, widthx.WrapTextWithAnsi(line, max(1, width-4))...)
 		}
 		hidden := 0
-		if !c.expanded && len(body) > 4 {
-			hidden = len(body) - 4
-			body = body[:4]
+		if !c.expanded && len(body) > subagentResultPreviewLines {
+			hidden = len(body) - subagentResultPreviewLines
+			body = body[:subagentResultPreviewLines]
 		}
 		for _, line := range body {
 			lines = append(lines, clampAgentLine(theme.Fg("dim", "  ⎿ ")+line, width))

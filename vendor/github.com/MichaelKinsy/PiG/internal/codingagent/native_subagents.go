@@ -1224,6 +1224,11 @@ func WithSubagentRenderers(def extension.ToolDefinition) extension.ToolDefinitio
 		def.RenderCall = subagentRenderCall
 		def.RenderResult = subagentRenderResult
 	}
+	if def.Name == "get_subagent_result" {
+		def.RenderShell = extension.ToolRenderShellDefault
+		def.RenderCall = subagentResultRenderCall
+		def.RenderResult = subagentResultRenderResult
+	}
 	return def
 }
 func subagentRenderCall(args json.RawMessage, _ extension.Theme, _ extension.ToolRenderContext) extension.Component {
@@ -1247,4 +1252,106 @@ func subagentRenderCall(args json.RawMessage, _ extension.Theme, _ extension.Too
 func subagentRenderResult(_ extension.AgentToolResult, _ extension.ToolRenderResultOptions, _ extension.Theme, _ extension.ToolRenderContext) extension.Component {
 	// A non-nil, empty component suppresses the generic result fallback.
 	return linesComponent{render: func(int) []string { return nil }}
+}
+
+func subagentResultRenderCall(args json.RawMessage, _ extension.Theme, _ extension.ToolRenderContext) extension.Component {
+	id, _ := stringArg(args, "agent_id")
+	text := tui.ChalkBold("Get Agent Result")
+	if id = hubSingleLine(id); id != "" {
+		text += "  " + tui.ActiveTheme().Fg("muted", id)
+	}
+	return linesComponent{render: func(width int) []string {
+		if width <= 0 {
+			return nil
+		}
+		return []string{clampAgentLine(text, width)}
+	}}
+}
+
+const subagentResultPreviewLines = 4
+
+// Folding is visual only; the model always receives the complete text.
+func subagentResultRenderResult(result extension.AgentToolResult, options extension.ToolRenderResultOptions, _ extension.Theme, context extension.ToolRenderContext) extension.Component {
+	value := renderResultValue(result)
+	id, outcome := subagentResultIdentity(value.Details)
+	icon, color := "\u2026", "dim"
+	switch {
+	case context.IsError || outcome == subagents.OutcomeFailed || outcome == subagents.OutcomeCanceled || outcome == subagents.OutcomeExhausted:
+		icon, color = "\u2717", "error"
+	case outcome == subagents.OutcomeCompleted:
+		icon, color = "\u2713", "success"
+	}
+	theme := tui.ActiveTheme()
+	header := theme.Fg(color, icon+" ") + tui.ChalkBold("Get Agent Result")
+	if id != "" {
+		header += "  " + theme.Fg("muted", id)
+	}
+	text := value.Text()
+	// Text, expansion and theme are fixed for this component; only width varies.
+	cachedWidth, cached := -1, []string(nil)
+	return linesComponent{render: func(width int) []string {
+		if width <= 0 {
+			return nil
+		}
+		if width == cachedWidth {
+			return cached
+		}
+		lines := []string{clampAgentLine(header, width)}
+		if text == "" {
+			return append(lines, clampAgentLine(theme.Fg("dim", "  \u23bf (empty)"), width))
+		}
+		var body []string
+		for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+			body = append(body, widthx.WrapTextWithAnsi(line, max(1, width-4))...)
+		}
+		hidden := 0
+		if !options.Expanded && len(body) > subagentResultPreviewLines {
+			hidden = len(body) - subagentResultPreviewLines
+			body = body[:subagentResultPreviewLines]
+		}
+		for _, line := range body {
+			lines = append(lines, clampAgentLine(theme.Fg("dim", "  \u23bf ")+line, width))
+		}
+		if hidden > 0 {
+			lines = append(lines, clampAgentLine(theme.Fg("dim", fmt.Sprintf("    \u2026 %d more lines (ctrl+o to expand)", hidden)), width))
+		}
+		cached, cachedWidth = lines, width
+		return cached
+	}}
+}
+
+// subagentResultIdentity reads the canonical id and outcome out of the
+// details a result request returns: an OutcomeEnvelope for an agent, a
+// workflow snapshot, or their decoded forms after a reload.
+func subagentResultIdentity(details any) (string, subagents.Outcome) {
+	switch d := detailsObject(details).(type) {
+	case subagents.OutcomeEnvelope:
+		return d.AgentID, d.Outcome
+	case *subagents.OutcomeEnvelope:
+		if d != nil {
+			return d.AgentID, d.Outcome
+		}
+	case subagents.Workflow:
+		if d.Active() {
+			return d.ID, subagents.OutcomeRunning
+		}
+		if d.Status == "completed" {
+			return d.ID, subagents.OutcomeCompleted
+		}
+		return d.ID, subagents.OutcomeFailed
+	case map[string]any:
+		if id, _ := d["agentId"].(string); id != "" {
+			return id, subagents.Outcome(fmt.Sprint(d["outcome"]))
+		}
+		if id, _ := d["id"].(string); id != "" {
+			switch status, _ := d["status"].(string); status {
+			case "running", "paused":
+				return id, subagents.OutcomeRunning
+			case "completed":
+				return id, subagents.OutcomeCompleted
+			}
+			return id, subagents.OutcomeFailed
+		}
+	}
+	return "", ""
 }

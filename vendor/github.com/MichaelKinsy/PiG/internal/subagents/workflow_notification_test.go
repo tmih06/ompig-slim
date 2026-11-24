@@ -14,7 +14,7 @@ func TestWorkflowNotificationIncludesTerminalStatus(t *testing.T) {
 			defer m.Close()
 			w := &Workflow{ID: "wf_test", Status: status, CompletedAt: 1, Meta: WorkflowMeta{Name: "Audit & report"}}
 			m.workflows = []*Workflow{w}
-			m.notifications = []completion{{w.ID, w.CompletedAt}}
+			m.notifications = []completion{{id: w.ID, at: w.CompletedAt}}
 			m.flushNotifications()
 			var envelope struct {
 				ID     string `xml:"task-id"`

@@ -85,8 +85,14 @@ func TestRetrievalReportsRunningChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := result.Content[0].(ai.TextContent).Text; !strings.Contains(text, "subagent_outcome: running") {
-		t.Fatalf("a running child must not read as finished: %q", text)
+	text := result.Content[0].(ai.TextContent).Text
+	// The read must return a pending receipt at once rather than blocking or
+	// reading a finished answer that does not exist yet.
+	if !strings.Contains(text, "pending") || !strings.Contains(text, "running") {
+		t.Fatalf("a running child must return a pending receipt: %q", text)
+	}
+	if envelope, ok := result.Details.(OutcomeEnvelope); !ok || envelope.Outcome != OutcomeRunning {
+		t.Fatalf("a running child must not read as finished: %#v", result.Details)
 	}
 }
 
@@ -138,12 +144,11 @@ func TestCancelledWaitStaysParentCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	tool := Tool{Manager: m, ToolName: "get_subagent_result"}
 	// Cancel while the child is genuinely running, which is the case a parent
 	// timeout actually produces.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if _, err = tool.Execute(ctx, "result", []byte(`{"agent_id":"`+r.ID+`","wait":true}`), nil); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err = m.Wait(ctx, r.ID, "", false); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a cancelled wait reported %v, want the parent's own cancellation", err)
 	}
 	if current, _ := m.Find(r.ID); !current.Active() || current.Result != "" {
@@ -295,8 +300,11 @@ func launchAgent(t *testing.T, m *Manager) Record {
 	return r
 }
 
+// retrieveAgent drives the model-facing retrieval of a child that has already
+// settled, which is the read get_subagent_result resolves inline.
 func retrieveAgent(t *testing.T, m *Manager, id string) agent.AgentToolResult {
 	t.Helper()
+	await(t, func() bool { current, ok := m.Find(id); return ok && !current.Active() })
 	tool := Tool{Manager: m, ToolName: "get_subagent_result"}
 	result, err := tool.Execute(context.Background(), "result", []byte(`{"agent_id":"`+id+`","wait":true}`), nil)
 	if err != nil {
@@ -342,7 +350,7 @@ func TestNotificationReportsOutcomeAndKeepsBoundedPreview(t *testing.T) {
 	defer m.Close()
 	m.mu.Lock()
 	m.runs[0].consumed = false
-	m.notifications = []completion{{"a", 1}}
+	m.notifications = []completion{{id: "a", at: 1}}
 	m.mu.Unlock()
 	m.flushNotifications()
 	if !strings.Contains(notification, "<outcome>exhausted</outcome>") {
