@@ -16,6 +16,7 @@ import time
 def main(binary, provider):
     calls = []
     exhausted = set()
+    reset_after = {"a": 4, "b": 2}
     tokens = {}
     for key in ("a", "b"):
         claims = {"https://api.openai.com/auth": {
@@ -39,6 +40,7 @@ def main(binary, provider):
             if key in exhausted:
                 self.send_response(429)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Retry-After", str(reset_after.get(key, 2)))
                 self.end_headers()
                 self.wfile.write(b'{"error":{"message":"usage_limit_reached"}}')
                 return
@@ -127,12 +129,18 @@ def main(binary, provider):
             prompt("one", resume=True)
             assert calls[-2:] == ["b", "a"], calls
             exhausted.clear()
-            with sqlite3.connect(db_path) as db:
-                db.execute("DELETE FROM auth_credential_blocks")
+            exhausted.add("a")
+            time.sleep(2.3)
+            prompt("three", resume=True)
+            assert calls[-1] == "b", calls
             prompt("one", resume=True)
+            assert calls[-2:] == ["a", "b"], calls
+            exhausted.clear()
+            time.sleep(4.3)
+            prompt("two", resume=True)
             assert calls[-1] == "a", calls
-            assert len(calls) == 7, calls
-            print(f"PASS: {provider} sessions alternate accounts, resume keeps assignments, and quota fallback stays sticky after restart and block reset")
+            assert len(calls) == 10, calls
+            print(f"PASS: {provider} sessions alternate accounts, resume keeps assignments, quota fallback stays sticky, and provider-stated resets (2s/4s) are honored")
     finally:
         server.shutdown()
         server.server_close()

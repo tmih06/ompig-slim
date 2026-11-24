@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -257,6 +258,25 @@ func TestAccountFailureBlockClassifies(t *testing.T) {
 	// The provider's own wait outranks the one-minute floor.
 	if slow := ai.AccountFailureBlock("openai-codex", "gpt-6.1-sol", "usage_limit_reached; try again in 5 min", 429, nil); slow == nil || slow.Until < now+299_000 {
 		t.Fatalf("a stated retry wait must extend the block, got %+v", slow)
+	}
+	// A provider-stated wait under the floor is honored as stated: the quota RetryAt is the
+	// real reset, and blocking past it would leave the retry layer waiting on an account the
+	// router still refuses.
+	quick := ai.AccountFailureBlock("p", "m", "insufficient_quota", 429, new(int64(2_000)))
+	if quick == nil || quick.Until < now+1_900 || quick.Until > now+2_600 {
+		t.Fatalf("a 2s Retry-After must block for the stated 2s, not the heuristic minute, got %+v", quick)
+	}
+	if body := ai.AccountFailureBlock("p", "m", "usage_limit_reached; retry after 3s", 429, nil); body == nil || body.Until < now+2_900 || body.Until > now+3_600 {
+		t.Fatalf("a wait stated in the body alone must set the deadline, got %+v", body)
+	}
+	// An unstated quota failure keeps the one-minute heuristic.
+	unstated := ai.AccountFailureBlock("p", "m", "insufficient_quota", 429, nil)
+	if unstated == nil || unstated.Until < now+59_000 {
+		t.Fatalf("an unstated quota failure must earn the heuristic minute, got %+v", unstated)
+	}
+	oversized := ai.AccountFailureBlock("p", "m", "quota exhausted; retry after 10000000000000s", 429, nil)
+	if oversized == nil || oversized.RetryAt != 0 {
+		t.Fatalf("out-of-range hint became a quota reset: %+v", oversized)
 	}
 }
 
@@ -950,5 +970,241 @@ func TestStreamRoutesChainsTwoPaidCodexAccountsOnMidStreamExhaustion(t *testing.
 	}
 	if len(tried) != 2 || tried[0] != "plus-a" || tried[1] != "plus-b" {
 		t.Fatalf("expected both Plus accounts in order, tried %v", tried)
+	}
+}
+
+// TestStreamRoutesAllBlockedNamesTheSoonestQuotaReset covers the all-accounts-blocked message:
+// the soonest quota deadline is spelled as a wait the retry layer can parse, while auth and
+// policy blocks contribute nothing since they have no reset to wait for.
+func TestStreamRoutesAllBlockedNamesTheSoonestQuotaReset(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+	now := time.Now()
+	store.block("p", keyOf("a"), "auth", now.Add(time.Hour).UnixMilli())
+	router := ai.NewAccountRouter(store)
+	router.SetClock(func() time.Time { return now })
+	model := okModel("p", "m")
+	for index, seconds := range []string{"4", "2"} {
+		response := &ai.ProviderResponse{Status: 429, Headers: map[string]string{"retry-after": seconds}}
+		if block := router.Fail(t.Context(), model, &store.accounts[index], "quota exhausted", response); block == nil {
+			t.Fatal("quota rejection was not recorded")
+		}
+	}
+	var tried int
+	_, message := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+		tried++
+		return okStream(), nil
+	}))
+	if tried != 0 {
+		t.Fatalf("blocked accounts must not be attempted, tried %d", tried)
+	}
+	if message == nil || message.StopReason != ai.StopReasonError {
+		t.Fatalf("an exhausted pool must end with an error, got %+v", message)
+	}
+	if !strings.Contains(message.ErrorMessage, "Try again in 2s when the quota resets.") {
+		t.Fatalf("the soonest quota reset must name the wait, got %q", message.ErrorMessage)
+	}
+	if !ai.IsRetryableAssistantError(*message) {
+		t.Fatalf("a message naming the reset must be retryable, got %q", message.ErrorMessage)
+	}
+}
+
+func TestStreamRoutesUsesTypedFailureCategory(t *testing.T) {
+	for _, code := range []string{"usage_limit_reached", "invalid_api_key", "permission_denied"} {
+		t.Run(code, func(t *testing.T) {
+			store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+			router := ai.NewAccountRouter(store)
+			calls := 0
+			_, message := collectStream(t, router.StreamRoutes(t.Context(), okModel("p", "m"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+				calls++
+				if calls > 1 {
+					return okStream(), nil
+				}
+				failure := &ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: "Retry later"}
+				ai.RecordProviderFailure(failure, ai.NewProviderError("Retry later", nil, map[string]any{"error": map[string]any{"code": code}}))
+				stream := ai.NewAssistantMessageEventStream()
+				if err := stream.Push(ai.ErrorEvent{Reason: ai.StopReasonError, Error: failure}); err != nil {
+					return nil, err
+				}
+				return stream, nil
+			}))
+			if calls != 2 || message == nil || message.StopReason != ai.StopReasonStop {
+				t.Fatalf("typed category lost: calls=%d message=%+v", calls, message)
+			}
+		})
+	}
+}
+
+func TestRateLimitDoesNotSuppressAccountPolicy(t *testing.T) {
+	for _, provider := range []string{"p", "cursor"} {
+		t.Run(provider, func(t *testing.T) {
+			store := newFakeAccountStore(accountInfo(provider, keyOf("a"), true), accountInfo(provider, keyOf("b"), false))
+			router := ai.NewAccountRouter(store)
+			calls := 0
+			_, message := collectStream(t, router.StreamRoutes(t.Context(), okModel(provider, "m"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+				calls++
+				if calls > 1 {
+					return okStream(), nil
+				}
+				if provider == "cursor" {
+					return emptyErrorStream("ERROR_RATE_LIMITED_CHANGEABLE Named models unavailable"), nil
+				}
+				return nil, &ai.ClassifierHTTPError{Status: new(429), Body: `{"error":{"code":"rate_limit_exceeded"}}`, Message: "rate limited"}
+			}))
+			if provider == "cursor" {
+				if calls != 2 || message == nil || message.StopReason != ai.StopReasonStop {
+					t.Fatalf("policy did not rotate: calls=%d message=%+v", calls, message)
+				}
+			} else if calls != 1 || message == nil || ai.ProviderFailureForMessage(*message).Kind != "rate_limit" {
+				t.Fatalf("rate limit spammed accounts: calls=%d message=%+v", calls, message)
+			}
+		})
+	}
+}
+
+func TestOneShotPoolReturnsNearestQuotaReset(t *testing.T) {
+	for _, surface := range []string{"images", "classify"} {
+		t.Run(surface, func(t *testing.T) {
+			store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+			router := ai.NewAccountRouter(store)
+			model := okModel("p", "m")
+			before := time.Now().UnixMilli()
+			observe := func(selection ai.AccountSelection, report ai.AccountObserve) error {
+				seconds := "2"
+				if selection.AccountKey != nil && *selection.AccountKey == "b" {
+					seconds = "4"
+				}
+				report(ai.ProviderResponse{Status: 429, Headers: map[string]string{"retry-after": seconds}})
+				return errors.New("quota exhausted")
+			}
+			var err error
+			if surface == "images" {
+				_, err = router.ImagesRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(_ context.Context, selection ai.AccountSelection, report ai.AccountObserve, _ bool) (ai.AssistantImages, error) {
+					return ai.AssistantImages{}, observe(selection, report)
+				})
+			} else {
+				_, err = router.ClassifyRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(_ context.Context, selection ai.AccountSelection, report ai.AccountObserve, _ bool) (ai.ClassifierResult, error) {
+					return ai.ClassifierResult{}, observe(selection, report)
+				})
+			}
+			failure := ai.ClassifyProviderFailure(err)
+			if err == nil || failure.Kind != "quota" || failure.RetryAt < before+2000 || failure.RetryAt >= before+3000 {
+				t.Fatalf("nearest reset lost: failure=%+v err=%v", failure, err)
+			}
+		})
+	}
+}
+
+func TestStreamRoutesEmptyErrorCanRotate(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+	router := ai.NewAccountRouter(store)
+	calls := 0
+	text, message := collectStream(t, router.StreamRoutes(t.Context(), okModel("p", "m"), ai.AccountRouteRequest{}, func(_ context.Context, _ ai.AccountSelection, observe ai.AccountObserve, _ bool) (*ai.AssistantMessageEventStream, error) {
+		calls++
+		if calls > 1 {
+			return okStream(), nil
+		}
+		observe(ai.ProviderResponse{Status: 429})
+		stream := ai.NewAssistantMessageEventStream()
+		if err := stream.Push(ai.ErrorEvent{Reason: ai.StopReasonError}); err != nil {
+			return nil, err
+		}
+		return stream, nil
+	}))
+	if calls != 2 || text != "hello" || message == nil || message.StopReason != ai.StopReasonStop {
+		t.Fatalf("empty error did not rotate safely: calls=%d text=%q message=%+v", calls, text, message)
+	}
+}
+
+func TestStreamRoutesBillingDoesNotBecomeQuotaWait(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+	router := ai.NewAccountRouter(store)
+	calls := 0
+	_, message := collectStream(t, router.StreamRoutes(t.Context(), okModel("p", "m"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+		calls++
+		return nil, &ai.ClassifierHTTPError{Status: new(402), Headers: http.Header{"Retry-After": {"2"}}, Body: `{"error":{"code":"insufficient_quota"}}`, Message: "billing failed"}
+	}))
+	if calls != 2 || message == nil || ai.IsRetryableAssistantError(*message) || ai.ProviderFailureForMessage(*message).Kind != "billing" {
+		t.Fatalf("billing became a reset wait: calls=%d message=%+v", calls, message)
+	}
+}
+
+func TestStreamRoutesUnknownQuotaResetStaysTerminal(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+	router := ai.NewAccountRouter(store)
+	model := okModel("p", "m")
+	for index := range store.accounts {
+		if block := router.Fail(t.Context(), model, &store.accounts[index], "quota exhausted", &ai.ProviderResponse{Status: 429}); block == nil {
+			t.Fatal("quota rejection was not recorded")
+		}
+	}
+	_, message := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+		t.Error("a blocked account was attempted")
+		return okStream(), nil
+	}))
+	if message == nil {
+		t.Fatal("missing pool failure")
+	}
+	failure := ai.ProviderFailureForMessage(*message)
+	if failure.RetryAt != 0 || ai.IsRetryableAssistantError(*message) {
+		t.Fatalf("heuristic cooldown became a quota reset: %+v", failure)
+	}
+}
+
+func TestStreamRoutesAllAuthBlockedStaysTerminal(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true), accountInfo("p", keyOf("b"), false))
+	now := time.Now()
+	store.block("p", keyOf("a"), "auth", now.Add(time.Hour).UnixMilli())
+	store.block("p", keyOf("b"), "auth", now.Add(2*time.Hour).UnixMilli())
+	router := ai.NewAccountRouter(store)
+	router.SetClock(func() time.Time { return now })
+	model := okModel("p", "m")
+	var tried int
+	_, message := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+		tried++
+		return okStream(), nil
+	}))
+	if tried != 0 {
+		t.Fatalf("blocked accounts must not be attempted, tried %d", tried)
+	}
+	if message == nil || message.StopReason != ai.StopReasonError || !strings.Contains(message.ErrorMessage, "temporarily unavailable") {
+		t.Fatalf("an exhausted pool must end with the unavailability error, got %+v", message)
+	}
+	if strings.Contains(message.ErrorMessage, "Try again in") {
+		t.Fatalf("an auth block has no reset to wait for, got %q", message.ErrorMessage)
+	}
+	if ai.IsRetryableAssistantError(*message) {
+		t.Fatalf("a reset-less error must stay terminal, got %q", message.ErrorMessage)
+	}
+}
+
+// TestStreamRoutesFailureReadsTheErrorChain covers classification when the observer never ran:
+// a rejection carried by the Go error still contributes its status and Retry-After, so the
+// account blocks for the provider's stated 4s instead of the heuristic minute.
+func TestStreamRoutesFailureReadsTheErrorChain(t *testing.T) {
+	store := newFakeAccountStore(accountInfo("p", keyOf("a"), true))
+	router := ai.NewAccountRouter(store)
+	now := time.Now()
+	router.SetClock(func() time.Time { return now })
+	model := okModel("p", "m")
+	status := 429
+	headers := http.Header{"Retry-After": {"4"}}
+	failure := &ai.ClassifierHTTPError{Status: &status, Headers: headers, Body: "usage_limit_reached", Message: "insufficient_quota"}
+	var tried int
+	_, message := collectStream(t, router.StreamRoutes(t.Context(), model, ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (*ai.AssistantMessageEventStream, error) {
+		tried++
+		return nil, fmt.Errorf("open stream: %w", failure)
+	}))
+	if tried != 1 {
+		t.Fatalf("one account can fail only once, tried %d", tried)
+	}
+	if message == nil || message.StopReason != ai.StopReasonError {
+		t.Fatalf("the attempt failure must surface, got %+v", message)
+	}
+	until, err := store.GetAccountBlockedUntil(context.Background(), "p", keyOf("a"), []string{""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if until == nil || *until < now.UnixMilli()+3_900 || *until > now.UnixMilli()+5_000 {
+		t.Fatalf("the error chain's Retry-After must set the block to ~4s, got %v", until)
 	}
 }

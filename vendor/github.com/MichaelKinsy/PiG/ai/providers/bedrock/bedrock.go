@@ -1556,7 +1556,13 @@ func failBedrockResponse(ctx context.Context, builder *ai.AssistantStreamBuilder
 			message = apiError.ErrorMessage() + bedrockDataRetentionHint(apiError.ErrorMessage())
 		}
 	}
-	builder.Fail(ai.StopReasonError, errors.New(message))
+	var status *int
+	var headers http.Header
+	if response, ok := errors.AsType[*smithyhttp.ResponseError](err); ok && response.Response != nil && response.Response.Response != nil {
+		status = new(response.HTTPStatusCode())
+		headers = response.Response.Header
+	}
+	builder.Fail(ai.StopReasonError, ai.NewProviderError(message, status, nil, headers))
 }
 
 // bedrockErrorPrefixes mirrors upstream's BEDROCK_ERROR_PREFIXES table

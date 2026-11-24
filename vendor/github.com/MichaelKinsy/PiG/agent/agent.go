@@ -642,6 +642,7 @@ func (ToolExecutionEndEvent) agentEvent()     {}
 // due to a transient error (overload, rate limit, server error).
 // Mirrors upstream auto_retry_start (agent-session.ts:130).
 type AutoRetryStartEvent struct {
+	Reason       string
 	Attempt      int
 	MaxAttempts  int
 	DelayMs      int

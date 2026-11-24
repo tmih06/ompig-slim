@@ -5,7 +5,9 @@ package ai
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -30,6 +32,7 @@ type NormalizedProviderError struct {
 // providerError carries the raw error fields owned by the HTTP adapters. Native SDK errors retain their own types.
 type providerError struct {
 	status          *int
+	headers         http.Header
 	body            any
 	message         string
 	prefix          []string
@@ -37,7 +40,8 @@ type providerError struct {
 }
 
 // ProviderStatus is the HTTP status of the response the error reports; a retry policy reads it.
-func (err *providerError) ProviderStatus() *int { return err.status }
+func (err *providerError) ProviderStatus() *int         { return err.status }
+func (err *providerError) ProviderHeaders() http.Header { return err.headers }
 
 func (err *providerError) Error() string {
 	return FormatProviderError(NormalizeProviderError(err), err.prefix...)
@@ -45,6 +49,11 @@ func (err *providerError) Error() string {
 
 // NormalizeProviderError extracts supported error metadata without serializing unread response streams or SDK wrapper objects.
 func NormalizeProviderError(value any) NormalizedProviderError {
+	if err, ok := value.(error); ok {
+		if own, found := errors.AsType[*providerError](err); found {
+			value = own
+		}
+	}
 	if own, ok := value.(*providerError); ok {
 		if own == nil {
 			return NormalizedProviderError{Message: "null"}

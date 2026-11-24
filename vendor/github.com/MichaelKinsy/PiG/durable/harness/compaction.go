@@ -272,7 +272,7 @@ func compactionSummarizeHandler(ctx context.Context, task compactionTask, runtim
 	retry := message.StopReason == ai.StopReasonError && ai.IsRetryableAssistantError(message) && policy.Enabled && request.Attempt <= policy.MaxRetries
 	until := 0.0
 	if retry {
-		until = runtime.Now() + float64(ai.RetryDelayMs(ai.RetryPolicy{BaseDelayMs: policy.BaseDelayMs, MaxAgentDelayMs: policy.MaxAgentDelayMs}, request.Attempt))
+		until = runtime.Now() + float64(ai.RetryDelayForAssistant(ai.RetryPolicy{BaseDelayMs: policy.BaseDelayMs, MaxAgentDelayMs: policy.MaxAgentDelayMs}, request.Attempt, message))
 	}
 	return runtime.Commit(ctx, func(tx durable.Tx, current compactionTask) (*compactionNext, error) {
 		if err := RecordUsage(tx, runtime.ConversationId(), UsageModels, message.Provider+"/"+message.Model, message.Usage); err != nil {

@@ -55,7 +55,7 @@ func (e *ClassifierHTTPError) providerError() *providerError {
 	if e.Status != nil {
 		status = *e.Status
 	}
-	return &providerError{status: e.Status, body: e.Body, message: e.Message, usageResetAfter: freeUsageResetAfter(status, []byte(e.Body), e.Headers)}
+	return &providerError{status: e.Status, body: e.Body, headers: e.Headers.Clone(), message: e.Message, usageResetAfter: freeUsageResetAfter(status, []byte(e.Body), e.Headers)}
 }
 
 func classifierHTTPError(label string, status int, headers http.Header, body string) *ClassifierHTTPError {

@@ -3,9 +3,7 @@ package coding
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -28,8 +26,6 @@ type sessionModelFallback struct {
 	OriginalAuto, LastAuto bool
 }
 
-var fallbackRetryHint = regexp.MustCompile(`(?i)(?:retry[-_ ]after(?:[-_ ]ms)?["'\s:=]+|try again in\s+|retry in\s+)([0-9]+(?:\.[0-9]+)?)\s*(milliseconds?|ms|seconds?|s|minutes?|m|hours?|h)?`)
-
 // fallbackTime is the injectable monotonic clock; test clocks are set before a run.
 func (s *Session) fallbackTime() time.Time {
 	if s.fallbackNow != nil {
@@ -50,29 +46,7 @@ func fallbackCooldown(message string) time.Duration {
 
 // fallbackRetryDelay parses explicit provider retry timing; zero means absent.
 func fallbackRetryDelay(message string) time.Duration {
-	longest := time.Duration(0)
-	for _, match := range fallbackRetryHint.FindAllStringSubmatch(message, -1) {
-		number, err := strconv.ParseFloat(match[1], 64)
-		if err != nil {
-			continue
-		}
-		unit := strings.ToLower(match[2])
-		scale := time.Second
-		if unit == "ms" || strings.HasPrefix(unit, "millisecond") {
-			scale = time.Millisecond
-		} else if unit == "m" || strings.HasPrefix(unit, "minute") {
-			scale = time.Minute
-		} else if unit == "h" || strings.HasPrefix(unit, "hour") {
-			scale = time.Hour
-		} else if strings.Contains(strings.NewReplacer("_", "-", " ", "-").Replace(strings.ToLower(match[0])), "after-ms") {
-			scale = time.Millisecond
-		}
-		delay := time.Duration(number * float64(scale))
-		if delay > longest {
-			longest = delay
-		}
-	}
-	return longest
+	return ai.ProviderRetryHintDelay(message)
 }
 
 // fallbackReasonDelay is OMP's conservative reason-specific suppression policy.

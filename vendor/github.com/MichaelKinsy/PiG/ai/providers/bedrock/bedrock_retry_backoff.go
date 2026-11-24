@@ -19,6 +19,7 @@ import (
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/internal/lazyregexp"
 )
 
@@ -30,17 +31,14 @@ const (
 	bedrockSDKThrottlingRetryDelayBase = 500
 	// upstream: node_modules/@smithy/core/dist-cjs/submodules/retry/index.js:MAXIMUM_RETRY_DELAY
 	bedrockSDKMaximumRetryDelay = 20 * 1000
-	// StandardRetryStrategy.refreshRetryTokenForRetry caps a retry-after hint at the computed delay plus 5000 ms.
-	// upstream: node_modules/@smithy/core/dist-cjs/submodules/retry/index.js:refreshRetryTokenForRetry
-	bedrockSDKRetryAfterSlackMs = 5_000
 )
 
 // upstream: node_modules/@smithy/core/dist-cjs/submodules/retry/index.js:THROTTLING_ERROR_CODES
 var bedrockSDKThrottlingErrorCodes = []string{"BandwidthLimitExceeded", "EC2ThrottledException", "LimitExceededException", "PriorRequestNotComplete", "ProvisionedThroughputExceededException", "RequestLimitExceeded", "RequestThrottled", "RequestThrottledException", "SlowDown", "ThrottledException", "Throttling", "ThrottlingException", "TooManyRequestsException", "TransactionInProgressException"}
 
 // bedrockSDKBackoff is the JavaScript SDK's standard retry delay, which Pi's Bedrock client waits between attempts:
-// floor(random() * min(base * 2^retryCount, 20000)) ms, with base 500 for a throttling error and 100 otherwise, then raised to a
-// retry-after hint by at most 5000 ms. The Go SDK's default waits random() * 2^attempt seconds.
+// floor(random() * min(base * 2^retryCount, 20000)) ms, with base 500 for a throttling error and 100 otherwise.
+// Provider deadlines are minimum waits, including when this backoff is used outside chat.
 type bedrockSDKBackoff struct {
 	random func() float64
 	now    func() time.Time
@@ -53,6 +51,18 @@ var bedrockRetryRandom = rand.Float64
 func newBedrockRetryer(mode aws.RetryMode) aws.Retryer {
 	backoff := func(options *retry.StandardOptions) {
 		options.Backoff = bedrockSDKBackoff{random: bedrockRetryRandom, now: time.Now}
+		options.Retryables = append([]retry.IsErrorRetryable{retry.IsErrorRetryableFunc(func(err error) aws.Ternary {
+			failure := ai.ClassifyProviderFailure(err)
+			if response, ok := errors.AsType[*smithyhttp.ResponseError](err); ok && response.Response != nil && response.Response.Response != nil {
+				if _, timed := bedrockSDKRetryAfterHint(response.Response.Header, time.Now()); timed {
+					return aws.FalseTernary
+				}
+			}
+			if failure.Kind == "quota" || failure.Kind != "unknown" && !failure.Retryable() {
+				return aws.FalseTernary
+			}
+			return aws.UnknownTernary
+		})}, options.Retryables...)
 	}
 	if mode == aws.RetryModeAdaptive {
 		return retry.NewAdaptiveMode(func(options *retry.AdaptiveModeOptions) {
@@ -73,7 +83,7 @@ func (b bedrockSDKBackoff) BackoffDelay(attempt int, err error) (time.Duration, 
 	if response, ok := errors.AsType[*smithyhttp.ResponseError](err); ok && response.Response != nil && response.Response.Response != nil {
 		now := b.now()
 		if hint, ok := bedrockSDKRetryAfterHint(response.Response.Header, now); ok {
-			delay = max(delay, min(hint.Sub(now), delay+bedrockSDKRetryAfterSlackMs*time.Millisecond))
+			delay = max(delay, hint.Sub(now))
 		}
 	}
 	return delay, nil

@@ -94,11 +94,27 @@ func TestUsageRouteReportsExhaustedEligibleAccountsAsUnavailable(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "temporarily unavailable") {
 		t.Fatalf("exhausted eligible accounts returned %v", err)
 	}
-	if !strings.Contains(err.Error(), "Try again in ~47 min") || strings.Contains(err.Error(), "Sign in") {
+	if !strings.Contains(err.Error(), "Try again in 47 min") || strings.Contains(err.Error(), "Sign in") {
 		t.Fatalf("quota error omitted the earliest reset or advised sign-in: %v", err)
 	}
 	if attempts != 0 {
 		t.Fatalf("quota preflight attempted the provider %d times", attempts)
+	}
+	store.block("openai-codex", keyOf("plus"), "auth", now.Add(2*time.Hour).UnixMilli())
+	_, err = router.ImagesRoutes(t.Context(), okModel("openai-codex", "future-model"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (ai.AssistantImages, error) {
+		t.Error("quota preflight attempted an exhausted account")
+		return ai.AssistantImages{}, nil
+	})
+	if failure := ai.ClassifyProviderFailure(err); failure.RetryAt != freeSecondaryReset {
+		t.Fatalf("auth-blocked account supplied the reset: %+v", failure)
+	}
+	store.block("openai-codex", keyOf("free"), "account-policy", now.Add(2*time.Hour).UnixMilli())
+	_, err = router.ImagesRoutes(t.Context(), okModel("openai-codex", "future-model"), ai.AccountRouteRequest{}, func(context.Context, ai.AccountSelection, ai.AccountObserve, bool) (ai.AssistantImages, error) {
+		t.Error("quota preflight attempted a policy-blocked account")
+		return ai.AssistantImages{}, nil
+	})
+	if failure := ai.ClassifyProviderFailure(err); failure.RetryAt != 0 || failure.Retryable() {
+		t.Fatalf("unusable account supplied a retry deadline: %+v", failure)
 	}
 }
 

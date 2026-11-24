@@ -55,7 +55,7 @@ func openAIHTTPError(status int, raw []byte, headers http.Header, prefix ...stri
 	} else {
 		message = fmt.Sprintf("%d %s", status, message)
 	}
-	return &providerError{status: new(status), body: sdkError, message: message, prefix: prefix, usageResetAfter: freeUsageResetAfter(status, raw, headers)}
+	return &providerError{status: new(status), body: sdkError, headers: headers.Clone(), message: message, prefix: prefix, usageResetAfter: freeUsageResetAfter(status, raw, headers)}
 }
 
 func freeUsageResetAfter(status int, body []byte, headers http.Header) time.Duration {

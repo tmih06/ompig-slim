@@ -150,6 +150,33 @@ func RetryDelayMs(policy RetryPolicy, attempt int) int {
 	return min(safeDelay, limit)
 }
 
+// Legacy provider errors and session records carry retry timing only in text.
+var providerRetryHintPattern = lazyregexp.New(`(?i)(?:retry[-_ ]after(?:[-_ ]ms)?["'\s:=~]+|try again in\s+|retry in\s+)(~\s*)?([0-9]+(?:\.[0-9]+)?)\s*(milliseconds?|ms|seconds?|s|minutes?|min|m|hours?|hr|h)?`)
+
+// ProviderRetryHintDelay parses explicit provider retry timing; zero means absent.
+func ProviderRetryHintDelay(message string) time.Duration {
+	longest := time.Duration(0)
+	for _, match := range providerRetryHintPattern.FindAllStringSubmatch(message, -1) {
+		unit := strings.ToLower(match[3])
+		scale := time.Second
+		switch {
+		case unit == "ms" || strings.HasPrefix(unit, "millisecond"):
+			scale = time.Millisecond
+		case unit == "m" || unit == "min" || strings.HasPrefix(unit, "minute"):
+			scale = time.Minute
+		case unit == "h" || unit == "hr" || strings.HasPrefix(unit, "hour"):
+			scale = time.Hour
+		case unit == "" && strings.Contains(strings.NewReplacer("_", "-", " ", "-").Replace(strings.ToLower(match[0])), "after-ms"):
+			scale = time.Millisecond
+		}
+		delay := providerDelay(match[2], scale)
+		if delay > longest {
+			longest = delay
+		}
+	}
+	return longest
+}
+
 // RetryCallbacks are emitted by RetryAssistantCall around each retry. A nil
 // field is skipped; a returned error fails the retry call.
 type RetryCallbacks struct {
@@ -212,7 +239,7 @@ func RetryAssistantCall(ctx context.Context, produce func() (AssistantMessage, e
 		if lastRetryMessage == "" {
 			lastRetryMessage = "Unknown error"
 		}
-		delayMs := RetryDelayMs(*policy, attempt)
+		delayMs := RetryDelayForAssistant(*policy, attempt, response)
 		if callbacks.OnRetryScheduled != nil {
 			if err := callbacks.OnRetryScheduled(attempt, maxAttempts, delayMs, lastRetryMessage); err != nil {
 				return AssistantMessage{}, err
@@ -243,13 +270,12 @@ func callFinished(callbacks RetryCallbacks, success bool, attempt int, finalErro
 
 var errRetrySleepAborted = errors.New("Aborted")
 
-// Node setTimeout uses one millisecond for delays outside its signed 32-bit
-// millisecond range. Normalize before converting to nanoseconds to avoid overflow.
+// Long quota waits must not wrap into an immediate retry.
 func retryTimerDuration(delayMs int) time.Duration {
-	if delayMs < 1 || delayMs > 1<<31-1 {
+	if delayMs < 1 {
 		return time.Millisecond
 	}
-	return time.Duration(delayMs) * time.Millisecond
+	return time.Duration(min(int64(delayMs), math.MaxInt64/int64(time.Millisecond))) * time.Millisecond
 }
 
 func sleepContext(ctx context.Context, delay time.Duration) error {
@@ -272,6 +298,9 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 func IsRetryableAssistantError(message AssistantMessage) bool {
 	if message.StopReason != StopReasonError || message.ErrorMessage == "" {
 		return false
+	}
+	if failure := ProviderFailureForMessage(message); failure.Kind != "unknown" {
+		return failure.Retryable()
 	}
 	if nonRetryableProviderLimitErrorPattern.MatchString(message.ErrorMessage) {
 		return false

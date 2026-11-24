@@ -231,6 +231,7 @@ func forwardLazySetup(ctx context.Context, turn *continuationTurn, executor *con
 		message.Provider = modelProviderID(model)
 		message.Model = model.ID
 	}
+	RecordProviderFailure(message, err)
 	event := ErrorEvent{Reason: StopReasonError, Error: message}
 	_ = outer.Push(event)
 	observation.onEvent(event)

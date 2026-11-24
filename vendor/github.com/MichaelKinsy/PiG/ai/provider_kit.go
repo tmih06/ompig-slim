@@ -415,6 +415,10 @@ func (r *continuationExecutor) SetTrace(external, microtask func()) {
 }
 
 // NewProviderError is an error that carries the status and body of the response it reports, as an SDK error does.
-func NewProviderError(message string, status *int, body any) error {
-	return &providerError{message: message, status: status, body: body}
+func NewProviderError(message string, status *int, body any, headers ...http.Header) error {
+	var header http.Header
+	if len(headers) > 0 {
+		header = headers[0].Clone()
+	}
+	return &providerError{message: message, status: status, body: body, headers: header}
 }

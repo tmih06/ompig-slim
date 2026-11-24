@@ -37,7 +37,9 @@ func completeSimpleWithRetries(ctx context.Context, policy *ai.RetryPolicy, call
 			abortedInCall = true
 			return ai.AssistantMessage{StopReason: ai.StopReasonAborted}, nil
 		}
-		return ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: callErr.Error()}, nil
+		message := ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: callErr.Error()}
+		ai.RecordProviderFailure(&message, callErr)
+		return message, nil
 	}, policy, callbacks)
 	if err != nil {
 		return "", nil, err

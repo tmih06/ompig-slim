@@ -95,11 +95,15 @@ func (m *InteractiveMode) showBranchSummaryStatusIndicator() {
 
 // showRetryStatusIndicator owns one countdown until replacement, disposal, or shutdown.
 // The owner loop applies its queued labels; disposal joins the worker even if it is waiting for queue space.
-func (m *InteractiveMode) showRetryStatusIndicator(attempt, maxAttempts, delayMs int) {
+func (m *InteractiveMode) showRetryStatusIndicator(attempt, maxAttempts, delayMs int, reason string) {
 	m.clearStatusIndicator("")
+	deadline := time.Now().Add(time.Duration(delayMs) * time.Millisecond)
 	remaining := int((delayMs + 999) / 1000)
 	cancelHint := m.statusCancelHint()
 	message := func(seconds int) string {
+		if reason != "" {
+			return fmt.Sprintf("Waiting for %s. Retry %d/%d in %ds %s", reason, attempt, maxAttempts, max(0, seconds), cancelHint)
+		}
 		return fmt.Sprintf("Retrying (%d/%d) in %ds... %s", attempt, maxAttempts, seconds, cancelHint)
 	}
 	m.setStatusContainerLabel(message(remaining))
@@ -124,7 +128,7 @@ func (m *InteractiveMode) showRetryStatusIndicator(attempt, maxAttempts, delayMs
 			case <-done:
 				return
 			case <-ticker.C:
-				remaining--
+				remaining = max(0, int((time.Until(deadline)+time.Second-1)/time.Second))
 				m.postRetryStatusUpdate(stop, message(remaining))
 				if remaining <= 0 {
 					return

@@ -76,6 +76,12 @@ response content escapes. The router persists the
 fallback assignment before starting its transport. It never replays a partial
 response on another account. An available free account still outranks a paid pin.
 
+When the pool is exhausted, a failure reports the earliest known reset among
+accounts that can become usable at that reset. Auth and policy blocks do not
+create quota-reset evidence. The local cooldown for an unknown reset is not
+reported as a provider reset. See [provider recovery](provider-recovery.md) for
+automatic waits, retry budgets, and cancellation.
+
 An explicit account selection or login resets the provider's assignments and
 cursors. Automatic routing never changes the provider's selected account.
 

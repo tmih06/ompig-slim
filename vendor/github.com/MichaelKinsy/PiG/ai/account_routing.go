@@ -13,10 +13,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +81,7 @@ func accountKeyOf(accountKey *string) accountKeyValue {
 // accountBackoff retains failed writes locally; mirrored deadlines yield to store resets.
 type accountBackoff struct {
 	until     int64
+	resetAt   int64
 	persisted bool
 }
 
@@ -395,7 +394,13 @@ func (r *AccountRouter) candidates(ctx context.Context, model AnyModel, request 
 		if accountSessionUsageExhausted(accountUsage) {
 			exhaustedEligible = true
 			if reset := accountUsageReadyAt(accountUsage); reset != nil {
-				earliestUsageReset = earliestDeadline(earliestUsageReset, *reset)
+				blocked, err := r.BlockedUntil(ctx, model, account)
+				if err != nil {
+					return nil, err
+				}
+				if blocked == nil || *blocked <= *reset {
+					earliestUsageReset = earliestDeadline(earliestUsageReset, *reset)
+				}
 			}
 			continue
 		}
@@ -412,7 +417,7 @@ func (r *AccountRouter) candidates(ctx context.Context, model AnyModel, request 
 	eligible = append(eligible, unknown...)
 	if len(eligible) == 0 {
 		if exhaustedEligible {
-			return nil, errors.New(accountUnavailableMessage(providerID, modelID, earliestUsageReset))
+			return nil, accountUnavailableError(providerID, modelID, earliestUsageReset, r.now())
 		}
 		if rosterExcluded {
 			return nil, fmt.Errorf("No stored account's model roster contains %s/%s.", providerID, modelID)
@@ -505,12 +510,47 @@ func (r *AccountRouter) ResolveAccount(ctx context.Context, model AnyModel, requ
 		if until == nil || *until <= r.nowMillis() {
 			return account.AccountKey, true, nil
 		}
-		earliest = earliestDeadline(earliest, *until)
+		reset, err := r.quotaResetAt(ctx, model, account)
+		if err != nil {
+			return nil, false, err
+		}
+		if reset != nil && *reset > r.nowMillis() {
+			earliest = earliestDeadline(earliest, *reset)
+		}
 	}
-	return nil, false, errors.New(accountUnavailableMessage(model.ProviderID(), model.ModelID(), earliest))
+	return nil, false, accountUnavailableError(model.ProviderID(), model.ModelID(), earliest, r.now())
 }
 
 func (r *AccountRouter) nowMillis() int64 { return r.now().UnixMilli() }
+
+func (r *AccountRouter) nearestQuotaReset(ctx context.Context, model AnyModel, accounts []*CredentialAccountInfo) (*int64, error) {
+	var earliest *int64
+	for _, account := range accounts {
+		reset, err := r.quotaResetAt(ctx, model, account)
+		if err != nil {
+			return nil, err
+		}
+		if reset != nil {
+			earliest = earliestDeadline(earliest, *reset)
+		}
+	}
+	return earliest, nil
+}
+
+func (r *AccountRouter) quotaResetAt(ctx context.Context, model AnyModel, account *CredentialAccountInfo) (*int64, error) {
+	until, err := r.BlockedUntil(ctx, model, account)
+	if err != nil || until == nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	scope := AccountQuotaScope(model.ProviderID(), model.ModelID())
+	reset := r.localBlocks[model.ProviderID()][accountKeyOf(account.AccountKey)][scope].resetAt
+	if reset <= r.nowMillis() || reset < *until {
+		return nil, nil
+	}
+	return &reset, nil
+}
 
 // BlockedUntil reports the latest live block deadline of one account for this request's scopes,
 // read from the store each time so blocks another process wrote hold too.
@@ -584,7 +624,7 @@ func (r *AccountRouter) localBlockedUntil(providerID string, accountKey *string,
 	return until
 }
 
-func (r *AccountRouter) rememberBlock(providerID string, accountKey *string, scope string, until int64) {
+func (r *AccountRouter) rememberBlock(providerID string, accountKey *string, scope string, until, resetAt int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	accounts := r.localBlocks[providerID]
@@ -599,7 +639,7 @@ func (r *AccountRouter) rememberBlock(providerID string, accountKey *string, sco
 		accounts[key] = blocks
 	}
 	if until > blocks[scope].until {
-		blocks[scope] = accountBackoff{until: until}
+		blocks[scope] = accountBackoff{until: until, resetAt: resetAt}
 	}
 }
 
@@ -616,11 +656,65 @@ func (r *AccountRouter) Fail(ctx context.Context, model AnyModel, account *Crede
 		status = response.Status
 		retryAfter = retryAfterDelay(response.Headers, r.now())
 	}
-	block := AccountFailureBlock(model.ProviderID(), model.ModelID(), message, status, retryAfter)
-	if block == nil {
+	failure := classifyProviderFailureAt(errors.New(message), r.now())
+	failure.Status = status
+	return r.fail(ctx, model, account, message, failure, retryAfter)
+}
+
+func (r *AccountRouter) failMessage(ctx context.Context, model AnyModel, account *CredentialAccountInfo, message *AssistantMessage, response *ProviderResponse) *AccountFailureScope {
+	if message == nil {
+		return r.Fail(ctx, model, account, "", response)
+	}
+	failure := ProviderFailureForMessage(*message)
+	status := failure.Status
+	var delay *int64
+	if failure.RetryAt > r.nowMillis() {
+		delay = new(failure.RetryAt - r.nowMillis())
+	}
+	if response != nil {
+		status = response.Status
+		if observed := retryAfterDelay(response.Headers, r.now()); observed != nil && (delay == nil || *observed > *delay) {
+			delay = observed
+		}
+	}
+	failure.Status = status
+	return r.fail(ctx, model, account, message.ErrorMessage, failure, delay)
+}
+
+// FailError is Fail for a rejection carried by a Go error: classification reads status and
+// retry timing off the error chain, so the response observer enriches classification rather
+// than being its only source.
+func (r *AccountRouter) FailError(ctx context.Context, model AnyModel, account *CredentialAccountInfo, err error, response *ProviderResponse) *AccountFailureScope {
+	if account == nil {
 		return nil
 	}
-	r.rememberBlock(model.ProviderID(), account.AccountKey, block.Scope, block.Until)
+	failure, retryAfter := r.accountFailureResponse(err, response)
+	return r.fail(ctx, model, account, accountErrorText(err), failure, retryAfter)
+}
+
+// accountFailureResponse merges the observed provider response with metadata the error chain
+// carries. The observed status wins when both report one; stated retry delays accumulate.
+func (r *AccountRouter) accountFailureResponse(err error, response *ProviderResponse) (failure ProviderFailure, retryAfterMs *int64) {
+	now := r.now()
+	failure = classifyProviderFailureAt(err, now)
+	if failure.RetryAt > now.UnixMilli() {
+		retryAfterMs = new(failure.RetryAt - now.UnixMilli())
+	}
+	if response != nil {
+		failure.Status = response.Status
+		if observed := retryAfterDelay(response.Headers, now); observed != nil && (retryAfterMs == nil || *observed > *retryAfterMs) {
+			retryAfterMs = observed
+		}
+	}
+	return failure, retryAfterMs
+}
+
+func (r *AccountRouter) fail(ctx context.Context, model AnyModel, account *CredentialAccountInfo, message string, failure ProviderFailure, retryAfter *int64) *AccountFailureScope {
+	block := accountFailureBlockAt(model.ProviderID(), model.ModelID(), message, failure.Status, retryAfter, r.nowMillis(), failure.Kind)
+	if block == nil || (failure.Kind == "rate_limit" || failure.Kind == "transient") && block.Scope == AccountQuotaScope(model.ProviderID(), model.ModelID()) {
+		return nil
+	}
+	r.rememberBlock(model.ProviderID(), account.AccountKey, block.Scope, block.Until, block.RetryAt)
 	r.invalidateConfirmedRoutes(model.ProviderID(), account.AccountKey, block.Scope)
 	if context.Cause(ctx) == nil && r.credentials != nil {
 		// A store failure leaves the in-memory block in place, so this run still retires the
@@ -663,33 +757,45 @@ func (r *AccountRouter) ClearResetBlocks(providerID string, accountKey *string, 
 	}
 }
 
-// retryAfterDelay parses a Retry-After header as delay-seconds or as an HTTP date.
+// retryAfterDelay reads positive retry headers relative to the router's clock.
 func retryAfterDelay(headers map[string]string, now time.Time) *int64 {
-	value, ok := headers["retry-after"]
-	if !ok || strings.TrimSpace(value) == "" {
+	if len(headers) == 0 {
 		return nil
 	}
-	if seconds, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
-		if math.IsNaN(seconds) || math.IsInf(seconds, 0) {
-			return nil
-		}
-		return new(int64(math.Max(0, seconds*1000)))
+	record := http.Header{}
+	for name, value := range headers {
+		record.Set(name, value)
 	}
-	if when, err := http.ParseTime(strings.TrimSpace(value)); err == nil {
-		return new(int64(math.Max(0, float64(when.Sub(now)/time.Millisecond))))
+	delay := retryAfterFromHeadersAt(record, now.UnixMilli()).Milliseconds()
+	if delay <= 0 {
+		return nil
 	}
-	return nil
+	return &delay
 }
 
-// accountUnavailableMessage reports that every eligible account is blocked, naming the soonest
-// retry when it is known.
-func accountUnavailableMessage(providerID, modelID string, earliest *int64) string {
+func accountUnavailableError(providerID, modelID string, earliest *int64, now time.Time) error {
+	failure := ProviderFailure{Kind: "quota"}
+	if earliest != nil {
+		failure.RetryAt = *earliest
+	}
+	return &providerFailureError{cause: errors.New(accountUnavailableMessage(providerID, modelID, earliest, now)), failure: failure}
+}
+
+func accountUnavailableMessage(providerID, modelID string, earliest *int64, now time.Time) string {
 	reset := ""
 	if earliest != nil {
-		minutes := int64(math.Max(1, math.Ceil(float64(*earliest-time.Now().UnixMilli())/60_000)))
-		reset = fmt.Sprintf(" Try again in ~%d min.", minutes)
+		if delay := *earliest - now.UnixMilli(); delay > 0 {
+			reset = fmt.Sprintf(" Try again in %s when the quota resets.", accountRetryWait(delay))
+		}
 	}
 	return fmt.Sprintf("All eligible accounts for %s/%s are temporarily unavailable.%s", providerID, modelID, reset)
+}
+
+func accountRetryWait(delayMs int64) string {
+	if delayMs < 60_000 {
+		return fmt.Sprintf("%ds", max(int64(1), (delayMs+999)/1000))
+	}
+	return fmt.Sprintf("%d min", (delayMs+59_999)/60_000)
 }
 
 func earliestDeadline(current *int64, candidate int64) *int64 {
