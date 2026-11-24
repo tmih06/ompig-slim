@@ -837,6 +837,47 @@ func TestDevinRouterAssignModel(t *testing.T) {
 	}
 }
 
+// TestDevinStreamEffortRouting: an effort-family model sends the wire uid of
+// the requested thinking level. Devin carries effort in the model uid, not a
+// thinking parameter. An unmapped or absent level falls back to the family's
+// default member (requestModelId); a lane member model is its own uid.
+func TestDevinStreamEffortRouting(t *testing.T) {
+	family := func(fake *devinFakeServer) *Model {
+		return devinTestModel(fake.URL, map[string]any{
+			"requestModelId": "swe-2-medium",
+			"effortRouting":  map[string]string{"medium": "swe-2-medium", "high": "swe-2-high", "max": "swe-2-max", "off": "swe-2-idle"},
+		})
+	}
+	for _, tc := range []struct {
+		name     string
+		thinking ThinkingLevel
+		wantUID  string
+	}{
+		{"high lane", ThinkingLevelHigh, "swe-2-high"},
+		{"off lane", "", "swe-2-idle"},
+		{"unmapped level uses default member", ThinkingLevelLow, "swe-2-medium"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newDevinFakeServer(t)
+			fake.chatFrames = devinTestStreamFrames(devinTestTextMessage("m", "ok"))
+			provider := devinTestProvider(t, fake, family(fake), "key")
+			defer provider.Close()
+			result := devinTestRunStream(t, provider, devinTestTranscript(), StreamOptions{Thinking: tc.thinking})
+			if result.streamErr != nil {
+				t.Fatalf("stream error: %v", result.streamErr)
+			}
+			chat := fake.requestFor("/GetChatMessage")
+			if chat == nil {
+				t.Fatal("no chat request")
+			}
+			req := devinTestReadChatRequest(t, chat.connectPayload(t))
+			if req.chatModelUID != tc.wantUID {
+				t.Fatalf("chatModelUid %q, want %q", req.chatModelUID, tc.wantUID)
+			}
+		})
+	}
+}
+
 func TestDevinFrameCap(t *testing.T) {
 	fake := newDevinFakeServer(t)
 	// Frame header declares a payload above the 16 MiB cap.

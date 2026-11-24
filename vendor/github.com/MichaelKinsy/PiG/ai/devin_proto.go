@@ -716,6 +716,22 @@ type devinModelDimension struct {
 	kind        int
 }
 
+// devinModelFamilyEntry is a decoded ModelFamilyMetadataEntry: the axis key
+// plus the value's order and display name.
+type devinModelFamilyEntry struct {
+	key   string
+	order int
+	name  string
+}
+
+// devinModelFamilyMetadata is a decoded ModelFamilyMetadata: the
+// server-declared family label, per-axis entries, and default marker.
+type devinModelFamilyMetadata struct {
+	label     string
+	entries   []devinModelFamilyEntry
+	isDefault bool
+}
+
 // devinClientModelConfig is a decoded ClientModelConfig.
 type devinClientModelConfig struct {
 	modelUID        string
@@ -729,6 +745,8 @@ type devinClientModelConfig struct {
 	description     string
 	modelInfo       *devinModelInfo
 	modelDimensions []devinModelDimension
+	modelFamily     *devinModelFamilyMetadata
+	isFamilyDefault bool
 }
 
 // devinCliModelConfigsResponse is a decoded GetCliModelConfigsResponse.
@@ -815,6 +833,8 @@ func decodeDevinClientModelConfig(data []byte) *devinClientModelConfig {
 				config.isRecommended = value != 0
 			case 18:
 				config.maxTokens = int32(value)
+			case 31:
+				config.isFamilyDefault = value != 0
 			}
 			continue
 		}
@@ -837,6 +857,8 @@ func decodeDevinClientModelConfig(data []byte) *devinClientModelConfig {
 			config.description = devinReadString(payload)
 		case 23:
 			config.modelInfo = decodeDevinModelInfo(payload)
+		case 30:
+			config.modelFamily = decodeDevinModelFamilyMetadata(payload)
 		case 32:
 			if dimension := decodeDevinModelDimension(payload); dimension != nil {
 				config.modelDimensions = append(config.modelDimensions, *dimension)
@@ -845,6 +867,106 @@ func decodeDevinClientModelConfig(data []byte) *devinClientModelConfig {
 	}
 	config.modelUID = uid
 	return config
+}
+
+// decodeDevinModelFamilyMetadata decodes ModelFamilyMetadata
+// { model_family_label=1, entries=2, is_default_model_in_family=3 }.
+func decodeDevinModelFamilyMetadata(data []byte) *devinModelFamilyMetadata {
+	reader := &devinPbReader{data: data}
+	metadata := &devinModelFamilyMetadata{}
+	for reader.index < len(reader.data) {
+		field, wire, ok := reader.readTag()
+		if !ok {
+			return nil
+		}
+		switch {
+		case field == 1 && wire == 2:
+			payload, ok := reader.readBytes()
+			if !ok {
+				return nil
+			}
+			metadata.label = devinReadString(payload)
+		case field == 2 && wire == 2:
+			payload, ok := reader.readBytes()
+			if !ok {
+				return nil
+			}
+			if entry := decodeDevinModelFamilyEntry(payload); entry != nil {
+				metadata.entries = append(metadata.entries, *entry)
+			}
+		case field == 3 && wire == 0:
+			value, ok := reader.readVarint()
+			if !ok {
+				return nil
+			}
+			metadata.isDefault = value != 0
+		default:
+			if !reader.skip(wire) {
+				return nil
+			}
+		}
+	}
+	return metadata
+}
+
+// decodeDevinModelFamilyEntry decodes ModelFamilyMetadataEntry
+// { key=1, value=2 } where value is ModelFamilyMetadataValue { order=1, name=2 }.
+func decodeDevinModelFamilyEntry(data []byte) *devinModelFamilyEntry {
+	reader := &devinPbReader{data: data}
+	entry := &devinModelFamilyEntry{}
+	for reader.index < len(reader.data) {
+		field, wire, ok := reader.readTag()
+		if !ok {
+			return nil
+		}
+		switch {
+		case field == 1 && wire == 2:
+			payload, ok := reader.readBytes()
+			if !ok {
+				return nil
+			}
+			entry.key = devinReadString(payload)
+		case field == 2 && wire == 2:
+			payload, ok := reader.readBytes()
+			if !ok {
+				return nil
+			}
+			decodeDevinModelFamilyValue(payload, entry)
+		default:
+			if !reader.skip(wire) {
+				return nil
+			}
+		}
+	}
+	return entry
+}
+
+func decodeDevinModelFamilyValue(data []byte, entry *devinModelFamilyEntry) {
+	reader := &devinPbReader{data: data}
+	for reader.index < len(reader.data) {
+		field, wire, ok := reader.readTag()
+		if !ok {
+			return
+		}
+		switch {
+		case field == 1 && wire == 0:
+			value, ok := reader.readVarint()
+			if !ok {
+				return
+			}
+			entry.order = int(value)
+		case field == 2 && wire == 2:
+			payload, ok := reader.readBytes()
+			if !ok {
+				return
+			}
+			entry.name = devinReadString(payload)
+		default:
+			if !reader.skip(wire) {
+				return
+			}
+		}
+	}
 }
 
 func decodeDevinModelInfo(data []byte) *devinModelInfo {

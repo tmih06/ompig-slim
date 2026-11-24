@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,30 @@ func devinTestConfig(uid, label string, mutate func(w *devinPbWriter)) []byte {
 	if mutate != nil {
 		mutate(w)
 	}
+	return w.buffer
+}
+
+// devinTestFamilyEntry encodes one ModelFamilyMetadataEntry
+// { key=1, value={ order=1, name=2 } }.
+func devinTestFamilyEntry(key string, order int, name string) []byte {
+	value := &devinPbWriter{}
+	value.appendVarintField(1, uint64(order))
+	value.appendString(2, name)
+	w := &devinPbWriter{}
+	w.appendString(1, key)
+	w.appendMessage(2, value.buffer)
+	return w.buffer
+}
+
+// devinTestFamilyMetadata encodes ClientModelConfig.modelFamilyMetadata
+// (field 30): the family label, per-axis entries, the metadata default marker.
+func devinTestFamilyMetadata(label string, isDefault bool, entries ...[]byte) []byte {
+	w := &devinPbWriter{}
+	w.appendString(1, label)
+	for _, entry := range entries {
+		w.appendMessage(2, entry)
+	}
+	w.appendBool(3, isDefault)
 	return w.buffer
 }
 
@@ -525,12 +550,203 @@ func TestDevinFamilyCollapse(t *testing.T) {
 	reprojected := devinCollapseFamilies([]*Model{
 		{ID: "swe-2-medium", DisplayName: "SWE-2 Medium"},
 		{ID: "swe-2-max", DisplayName: "SWE-2 Max"},
-	})
+	}, nil)
 	if len(reprojected) != 3 || reprojected[0].ID != "swe-2" || reprojected[1].ID != "swe-2-max" || reprojected[2].ID != "swe-2-medium" {
 		t.Fatalf("reprojected stored roster = %+v", reprojected)
 	}
-	if again := devinCollapseFamilies(reprojected); len(again) != 3 {
+	if again := devinCollapseFamilies(reprojected, nil); len(again) != 3 {
 		t.Fatalf("re-projecting collapsed roster duplicated entries: %d", len(again))
+	}
+}
+
+// TestDevinFamilyReportedEfforts is the regression test for the reported
+// effort-ladder defect: a wire effort family must advertise exactly the tiers
+// its lanes serve ([medium high max] for swe-2), not the generic reasoning
+// ladder, and lane members must report only their own tier.
+func TestDevinFamilyReportedEfforts(t *testing.T) {
+	configs := [][]byte{
+		devinTestConfig("swe-2-medium", "SWE-2 Medium", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-high", "SWE-2 High", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-max", "SWE-2 Max", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-medium-lightning", "SWE-2 Medium Lightning", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+		devinTestConfig("swe-2-high-lightning", "SWE-2 High Lightning", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(262144, 32768)) }),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+
+	levels := GetSupportedThinkingLevels(byID["swe-2"])
+	want := []ModelThinkingLevel{ThinkingMedium, ThinkingHigh, ThinkingMax}
+	if !slices.Equal(levels, want) {
+		t.Fatalf("swe-2 reported efforts %v, want %v", levels, want)
+	}
+	if got := byID["swe-2"].Capabilities.MaxThinking; got != ThinkingLevelMax {
+		t.Fatalf("swe-2 maxThinking %q", got)
+	}
+	// Lane members pin their own tier.
+	if got := GetSupportedThinkingLevels(byID["swe-2-high"]); !slices.Equal(got, []ModelThinkingLevel{ThinkingHigh}) {
+		t.Fatalf("swe-2-high reported %v", got)
+	}
+	fast := GetSupportedThinkingLevels(byID["swe-2-fast"])
+	if !slices.Equal(fast, []ModelThinkingLevel{ThinkingMedium, ThinkingHigh}) {
+		t.Fatalf("swe-2-fast reported %v", fast)
+	}
+}
+
+// TestDevinDeclaredFamilyLanes covers the server-declared path: the wire's
+// modelFamilyMetadata declares the family, its effort axis, service axes, and
+// default member. Uid suffixes are only the fallback when metadata is absent.
+func TestDevinDeclaredFamilyLanes(t *testing.T) {
+	familyMeta := func(effortName string, extra ...[]byte) func(w *devinPbWriter) {
+		return func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(262144, 32768))
+			entries := append([][]byte{devinTestFamilyEntry("Effort", 0, effortName)}, extra...)
+			w.appendMessage(30, devinTestFamilyMetadata("SWE-2", false, entries...))
+		}
+	}
+	configs := [][]byte{
+		devinTestConfig("u-m", "SWE-2 Medium", familyMeta("Medium")),
+		devinTestConfig("u-h", "SWE-2 High", func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(262144, 32768))
+			w.appendMessage(30, devinTestFamilyMetadata("SWE-2", false, devinTestFamilyEntry("Effort", 0, "High")))
+			w.appendBool(31, true) // is_default_model_in_family
+		}),
+		devinTestConfig("u-x", "SWE-2 Max", familyMeta("Max")),
+		devinTestConfig("u-mf", "SWE-2 Medium Lightning", familyMeta("Medium", devinTestFamilyEntry("Fast Mode", 1, "Fast"))),
+		devinTestConfig("u-hf", "SWE-2 High Lightning", familyMeta("High", devinTestFamilyEntry("Fast Mode", 1, "Fast"))),
+		devinTestConfig("u-o", "SWE-2 Idle", func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(262144, 32768))
+			w.appendMessage(30, devinTestFamilyMetadata("SWE-2", false, devinTestFamilyEntry("Effort", 0, "None")))
+		}),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+
+	family := byID["swe-2"]
+	if family == nil {
+		t.Fatal("declared swe-2 family missing")
+	}
+	if family.DisplayName != "SWE-2" {
+		t.Fatalf("family name %q", family.DisplayName)
+	}
+	var requestModel string
+	_ = json.Unmarshal(family.ProviderMeta.Compat.Extra["requestModelId"], &requestModel)
+	if requestModel != "u-h" {
+		t.Fatalf("declared default %q, want u-h", requestModel)
+	}
+	var routing map[string]string
+	if err := json.Unmarshal(family.ProviderMeta.Compat.Extra["effortRouting"], &routing); err != nil {
+		t.Fatalf("routing decode: %v", err)
+	}
+	want := map[string]string{"medium": "u-m", "high": "u-h", "max": "u-x", "off": "u-o"}
+	for effort, uid := range want {
+		if routing[effort] != uid {
+			t.Fatalf("routing[%q] = %q, want %q (routing %#v)", effort, routing[effort], uid, routing)
+		}
+	}
+	// An off route exists, so the ladder includes "off".
+	wantLevels := []ModelThinkingLevel{ThinkingOff, ThinkingMedium, ThinkingHigh, ThinkingMax}
+	if got := GetSupportedThinkingLevels(family); !slices.Equal(got, wantLevels) {
+		t.Fatalf("declared ladder %v, want %v", got, wantLevels)
+	}
+	// The declared default wins over the strongest-tier heuristic (u-h, not u-x).
+	if got := GetSupportedThinkingLevels(byID["u-x"]); !slices.Equal(got, []ModelThinkingLevel{ThinkingMax}) {
+		t.Fatalf("u-x pinned %v", got)
+	}
+	// Fast-axis configs join the -fast lane family.
+	fast := byID["swe-2-fast"]
+	if fast == nil {
+		t.Fatal("declared swe-2-fast family missing")
+	}
+	var fastRouting map[string]string
+	_ = json.Unmarshal(fast.ProviderMeta.Compat.Extra["effortRouting"], &fastRouting)
+	if fastRouting["medium"] != "u-mf" || fastRouting["high"] != "u-hf" {
+		t.Fatalf("fast routing %#v", fastRouting)
+	}
+	var lane string
+	_ = json.Unmarshal(byID["u-mf"].ProviderMeta.Compat.Extra["effortLane"], &lane)
+	if lane != "swe-2-fast" {
+		t.Fatalf("u-mf lane %q", lane)
+	}
+}
+
+// TestDevinDeclaredThinkingAxis covers the Claude-style pairing: two configs
+// share one effort name and the thinking axis splits them into the on/off
+// routes. A lane with no effort axis at all never forms a family.
+func TestDevinDeclaredThinkingAxis(t *testing.T) {
+	meta := func(label string, entries ...[]byte) func(w *devinPbWriter) {
+		return func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(200000, 32000))
+			w.appendMessage(30, devinTestFamilyMetadata(label, false, entries...))
+		}
+	}
+	configs := [][]byte{
+		devinTestConfig("fable-high", "Fable 5.2", meta("Fable 5.2",
+			devinTestFamilyEntry("Reasoning Effort", 0, "High"),
+			devinTestFamilyEntry("Thinking", 1, "Thinking"))),
+		devinTestConfig("fable-off", "Fable 5.2 No Thinking", meta("Fable 5.2",
+			devinTestFamilyEntry("Reasoning Effort", 0, "High"),
+			devinTestFamilyEntry("Thinking", 0, "No Thinking"))),
+		devinTestConfig("solo-think", "Solo Think", meta("Solo",
+			devinTestFamilyEntry("Thinking", 1, "Thinking"))),
+		devinTestConfig("solo-nothink", "Solo No Thinking", meta("Solo",
+			devinTestFamilyEntry("Thinking", 0, "No Thinking"))),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+
+	family := byID["fable-5-2"]
+	if family == nil {
+		t.Fatal("fable-5-2 family missing")
+	}
+	var routing map[string]string
+	_ = json.Unmarshal(family.ProviderMeta.Compat.Extra["effortRouting"], &routing)
+	if routing["high"] != "fable-high" || routing["off"] != "fable-off" {
+		t.Fatalf("thinking-axis routing %#v", routing)
+	}
+	wantLevels := []ModelThinkingLevel{ThinkingOff, ThinkingHigh}
+	if got := GetSupportedThinkingLevels(family); !slices.Equal(got, wantLevels) {
+		t.Fatalf("thinking-axis ladder %v, want %v", got, wantLevels)
+	}
+	// A thinking/no-thinking pair without an effort axis stays standalone.
+	if _, ok := byID["solo"]; ok {
+		t.Fatal("off-only lane collapsed into a family")
+	}
+	for _, uid := range []string{"solo-think", "solo-nothink"} {
+		model := byID[uid]
+		if model == nil {
+			t.Fatalf("%s missing", uid)
+		}
+		if raw := model.ProviderMeta.Compat.Extra["effortLane"]; raw != nil {
+			t.Fatalf("%s marked lane of off-only family", uid)
+		}
+	}
+}
+
+// TestDevinDeclaredLaneOverridesSuffix: when the server declares family
+// metadata its truth wins. A uid whose suffix lies about its effort still
+// gets the declared route, and undeclared suffix siblings stay out.
+func TestDevinDeclaredLaneOverridesSuffix(t *testing.T) {
+	configs := [][]byte{
+		devinTestConfig("odd-a", "Odd One", func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(128000, 16000))
+			w.appendMessage(30, devinTestFamilyMetadata("Odd", false, devinTestFamilyEntry("Effort", 0, "High")))
+		}),
+		devinTestConfig("odd-b", "Odd Two", func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(128000, 16000))
+			w.appendMessage(30, devinTestFamilyMetadata("Odd", false, devinTestFamilyEntry("Effort", 0, "Low")))
+		}),
+		// No metadata: the suffix pass must not absorb it into the declared family.
+		devinTestConfig("odd-max", "Odd Max", func(w *devinPbWriter) { w.appendMessage(23, devinTestFullInfo(128000, 16000)) }),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+	family := byID["odd"]
+	if family == nil {
+		t.Fatal("odd family missing")
+	}
+	var routing map[string]string
+	_ = json.Unmarshal(family.ProviderMeta.Compat.Extra["effortRouting"], &routing)
+	if len(routing) != 2 || routing["high"] != "odd-a" || routing["low"] != "odd-b" {
+		t.Fatalf("routing %#v", routing)
+	}
+	if raw := byID["odd-max"].ProviderMeta.Compat.Extra["effortLane"]; raw != nil {
+		t.Fatal("undeclared suffix sibling absorbed into declared family")
 	}
 }
 

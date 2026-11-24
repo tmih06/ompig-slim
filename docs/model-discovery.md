@@ -21,7 +21,11 @@ Devin uses the authenticated `GetCliModelConfigs` endpoint after `/login` (or a
 credential and endpoint: disabled entries, quick-review and internal display
 slots are dropped, duplicate wire UIDs collapse to one row, wire effort and
 service lanes collapse onto logical family models (keeping wire UIDs selectable
-by ID), and Fusion pairings resolve to their lead model. Router slots keep the
+by ID), and Fusion pairings resolve to their lead model. Families come from the
+server-declared `modelFamilyMetadata` axes first. Its effort entries are the
+ladder the picker shows, and each request routes the selected thinking level to
+that lane's wire UID. Uid suffixes only fill in when the wire declares nothing.
+Router slots keep the
 `modelRouter` compat flag so chat requests go through `AssignModel`. When
 discovery fails or returns an empty roster, the bundled
 `swe-1-6`/`swe-1-6-fast` seed catalog stays authoritative; an empty successful

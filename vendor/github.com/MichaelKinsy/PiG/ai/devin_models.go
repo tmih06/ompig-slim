@@ -37,7 +37,7 @@ func WithDevinModelDiscovery(provider *ModelsProvider) *ModelsProvider {
 		endpoint:   func(baseURL string) (string, error) { return devinModelEndpoint(baseURL), nil },
 		identity:   devinModelIdentity,
 		builtin:    func(modelID string) bool { return GetBuiltinModel(devinProviderName, modelID) != nil },
-		project:    devinCollapseFamilies,
+		project:    func(models []*Model) []*Model { return devinCollapseFamilies(models, nil) },
 	}
 	return withAccountModelDiscovery(provider, catalog, func(ctx context.Context, baseURL string, credential *Credential) ([]*Model, string, error) {
 		models, err := fetchDevinModelRoster(ctx, baseURL, credential)
@@ -160,6 +160,8 @@ func normalizeDevinModelConfigs(response *devinCliModelConfigsResponse, baseURL 
 	}
 	seen := map[string]bool{}
 	models := []*Model{}
+	lanes := map[string]*devinFamilyLane{}
+	var laneOrder []*devinFamilyLane
 	for _, config := range response.configs {
 		if config.disabled {
 			continue
@@ -201,8 +203,13 @@ func normalizeDevinModelConfigs(response *devinCliModelConfigsResponse, baseURL 
 			model.ProviderMeta.Compat.Extra["isProviderDefault"] = json.RawMessage("true")
 		}
 		models = append(models, model)
+		// A router is a server-side dispatcher, not an effort tier: it stays a
+		// standalone model even when upstream files it under a family.
+		if !isRouter {
+			devinCollectFamilyLane(lanes, &laneOrder, config, model)
+		}
 	}
-	models = devinCollapseFamilies(models)
+	models = devinCollapseFamilies(models, laneOrder)
 	slices.SortFunc(models, func(a, b *Model) int { return strings.Compare(a.ID, b.ID) })
 	return models
 }
@@ -251,20 +258,186 @@ func devinLaneParts(uid string) (base, effort, service string) {
 	return rest, effort, service
 }
 
+// devinModelFamilyMember is one wire lane member: its model plus the effort
+// the member serves, normalized onto the canonical set ("off", minimal..max,
+// "thinking", or "" for a service-only lane).
+type devinModelFamilyMember struct {
+	model  *Model
+	effort string
+}
+
+// devinFamilyLane is one server-declared family lane (upstream
+// DevinFamilyLane / devinDynamicFamilies): fast service and 1M context are
+// separate logical models; reasoning effort is the lane's only selectable
+// axis.
+type devinFamilyLane struct {
+	id, name      string
+	members       []devinModelFamilyMember // wire uids in server order
+	defaultMember string                   // server-declared default uid, "" when undeclared
+}
+
+var devinFamilyKeyPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+// devinFamilyEffortByName maps an effort-entry display name, normalized to a
+// space-free token, onto pi efforts (upstream DEVIN_FAMILY_EFFORT_BY_NAME).
+var devinFamilyEffortByName = map[string]string{
+	"none": "off", "nothinking": "off",
+	"minimal": "minimal", "low": "low", "medium": "medium",
+	"high": "high", "xhigh": "xhigh", "max": "max",
+}
+
+// devinSlugify ports pi-utils slugify: lowercase ASCII kebab, non-alnum runs
+// to "-", edge dashes trimmed. "GPT-5.6 Sol" -> "gpt-5-6-sol".
+func devinSlugify(input string) string {
+	return strings.Trim(devinFamilyKeyPattern.ReplaceAllString(strings.ToLower(input), "-"), "-")
+}
+
+// devinCollectFamilyLane files a live model under its server-declared family
+// lane (upstream collectDevinFamilyLane). Configs with no family metadata, or
+// whose family entry names no effort axis, contribute members without a
+// route.
+func devinCollectFamilyLane(lanes map[string]*devinFamilyLane, order *[]*devinFamilyLane, config devinClientModelConfig, model *Model) {
+	metadata := config.modelFamily
+	if metadata == nil {
+		return
+	}
+	label := strings.TrimSpace(metadata.label)
+	if label == "" {
+		return
+	}
+	effort := ""
+	thinking := false
+	thinkingSet := false
+	fast := false
+	oneMillionContext := false
+	for _, entry := range metadata.entries {
+		// Keys collapse punctuation to spaces ("Reasoning Effort" ->
+		// "reasoning effort"); effort names drop it entirely ("X High" and
+		// "XHigh" -> "xhigh").
+		key := strings.TrimSpace(devinFamilyKeyPattern.ReplaceAllString(strings.ToLower(entry.key), " "))
+		switch key {
+		case "fast mode":
+			fast = entry.order == 1
+		case "thinking":
+			thinking = entry.order == 1
+			thinkingSet = true
+		case "1m context":
+			oneMillionContext = entry.order == 1
+		case "effort", "reasoning effort":
+			if mapped, ok := devinFamilyEffortByName[devinFamilyKeyPattern.ReplaceAllString(strings.ToLower(entry.name), "")]; ok {
+				effort = mapped
+			}
+		}
+	}
+	// Claude's paired non-thinking and thinking configs share the same "High"
+	// effort label; its explicit thinking axis decides whether the route is off.
+	if thinkingSet && !thinking {
+		effort = "off"
+	}
+	base := devinSlugify(label)
+	if base == "" {
+		return
+	}
+	laneID := base
+	name := label
+	if oneMillionContext {
+		laneID += "-1m"
+		name += " 1M"
+	}
+	if fast {
+		laneID += "-fast"
+		name += " Fast"
+	}
+	lane := lanes[laneID]
+	if lane == nil {
+		lane = &devinFamilyLane{id: laneID, name: name}
+		lanes[laneID] = lane
+		*order = append(*order, lane)
+	}
+	lane.members = append(lane.members, devinModelFamilyMember{model: model, effort: effort})
+	if lane.defaultMember == "" && (config.isFamilyDefault || metadata.isDefault) {
+		lane.defaultMember = model.ID
+	}
+}
+
+// devinFamilyEffort normalizes a lane effort name onto the canonical set the
+// thinking ladder knows: "none"/"no-thinking" collapse onto "off".
+func devinFamilyEffort(effort string) string {
+	switch effort {
+	case "none", "no-thinking", "off":
+		return "off"
+	}
+	return effort
+}
+
+// devinEffortIsLevel reports whether effort is a canonical thinking level
+// (minimal..max), the ladder the picker's effort dial offers.
+func devinEffortIsLevel(effort string) bool {
+	switch ModelThinkingLevel(effort) {
+	case ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax:
+		return true
+	}
+	return false
+}
+
+// devinLaneLevelMap is the ThinkingLevelMap of one family: every canonical
+// level the lane routes is supported (value = the level's wire uid); every
+// other level is explicitly unsupported, so GetSupportedThinkingLevels
+// reports exactly the server's effort ladder.
+func devinLaneLevelMap(routing map[string]string) ThinkingLevelMap {
+	levelMap := ThinkingLevelMap{}
+	for _, level := range extendedThinkingLevels {
+		if uid := routing[string(level)]; uid != "" {
+			wire := uid
+			levelMap[level] = &wire
+		} else {
+			levelMap[level] = nil
+		}
+	}
+	return levelMap
+}
+
 // devinCollapseFamilies projects the wire-level roster onto the logical model
-// set upstream's collapseVariants produces: one model per effort/service
-// family plus standalone rows. Lane members keep their models (selections like
-// devin/swe-2-max and request routing still resolve to the wire uid) but carry
-// the effortLane compat marker so pickers show the family once. A family whose
-// logical id has no wire uid synthesizes a model from its default member and
-// routes through requestModelId, the same mechanism Fusion pairings use.
-func devinCollapseFamilies(models []*Model) []*Model {
+// set upstream's collapseVariants produces: server-declared lanes first,
+// they are live truth for wire uids, per-effort routes, and the native
+// default, then the uid-suffix fallback for whatever the wire didn't
+// declare. One model per effort/service family plus standalone rows. Lane
+// members keep their models (selections like devin/swe-2-max still resolve to
+// the wire uid) but carry the effortLane compat marker so pickers show the
+// family once, and a pinned ThinkingLevelMap of exactly their own lane. A
+// family whose logical id has no wire uid synthesizes a model from its
+// default member and routes through requestModelId, the same mechanism
+// Fusion pairings use.
+func devinCollapseFamilies(models []*Model, lanes []*devinFamilyLane) []*Model {
 	if len(models) == 0 {
 		return models
 	}
 	byID := make(map[string]*Model, len(models))
 	for _, model := range models {
 		byID[model.ID] = model
+	}
+	accountDefault := devinAccountDefaultUID(models)
+	declaredIDs := map[string]bool{}
+	collapsed := map[string]bool{}
+	initialLen := len(models)
+	for _, lane := range lanes {
+		// A lane with no non-off effort route has nothing to route: its
+		// members stay standalone (upstream devinDynamicFamilies).
+		formed := false
+		for _, member := range lane.members {
+			if devinEffortIsLevel(member.effort) {
+				formed = true
+				break
+			}
+		}
+		if !formed {
+			continue
+		}
+		declaredIDs[lane.id] = true
+		for _, member := range lane.members {
+			collapsed[member.model.ID] = true
+		}
+		devinCollapseFamily(&models, byID, lane, accountDefault)
 	}
 	type family struct {
 		id      string
@@ -273,12 +446,12 @@ func devinCollapseFamilies(models []*Model) []*Model {
 	families := map[string]*family{}
 	var order []*family
 	for _, model := range models {
-		if strings.HasPrefix(model.ID, "fusion-") {
+		if strings.HasPrefix(model.ID, "fusion-") || collapsed[model.ID] {
 			continue
 		}
 		base, effort, service := devinLaneParts(model.ID)
 		familyID := base + service
-		if familyID == model.ID {
+		if familyID == model.ID || declaredIDs[familyID] {
 			continue
 		}
 		entry := families[familyID]
@@ -291,7 +464,6 @@ func devinCollapseFamilies(models []*Model) []*Model {
 			entry.members[effort] = model
 		}
 	}
-	initialLen := len(models)
 	for _, entry := range order {
 		// A uid that heads its own family (nemotron-3-5-lightning has its own
 		// effort lanes) is a face, not a member of a -fast lane family.
@@ -306,42 +478,11 @@ func devinCollapseFamilies(models []*Model) []*Model {
 			// only wire-declared ladders, so one orphan lane stays itself.
 			continue
 		}
-		laneJSON := devinJSON(entry.id)
-		for _, member := range entry.members {
-			if member.ProviderMeta.Compat == nil {
-				member.ProviderMeta.Compat = &ModelCompat{Extra: map[string]json.RawMessage{}}
-			} else if member.ProviderMeta.Compat.Extra == nil {
-				member.ProviderMeta.Compat.Extra = map[string]json.RawMessage{}
-			}
-			member.ProviderMeta.Compat.Extra["effortLane"] = laneJSON
-		}
-		if face != nil {
-			continue
-		}
-		defaultMember := devinDefaultLane(entry.members)
-		if defaultMember == nil {
-			continue
-		}
-		routing := make(map[string]string, len(entry.members))
+		lane := &devinFamilyLane{id: entry.id}
 		for effort, member := range entry.members {
-			routing[effort] = member.ID
+			lane.members = append(lane.members, devinModelFamilyMember{model: member, effort: effort})
 		}
-		family := *defaultMember
-		family.ID = entry.id
-		family.DisplayName = devinFamilyName(entry.id, defaultMember.DisplayName)
-		compat := &ModelCompat{}
-		if defaultMember.ProviderMeta.Compat != nil {
-			*compat = *defaultMember.ProviderMeta.Compat
-			compat.Extra = maps.Clone(defaultMember.ProviderMeta.Compat.Extra)
-		}
-		if compat.Extra == nil {
-			compat.Extra = map[string]json.RawMessage{}
-		}
-		delete(compat.Extra, "effortLane")
-		compat.Extra["requestModelId"] = devinJSON(defaultMember.ID)
-		compat.Extra["effortRouting"] = devinJSON(routing)
-		family.ProviderMeta.Compat = compat
-		models = append(models, &family)
+		devinCollapseFamily(&models, byID, lane, accountDefault)
 	}
 	if len(models) > initialLen {
 		slices.SortFunc(models, func(a, b *Model) int { return strings.Compare(a.ID, b.ID) })
@@ -349,16 +490,131 @@ func devinCollapseFamilies(models []*Model) []*Model {
 	return models
 }
 
+// devinCollapseFamily marks one formed family's members and writes the
+// family's routing surface: effortLane on every member, a pinned
+// ThinkingLevelMap on effort lanes, and on the family model itself the
+// effortRouting map, requestModelId default, and the declared effort ladder.
+// The account default outranks the family's own default lane when an effort
+// routes to it, from server metadata or the suffix table.
+func devinCollapseFamily(models *[]*Model, byID map[string]*Model, lane *devinFamilyLane, accountDefault string) {
+	routing := make(map[string]string, len(lane.members))
+	for _, member := range lane.members {
+		if effort := devinFamilyEffort(member.effort); effort != "" && routing[effort] == "" {
+			routing[effort] = member.model.ID
+		}
+	}
+	defaultUID := lane.defaultMember
+	if accountDefault != "" {
+		for effort, uid := range routing {
+			if uid == accountDefault && devinEffortIsLevel(effort) {
+				defaultUID = accountDefault
+			}
+		}
+	}
+	laneJSON := devinJSON(lane.id)
+	for _, member := range lane.members {
+		compat := member.model.ProviderMeta.Compat
+		if compat == nil {
+			compat = &ModelCompat{}
+			member.model.ProviderMeta.Compat = compat
+		}
+		if compat.Extra == nil {
+			compat.Extra = map[string]json.RawMessage{}
+		}
+		compat.Extra["effortLane"] = laneJSON
+		// A lane member serves exactly one effort: pin its reported levels so
+		// pickers show the lane the wire uid actually is. A persisted map is
+		// declared truth, so the suffix pass must not overwrite it.
+		if effort := devinFamilyEffort(member.effort); member.model.ThinkingLevelMap == nil && (devinEffortIsLevel(effort) || effort == "off") {
+			member.model.ThinkingLevelMap = devinLaneLevelMap(map[string]string{effort: member.model.ID})
+		}
+	}
+	if defaultUID == "" {
+		defaultUID = devinDefaultLane(lane.members)
+	}
+	defaultMember := byID[defaultUID]
+	if defaultMember == nil {
+		return
+	}
+	family := byID[lane.id]
+	if family == nil {
+		synthesized := *defaultMember
+		synthesized.ID = lane.id
+		synthesized.DisplayName = lane.name
+		if synthesized.DisplayName == "" {
+			synthesized.DisplayName = devinFamilyName(lane.id, defaultMember.DisplayName)
+		}
+		// The member's own lane pin is not the family's ladder.
+		synthesized.ThinkingLevelMap = nil
+		synthesized.ProviderMeta.Compat = nil
+		if defaultMember.ProviderMeta.Compat != nil {
+			cloned := *defaultMember.ProviderMeta.Compat
+			cloned.Extra = maps.Clone(cloned.Extra)
+			synthesized.ProviderMeta.Compat = &cloned
+		}
+		family = &synthesized
+		*models = append(*models, family)
+	}
+	compat := family.ProviderMeta.Compat
+	if compat == nil {
+		compat = &ModelCompat{}
+		family.ProviderMeta.Compat = compat
+	}
+	if compat.Extra == nil {
+		compat.Extra = map[string]json.RawMessage{}
+	}
+	delete(compat.Extra, "effortLane")
+	// Persisted routing survives re-projection of a stored roster: declared
+	// metadata is live truth and must not be overwritten by suffix guesses.
+	if _, exists := compat.Extra["requestModelId"]; !exists {
+		compat.Extra["requestModelId"] = devinJSON(defaultUID)
+	}
+	if _, exists := compat.Extra["effortRouting"]; !exists && len(routing) > 0 {
+		compat.Extra["effortRouting"] = devinJSON(routing)
+	}
+	if persisted, _ := devinCompat[map[string]string](family, "effortRouting"); len(persisted) > 0 {
+		routing = persisted
+	}
+	if accountDefault != "" && defaultUID == accountDefault {
+		compat.Extra["isProviderDefault"] = json.RawMessage("true")
+	}
+	// A family advertises the ladder only when an effort tier routes: a
+	// thinking/no-thinking pair keeps the generic model levels.
+	hasLevel := false
+	for effort := range routing {
+		if devinEffortIsLevel(effort) {
+			hasLevel = true
+			break
+		}
+	}
+	if hasLevel && family.ThinkingLevelMap == nil {
+		family.ThinkingLevelMap = devinLaneLevelMap(routing)
+		family.Capabilities.MaxThinking = thinkingMaxLevel(family.ProviderMeta.Reasoning, family.ThinkingLevelMap)
+	}
+}
+
+// devinAccountDefaultUID is the wire uid the account marked as its default
+// (defaultOverrideModelConfig), read from the isProviderDefault compat marker
+// normalize stamped on the member.
+func devinAccountDefaultUID(models []*Model) string {
+	for _, model := range models {
+		if marked, _ := devinCompat[bool](model, "isProviderDefault"); marked {
+			return model.ID
+		}
+	}
+	return ""
+}
+
 // devinDefaultLane picks the member the family serves when no effort is
 // requested: the strongest advertised tier, matching the native client's
 // default.
-func devinDefaultLane(members map[string]*Model) *Model {
+func devinDefaultLane(members []devinModelFamilyMember) string {
 	bestRank := -1
-	var pick *Model
-	for effort, member := range members {
-		rank := devinEffortOrder[effort]
-		if pick == nil || rank > bestRank || (rank == bestRank && member.ID > pick.ID) {
-			bestRank, pick = rank, member
+	pick := ""
+	for _, member := range members {
+		rank := devinEffortOrder[devinFamilyEffort(member.effort)]
+		if pick == "" || rank > bestRank || (rank == bestRank && member.model.ID > pick) {
+			bestRank, pick = rank, member.model.ID
 		}
 	}
 	return pick

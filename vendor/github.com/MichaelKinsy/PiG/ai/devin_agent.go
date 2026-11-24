@@ -88,6 +88,27 @@ func (p *devinAgentProvider) resolveModel() *Model {
 	}
 }
 
+// devinChatModelUID resolves the wire uid a request carries: an effort-family
+// model routes the selected thinking level through its effortRouting map, an
+// unmapped level (or no routing) falls back to requestModelId, the family's
+// default member, and a standalone model is its own uid. Devin has no
+// thinking parameter on the wire; the effort lives in the model uid itself.
+func devinChatModelUID(model *Model, thinking ThinkingLevel) string {
+	if routing, _ := devinCompat[map[string]string](model, "effortRouting"); len(routing) > 0 {
+		level := string(thinking)
+		if level == "" {
+			level = "off"
+		}
+		if uid := routing[level]; uid != "" {
+			return uid
+		}
+	}
+	if requestModel, _ := devinCompat[string](model, "requestModelId"); requestModel != "" {
+		return requestModel
+	}
+	return model.ID
+}
+
 // devinCompat reads one member of the model's compat object: the catalog's
 // unmodeled members arrive through Compat.Extra as raw JSON. ok is false when
 // the member is absent or not a T.
@@ -464,9 +485,7 @@ func (p *devinAgentProvider) Stream(ctx context.Context, transcript TranscriptCo
 	modelRouter, _ := devinCompat[bool](model, "modelRouter")
 	chatModelUID := model.ID
 	if !modelRouter {
-		if requestModel, _ := devinCompat[string](model, "requestModelId"); requestModel != "" {
-			chatModelUID = requestModel
-		}
+		chatModelUID = devinChatModelUID(model, opts.Thinking)
 	}
 	googleSchema := devinIsGeminiModel(model.ID, chatModelUID)
 	tools := borrowedCurrentTools(messages)
