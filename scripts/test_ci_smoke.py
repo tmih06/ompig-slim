@@ -2,6 +2,7 @@
 """Guard CI smoke sharding without launching native executables."""
 import importlib.util
 import pathlib
+import time
 import unittest
 from unittest import mock
 
@@ -32,15 +33,33 @@ class SmokeShardTests(unittest.TestCase):
         run.assert_called_once_with(["python3", "second.py"], check=True)
 
     def test_main_propagates_scenario_failure(self):
-        """A failed scenario must fail the job before later commands execute."""
+        """A failed scenario fails the job; other shard commands still launch."""
         recipe = "python3 first.py\npython3 second.py\npython3 third.py"
         error = ci_smoke.subprocess.CalledProcessError(1, ["python3", "first.py"])
         with mock.patch("sys.argv", ["ci-smoke.py", "0"]), \
                 mock.patch.object(ci_smoke.subprocess, "check_output", return_value=recipe), \
                 mock.patch.object(ci_smoke.subprocess, "run", side_effect=error) as run:
-            with self.assertRaises(ci_smoke.subprocess.CalledProcessError):
+            with self.assertRaises(ci_smoke.subprocess.CalledProcessError) as caught:
                 ci_smoke.main()
-        run.assert_called_once_with(["python3", "first.py"], check=True)
+        self.assertEqual(caught.exception.cmd, ["python3", "first.py"])
+        # The shard's commands are submitted together; both ran (and failed).
+        self.assertEqual(run.call_count, 2)
+
+    def test_main_runs_shard_in_parallel(self):
+        """Independent scenarios overlap: two slow commands beat their serial sum."""
+        recipe = "python3 one.py\npython3 two.py\npython3 three.py\npython3 four.py"
+        def nap(command, check):
+            time.sleep(0.4)
+            return None
+        with mock.patch("sys.argv", ["ci-smoke.py", "0"]), \
+                mock.patch.object(ci_smoke.subprocess, "check_output", return_value=recipe), \
+                mock.patch.object(ci_smoke.subprocess, "run", side_effect=nap) as run:
+            start = time.monotonic()
+            ci_smoke.main()
+            elapsed = time.monotonic() - start
+        # Serial would take 0.8s for shard 0's two commands; parallel ~0.4s.
+        self.assertLess(elapsed, 0.7)
+        self.assertEqual(run.call_count, 2)
 
     def test_rejects_empty_or_non_python_recipe(self):
         """Fail closed if make introduces prerequisite builds or shell setup."""

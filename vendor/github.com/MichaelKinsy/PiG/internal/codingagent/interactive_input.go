@@ -814,6 +814,13 @@ func (m *InteractiveMode) handleKey(ctx context.Context, data string) error {
 		return nil
 	}
 
+	// The regular (non-fullscreen) renderer has no scrollable transcript:
+	// PageUp and Ctrl+Home there page older session history into the chat
+	// while the editor is empty, as the fullscreen scroll listener does.
+	if m.offerTranscriptHistoryPage(data) {
+		return nil
+	}
+
 	return m.handleCustomEditorKey(ctx, data)
 }
 

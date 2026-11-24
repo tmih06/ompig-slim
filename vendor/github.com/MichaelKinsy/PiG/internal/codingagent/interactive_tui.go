@@ -122,6 +122,7 @@ func (m *InteractiveMode) mountInteractiveTui(start bool) {
 	// guards, but is not the render root in this mode.
 	viewport := m.buildChatViewport()
 	m.transcriptScrollView = viewport.Transcript
+	m.transcriptScrollView.SetOnScrollChanged(m.onTranscriptScrolled)
 	m.altScreen.SetLayoutRoot(viewport.Root)
 	if start {
 		m.altScreen.Start()
