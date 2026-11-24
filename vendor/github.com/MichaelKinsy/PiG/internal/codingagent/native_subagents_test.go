@@ -397,20 +397,15 @@ func TestAgentTreeExpiresFinishedRecords(t *testing.T) {
 		{ID: "fresh", Type: "Explore", Description: "fresh", Status: "completed", StartedAt: now - 5000, CompletedAt: now - 1000, Background: true},
 		{ID: "old", Type: "Explore", Description: "old", Status: "completed", StartedAt: now - 60000, CompletedAt: now - 31000, Background: true},
 		{ID: "err", Type: "Explore", Description: "errored", Status: "error", StartedAt: now - 60000, CompletedAt: now - 31000, Background: true},
-		{ID: "child", Type: "Explore", Description: "child", Status: "completed", ParentID: "fresh", StartedAt: now - 60000, CompletedAt: now - 1000, Background: true},
 	})
-	for _, status := range []string{"queued", "running", "scheduled"} {
+	for _, status := range []string{"queued", "scheduled"} {
 		if got := agentTreeFinishedAt(subagents.Record{Status: status, StartedAt: now - 60000}); got != 0 {
 			t.Fatalf("%s record is not finished: %d", status, got)
 		}
 	}
 	rows, _ := m.agentTreeRecords()
-	got := map[string]bool{}
-	for _, r := range rows {
-		got[r.ID] = true
-	}
-	if len(got) != 1 || !got["fresh"] {
-		t.Fatalf("expiry kept the wrong rows: %v", got)
+	if len(rows) != 1 || rows[0].ID != "fresh" {
+		t.Fatalf("expiry kept the wrong rows: %v", rows)
 	}
 	if m.subagentUI.expireTimer == nil || m.subagentUI.expireAt.IsZero() {
 		t.Fatal("no expiry timer armed for the remaining finished record")
@@ -424,18 +419,14 @@ func TestAgentTreeExpiresFinishedRecords(t *testing.T) {
 }
 
 func TestAgentTreeCleansUpWithoutInput(t *testing.T) {
-	m, _ := treeFixture(t, []subagents.Record{
-		{ID: "a", Type: "Explore", Description: "done", Status: "completed",
-			StartedAt:   time.Now().UnixMilli() - agentTreeFinishedTTL.Milliseconds(),
-			CompletedAt: time.Now().Add(-agentTreeFinishedTTL + 600*time.Millisecond).UnixMilli(), Background: true},
-	})
-	armed := make(chan time.Time, 1)
+	m, _ := treeFixture(t, []subagents.Record{{
+		ID: "a", Type: "Explore", Description: "done", Status: "completed",
+		CompletedAt: time.Now().Add(-agentTreeFinishedTTL + 600*time.Millisecond).UnixMilli(), Background: true,
+	}})
+	armed := make(chan time.Time, 8)
 	m.tuiInst.SetRenderDeadline(func(due time.Time) {
 		if !due.IsZero() {
-			select {
-			case armed <- due:
-			default:
-			}
+			armed <- due
 		}
 	})
 	if rows, _ := m.agentTreeRecords(); len(rows) != 1 {

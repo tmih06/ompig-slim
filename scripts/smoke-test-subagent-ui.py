@@ -341,9 +341,7 @@ def run(binary, mode):
                         screen.feed(data)
                     if not re.search(pattern, screen.text()):
                         return
-                    if process.poll() is not None:
-                        break
-                raise AssertionError(f"{mode}: {pattern!r} still on screen; exit={process.poll()}")
+                raise AssertionError(f"{mode}: {pattern!r} still on screen")
 
             try:
                 startup = wait(b"interactive-ready")
@@ -412,7 +410,6 @@ def run(binary, mode):
                 ModelServer.finished.set()
                 wait(b"1 subagent \xc2\xb7 0 working")
                 assert screen.row_of("● Agents") == -1, "completion reopened the tree"
-                # Finished children are cleaned from the tree and footer after 30s.
                 wait_gone(r"\d+ subagents? ·", 35)
                 os.write(master, b"\x1b[B")
                 idle(0.6)
