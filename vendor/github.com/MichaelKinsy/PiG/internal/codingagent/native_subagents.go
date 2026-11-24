@@ -26,7 +26,15 @@ type subagentUIState struct {
 	lastLeftTap  time.Time
 	viewer       *subagentViewer
 	treeSelected string
+	// expireTimer is re-armed at the soonest finished record's cleanup
+	// deadline so the tree and counts drop it without input.
+	expireAt    time.Time
+	expireTimer *time.Timer
 }
+
+// agentTreeFinishedTTL is how long a finished record stays listed before the
+// tree and footer counts clean it up. The manager keeps the record.
+const agentTreeFinishedTTL = 30 * time.Second
 
 func (m *InteractiveMode) subagentManager() *subagents.Manager {
 	if host, ok := m.opts.SessionHandle.(interface{ Subagents() *subagents.Manager }); ok {
@@ -48,6 +56,9 @@ func (m *InteractiveMode) bindSubagentUI() {
 		}
 		for m.subagentUI.viewer != nil {
 			m.subagentUI.viewer.close()
+		}
+		if m.subagentUI.expireTimer != nil {
+			m.subagentUI.expireTimer.Stop()
 		}
 	}
 	m.subagentUI = &subagentUIState{manager: manager}
@@ -198,17 +209,65 @@ func (m *InteractiveMode) agentTreeRecords() ([]subagents.Record, subagents.Sett
 	}
 	s := manager.Settings()
 	if !s.Enabled || s.WidgetMode == "off" {
+		m.armAgentTreeExpiry(time.Time{})
 		return nil, s
 	}
 	records := manager.Records()
 	rows := records[:0]
+	nowMs := time.Now().UnixMilli()
+	var nextExpiry time.Time
 	for _, r := range records {
 		if !r.TopLevel() || s.WidgetMode == "background" && !r.Background {
 			continue
 		}
+		if finishedAt := agentTreeFinishedAt(r); finishedAt > 0 {
+			expiry := time.UnixMilli(finishedAt + agentTreeFinishedTTL.Milliseconds())
+			if nowMs >= expiry.UnixMilli() {
+				continue
+			}
+			if nextExpiry.IsZero() || expiry.Before(nextExpiry) {
+				nextExpiry = expiry
+			}
+		}
 		rows = append(rows, r)
 	}
+	m.armAgentTreeExpiry(nextExpiry)
 	return rows, s
+}
+
+// agentTreeFinishedAt is when a finished record's cleanup counts from:
+// CompletedAt, or StartedAt when none was recorded.
+func agentTreeFinishedAt(r subagents.Record) int64 {
+	if r.Outcome() == subagents.OutcomeRunning {
+		return 0
+	}
+	return max(r.CompletedAt, r.StartedAt)
+}
+
+// armAgentTreeExpiry keeps one owner-loop timer armed at the earliest pending
+// cleanup; its callback only requests a frame, which re-runs the projection.
+func (m *InteractiveMode) armAgentTreeExpiry(next time.Time) {
+	ui := m.subagentUI
+	if ui == nil {
+		return
+	}
+	if ui.expireAt.Equal(next) {
+		return
+	}
+	ui.expireAt = next
+	if ui.expireTimer != nil {
+		ui.expireTimer.Stop()
+		ui.expireTimer = nil
+	}
+	if next.IsZero() {
+		return
+	}
+	ui.expireTimer = time.AfterFunc(time.Until(next), func() {
+		if m.statusLine != nil {
+			m.statusLine.Invalidate()
+		}
+		m.requestRender()
+	})
 }
 
 func (m *InteractiveMode) subagentCounts() (total, working int) {

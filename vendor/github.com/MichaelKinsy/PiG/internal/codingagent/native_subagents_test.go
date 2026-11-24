@@ -39,6 +39,9 @@ func observerFixture(t *testing.T) (*InteractiveMode, *subagents.Manager) {
 	m.tuiInst.SetRenderDeadline(func(time.Time) {})
 	m.subagentUI = &subagentUIState{manager: manager}
 	t.Cleanup(func() {
+		if m.subagentUI.expireTimer != nil {
+			m.subagentUI.expireTimer.Stop()
+		}
 		if m.subagentUI.hub != nil {
 			m.subagentUI.hub.close()
 		}
@@ -210,6 +213,9 @@ func treeFixture(t *testing.T, records []subagents.Record) (*InteractiveMode, *s
 	m.tuiInst.SetRenderDeadline(func(time.Time) {})
 	m.subagentUI = &subagentUIState{manager: manager}
 	t.Cleanup(func() {
+		if m.subagentUI.expireTimer != nil {
+			m.subagentUI.expireTimer.Stop()
+		}
 		if m.subagentUI.hub != nil {
 			m.subagentUI.hub.close()
 		}
@@ -222,8 +228,8 @@ func treeFixture(t *testing.T, records []subagents.Record) (*InteractiveMode, *s
 
 func TestAgentTreeKeysNavigateSelectAndClose(t *testing.T) {
 	records := []subagents.Record{
-		{ID: "a", Type: "Explore", Description: "first", Status: "completed", StartedAt: time.Now().Add(-time.Hour).UnixMilli(), CompletedAt: time.Now().Add(-time.Hour).UnixMilli(), Background: true},
-		{ID: "b", Type: "Explore", Description: "second", Status: "completed", StartedAt: time.Now().Add(-time.Hour).UnixMilli(), CompletedAt: time.Now().Add(-time.Hour).UnixMilli(), Background: true},
+		{ID: "a", Type: "Explore", Description: "first", Status: "completed", StartedAt: time.Now().UnixMilli(), CompletedAt: time.Now().UnixMilli(), Background: true},
+		{ID: "b", Type: "Explore", Description: "second", Status: "completed", StartedAt: time.Now().UnixMilli(), CompletedAt: time.Now().UnixMilli(), Background: true},
 	}
 	m, _ := treeFixture(t, records)
 	if !m.handleAgentKey("\x1b[B") || m.subagentUI.treeSelected != "a" {
@@ -258,8 +264,8 @@ func TestAgentTreeKeysNavigateSelectAndClose(t *testing.T) {
 
 func TestAgentTreeEnterInspectsLikeHub(t *testing.T) {
 	records := []subagents.Record{
-		{ID: "a", Type: "Explore", Description: "first", Status: "completed", SessionFile: "a.jsonl", Background: true},
-		{ID: "b", Type: "Explore", Description: "second", Status: "completed", SessionFile: "b.jsonl", Background: true},
+		{ID: "a", Type: "Explore", Description: "first", Status: "completed", SessionFile: "a.jsonl", StartedAt: time.Now().UnixMilli(), CompletedAt: time.Now().UnixMilli(), Background: true},
+		{ID: "b", Type: "Explore", Description: "second", Status: "completed", SessionFile: "b.jsonl", StartedAt: time.Now().UnixMilli(), CompletedAt: time.Now().UnixMilli(), Background: true},
 	}
 	m, _ := treeFixture(t, records)
 	m.handleAgentKey("\x1b[B")
@@ -382,6 +388,72 @@ func TestAgentTreeQueuedAndDisabledManagers(t *testing.T) {
 	}
 	if total, working = m.subagentCounts(); total != 0 || working != 0 {
 		t.Fatalf("widgetMode off counts = %d %d", total, working)
+	}
+}
+
+func TestAgentTreeExpiresFinishedRecords(t *testing.T) {
+	now := time.Now().UnixMilli()
+	m, _ := treeFixture(t, []subagents.Record{
+		{ID: "fresh", Type: "Explore", Description: "fresh", Status: "completed", StartedAt: now - 5000, CompletedAt: now - 1000, Background: true},
+		{ID: "old", Type: "Explore", Description: "old", Status: "completed", StartedAt: now - 60000, CompletedAt: now - 31000, Background: true},
+		{ID: "err", Type: "Explore", Description: "errored", Status: "error", StartedAt: now - 60000, CompletedAt: now - 31000, Background: true},
+		{ID: "child", Type: "Explore", Description: "child", Status: "completed", ParentID: "fresh", StartedAt: now - 60000, CompletedAt: now - 1000, Background: true},
+	})
+	for _, status := range []string{"queued", "running", "scheduled"} {
+		if got := agentTreeFinishedAt(subagents.Record{Status: status, StartedAt: now - 60000}); got != 0 {
+			t.Fatalf("%s record is not finished: %d", status, got)
+		}
+	}
+	rows, _ := m.agentTreeRecords()
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.ID] = true
+	}
+	if len(got) != 1 || !got["fresh"] {
+		t.Fatalf("expiry kept the wrong rows: %v", got)
+	}
+	if m.subagentUI.expireTimer == nil || m.subagentUI.expireAt.IsZero() {
+		t.Fatal("no expiry timer armed for the remaining finished record")
+	}
+	if remaining := time.Until(m.subagentUI.expireAt); remaining <= 0 || remaining > agentTreeFinishedTTL {
+		t.Fatalf("expiry armed at %v, want within %v", remaining, agentTreeFinishedTTL)
+	}
+	if total, working := m.subagentCounts(); total != 1 || working != 0 {
+		t.Fatalf("counts = %d total %d working, want 1 and 0", total, working)
+	}
+}
+
+func TestAgentTreeCleansUpWithoutInput(t *testing.T) {
+	m, _ := treeFixture(t, []subagents.Record{
+		{ID: "a", Type: "Explore", Description: "done", Status: "completed",
+			StartedAt:   time.Now().UnixMilli() - agentTreeFinishedTTL.Milliseconds(),
+			CompletedAt: time.Now().Add(-agentTreeFinishedTTL + 600*time.Millisecond).UnixMilli(), Background: true},
+	})
+	armed := make(chan time.Time, 1)
+	m.tuiInst.SetRenderDeadline(func(due time.Time) {
+		if !due.IsZero() {
+			select {
+			case armed <- due:
+			default:
+			}
+		}
+	})
+	if rows, _ := m.agentTreeRecords(); len(rows) != 1 {
+		t.Fatalf("the finishing record was not listed: %d", len(rows))
+	}
+	select {
+	case <-armed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the expiry timer did not request a frame")
+	}
+	if rows, _ := m.agentTreeRecords(); len(rows) != 0 {
+		t.Fatalf("the finished record survived its TTL: %v", rows)
+	}
+	if m.subagentUI.expireTimer != nil || !m.subagentUI.expireAt.IsZero() {
+		t.Fatal("the expiry timer stayed armed with nothing left to clean")
+	}
+	if m.handleAgentKey("\x1b[B") {
+		t.Fatal("Down reopened a tree with no eligible records")
 	}
 }
 

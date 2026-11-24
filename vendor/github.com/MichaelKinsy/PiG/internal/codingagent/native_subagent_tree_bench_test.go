@@ -23,7 +23,7 @@ func BenchmarkAgentTree(b *testing.B) {
 						name := fmt.Sprintf("worker_%04d", i)
 						records[i] = subagents.Record{
 							ID: name, Handle: name, Description: "Inspect the implementation and report findings",
-							Status: "completed", Background: true, StartedAt: 1, CompletedAt: 60001,
+							Status: "completed", Background: true, StartedAt: 1, CompletedAt: time.Now().UnixMilli(),
 							ModelName: "fixture-model", Thinking: "high", Turns: 5, ToolUses: 12,
 							Tokens: 12400, ContextTokens: 50000, ContextWindow: 200000, Cost: 0.02,
 							Params: subagents.Params{Role: "@task"},
@@ -44,6 +44,11 @@ func BenchmarkAgentTree(b *testing.B) {
 				subagentUI: &subagentUIState{manager: manager, treeSelected: selected},
 			}
 			m.tuiInst.SetRenderDeadline(func(time.Time) {})
+			b.Cleanup(func() {
+				if m.subagentUI.expireTimer != nil {
+					m.subagentUI.expireTimer.Stop()
+				}
+			})
 			tree := &nativeAgentTree{m: m}
 			footer := NewFooterComponent(nil, "", nil)
 			footer.agents = m.subagentCounts

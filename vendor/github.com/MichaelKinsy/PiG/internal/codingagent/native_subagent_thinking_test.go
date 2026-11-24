@@ -77,6 +77,9 @@ func liveThinkingFixture(t *testing.T, updates ...agent.MessageUpdateEvent) (*In
 	m.tuiInst.SetRenderDeadline(func(time.Time) {})
 	m.subagentUI = &subagentUIState{manager: manager}
 	t.Cleanup(func() {
+		if m.subagentUI.expireTimer != nil {
+			m.subagentUI.expireTimer.Stop()
+		}
 		if m.subagentUI.hub != nil {
 			m.subagentUI.hub.close()
 		}

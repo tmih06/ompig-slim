@@ -20,6 +20,7 @@ the child running while it checks the following user-visible behavior:
   the opened child transcript before the child completes.
 - History Up/Down restores the draft before the extra Down reopens the tree,
   and a nonempty prompt never opens it.
+- Thirty seconds after the child finishes, the tree and footer count drop it.
 
 The helper runs in fullscreen and regular modes. It releases the fixture
 stream and terminates only its own process during cleanup. The check is part

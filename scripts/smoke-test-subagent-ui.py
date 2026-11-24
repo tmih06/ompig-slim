@@ -332,6 +332,19 @@ def run(binary, mode):
                         screen.feed(data)
                 return bytes(observed)
 
+            def wait_gone(pattern, window):
+                deadline = time.monotonic() + window
+                while time.monotonic() < deadline:
+                    if select.select([master], [], [], .05)[0]:
+                        data = os.read(master, 262144)
+                        captured.extend(data)
+                        screen.feed(data)
+                    if not re.search(pattern, screen.text()):
+                        return
+                    if process.poll() is not None:
+                        break
+                raise AssertionError(f"{mode}: {pattern!r} still on screen; exit={process.poll()}")
+
             try:
                 startup = wait(b"interactive-ready")
                 os.write(master, b"Exercise the live subagent UI.\r")
@@ -399,8 +412,13 @@ def run(binary, mode):
                 ModelServer.finished.set()
                 wait(b"1 subagent \xc2\xb7 0 working")
                 assert screen.row_of("● Agents") == -1, "completion reopened the tree"
+                # Finished children are cleaned from the tree and footer after 30s.
+                wait_gone(r"\d+ subagents? ·", 35)
+                os.write(master, b"\x1b[B")
+                idle(0.6)
+                assert screen.row_of("● Agents") == -1, "Down reopened an empty tree"
                 print(f"{mode}: hidden tree, live footer count, Down selection + Enter inspector, "
-                      f"history restore, live thinking while open: OK")
+                      f"history restore, live thinking while open, 30s cleanup: OK")
             finally:
                 ModelServer.finished.set()
                 for event in ModelServer.advance:

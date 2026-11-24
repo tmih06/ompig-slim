@@ -99,6 +99,11 @@ empty draft, another Down opens the tree. The Widget setting controls which
 children appear. Completed children remain inspectable. Queued children do not
 count as working.
 
+The tree and the footer counts clean up finished children 30 seconds after
+they complete; a timer re-renders at the deadline, so they leave without
+input. The Agent Hub, the transcript, and `get_subagent_result` still reach
+the finished child.
+
 Provider-emitted thinking text streams beneath the child's row and in the
 Agent Hub inspector. Opening the child transcript shows its thinking blocks
 alongside its responses and tool calls. These views do not reveal reasoning
