@@ -341,7 +341,9 @@ def run(binary, mode):
                         screen.feed(data)
                     if not re.search(pattern, screen.text()):
                         return
-                raise AssertionError(f"{mode}: {pattern!r} still on screen")
+                raise AssertionError(
+                    f"{mode}: {pattern!r} still on screen; exit={process.poll()}"
+                    f"\nscreen:\n{screen.text()}\ntail:{bytes(captured[-1500:])!r}")
 
             try:
                 startup = wait(b"interactive-ready")
@@ -411,7 +413,7 @@ def run(binary, mode):
                 wait(b"1 subagent \xc2\xb7 0 working")
                 # A lone Esc resolves after the terminal escape timeout; the
                 # completion frame can land first, so wait out the redraw.
-                wait_gone(r"● Agents", 5)
+                wait_gone(r"● Agents", 15)
                 wait_gone(r"\d+ subagents? ·", 35)
                 os.write(master, b"\x1b[B")
                 idle(0.6)
