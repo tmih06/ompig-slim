@@ -25,6 +25,8 @@ type CompactionResult struct {
 	EstimatedTokensAfter int
 	Usage                *ai.Usage
 	Details              any
+	// Info is the host-observed record of the completed operation.
+	Info *agent.CompactionInfo
 }
 
 // ModelCycleResult reports a model-cycle selection and its clamped thinking level.

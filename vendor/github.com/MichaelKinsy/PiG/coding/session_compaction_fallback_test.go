@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	icodingagent "github.com/MichaelKinsy/PiG/internal/codingagent"
 	"github.com/MichaelKinsy/PiG/internal/modelroles"
@@ -46,6 +47,14 @@ func TestSessionCompactFallbackIntegration(t *testing.T) {
 			thirdHealthy: true,
 			wantSummary:  true,
 			wantModels:   []string{"chat", "chat", "primary", "second", "third"},
+		},
+		{
+			name:           "reported model alias",
+			reportAlias:    true,
+			thirdHealthy:   true,
+			wantSummary:    true,
+			wantModels:     []string{"chat", "chat", "primary", "second", "third"},
+			wantInfoModels: []string{"fallback-c/reported-third"},
 		},
 		{
 			name:         "exclude usage limit",
@@ -105,6 +114,11 @@ func TestSessionCompactFallbackIntegration(t *testing.T) {
 				if result == nil || result.Summary != "summary from third" {
 					t.Fatalf("summary result=%+v", result)
 				}
+				wantInfoModels := tc.wantInfoModels
+				if wantInfoModels == nil {
+					wantInfoModels = []string{"fallback-c/third"}
+				}
+				assertCompactionInfo(t, fixture, result, "manual", wantInfoModels)
 			} else if err == nil || result != nil {
 				t.Fatalf("expected compaction failure, result=%+v err=%v", result, err)
 			}
@@ -172,9 +186,11 @@ type compactionFallbackCase struct {
 	disableRetry         bool
 	disableModelFallback bool
 	fallbackOn           string
+	reportAlias          bool
 	thirdHealthy         bool
 	wantSummary          bool
 	wantModels           []string
+	wantInfoModels       []string
 }
 
 type compactionFallbackFixture struct {
@@ -183,6 +199,7 @@ type compactionFallbackFixture struct {
 	requestedMu   sync.Mutex
 	requested     []string
 	secondStarted chan struct{}
+	compactionEnd chan agent.CompactionEndEvent
 }
 
 func newCompactionFallbackFixture(t *testing.T, tc compactionFallbackCase, fallbacks []string, blockSecond bool) *compactionFallbackFixture {
@@ -224,7 +241,11 @@ func newCompactionFallbackFixture(t *testing.T, tc compactionFallbackCase, fallb
 			writeCompactionFallbackQuotaError(w)
 		case "third":
 			if tc.thirdHealthy {
-				writeCompactionFallbackSSE(w, body.Model, "summary from third")
+				reported := body.Model
+				if tc.reportAlias {
+					reported = "reported-" + body.Model
+				}
+				writeCompactionFallbackSSEAlias(w, reported, "summary from third")
 				return
 			}
 			writeCompactionFallbackQuotaError(w)
@@ -317,6 +338,15 @@ func newCompactionFallbackFixture(t *testing.T, tc compactionFallbackCase, fallb
 		services.Close()
 		t.Fatal(err)
 	}
+	fixture.compactionEnd = make(chan agent.CompactionEndEvent, 4)
+	fixture.session.Subscribe(func(event agent.AgentEvent) {
+		if end, ok := event.(agent.CompactionEndEvent); ok {
+			select {
+			case fixture.compactionEnd <- end:
+			default:
+			}
+		}
+	})
 	t.Cleanup(func() {
 		fixture.session.Close()
 		services.Close()
@@ -341,9 +371,40 @@ func writeCompactionFallbackQuotaError(w http.ResponseWriter) {
 }
 
 func writeCompactionFallbackSSE(w http.ResponseWriter, model, content string) {
+	writeCompactionFallbackSSEAlias(w, model, content)
+}
+
+// writeCompactionFallbackSSEAlias writes a response whose wire model is the
+// reported identity the provider chose, which can differ from the request's.
+func writeCompactionFallbackSSEAlias(w http.ResponseWriter, reportedModel, content string) {
 	w.Header().Set("Content-Type", "text/event-stream")
-	fmt.Fprintf(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":%q},\"finish_reason\":null}]}\n\n", model, content)
+	fmt.Fprintf(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":%q},\"finish_reason\":null}]}\n\n", reportedModel, content)
 	fmt.Fprint(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+}
+
+// assertCompactionInfo compares the completed record across the manual
+// result, the compaction_end event and the persisted entry.
+func assertCompactionInfo(t *testing.T, fixture *compactionFallbackFixture, result *CompactionResult, reason string, models []string) {
+	t.Helper()
+	info := result.Info
+	if info == nil {
+		t.Fatal("completed compaction result carries no info")
+	}
+	if info.Reason != reason || !reflect.DeepEqual(info.Models, models) || info.ElapsedMs < 0 {
+		t.Fatalf("result info = %+v, want reason %q models %v", info, reason, models)
+	}
+	select {
+	case end := <-fixture.compactionEnd:
+		if end.Info == nil || !reflect.DeepEqual(*end.Info, *info) {
+			t.Fatalf("end event info = %+v, want %+v", end.Info, info)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no compaction_end event")
+	}
+	entry := icodingagent.GetLatestCompactionEntry(fixture.session.Inner().GetBranch())
+	if entry == nil || entry.Info == nil || !reflect.DeepEqual(*entry.Info, *info) {
+		t.Fatalf("persisted entry info = %+v, want %+v", entry, info)
+	}
 }
 
 func assertCompactionFallbackSessionUnchanged(t *testing.T, session *Session, model, role string, thinking ai.ModelThinkingLevel) {

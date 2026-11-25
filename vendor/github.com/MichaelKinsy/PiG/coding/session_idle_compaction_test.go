@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,10 +53,23 @@ type idleFixture struct {
 }
 
 func newIdleFixture(t *testing.T, promptCache map[string]float64, idleDelay float64, cacheWarming icodingagent.CacheWarmingMode, blockSummary bool) *idleFixture {
-	return newIdleFixtureRunner(t, promptCache, idleDelay, cacheWarming, blockSummary, nil)
+	return newIdleFixtureRunner(t, promptCache, idleDelay, cacheWarming, blockSummary, nil, idleFixtureOpts{})
 }
 
-func newIdleFixtureRunner(t *testing.T, promptCache map[string]float64, idleDelay float64, cacheWarming icodingagent.CacheWarmingMode, blockSummary bool, runner *inproc.Runner) *idleFixture {
+type idleFixtureOpts struct {
+	// extraModels registers additional models in the fixture provider; the
+	// chat model always stays "chat".
+	extraModels []string
+	// failModels answers every request for the named model with a usage
+	// limit error, including the summary requests a compaction sends.
+	failModels map[string]bool
+	// compactRole is the selector assigned to ModelRoles["compact"].
+	compactRole string
+	// fallbackChains is Retry.FallbackChains for the session settings.
+	fallbackChains map[string][]string
+}
+
+func newIdleFixtureRunner(t *testing.T, promptCache map[string]float64, idleDelay float64, cacheWarming icodingagent.CacheWarmingMode, blockSummary bool, runner *inproc.Runner, opts idleFixtureOpts) *idleFixture {
 	t.Helper()
 	t.Setenv("PI_OFFLINE", "1")
 	t.Setenv("PIG_HOME", t.TempDir())
@@ -85,6 +99,10 @@ func newIdleFixtureRunner(t *testing.T, promptCache map[string]float64, idleDela
 		f.mu.Lock()
 		f.requests = append(f.requests, idleCapturedRequest{Model: body.Model, Messages: body.Messages, Raw: raw})
 		f.mu.Unlock()
+		if opts.failModels[body.Model] {
+			writeCompactionFallbackQuotaError(w)
+			return
+		}
 		if summary {
 			f.summaryStartOne.Do(func() { close(f.summaryStarted) })
 			if f.blockSummary != nil {
@@ -115,10 +133,16 @@ func newIdleFixtureRunner(t *testing.T, promptCache map[string]float64, idleDela
 	if promptCache != nil {
 		modelEntry["promptCache"] = promptCache
 	}
+	models := []any{modelEntry}
+	for _, id := range opts.extraModels {
+		models = append(models, map[string]any{
+			"id": id, "name": id, "reasoning": false, "contextWindow": 128000, "maxTokens": 1024,
+		})
+	}
 	config, err := json.Marshal(map[string]any{"providers": map[string]any{
 		"fixture": map[string]any{
 			"api": "openai-completions", "baseUrl": server.URL + "/v1", "apiKey": "fixture-key",
-			"models": []any{modelEntry},
+			"models": models,
 		},
 	}})
 	if err != nil {
@@ -131,10 +155,14 @@ func newIdleFixtureRunner(t *testing.T, promptCache map[string]float64, idleDela
 	f.dir = dir
 
 	keepRecentTokens := float64(11)
+	roles := map[string]string{"default": "fixture/chat"}
+	if opts.compactRole != "" {
+		roles["compact"] = opts.compactRole
+	}
 	settings := Settings{
-		Config:       modelroles.Config{ModelRoles: map[string]string{"default": "fixture/chat"}},
+		Config:       modelroles.Config{ModelRoles: roles},
 		CacheWarming: cacheWarming,
-		Retry:        &icodingagent.RetrySettingsJSON{MaxRetries: new(0)},
+		Retry:        &icodingagent.RetrySettingsJSON{MaxRetries: new(0), FallbackChains: opts.fallbackChains},
 		Compaction: &icodingagent.CompactionSettingsJSON{
 			KeepRecentTokens: &keepRecentTokens,
 			IdleDelaySeconds: &idleDelay,
@@ -205,8 +233,43 @@ func (f *idleFixture) summaryRequest(t *testing.T) idleCapturedRequest {
 	return idleCapturedRequest{}
 }
 
+// summaryRequests returns every captured request for modelID carrying a
+// summary instruction, in request order.
+func (f *idleFixture) summaryRequests(modelID string) []idleCapturedRequest {
+	var out []idleCapturedRequest
+	for _, req := range f.captured() {
+		if req.Model == modelID && len(req.Messages) > 0 &&
+			strings.Contains(string(req.Messages[len(req.Messages)-1]), "summar") {
+			out = append(out, req)
+		}
+	}
+	return out
+}
+
 func (f *idleFixture) compactionEntry() *icodingagent.CompactionEntry {
 	return icodingagent.GetLatestCompactionEntry(f.session.Inner().GetBranch())
+}
+
+// assertIdleInfo compares the completed record across the end event and the
+// persisted entry.
+func (f *idleFixture) assertIdleInfo(t *testing.T, end agent.CompactionEndEvent, models []string) {
+	t.Helper()
+	if end.Info == nil {
+		t.Fatal("idle compaction end carries no info")
+	}
+	if end.Info.Reason != "idle" || end.Info.ElapsedMs < 0 {
+		t.Fatalf("idle info = %+v", end.Info)
+	}
+	if !reflect.DeepEqual(end.Info.Models, models) {
+		t.Fatalf("idle info models = %v, want %v", end.Info.Models, models)
+	}
+	entry := f.compactionEntry()
+	if entry == nil {
+		t.Fatal("no persisted idle compaction entry")
+	}
+	if entry.Info == nil || !reflect.DeepEqual(*entry.Info, *end.Info) {
+		t.Fatalf("persisted entry info = %+v, want %+v", entry.Info, end.Info)
+	}
 }
 
 // holdResponses parks the next non-summary provider request until
@@ -307,10 +370,22 @@ func TestSessionIdleCompactionFallbackDelay(t *testing.T) {
 	defer cancel()
 	f.send(t, ctx)
 
+	pending, pendingOK := f.session.PendingIdleCompaction()
+	if !pendingOK {
+		t.Fatal("settled session did not report the armed idle deadline")
+	}
+	if delta := pending.DeadlineAtMs - time.Now().UnixMilli(); delta < 0 || delta > 2000 {
+		t.Fatalf("idle deadline %d ms out, want near the 1 s policy delay", delta)
+	}
+
 	end := waitIdleCompactionEnd(t, f, 10*time.Second)
 	if end.Aborted || end.Summary != "idle summary" {
 		t.Fatalf("idle compaction end = %+v", end)
 	}
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("consumed offer still reports a pending deadline")
+	}
+	f.assertIdleInfo(t, end, []string{"fixture/chat"})
 	if f.compactionEntry() == nil {
 		t.Fatal("no persisted idle compaction entry")
 	}
@@ -355,6 +430,9 @@ func TestSessionIdleCompactionInputPreemptsCommit(t *testing.T) {
 	if !f.session.IsCompacting() {
 		t.Fatal("expected the idle claim to report IsCompacting")
 	}
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("claimed offer still reports a pending deadline")
+	}
 	close(f.blockSummary)
 	if _, err := f.session.Send(ctx, "input during idle compaction"); err != nil {
 		t.Fatalf("prompt during idle compaction failed: %v", err)
@@ -387,6 +465,9 @@ func TestSessionIdleCompactionDisabled(t *testing.T) {
 			t.Fatal("idle summary request ran with idleEnabled=false")
 		}
 	}
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("disabled idle policy still reports a pending deadline")
+	}
 	if f.compactionEntry() != nil {
 		t.Fatal("idle compaction persisted with idleEnabled=false")
 	}
@@ -398,9 +479,15 @@ func TestSessionIdleCompactionCacheWarmingOff(t *testing.T) {
 	defer cancel()
 	f.send(t, ctx)
 
+	if _, ok := f.session.PendingIdleCompaction(); !ok {
+		t.Fatal("warming off dropped the armed idle deadline")
+	}
 	end := waitIdleCompactionEnd(t, f, 10*time.Second)
 	if end.Aborted || end.Summary != "idle summary" {
 		t.Fatalf("idle compaction end = %+v", end)
+	}
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("consumed offer still reports a pending deadline")
 	}
 }
 
@@ -439,30 +526,60 @@ func TestSessionIdleCompactionTinySessionSkipped(t *testing.T) {
 	}
 }
 
-func TestSessionIdleCompactionCompactRoleSkips(t *testing.T) {
-	f := newIdleFixture(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func TestSessionIdleCompactionCompactRole(t *testing.T) {
+	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, nil, idleFixtureOpts{
+		extraModels: []string{"compact"},
+		compactRole: "fixture/compact",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := f.session.SettingsManager().UpdateGlobal(func(s *Settings) {
-		s.ModelRoles["compact"] = "fixture/chat" // same model → control case below
-	}); err != nil {
-		t.Fatal(err)
-	}
 	f.send(t, ctx)
-	waitIdleCompactionEnd(t, f, 10*time.Second)
 
-	f2 := newIdleFixture(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false)
-	if err := f2.session.SettingsManager().UpdateGlobal(func(s *Settings) {
-		s.ModelRoles["compact"] = "fixture/other-model"
-	}); err != nil {
-		t.Fatal(err)
+	if _, ok := f.session.PendingIdleCompaction(); !ok {
+		t.Fatal("compact-role session did not report the armed idle deadline")
 	}
-	f2.send(t, ctx)
-	time.Sleep(1500 * time.Millisecond)
-	for _, req := range f2.captured() {
-		if strings.Contains(string(req.Raw), "conversation to summarize") {
-			t.Fatal("idle summary request ran for a different @compact model")
-		}
+	end := waitIdleCompactionEnd(t, f, 10*time.Second)
+	if end.Aborted || !strings.Contains(end.Summary, "idle summary") {
+		t.Fatalf("idle compaction end = %+v", end)
+	}
+	if req := f.summaryRequest(t); req.Model != "compact" {
+		t.Fatalf("summary request model = %q, want the @compact model", req.Model)
+	}
+	f.assertIdleInfo(t, end, []string{"fixture/compact"})
+	if got := f.session.Model().ID; got != "chat" {
+		t.Fatalf("compaction changed the chat model to %q", got)
+	}
+	if got := f.session.ActiveModelRole(); got != "default" {
+		t.Fatalf("compaction changed the active role to %q", got)
+	}
+}
+
+// An assigned @compact whose request fails walks the role's fallback chain
+// like manual compaction; the persisted record attributes the winner.
+func TestSessionIdleCompactionCompactRoleFallback(t *testing.T) {
+	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, nil, idleFixtureOpts{
+		extraModels:    []string{"compact", "compact-fallback"},
+		compactRole:    "fixture/compact",
+		failModels:     map[string]bool{"compact": true},
+		fallbackChains: map[string][]string{"compact": {"fixture/compact-fallback"}},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	f.send(t, ctx)
+
+	end := waitIdleCompactionEnd(t, f, 10*time.Second)
+	if end.Aborted || !strings.Contains(end.Summary, "idle summary") {
+		t.Fatalf("idle compaction end = %+v", end)
+	}
+	if reqs := f.summaryRequests("compact"); len(reqs) == 0 {
+		t.Fatal("the @compact model never got a summary request")
+	}
+	if reqs := f.summaryRequests("compact-fallback"); len(reqs) == 0 {
+		t.Fatal("the fallback model never got a summary request")
+	}
+	f.assertIdleInfo(t, end, []string{"fixture/compact-fallback"})
+	if got := f.session.Model().ID; got != "chat" {
+		t.Fatalf("compaction changed the chat model to %q", got)
 	}
 }
 
@@ -740,6 +857,9 @@ func TestSessionIdleCompactionSettledHandlerCrossingDeadline(t *testing.T) {
 		// The 1s fallback deadline fired during the parked settle: the offer
 		// found the session busy and stays pending.
 	}
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("busy session still reports its armed deadline to the countdown")
+	}
 	close(releaseSettle)
 	select {
 	case <-sendDone:
@@ -766,8 +886,10 @@ func TestSessionIdleCompactionMissedDeadlineOffersAfterSettle(t *testing.T) {
 	}
 	held := f.holdResponses()
 	sendStarted := time.Now()
+	sendDone := make(chan error, 1)
 	go func() {
-		_, _ = f.session.Send(ctx, "recent conversation details to retain")
+		_, err := f.session.Send(ctx, "recent conversation details to retain")
+		sendDone <- err
 	}()
 	select {
 	case <-held:
@@ -785,6 +907,9 @@ func TestSessionIdleCompactionMissedDeadlineOffersAfterSettle(t *testing.T) {
 	}
 	if elapsed := time.Since(sendStarted); elapsed > 3*time.Second {
 		t.Fatalf("offer anchored at settle, not the missed request deadline (%v)", elapsed)
+	}
+	if err := <-sendDone; err != nil {
+		t.Fatalf("held send failed: %v", err)
 	}
 	if f.compactionEntry() == nil {
 		t.Fatal("no persisted idle compaction entry")
@@ -856,7 +981,7 @@ func TestSessionIdleCompactionBeforeCompactCancel(t *testing.T) {
 			}},
 		},
 	}}, nil, t.TempDir(), nil, nil)
-	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner)
+	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner, idleFixtureOpts{})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	f.send(t, ctx)
@@ -890,7 +1015,7 @@ func TestSessionIdleCompactionBeforeCompactCustomResult(t *testing.T) {
 			}},
 		},
 	}}, nil, t.TempDir(), nil, nil)
-	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner)
+	f := newIdleFixtureRunner(t, nil, 1, icodingagent.CacheWarmingMode("streaming"), false, runner, idleFixtureOpts{})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	f.send(t, ctx)
@@ -902,6 +1027,14 @@ func TestSessionIdleCompactionBeforeCompactCustomResult(t *testing.T) {
 	entry := f.compactionEntry()
 	if entry == nil || entry.Summary != "extension idle summary" || !entry.FromHook {
 		t.Fatalf("extension idle compaction entry = %+v", entry)
+	}
+	// The host observed the hook's operation but cannot attribute its
+	// summary to a native model.
+	if end.Info == nil || end.Info.Reason != "idle" || end.Info.ElapsedMs < 0 || len(end.Info.Models) != 0 {
+		t.Fatalf("hook summary info = %+v", end.Info)
+	}
+	if entry.Info == nil || !reflect.DeepEqual(*entry.Info, *end.Info) {
+		t.Fatalf("hook entry info = %+v, want %+v", entry.Info, end.Info)
 	}
 	for _, req := range f.captured() {
 		if strings.Contains(string(req.Raw), "conversation to summarize") {
@@ -926,6 +1059,9 @@ func TestSessionIdleCompactionPendingCustomDefersThenDeclines(t *testing.T) {
 
 	f.session.notifyWarmerIdle()
 	time.Sleep(200 * time.Millisecond)
+	if _, ok := f.session.PendingIdleCompaction(); ok {
+		t.Fatal("deferred custom messages still show a pending deadline")
+	}
 	for _, req := range f.captured() {
 		if strings.Contains(string(req.Raw), "conversation to summarize") {
 			t.Fatal("idle summary ran while deferred custom messages were pending")

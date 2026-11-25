@@ -30,6 +30,7 @@ func isUserBashCommand(text string) bool {
 }
 
 func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
+	m.hideIdleCompactionCountdown()
 	if removedBuiltinCommand(prompt) && !m.resolvableSlashCommand(prompt) {
 		m.showError("This command has been removed from " + AppName + ".")
 		m.editor.SetText("")
@@ -317,6 +318,7 @@ func (m *InteractiveMode) runTurn(ctx context.Context, prompt string, start func
 // rejected prompt shows its error and emits no run events.
 func (m *InteractiveMode) startTurn(ctx context.Context, prompt string, images []ai.ImageContent, userPrompt bool, custom *extension.CustomMessage, start func(context.Context) ([]agent.AgentMessage, error)) {
 	m.isIdle = false
+	m.hideIdleCompactionCountdown()
 	// runGen identifies this run to its own UI cleanup, which runs later on
 	// the owner loop: a cleanup that finds a newer run leaves that run's
 	// busy state alone.

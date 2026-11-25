@@ -297,6 +297,15 @@ with errors". If a rule can't be made specific enough to check, don't add it.
   in long-running heartbeat/poll loops.
   **Enforced by**: semgrep `slop.defer-in-loop`, `slop.time-after-in-loop`.
 
+- **Rule**: Keep interactive dock regions constant-height for periodically
+  updating status text; write the text into an always-rendered row (footer,
+  status indicator) instead of adding or removing a mounted row.
+  **Why**: the idle-compaction countdown's toggling row shifted the status
+  dock on pure idle repaint and left a stale `N subagents · N working` line
+  painted on screen (`#143`, fullscreen `smoke-test-subagent-ui`).
+  **Enforced by**: `scripts/smoke-test-subagent-ui.py` (fullscreen wait_gone),
+  `scripts/smoke-test-compaction-info.py`.
+
 Maintenance: when a learned rule becomes mechanically enforced, update its
 "Enforced by". Prune rules that no longer apply. Keep this file scannable — if
 it grows past ~200 lines, move detail to `docs/rules/` and link it.

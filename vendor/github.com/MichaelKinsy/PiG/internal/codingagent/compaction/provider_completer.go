@@ -14,6 +14,9 @@ import (
 type ProviderCompleter struct {
 	// StreamFn is the caller's stream override; nil streams with the model's provider.
 	StreamFn agent.StreamFn
+	// OnComplete, when set, observes each validated summary response and the
+	// request it answered, after validation and text extraction succeed.
+	OnComplete func(request *ai.Model, message *ai.AssistantMessage)
 }
 
 // simpleStreamOptionsProvider is a provider whose simple stream prepares request options before it streams: the model runtime's registry-built providers (packages/ai/src/api/simple-options.ts buildBaseOptions and each API's streamSimple).
@@ -116,6 +119,9 @@ func (c ProviderCompleter) completeTranscript(
 		if block, ok := block.(ai.TextContent); ok {
 			text.WriteString(block.Text)
 		}
+	}
+	if c.OnComplete != nil {
+		c.OnComplete(model, message)
 	}
 	usage := message.Usage
 	return text.String(), &usage, nil

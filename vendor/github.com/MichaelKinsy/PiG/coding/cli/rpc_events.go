@@ -86,6 +86,9 @@ func rpcAgentEvent(event agent.AgentEvent) ([]any, error) {
 			if details := rpcOptionalCompactionDetails(event.Details); details != nil {
 				result = append(result, rpcField{"details", details})
 			}
+			if event.Info != nil {
+				result = append(result, rpcField{"info", event.Info})
+			}
 			out = append(out, rpcField{"result", result})
 		}
 		out = append(out, rpcField{"aborted", event.Aborted}, rpcField{"willRetry", event.WillRetry})

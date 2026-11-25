@@ -93,6 +93,7 @@ else
 	python3 scripts/smoke-test-compaction-fallback.py ./bin/ompig-slim
 	python3 scripts/smoke-test-resume-scrollback.py ./bin/ompig-slim
 	python3 scripts/smoke-test-idle-compaction.py ./bin/ompig-slim
+	python3 scripts/smoke-test-compaction-info.py ./bin/ompig-slim
 	python3 scripts/smoke-test-model-context.py ./bin/ompig-slim
 	python3 scripts/smoke-test-model-author.py ./bin/ompig-slim
 	python3 scripts/smoke-test-durable.py ./bin/ompig-slim

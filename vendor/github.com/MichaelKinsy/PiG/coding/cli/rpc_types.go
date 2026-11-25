@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/coding/extension"
@@ -601,12 +602,13 @@ type RPCBashExecutionUpdate struct {
 }
 
 type RPCCompactionResult struct {
-	Summary              string    `json:"summary"`
-	FirstKeptEntryID     string    `json:"firstKeptEntryId"`
-	TokensBefore         int       `json:"tokensBefore"`
-	EstimatedTokensAfter int       `json:"estimatedTokensAfter"`
-	Usage                *RPCUsage `json:"usage,omitempty"`
-	Details              any       `json:"details,omitempty"`
+	Summary              string                `json:"summary"`
+	FirstKeptEntryID     string                `json:"firstKeptEntryId"`
+	TokensBefore         int                   `json:"tokensBefore"`
+	EstimatedTokensAfter int                   `json:"estimatedTokensAfter"`
+	Usage                *RPCUsage             `json:"usage,omitempty"`
+	Details              any                   `json:"details,omitempty"`
+	Info                 *agent.CompactionInfo `json:"info,omitempty"`
 }
 
 func rpcCompactionResult(result *coding.CompactionResult) RPCCompactionResult {
@@ -621,6 +623,7 @@ func rpcCompactionResult(result *coding.CompactionResult) RPCCompactionResult {
 		EstimatedTokensAfter: result.EstimatedTokensAfter,
 		Usage:                usage,
 		Details:              rpcOptionalCompactionDetails(result.Details),
+		Info:                 result.Info,
 	}
 }
 

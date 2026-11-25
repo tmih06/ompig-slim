@@ -28,17 +28,42 @@ When a provider has no cache-lifetime metadata, the scheduler uses
 `compaction.idleDelaySeconds`, which defaults to 240 seconds. This fallback is an
 idle policy, not an estimate or guarantee of the provider's cache lifetime.
 
-The checkpoint request extends the original conversation prefix on the same
-model, with the same tool declarations, cache retention, and session affinity.
-It includes the final assistant response and asks for a continuation checkpoint.
-Tools remain declared for prefix compatibility, but the compactor does not execute
-tool calls. Manual and context-overflow compaction retain their existing request
-format and fallback behavior.
+Idle compaction uses the assigned `@compact` role, including its thinking level
+and fallback chain, just like manual and threshold compaction. Assigning a
+different compact model does not disable idle checkpoints. The chat model stays
+unchanged.
+
+Without an assigned compact role, the checkpoint request extends the original
+conversation prefix on the chat model, with the same tool declarations, cache
+retention, and session affinity. It includes the final assistant response and
+asks for a continuation checkpoint. Tools remain declared for prefix
+compatibility, but the compactor does not execute tool calls. An assigned
+compact role uses the normal summarization request instead, without a guarantee
+of cache-prefix reuse.
 
 Idle compaction requires removable conversation history. It skips small sessions,
-already-compacted context, active or queued work, and a separately assigned
-compaction model that would lose the cached prefix. A new real request supersedes
-the old deadline. One idle period cannot create repeated checkpoints.
+already-compacted context, and active or queued work. A new real request
+supersedes the old deadline. One idle period cannot create repeated checkpoints.
+
+While the session is idle, the interactive footer's stats line shows
+`Idle compaction check in Ns`. The countdown uses the scheduler's actual
+deadline, including when cache warming is off. A new request replaces the
+deadline. Active work hides the countdown. The deadline schedules an
+eligibility check, so a small session can reach zero without producing a
+checkpoint. An overdue offer waiting for availability shows
+`Idle compaction pending`.
+
+Completed compaction cards show the trigger, the summary model, and elapsed time,
+even when the summary is collapsed. Triggers are `idle`, `manual`, `threshold`,
+and `overflow`. Model identities use the successful provider response when
+available, or the resolved request model. Failed fallback attempts do not appear.
+A summary made with multiple models lists each distinct identity. Extension
+summaries have no host-observed model and show `model unknown`.
+
+Elapsed time includes summary hooks, routing, retries, and fallback attempts.
+It excludes the idle countdown and persistence. These details are saved with the
+checkpoint and appear again on resume. Older checkpoints without these details
+keep their existing display.
 
 The summary is a paid model request. A shared prefix can qualify for cached-input
 pricing, but the provider controls cache reuse. The compacted conversation also
@@ -103,9 +128,13 @@ profiles and loopback providers:
 ```sh
 python3 scripts/smoke-test-resume-scrollback.py bin/ompig-slim
 python3 scripts/smoke-test-idle-compaction.py bin/ompig-slim
+python3 scripts/smoke-test-compaction-info.py bin/ompig-slim
 ```
 
 The transcript scenario scrolls through two compaction boundaries, excludes a
 sibling branch, and checks the next provider request contains only retained
 context. The idle scenario checks the summary request's shared prefix, persisted
-checkpoint, final assistant response, and subsequent compacted request.
+checkpoint, final assistant response, and subsequent compacted request. The
+compaction-info scenario drives regular and fullscreen PTYs. It checks decreasing
+and reset countdowns, idle and manual cards, fallback attribution, elapsed time,
+summary expansion, and metadata after resume.
