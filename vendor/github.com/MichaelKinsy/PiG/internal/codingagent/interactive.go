@@ -354,11 +354,10 @@ type InteractiveMode struct {
 	workingMessage  *string // nil: the default label
 	workingVisible  bool
 	statusContainer *tui.Container // standalone fallback when the editor does not embed status
-	// idleCountdownContainer is the dedicated nonanimated row under the
-	// status container; idleCountdownShown caches its rendered label.
-	idleCountdownContainer *tui.Container
-	idleCountdownShown     string
-	// idleCountdownQueued is set while a countdown tick waits in uiTaskCh.
+	// idleCountdownShown caches the footer countdown label the offer snapshot
+	// last produced; idleCountdownQueued is set while a countdown tick waits
+	// in uiTaskCh.
+	idleCountdownShown             string
 	idleCountdownQueued            atomic.Bool
 	pendingMessagesContainer       *tui.Container // queued steering/follow-up display (between chat and status)
 	activeStatusIndicator          *tui.StatusIndicator
@@ -1697,7 +1696,6 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.maybeWarnAboutAnthropicSubscriptionAuthAsync()
 
 	m.statusContainer = tui.NewContainer()
-	m.idleCountdownContainer = tui.NewContainer()
 	m.pendingMessagesContainer = tui.NewContainer()
 	m.widgetContainer = tui.NewContainer(tui.NewSpacer(1))
 	m.mountInteractiveTui(false)

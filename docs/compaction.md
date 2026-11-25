@@ -45,11 +45,12 @@ Idle compaction requires removable conversation history. It skips small sessions
 already-compacted context, and active or queued work. A new real request
 supersedes the old deadline. One idle period cannot create repeated checkpoints.
 
-While the session is idle, the interactive UI shows `Idle compaction check in Ns`.
-The countdown uses the scheduler's actual deadline, including when cache warming
-is off. A new request replaces the deadline. Active work hides the countdown.
-The deadline schedules an eligibility check, so a small session can reach zero
-without producing a checkpoint. An overdue offer waiting for availability shows
+While the session is idle, the interactive footer's stats line shows
+`Idle compaction check in Ns`. The countdown uses the scheduler's actual
+deadline, including when cache warming is off. A new request replaces the
+deadline. Active work hides the countdown. The deadline schedules an
+eligibility check, so a small session can reach zero without producing a
+checkpoint. An overdue offer waiting for availability shows
 `Idle compaction pending`.
 
 Completed compaction cards show the trigger, the summary model, and elapsed time,

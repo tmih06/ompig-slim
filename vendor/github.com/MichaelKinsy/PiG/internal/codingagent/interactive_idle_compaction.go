@@ -6,18 +6,16 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/MichaelKinsy/PiG/tui"
 )
 
 // idleCompactionReader is the countdown's private capability on the Session
 // handle: the warmer's armed idle-compaction offer. InteractiveSessionHandle
-// does not name it; a handle without it shows no row.
+// does not name it; a handle without it shows no countdown.
 type idleCompactionReader interface {
 	PendingIdleCompaction() (PendingIdleCompaction, bool)
 }
 
-// idleCompactionLabel is the countdown row's text: the armed offer's
+// idleCompactionLabel is the countdown's footer text: the armed offer's
 // deadline as "check in Ns", or "pending" once it passed, because the
 // deadline schedules an eligibility check, not a guaranteed compaction.
 func idleCompactionLabel(deadlineAtMs, nowMs int64) string {
@@ -55,10 +53,10 @@ func (m *InteractiveMode) startIdleCompactionCountdown(ctx context.Context) {
 	})
 }
 
-// refreshIdleCompactionCountdown repaints the countdown row. It runs on the
-// owner loop. The row is hidden while a status indicator owns the row above
-// the editor or no offer is pending; a past deadline keeps its pending label
-// because busy waits do not re-arm it.
+// refreshIdleCompactionCountdown repaints the countdown segment. It runs on
+// the owner loop. The segment is empty while a status indicator owns the row
+// above the editor or no offer is pending; a past deadline keeps its pending
+// label because busy waits do not re-arm it.
 func (m *InteractiveMode) refreshIdleCompactionCountdown(now time.Time) {
 	label := ""
 	if m.activeStatusIndicator == nil {
@@ -71,22 +69,21 @@ func (m *InteractiveMode) refreshIdleCompactionCountdown(now time.Time) {
 	m.setIdleCompactionLabel(label)
 }
 
-// hideIdleCompactionCountdown clears the row immediately, for submissions,
+// hideIdleCompactionCountdown clears the segment immediately, for submissions,
 // foreground work and session replacement, ahead of the next refresh.
 func (m *InteractiveMode) hideIdleCompactionCountdown() {
 	m.setIdleCompactionLabel("")
 }
 
-// setIdleCompactionLabel writes a changed label and requests its frame;
-// unchanged text renders nothing.
+// setIdleCompactionLabel writes a changed label to the footer and requests a
+// frame; unchanged text renders nothing.
 func (m *InteractiveMode) setIdleCompactionLabel(label string) {
-	if m.idleCountdownContainer == nil || label == m.idleCountdownShown {
+	if label == m.idleCountdownShown {
 		return
 	}
 	m.idleCountdownShown = label
-	m.idleCountdownContainer.Clear()
-	if label != "" {
-		m.idleCountdownContainer.Add(tui.NewText(tui.ActiveTheme().Fg("dim", label)))
+	if m.statusLine != nil {
+		m.statusLine.SetIdleCompaction(label)
 	}
 	if m.tuiInst != nil {
 		m.tuiInst.RequestRender()

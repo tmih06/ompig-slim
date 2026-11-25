@@ -81,6 +81,10 @@ type FooterComponent struct {
 	// Empty = use default spinner. Mirrors upstream loadingAnimation.setMessage.
 	customWorkingMessage string
 
+	// idleCompaction is the armed idle-compaction offer's countdown text for
+	// the stats row, empty while no offer is pending.
+	idleCompaction string
+
 	// usingSubscription: OAuth subscription pricing (e.g. GitHub Copilot).
 	// Shows "(sub)" in cost display. Mirrors upstream footer.ts:128.
 	usingSubscription bool
@@ -293,6 +297,15 @@ func (s *FooterComponent) SetWorkingMessage(message string) {
 	s.Invalidate()
 }
 
+// SetIdleCompaction sets the armed idle-compaction offer's countdown text on
+// the stats row; empty removes it.
+func (s *FooterComponent) SetIdleCompaction(text string) {
+	s.mu.Lock()
+	s.idleCompaction = text
+	s.mu.Unlock()
+	s.Invalidate()
+}
+
 // GetWorkingMessage returns the current custom working message or "".
 func (s *FooterComponent) GetWorkingMessage() string {
 	s.mu.RLock()
@@ -388,6 +401,7 @@ func (s *FooterComponent) footerDataLocked(totals footerUsageTotals, routed *Rou
 		roleColor:              snap.roleColor,
 		usingSubscription:      s.usingSubscription,
 		extensionStatuses:      snap.extensionStatuses,
+		idleCompaction:         s.idleCompaction,
 		agents:                 snap.agents,
 		agentsWorking:          snap.agentsWorking,
 	}
@@ -433,9 +447,10 @@ type footerData struct {
 	// roleColor is the theme token the role is painted with. It comes from the role
 	// metadata the model manager uses, so the same role reads the same hue in both
 	// places; empty or unknown falls back to statusLineContext.
-	roleColor     string
-	agents        int
-	agentsWorking int
+	roleColor      string
+	idleCompaction string
+	agents         int
+	agentsWorking  int
 }
 
 // footerUsageTotals is upstream footer.ts's usageTotals over every session
@@ -837,6 +852,10 @@ func footerStats(d footerData) string {
 		display = fmt.Sprintf("?/%s%s", formatTokens(contextWindow), autoTag)
 	}
 	parts = append(parts, colorContextDisplay(pct, display))
+
+	if d.idleCompaction != "" {
+		parts = append(parts, footerToken(tui.ThemeColorStatusLineSep, d.idleCompaction))
+	}
 
 	// Experimental features indicator. Upstream footer.ts:162-164 pushes a dim
 	// "•" separator plus a bold warning "xp" badge onto the stats when
