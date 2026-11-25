@@ -20,8 +20,12 @@ func TestCodexDiscoveryFlowsThroughRegistryAndRestoresOffline(t *testing.T) {
 	var calls atomic.Int32
 	var empty atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/codex/models" {
+			_, _ = fmt.Fprint(w, `{"fixture":{"models":{"one":{"name":"One","int":42,"tps":123}}}}`)
+			return
+		}
 		calls.Add(1)
-		if request.Method != http.MethodGet || request.URL.Path != "/codex/models" || request.URL.Query().Get("client_version") == "" {
+		if request.Method != http.MethodGet || request.URL.Query().Get("client_version") == "" {
 			t.Errorf("unexpected discovery request: %s %s", request.Method, request.URL.String())
 		}
 		if request.Header.Get("Authorization") != "Bearer registry-fixture-token" || request.Header.Get("ChatGPT-Account-Id") != "registry-account" {
@@ -49,7 +53,7 @@ func TestCodexDiscoveryFlowsThroughRegistryAndRestoresOffline(t *testing.T) {
 		}
 	}()
 	registry.SetCredentialStore(credentials)
-	registry.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore()}))
+	registry.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore(), URL: server.URL, Client: server.Client()}))
 
 	result := registry.RefreshCatalogs(t.Context(), CatalogRefreshOptions{AllowNetwork: true, Providers: []string{"openai-codex"}})
 	if len(result.Errors) != 0 {
@@ -85,7 +89,7 @@ func TestCodexDiscoveryFlowsThroughRegistryAndRestoresOffline(t *testing.T) {
 	restarted := NewModelRegistry(agentDir)
 	defer restarted.CloseModelTasks()
 	restarted.SetCredentialStore(newCodexRegistryCredentials(t, "openai-codex"))
-	restarted.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore()}))
+	restarted.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore(), URL: server.URL, Client: server.Client()}))
 	before := calls.Load()
 	result = restarted.RefreshCatalogs(t.Context(), CatalogRefreshOptions{AllowNetwork: false, Providers: []string{"openai-codex"}})
 	if len(result.Errors) != 0 {
@@ -125,7 +129,7 @@ func TestCodexJSONRegistryKeepsItsNativeDiscoveryOwner(t *testing.T) {
 		case "/models":
 			_, _ = fmt.Fprint(w, `{"models":[]}`)
 		default:
-			_, _ = fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{"fixture":{"models":{"one":{"name":"One","int":42,"tps":123}}}}`)
 		}
 	}))
 	defer server.Close()
@@ -134,7 +138,7 @@ func TestCodexJSONRegistryKeepsItsNativeDiscoveryOwner(t *testing.T) {
 	registry := NewModelRegistry(filepath.Dir(modelsPath))
 	defer registry.CloseModelTasks()
 	registry.SetCredentialStore(newCodexRegistryCredentials(t, "codex-json"))
-	registry.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore()}))
+	registry.SetModelMetadata(modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewInMemoryStore(), URL: server.URL, Client: server.Client()}))
 	registry.SetCatalogBaseURL(server.URL)
 	result := registry.RefreshCatalogs(t.Context(), CatalogRefreshOptions{AllowNetwork: true, Providers: []string{"codex-json"}})
 	if len(result.Errors) != 0 {
