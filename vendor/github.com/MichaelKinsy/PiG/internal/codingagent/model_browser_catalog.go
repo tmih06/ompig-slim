@@ -37,7 +37,7 @@ func (r *ModelRegistry) BrowserProviderIDs() []string {
 	}
 	r.mu.RUnlock()
 	for _, id := range r.modelProviderIDs() {
-		if !seen[id] && r.HasConfiguredAuth(id) {
+		if !seen[id] && r.HasConfiguredAuthSnapshot(id) {
 			add(id)
 		}
 	}

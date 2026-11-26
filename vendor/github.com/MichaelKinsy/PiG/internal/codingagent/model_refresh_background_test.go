@@ -4,6 +4,7 @@ import "testing"
 
 func TestHasQueuedRegistrationRefresh(t *testing.T) {
 	registry := NewModelRegistry(t.TempDir())
+	defer registry.CloseModelTasks()
 	if registry.HasQueuedRegistrationRefresh() {
 		t.Fatal("new registry reported a queued registration refresh")
 	}

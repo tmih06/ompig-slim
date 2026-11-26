@@ -244,6 +244,29 @@ func (runtime *ModelRuntime) GetProviderAuthStatus(providerID string) ai.AuthSta
 	return ai.AuthStatus{}
 }
 
+// authStatusSnapshot pairs GetProviderAuthStatus with the published credential
+// kind so interactive selectors do not reopen credential storage just to label it.
+func (runtime *ModelRuntime) authStatusSnapshot(providerID string) (ai.AuthStatus, bool) {
+	status := runtime.GetProviderAuthStatus(providerID)
+	state := &runtime.availability
+	state.mu.RLock()
+	auth := state.snapshot.auth[providerID]
+	state.mu.RUnlock()
+	return status, auth != nil && auth.Type == ai.CredentialOAuth
+}
+
+// availableModelInSnapshot reads exact chat-model membership in the published
+// availability projection, including account picker filters already applied by
+// the background refresh.
+func (runtime *ModelRuntime) availableModelInSnapshot(providerID, modelID string) bool {
+	state := &runtime.availability
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return slices.ContainsFunc(state.snapshot.available, func(model *ai.Model) bool {
+		return model != nil && model.ProviderMeta.ProviderID == providerID && model.ID == modelID
+	})
+}
+
 func (runtime *ModelRuntime) loadAvailableModels(ctx context.Context, providerID string) ([]*ai.Model, error) {
 	models, err := runtime.services.Registry().GetAvailableModelDataContext(ctx, providerID)
 	for i, model := range models {

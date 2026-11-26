@@ -126,7 +126,10 @@ reads fetch redacted snapshots with a shared, one-second in-memory view; they
 create no local credential database or disk snapshot cache. Successful local
 mutations invalidate that view immediately; another client's credential changes
 become visible on the next fetch after expiry. Failed fetches never serve an
-expired view. Account metadata and quota reads remain live, and read-only quota
+expired view. Non-secret account lists share the same one-second in-memory
+horizon so sequential startup and availability phases do not each pay another
+network round trip; local mutations invalidate that metadata immediately, while
+presence/count aggregate endpoints and quota reads remain live. Read-only quota
 checks do not discard unchanged credentials. Account selection, logout and quota
 blocks persist on the broker and are visible to every client. Session assignments
 and allocation state also persist there and coordinate all clients. Clients

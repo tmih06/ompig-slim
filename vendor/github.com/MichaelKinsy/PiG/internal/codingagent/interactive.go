@@ -426,6 +426,9 @@ type InteractiveMode struct {
 	// session-history scanner, kept across opens so its per-file cache survives.
 	usageDashboard *usageDashboardState
 	usageActivity  *tui.UsageActivity
+	// logoutInFlight admits one asynchronous /logout workflow so overlapping
+	// account pickers cannot interleave.
+	logoutInFlight atomic.Bool
 	// textBoard is the mounted /session or /hotkeys board. ompig-slim addition.
 	textBoard *textBoardState
 	// usageService fetches provider quotas for the board. nil leaves the board

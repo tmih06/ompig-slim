@@ -110,6 +110,19 @@ func (m *InteractiveMode) oauthProviderList(mode string, includeStatus ...bool) 
 	if len(includeStatus) > 0 && !includeStatus[0] {
 		return all
 	}
+	if registry := m.opts.ModelRegistry; registry != nil {
+		published := false
+		for i := range all {
+			status, usingOAuth, ok := registry.GetProviderAuthStatusSnapshot(all[i].ID)
+			if ok {
+				published = true
+				all[i].Status = authSelectorStatus(status, usingOAuth)
+			}
+		}
+		if published {
+			return all
+		}
+	}
 	auth, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return all
@@ -729,9 +742,10 @@ func (m *InteractiveMode) runLoginGitHubCopilotDialog(loginCtx context.Context) 
 	return loginDialogOutcome(dlg, &failed, buildAuthProviderName("github-copilot"))
 }
 
-// runOAuthLogout removes extension-owned credentials only. Core vault accounts
-// use runAccountLogout; a concurrent login must never become a bulk logout.
-func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) error {
+// deleteOAuthCredentialState removes extension-owned credential state without
+// mutating interactive UI state. Core vault accounts use deleteAccountCredential;
+// a concurrent login must never become a bulk logout.
+func (m *InteractiveMode) deleteOAuthCredentialState(ctx context.Context, provider string) (bool, error) {
 	deleted := false
 	// Upstream logout deletes through RuntimeCredentials, which also drops
 	// the provider's --api-key runtime key.
@@ -744,15 +758,25 @@ func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) e
 	if store, ok := oauthCredentialStore(provider); ok {
 		removed, err := store.DeleteOAuthCredentials()
 		if err != nil {
-			return fmt.Errorf("logout: %w", err)
+			return false, fmt.Errorf("logout: %w", err)
 		}
 		deleted = deleted || removed
 	}
 	// upstream: packages/coding-agent/src/core/model-runtime.ts:logout synchronizes after every logout; a failure keeps the committed removal.
 	if runtime := m.opts.RequestAuthRuntime; runtime != nil {
 		if err := runtime.SynchronizeCredentialState(ctx, provider, CredentialSynchronizationLogout, nil); err != nil {
-			return err
+			return deleted, err
 		}
+	}
+	return deleted, nil
+}
+
+// runOAuthLogout removes extension-owned credentials only. Core vault accounts
+// use runAccountLogout; a concurrent login must never become a bulk logout.
+func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) error {
+	deleted, err := m.deleteOAuthCredentialState(ctx, provider)
+	if err != nil {
+		return err
 	}
 	if !deleted {
 		m.showStatus(fmt.Sprintf("No credentials stored for %q. Use /login first.", provider))

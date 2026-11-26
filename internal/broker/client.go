@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/gofrs/flock"
 )
 
@@ -47,6 +48,23 @@ type Client struct {
 	snapshotData []vaultEntry
 	snapshotAt   time.Time
 	snapshotLoad bool
+
+	accountsMu     sync.Mutex
+	accountsFlight *accountMetadataFlight
+	accountsData   []ai.CredentialAccountInfo
+	accountsAt     time.Time
+	accountsLoad   bool
+	accountsGen    uint64
+}
+
+// accountMetadataFlight is one in-flight non-secret account metadata read.
+// Its generation prevents a read that raced a successful mutation from
+// repopulating the short-lived view with pre-mutation state.
+type accountMetadataFlight struct {
+	done       chan struct{}
+	generation uint64
+	accounts   []ai.CredentialAccountInfo
+	err        error
 }
 
 // fileState records the common ancestor for preference document reconciliation.
@@ -121,6 +139,85 @@ func (c *Client) invalidateSnapshot() {
 	c.snapshotLoad = false
 	c.snapshotData = nil
 	c.snapshotMu.Unlock()
+}
+
+// invalidateAccountInfos prevents a successful local mutation from returning
+// pre-mutation account metadata to the next caller.
+func (c *Client) invalidateAccountInfos() {
+	c.accountsMu.Lock()
+	c.accountsLoad = false
+	c.accountsData = nil
+	c.accountsGen++
+	c.accountsMu.Unlock()
+}
+
+// accountInfos shares one short-lived non-secret metadata view. The same
+// one-second bound already applies to token-bearing credential snapshots;
+// metadata uses it so startup's sequential catalog, availability and routing
+// phases do not each pay another broker round trip. Local mutations invalidate
+// the view immediately, while another client's change can be visible after at
+// most one second. Every caller receives its own copy because account keys are
+// mutable pointers.
+func (c *Client) accountInfos(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
+	for {
+		c.accountsMu.Lock()
+		if c.accountsLoad && time.Since(c.accountsAt) < snapshotCacheTTL {
+			accounts := cloneAccountInfos(c.accountsData)
+			c.accountsMu.Unlock()
+			return accounts, nil
+		}
+		flight := c.accountsFlight
+		leader := flight == nil
+		if leader {
+			flight = &accountMetadataFlight{done: make(chan struct{}), generation: c.accountsGen}
+			c.accountsFlight = flight
+		}
+		c.accountsMu.Unlock()
+		if leader {
+			var accounts []ai.CredentialAccountInfo
+			err := c.request(ctx, "GET", "/v1/accounts", "", nil, &accounts)
+			flight.accounts = accounts
+			flight.err = err
+			c.accountsMu.Lock()
+			if err == nil && flight.generation == c.accountsGen {
+				c.accountsData = cloneAccountInfos(accounts)
+				c.accountsAt = time.Now()
+				c.accountsLoad = true
+			}
+			if c.accountsFlight == flight {
+				c.accountsFlight = nil
+			}
+			c.accountsMu.Unlock()
+			close(flight.done)
+			return cloneAccountInfos(accounts), err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for shared account metadata: %w", ctx.Err())
+		case <-flight.done:
+		}
+		if flight.err == nil {
+			return cloneAccountInfos(flight.accounts), nil
+		}
+		if ctx.Err() != nil || !errors.Is(flight.err, context.Canceled) && !errors.Is(flight.err, context.DeadlineExceeded) {
+			return nil, flight.err
+		}
+	}
+}
+
+func cloneAccountInfos(accounts []ai.CredentialAccountInfo) []ai.CredentialAccountInfo {
+	if accounts == nil {
+		return nil
+	}
+	cloned := make([]ai.CredentialAccountInfo, len(accounts))
+	for i, account := range accounts {
+		cloned[i] = account
+		if account.AccountKey != nil {
+			key := *account.AccountKey
+			cloned[i].AccountKey = &key
+		}
+	}
+	return cloned
 }
 
 // request sends preference or vault operations with bounded response size and
@@ -424,6 +521,27 @@ func (c *Client) RunSyncChanged(ctx context.Context, report func(error), notify 
 	}
 }
 
+// warmReadViews starts the non-secret metadata and credential snapshot reads
+// together. Startup consumes whichever view succeeds; errors only clear state,
+// so the first authoritative caller can retry with its own context.
+func (c *Client) warmReadViews(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if _, err := c.snapshot(ctx); err != nil {
+			c.invalidateSnapshot()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if _, err := c.accountInfos(ctx); err != nil {
+			c.invalidateAccountInfos()
+		}
+	}()
+	wg.Wait()
+}
+
 // Start wires preference reconciliation and an idempotent exit flush into the
 // CLI. A configured but unavailable broker leaves credential access remote-only:
 // the CLI can repair the connection, but must not silently use a local vault.
@@ -456,18 +574,20 @@ func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), con
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Warm the short-lived credential snapshot while PiG constructs services;
-		// startup auth checks then read the shared cache instead of paying a
-		// broker round trip in model resolution. The result is best-effort: the
-		// first real credential read remains authoritative if this request fails.
-		if _, err := client.snapshot(background); err != nil {
-			client.invalidateSnapshot()
-		}
+		// Warm credential and metadata views alongside the initial document
+		// reconciliation. Independent hosted reads pay latency in parallel rather
+		// than turning weak-network startup into a relay of round trips.
+		warmDone := make(chan struct{})
+		go func() {
+			defer close(warmDone)
+			client.warmReadViews(background)
+		}()
 		// Reconcile the initial documents alongside early CLI startup instead of
 		// blocking process launch on one hosted round trip. A rewrite still uses
 		// the normal notification signal, whose buffered startup channel survives
 		// until the session installs its receiver.
 		changed, initialErr := client.SyncFilesChanged(background)
+		<-warmDone
 		if initialErr == nil {
 			synced = true
 			if changed && notify != nil {

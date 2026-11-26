@@ -394,7 +394,11 @@ type ModelRegistry struct {
 	registrationSync func(providerID string, provisional *ai.AuthCheck, providerOrder func() []string)
 	// availabilityAuth reads configured auth for Models-collection providers from the Services-owned snapshot.
 	availabilityAuth func(providerID string) bool
-	modelTasks       modelTaskOwner
+	// availabilityStatus reads the same projection's auth status and credential kind without credential I/O.
+	availabilityStatus func(providerID string) (ai.AuthStatus, bool)
+	// availabilityMember reads whether one chat model is in the same projection.
+	availabilityMember func(providerID, modelID string) bool
+	modelTasks         modelTaskOwner
 	// registrationRefresh queues Pi's unawaited local refresh after a registration.
 	registrationRefresh registrationRefresh
 
@@ -1567,6 +1571,44 @@ func (r *ModelRegistry) accountModelFilter(providerID string) func(string) bool 
 		allowed[id] = true
 	}
 	return func(id string) bool { return allowed[id] }
+}
+
+// publishedAccountModelFilter reads the account-filtered availability projection
+// for interactive catalog presentation. It deliberately differs from
+// accountModelFilter: availability computation itself must keep the live filter,
+// or reading its own previous output would make an initially empty projection
+// permanent.
+func (r *ModelRegistry) publishedAccountModelFilter(providerID string) func(string) bool {
+	r.mu.RLock()
+	_, registered := r.native[providerID]
+	r.mu.RUnlock()
+	if registered || r.availabilityMember == nil {
+		return r.accountModelFilter(providerID)
+	}
+	return func(id string) bool { return r.availabilityMember(providerID, id) }
+}
+
+// HasConfiguredAuthSnapshot reads the Services-owned availability projection
+// when one is installed. Unlike HasConfiguredAuth it never synchronously reads
+// credential storage, so interactive chrome can use it while a slow remote
+// credential service refreshes the projection in the background.
+func (r *ModelRegistry) HasConfiguredAuthSnapshot(providerID string) bool {
+	if r.availabilityAuth != nil {
+		return r.availabilityAuth(providerID)
+	}
+	return r.HasConfiguredAuth(providerID)
+}
+
+// GetProviderAuthStatusSnapshot reads the Services-owned auth status when one
+// is installed. The boolean results are the credential kind and whether a
+// published snapshot answered; callers may use the live path only when no
+// snapshot exists.
+func (r *ModelRegistry) GetProviderAuthStatusSnapshot(providerID string) (ai.AuthStatus, bool, bool) {
+	if r.availabilityStatus != nil {
+		status, oauth := r.availabilityStatus(providerID)
+		return status, oauth, true
+	}
+	return ai.AuthStatus{}, false, false
 }
 
 // HasConfiguredAuth reports whether the provider has either an API key

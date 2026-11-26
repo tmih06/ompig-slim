@@ -135,6 +135,12 @@ type CreateAgentSessionServicesOptions struct {
 	// preserves CreateAgentSessionServices' synchronous readiness contract.
 	DeferInitialAvailabilityRefresh bool
 
+	// RegistryReady, when set, runs after the registry has its credential store
+	// and before stored dynamic catalogs restore. It must return without blocking;
+	// startup uses it to overlap independent extension subprocess preparation with
+	// catalog restoration.
+	RegistryReady func(registry *icodingagent.ModelRegistry, settings *SettingsManager)
+
 	// ExtensionFlagValues are the CLI values for extension flags in command-line order (a JavaScript Map keeps insertion order,
 	// and the order shows in diagnostics): true for a boolean flag, a string for a string flag.
 	// [Services.ApplyExtensionFlagValues] validates them against the loaded extensions.
@@ -221,6 +227,9 @@ func CreateAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentS
 			return nil, fmt.Errorf("coding.CreateAgentSessionServices: open auth storage at %s: %w", ai.SQLiteAuthPath(agentDir), err)
 		}
 		reg.SetCredentialStore(credentials)
+		if opts.RegistryReady != nil {
+			opts.RegistryReady(reg, sm)
+		}
 		// Mirrors ModelRuntime.create: restore stored dynamic catalogs (Radius)
 		// without network access. Network refreshes run from the modes.
 		reg.RefreshCatalogs(signal, icodingagent.CatalogRefreshOptions{})
@@ -287,7 +296,7 @@ func newConfiguredServices(cwd, agentDir string, credentials ai.CredentialStore,
 	reg.SetAvailabilityRefresh(func(ctx context.Context, providers []string) ai.ModelsRefreshResult {
 		return modelRuntime.refreshAvailability(ctx, ai.ModelsRefreshOptions{Providers: providers}, ai.ModelsRefreshResult{})
 	})
-	reg.SetAvailabilitySnapshot(modelRuntime.configuredInSnapshot, modelRuntime.syncRegistration)
+	reg.SetAvailabilitySnapshot(modelRuntime.configuredInSnapshot, modelRuntime.authStatusSnapshot, modelRuntime.availableModelInSnapshot, modelRuntime.syncRegistration)
 	return services, nil
 }
 

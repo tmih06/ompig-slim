@@ -1,12 +1,45 @@
 package codingagent
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/tui"
 )
+
+type accountFilterCredentials struct {
+	ai.CredentialStore
+	credential ai.Credential
+}
+
+func (s accountFilterCredentials) GetRaw(string) (ai.Credential, bool, error) {
+	return s.credential, true, nil
+}
+
+func TestAccountFilterDoesNotReadItsOwnPublishedProjection(t *testing.T) {
+	registry := NewModelRegistry(t.TempDir())
+	defer registry.CloseModelTasks()
+	registry.SetCredentialStore(accountFilterCredentials{credential: ai.Credential{
+		Type:              ai.CredentialOAuth,
+		AvailableModelIDs: json.RawMessage(`["allowed"]`),
+	}})
+	registry.SetAvailabilitySnapshot(
+		func(string) bool { return true },
+		nil,
+		func(_, id string) bool { return id == "published" },
+		func(string, *ai.AuthCheck, func() []string) {},
+	)
+	live := registry.accountModelFilter("github-copilot")
+	if !live("allowed") || live("other") {
+		t.Fatal("live account availability filter must come from credential state, not the projection it is computing")
+	}
+	published := registry.publishedAccountModelFilter("github-copilot")
+	if !published("published") || published("allowed") {
+		t.Fatal("interactive presentation must read the published projection without reopening credentials")
+	}
+}
 
 func TestHubOpenCodeFreeWithoutCredentials(t *testing.T) {
 	t.Setenv("PI_OFFLINE", "1")
@@ -44,6 +77,19 @@ func TestHubOpenCodeFreeWithoutCredentials(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestHubCatalogUsesPublishedAuthWithoutCredentialIO(t *testing.T) {
+	registry := NewModelRegistry(t.TempDir())
+	defer registry.CloseModelTasks()
+	registry.SetCredentialStore(unreadableModelCredentials{t: t})
+	registry.SetAvailabilitySnapshot(
+		func(provider string) bool { return provider == "openai" || provider == "github-copilot" },
+		nil,
+		func(string, string) bool { return true },
+		func(string, *ai.AuthCheck, func() []string) {},
+	)
+	_, _ = registry.hubCatalogItems(nil)
 }
 
 // TestHubCatalogSnapshotMatchesRuntime protects the one-pass projection against
@@ -91,4 +137,23 @@ func TestHubCatalogSnapshotMatchesRuntime(t *testing.T) {
 	if len(all) <= len(available) {
 		t.Fatalf("locked catalogs lost: all=%d available=%d", len(all), len(available))
 	}
+}
+
+func TestLoginProviderOptionsUsePublishedAuthWithoutCredentialIO(t *testing.T) {
+	previous := ai.CredentialStoreFactory
+	t.Cleanup(func() { ai.CredentialStoreFactory = previous })
+	ai.CredentialStoreFactory = func(string) (ai.ApplicationCredentialStore, error) {
+		t.Fatal("login presentation opened credential storage instead of published availability")
+		return nil, nil
+	}
+	registry := NewModelRegistry(t.TempDir())
+	defer registry.CloseModelTasks()
+	registry.SetAvailabilitySnapshot(
+		func(string) bool { return false },
+		func(string) (ai.AuthStatus, bool) { return ai.AuthStatus{}, false },
+		func(string, string) bool { return false },
+		func(string, *ai.AuthCheck, func() []string) {},
+	)
+	mode := &InteractiveMode{opts: InteractiveModeOptions{AgentDir: t.TempDir(), ModelRegistry: registry}}
+	_ = mode.getLoginProviderOptions(true)
 }

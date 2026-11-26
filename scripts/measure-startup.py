@@ -17,7 +17,7 @@ import time
 from benchmark import isolated_env
 
 
-def measure(binary, agent_dir, cwd=None, model=None, environment=None, profile_dir=None):
+def measure(binary, agent_dir, cwd=None, model=None, environment=None, profile_dir=None, extensions=False, capture_file=None):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 130, 0, 0))
     env = dict(os.environ if environment is None else environment, PIG_STARTUP_TRACE="1")
@@ -27,7 +27,9 @@ def measure(binary, agent_dir, cwd=None, model=None, environment=None, profile_d
         for name in ("OMPIG_SLIM_CODING_AGENT_DIR", "PIG_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR"):
             env[name] = str(agent_dir)
     started = time.perf_counter()
-    command = [str(binary), "-ne"]
+    command = [str(binary)]
+    if not extensions:
+        command.append("-ne")
     if model:
         command += ["--model", model]
     process = subprocess.Popen(command, stdin=slave, stdout=slave,
@@ -80,6 +82,8 @@ def measure(binary, agent_dir, cwd=None, model=None, environment=None, profile_d
             f"(exit={process.returncode}, typed={typed}, typing_ms={usable}, initialized_ms={initialized})\n"
             f"terminal tail: {bytes(captured[-4000:])!r}"
         )
+    if capture_file:
+        capture_file.write_bytes(bytes(captured))
     return {"typing_ms": round(usable, 2), "initialized_ms": round(initialized, 2)}
 
 
@@ -91,14 +95,18 @@ def main():
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--max-ms", type=float, help="Fail if any rendered edit exceeds this elapsed time")
     parser.add_argument("--isolated", action="store_true", help="Use a temporary profile, saved model role, and fixture credentials")
+    parser.add_argument("--extensions", action="store_true", help="Load configured extensions instead of passing -ne")
     parser.add_argument("--model", help="Exercise an explicit model or role instead of the saved default")
     parser.add_argument("--compare", type=pathlib.Path, help="Alternate runs with this second binary")
     parser.add_argument("--profile-dir", type=pathlib.Path, help="Write attribution profiles; do not compare profiled timings")
+    parser.add_argument("--capture-dir", type=pathlib.Path, help="Write raw PTY captures for startup trace attribution")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
     if args.isolated and (args.agent_dir or args.cwd):
         parser.error("--isolated cannot use an existing profile or working directory")
+    if args.capture_dir:
+        args.capture_dir.mkdir(parents=True, exist_ok=True)
     binaries = [args.binary.resolve()]
     if args.compare:
         binaries.append(args.compare.resolve())
@@ -116,8 +124,12 @@ def main():
                         "modelRoles": {"default": "openai/gpt-4o"}}))
                     env = isolated_env(root, agent)
                     env["OPENAI_API_KEY"] = "offline-fixture"
+                capture = None
+                if args.capture_dir:
+                    capture = args.capture_dir / f"run{run + 1}-{binary.name}.pty"
                 result = measure(binary, agent.resolve() if agent else None,
-                                 cwd.resolve() if cwd else None, args.model, env, args.profile_dir)
+                                 cwd.resolve() if cwd else None, args.model, env, args.profile_dir,
+                                 args.extensions, capture)
             print(json.dumps({"run": run + 1, "binary": str(binary),
                               "profiled": bool(args.profile_dir), **result}), flush=True)
             if args.max_ms is not None and result["typing_ms"] >= args.max_ms:

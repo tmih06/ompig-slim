@@ -15,8 +15,8 @@ func (r *ModelRegistry) SetAvailabilityRefresh(refresh func(context.Context, []s
 
 // SetAvailabilitySnapshot binds the Services-owned availability snapshot before the registry is shared with consumers. configured reports configured auth for Models-collection providers. Registration and removal call sync with a reader of the catalog's provider order after the catalog commits and before change observers run. A nil provisional check grants no availability before the queued refresh.
 // upstream: packages/coding-agent/src/core/model-runtime.ts:registerProvider
-func (r *ModelRegistry) SetAvailabilitySnapshot(configured func(providerID string) bool, sync func(providerID string, provisional *ai.AuthCheck, providerOrder func() []string)) {
-	r.availabilityAuth, r.registrationSync = configured, sync
+func (r *ModelRegistry) SetAvailabilitySnapshot(configured func(providerID string) bool, status func(providerID string) (ai.AuthStatus, bool), member func(providerID, modelID string) bool, sync func(providerID string, provisional *ai.AuthCheck, providerOrder func() []string)) {
+	r.availabilityAuth, r.availabilityStatus, r.availabilityMember, r.registrationSync = configured, status, member, sync
 }
 
 // AvailabilityReadContext gives a full availability pass one view of auth.json (readSnapshotContext) when no provider in it runs extension

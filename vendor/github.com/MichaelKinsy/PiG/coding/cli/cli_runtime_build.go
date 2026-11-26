@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
@@ -202,28 +203,6 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	}
 	resolveTrust := flags.ProjectTrustOverride == nil && hasTrustResources && !hasCached
 
-	traceSDKLockWaits()
-	trace.Mark("pre-services")
-	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
-		CWD:            cwd,
-		AgentDir:       b.agentDir,
-		ProjectTrusted: new(projectTrusted),
-		// main.ts:753-754: the model runtime lives as long as the run; extension flags are checked once the extensions load.
-		ModelRuntimeSignal:              ctx,
-		DeferInitialAvailabilityRefresh: true,
-		ExtensionFlagValues:             flags.extensionFlagValues(),
-	})
-	if err != nil {
-		return nil, cliPigError("services init: %v", err)
-	}
-	build.Services = services
-	trace.Mark("services-created")
-	// pig additive (D19): the TypeScript extension runtime this process requests; PIG_TS_RUNTIME overrides it.
-	subprocess.SetTypeScriptRuntimeSetting(services.SettingsManager().GetExtensionsTypescriptRuntime())
-	// --use-theme and --tui-mode reach only InteractiveMode (InitialThemeSetting
-	// and TuiMode), so the runtime settings keep the saved values as Pi's do.
-	settings := services.Settings()
-
 	// sdkDiagnostics reports a staging failure of a replacement build, which runs while the mode owns the terminal.
 	var sdkDiagnostics []codingagent.AgentSessionRuntimeDiagnostic
 	// Stage SDKs only when an extension needs to build or run against them.
@@ -252,15 +231,93 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	}
 	build.SourceResolver = newStartupExtensionSourceResolver(nil)
 	resolver := build.SourceResolver
+
+	type preTrustLoad struct {
+		once     sync.Once
+		started  atomic.Bool
+		done     chan struct{}
+		configs  []subprocess.ExtConfig
+		bridge   *subprocess.UIBridge
+		exts     []extension.Extension
+		loadErrs []error
+		fatal    error
+	}
+	preTrust := &preTrustLoad{done: make(chan struct{})}
+	startPreTrustLoad := func(registry *codingagent.ModelRegistry, settingsManager *coding.SettingsManager) {
+		preTrust.started.Store(true)
+		preTrust.once.Do(func() {
+			go func() {
+				defer close(preTrust.done)
+				subprocess.SetTypeScriptRuntimeSetting(settingsManager.GetExtensionsTypescriptRuntime())
+				// resource-loader.ts:549 resolves settings before loading pre-trust extension factories.
+				if err := validateConfiguredResourceEntries(cwd, b.agentDir, settingsManager, false); err != nil {
+					preTrust.fatal = err
+					return
+				}
+				trace.Mark("trust-preload-start")
+				userScope := []string{"user"}
+				preTrust.configs = collectExtensionConfigs(cwd, b.agentDir, settingsManager, resourceFlags, &userScope, resolver.Resolve)
+				if err := cliPackageSourceError(preTrust.configs); err != nil {
+					preTrust.fatal = err
+					return
+				}
+				preTrust.exts, _, preTrust.bridge, preTrust.loadErrs = loadFinalSubprocessExtensions(
+					ctx,
+					cwd,
+					b.mode.extensionMode(),
+					registry,
+					preTrust.configs,
+					nil,
+					nil,
+					startupExtensions,
+					beforeExtensionStart,
+				)
+				trace.Mark("trust-preload-done")
+			}()
+		})
+	}
+
+	traceSDKLockWaits()
+	trace.Mark("pre-services")
+	var services *coding.AgentSessionServices
 	failed := true
 	defer func() {
 		if failed {
+			if preTrust.started.Load() {
+				<-preTrust.done
+			}
 			if in.StartupExtensions == nil {
 				startupExtensions.close()
 			}
-			services.Close()
+			if services != nil {
+				services.Close()
+			}
 		}
 	}()
+	services, err = coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
+		CWD:            cwd,
+		AgentDir:       b.agentDir,
+		ProjectTrusted: new(projectTrusted),
+		// main.ts:753-754: the model runtime lives as long as the run; extension flags are checked once the extensions load.
+		ModelRuntimeSignal:              ctx,
+		DeferInitialAvailabilityRefresh: true,
+		ExtensionFlagValues:             flags.extensionFlagValues(),
+		RegistryReady: func(registry *codingagent.ModelRegistry, settingsManager *coding.SettingsManager) {
+			if resolveTrust {
+				startPreTrustLoad(registry, settingsManager)
+			}
+		},
+	})
+	if err != nil {
+		return nil, cliPigError("services init: %v", err)
+	}
+	build.Services = services
+	trace.Mark("services-created")
+	// pig additive (D19): the TypeScript extension runtime this process requests; PIG_TS_RUNTIME overrides it.
+	subprocess.SetTypeScriptRuntimeSetting(services.SettingsManager().GetExtensionsTypescriptRuntime())
+	// --use-theme and --tui-mode reach only InteractiveMode (InitialThemeSetting
+	// and TuiMode), so the runtime settings keep the saved values as Pi's do.
+	settings := services.Settings()
 
 	// preTrustInline are the inline extensions the pre-trust pass loaded; inlineBus is the event bus every compiled-in factory shares.
 	var preTrustInline []extension.Extension
@@ -268,28 +325,18 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	inlineBus := extension.CreateEventBus()
 	build.EventBus = inlineBus
 	if resolveTrust {
-		// resource-loader.ts:549 resolves settings before loading pre-trust extension factories.
-		if err := validateConfiguredResourceEntries(cwd, b.agentDir, services.SettingsManager(), false); err != nil {
-			return nil, cliCLIError("%v", err)
+		// RegistryReady normally started this load while catalogs restored. The
+		// second start call is a no-op then and the fallback path for a shared
+		// runtime; either way project trust still waits for the complete preload.
+		startPreTrustLoad(services.Registry().ModelRegistry, services.SettingsManager())
+		<-preTrust.done
+		if preTrust.fatal != nil {
+			return nil, cliCLIError("%v", preTrust.fatal)
 		}
-		trace.Mark("trust-preload-start")
-		userScope := []string{"user"}
-		preTrustConfigs := collectExtensionConfigs(cwd, b.agentDir, services.SettingsManager(), resourceFlags, &userScope, resolver.Resolve)
-		if err := cliPackageSourceError(preTrustConfigs); err != nil {
-			return nil, cliCLIError("%v", err)
-		}
-		preTrustExts, _, preTrustBridge, preTrustLoadErrs := loadFinalSubprocessExtensions(
-			ctx,
-			cwd,
-			b.mode.extensionMode(),
-			services.Registry().ModelRegistry,
-			preTrustConfigs,
-			nil,
-			nil,
-			startupExtensions,
-			beforeExtensionStart,
-		)
-		trace.Mark("trust-preload-done")
+		preTrustConfigs := preTrust.configs
+		preTrustExts := preTrust.exts
+		preTrustBridge := preTrust.bridge
+		preTrustLoadErrs := preTrust.loadErrs
 		preTrustDrift := sdkDriftOf(ctx, newExtensionUpgrader(codingagent.ConfigRoot()), preTrustLoadErrs, preTrustConfigs, nil)
 		build.PreTrustExtensionDiagnostics = extensionLoadDiagnostics(withUpgradeHints(preTrustLoadErrs, preTrustDrift))
 		// resource-loader.ts loadProjectTrustExtensions: the inline extensions load in the pre-trust pass, so their project_trust handlers take part, and the final pass keeps them (loadFinalExtensionSet).

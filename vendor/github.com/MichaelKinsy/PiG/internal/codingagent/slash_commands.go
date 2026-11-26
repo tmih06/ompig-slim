@@ -377,6 +377,9 @@ type SlashContext struct {
 	// StartProviderLogin returns errLoginCancelled when the user cancels the login, which reopens the menu it was
 	// started from.
 	StartProviderLogin func(provider tui.OAuthProvider) error
+	// StartLogout, when present, owns the interactive logout workflow and returns
+	// immediately while credential I/O settles off the input loop.
+	StartLogout func()
 
 	// LogoutAccounts lists the provider's live stored accounts, active first.
 	LogoutAccounts func(provider string) ([]ai.CredentialAccountInfo, error)
@@ -922,6 +925,10 @@ func loginHandler(sc *SlashContext) error {
 
 // logoutHandler removes a stored credential without changing environment or models.json configuration.
 func logoutHandler(sc *SlashContext) error {
+	if sc.StartLogout != nil {
+		sc.StartLogout()
+		return nil
+	}
 	if sc.LogoutProviders == nil || sc.LogoutAccounts == nil || sc.SelectLogoutAccount == nil || sc.LogoutAccount == nil || sc.Logout == nil {
 		sc.Append("Provider logout is not available in this context.")
 		return nil

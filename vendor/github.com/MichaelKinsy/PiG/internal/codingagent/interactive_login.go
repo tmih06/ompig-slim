@@ -116,14 +116,16 @@ func (m *InteractiveMode) getLoginProviderOptions(includeStatus ...bool) []tui.O
 					continue
 				}
 				if len(includeStatus) == 0 || includeStatus[0] {
-					status := registry.GetProviderAuthStatus(id)
-					usingOAuth := false
-					if status.Configured && status.Source == ai.AuthSourceStored {
-						if store, err := ai.OpenCredentialStore(m.opts.AgentDir); err == nil {
-							if credential, exists, err := store.GetRaw(id); err == nil && exists {
-								usingOAuth = credential.Type == ai.CredentialOAuth
+					status, usingOAuth, published := registry.GetProviderAuthStatusSnapshot(id)
+					if !published {
+						status = registry.GetProviderAuthStatus(id)
+						if status.Configured && status.Source == ai.AuthSourceStored {
+							if store, err := ai.OpenCredentialStore(m.opts.AgentDir); err == nil {
+								if credential, exists, err := store.GetRaw(id); err == nil && exists {
+									usingOAuth = credential.Type == ai.CredentialOAuth
+								}
+								_ = store.Close()
 							}
-							_ = store.Close()
 						}
 					}
 					option.Status = authSelectorStatus(status, usingOAuth)

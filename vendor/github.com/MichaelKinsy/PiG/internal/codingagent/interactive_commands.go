@@ -1108,6 +1108,7 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
 			}
 			return m.runAPIKeyLogin(provider)
 		},
+		StartLogout: func() { m.startInteractiveLogout(ctx) },
 		// /logout: extension-owned credentials have no core account row.
 		Logout: func(provider string) error {
 			return m.runOAuthLogout(ctx, provider)

@@ -51,14 +51,19 @@ func (r *ModelRegistry) hubCatalogItems(disabled []string) (available, all []tui
 		if slices.Contains(disabled, provider) {
 			continue
 		}
-		configured := r.HasConfiguredAuth(provider)
-		filter := r.accountModelFilter(provider)
+		configured := r.HasConfiguredAuthSnapshot(provider)
+		var filter func(string) bool
 		for _, model := range r.GetProviderAllModelData(provider) {
 			item := hubCatalogItem(model)
 			all = append(all, item)
 			if tui.ModelItemKind(item) == "chat" {
-				if configured && filter(item.ID) && !devinEffortLane(item) {
-					available = append(available, item)
+				if configured && !devinEffortLane(item) {
+					if filter == nil {
+						filter = r.publishedAccountModelFilter(provider)
+					}
+					if filter(item.ID) {
+						available = append(available, item)
+					}
 				}
 			} else if configured || ai.OMPKeylessCatalog(provider) {
 				available = append(available, item)

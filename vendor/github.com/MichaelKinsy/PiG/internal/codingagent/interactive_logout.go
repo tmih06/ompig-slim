@@ -67,10 +67,10 @@ func (m *InteractiveMode) selectLogoutAccount(provider tui.OAuthProvider, accoun
 	return accounts[index], true
 }
 
-// runAccountLogout removes only the selected identity and synchronizes model state
-// after the committed removal. Missing accounts are a no-op, never provider logout.
-// Runtime/environment overrides and extension-owned credentials remain untouched.
-func (m *InteractiveMode) runAccountLogout(ctx context.Context, account ai.CredentialAccountInfo) (bool, error) {
+// deleteAccountCredential removes only the selected identity and synchronizes
+// model state after the committed removal. It performs no UI mutation, so the
+// network operation can run off the interactive owner loop.
+func (m *InteractiveMode) deleteAccountCredential(ctx context.Context, account ai.CredentialAccountInfo) (bool, error) {
 	store, err := ai.OpenCredentialStore(m.opts.AgentDir)
 	if err != nil {
 		return false, fmt.Errorf("auth storage: %w", err)
@@ -84,6 +84,17 @@ func (m *InteractiveMode) runAccountLogout(ctx context.Context, account ai.Crede
 		if err := runtime.SynchronizeCredentialState(ctx, account.ProviderID, CredentialSynchronizationLogout, nil); err != nil {
 			return true, err
 		}
+	}
+	return true, nil
+}
+
+// runAccountLogout removes only the selected identity and synchronizes model state
+// after the committed removal. Missing accounts are a no-op, never provider logout.
+// Runtime/environment overrides and extension-owned credentials remain untouched.
+func (m *InteractiveMode) runAccountLogout(ctx context.Context, account ai.CredentialAccountInfo) (bool, error) {
+	removed, err := m.deleteAccountCredential(ctx, account)
+	if err != nil || !removed {
+		return removed, err
 	}
 	m.updateProviderInfo()
 	if m.tuiInst != nil {

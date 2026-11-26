@@ -8,9 +8,10 @@ import (
 	"github.com/MichaelKinsy/PiG/ai"
 )
 
-// remoteStore is a live broker-backed account store. No snapshot, access token
-// or refresh token is persisted locally, and network failure never falls back
-// to the old local SQLite vault. Close owns no transport or database resources.
+// remoteStore is a broker-backed account store. No snapshot, access token or
+// refresh token is persisted locally, and network failure never falls back to
+// the old local SQLite vault. Short-lived in-memory views only coalesce reads;
+// Close owns no transport or database resources.
 type remoteStore struct{ client *Client }
 
 var (
@@ -29,9 +30,7 @@ func (s *remoteStore) snapshot(ctx context.Context) ([]vaultEntry, error) {
 // a credential. The server keeps token-bearing snapshots on the credential
 // paths so list and presence checks stay small.
 func (s *remoteStore) accountInfos(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
-	var accounts []ai.CredentialAccountInfo
-	err := s.client.request(ctx, "GET", "/v1/accounts", "", nil, &accounts)
-	return accounts, err
+	return s.client.accountInfos(ctx)
 }
 
 // sameKey distinguishes a NULL identity from every named account, including "".
@@ -83,7 +82,7 @@ func (s *remoteStore) List(ctx context.Context) ([]ai.CredentialInfo, error) {
 	return result, nil
 }
 
-// ListAccounts lists the broker's live selected-account metadata.
+// ListAccounts lists selected-account metadata through the bounded shared view.
 func (s *remoteStore) ListAccounts(ctx context.Context) ([]ai.CredentialAccountInfo, error) {
 	return s.accountInfos(ctx)
 }
@@ -94,6 +93,7 @@ func (s *remoteStore) operation(ctx context.Context, request vaultRequest, resul
 		return err
 	}
 	s.client.invalidateSnapshot()
+	s.client.invalidateAccountInfos()
 	return nil
 }
 
@@ -197,6 +197,7 @@ func (s *remoteStore) RefreshOAuth(ctx context.Context, provider string, key *st
 	err = s.client.request(ctx, "POST", "/v1/credential/refresh", "", vaultRequest{Provider: provider, AccountKey: resolved, Explicit: true, Expected: &expected}, &result)
 	if err == nil {
 		s.client.invalidateSnapshot()
+		s.client.invalidateAccountInfos()
 	}
 	return result, err
 }
