@@ -60,7 +60,7 @@ type fileState struct {
 // empty host. Provider configuration is copied unchanged: inference stays local.
 // A preference failure returns the configured client alongside the error so its
 // owner can retry; invalid connection configuration returns no client.
-func Connect(ctx context.Context, dir string) (*Client, error) {
+func openConnection(dir string) (*Client, error) {
 	saved, err := loadConnection(dir)
 	if err != nil {
 		installFailedStore(dir, err)
@@ -76,9 +76,16 @@ func Connect(ctx context.Context, dir string) (*Client, error) {
 	}
 	// Install before any filesystem or network work can fail.
 	installRemoteStore(c)
-	dir = c.dir
-	if err = privatefs.EnsurePrivateDir(dir); err != nil {
+	if err = privatefs.EnsurePrivateDir(c.dir); err != nil {
 		return nil, err
+	}
+	return c, nil
+}
+
+func Connect(ctx context.Context, dir string) (*Client, error) {
+	c, err := openConnection(dir)
+	if err != nil || c == nil {
+		return c, err
 	}
 	return c, c.SyncFiles(ctx)
 }
@@ -432,15 +439,9 @@ func (c *Client) RunSyncChanged(ctx context.Context, report func(error), notify 
 // lost change. It must not block for long, because the poll that produced it is
 // still holding the profile lock. Nil leaves the worker with nothing to report.
 func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), conflicts ...chan<- Conflict) (finish func() error, err error) {
-	startup, cancel := context.WithTimeout(ctx, 45*time.Second)
-	client, err := Connect(startup, dir)
-	cancel()
+	client, err := openConnection(dir)
 	if err != nil {
-		if client == nil {
-			fmt.Fprintln(stderr, "profile sync inactive:", err)
-		} else {
-			fmt.Fprintln(stderr, "profile sync pending (will retry):", err)
-		}
+		fmt.Fprintln(stderr, "profile sync inactive:", err)
 	}
 	if client == nil {
 		return nil, nil
@@ -450,11 +451,31 @@ func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), con
 	}
 	// Only the worker writes synced. The exit flush reads it after joining the
 	// worker, preserving repair-command exit status until initial sync succeeds.
-	synced := err == nil
+	synced := false
 	background, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// Warm the short-lived credential snapshot while PiG constructs services;
+		// startup auth checks then read the shared cache instead of paying a
+		// broker round trip in model resolution. The result is best-effort: the
+		// first real credential read remains authoritative if this request fails.
+		if _, err := client.snapshot(background); err != nil {
+			client.invalidateSnapshot()
+		}
+		// Reconcile the initial documents alongside early CLI startup instead of
+		// blocking process launch on one hosted round trip. A rewrite still uses
+		// the normal notification signal, whose buffered startup channel survives
+		// until the session installs its receiver.
+		changed, initialErr := client.SyncFilesChanged(background)
+		if initialErr == nil {
+			synced = true
+			if changed && notify != nil {
+				notify()
+			}
+		} else {
+			fmt.Fprintln(stderr, "profile sync pending (will retry):", initialErr)
+		}
 		last := ""
 		client.RunSyncChanged(background, func(err error) {
 			if err == nil {

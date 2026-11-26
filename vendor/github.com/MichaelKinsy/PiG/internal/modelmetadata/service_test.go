@@ -74,6 +74,56 @@ func payloadRows(t *testing.T) []ai.ModelCatalogMetadataRow {
 	return ai.ParseModelCatalogMetadata([]byte(catalogPayload()))
 }
 
+type blockingSnapshotStore struct {
+	release  chan struct{}
+	snapshot ai.ModelCatalogMetadataSnapshot
+}
+
+func (s *blockingSnapshotStore) Read(context.Context) (*ai.ModelCatalogMetadataSnapshot, error) {
+	<-s.release
+	return &s.snapshot, nil
+}
+
+func (s *blockingSnapshotStore) Write(context.Context, ai.ModelCatalogMetadataSnapshot) error {
+	return nil
+}
+
+func TestPreloadOverlapsRestoreButRowsWait(t *testing.T) {
+	release := make(chan struct{})
+	service := New(Options{Store: &blockingSnapshotStore{release: release, snapshot: ai.ModelCatalogMetadataSnapshot{
+		Version: ai.ModelCatalogMetadataVersion,
+		Rows:    []ai.ModelCatalogMetadataRow{{Provider: "deepseek", ID: "deepseek-flash"}},
+	}}})
+	service.Preload()
+
+	var workers sync.WaitGroup
+	workers.Add(1)
+	rowsReady := make(chan []ai.ModelCatalogMetadataRow, 1)
+	go func() {
+		defer workers.Done()
+		rowsReady <- service.Rows()
+	}()
+	timer := time.NewTimer(20 * time.Millisecond)
+	select {
+	case <-rowsReady:
+		timer.Stop()
+		close(release)
+		workers.Wait()
+		t.Fatal("Rows returned before the preloaded snapshot restore completed")
+	case <-timer.C:
+	}
+	close(release)
+	select {
+	case rows := <-rowsReady:
+		if len(rows) != 1 || rows[0].ID != "deepseek-flash" {
+			t.Fatalf("rows = %+v", rows)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Rows did not observe the completed preload")
+	}
+	workers.Wait()
+}
+
 func TestParsePrunesWireRows(t *testing.T) {
 	rows := payloadRows(t)
 	var flash *ai.ModelCatalogMetadataRow

@@ -130,6 +130,11 @@ type CreateAgentSessionServicesOptions struct {
 	// create; nil never cancels. Upstream CreateAgentSessionServicesOptions.modelRuntimeSignal (an AbortSignal).
 	ModelRuntimeSignal context.Context
 
+	// DeferInitialAvailabilityRefresh moves the first full availability projection to registry-owned background work.
+	// CLI startup uses it because startup model selection performs its own provider-scoped live auth check; the default
+	// preserves CreateAgentSessionServices' synchronous readiness contract.
+	DeferInitialAvailabilityRefresh bool
+
 	// ExtensionFlagValues are the CLI values for extension flags in command-line order (a JavaScript Map keeps insertion order,
 	// and the order shows in diagnostics): true for a boolean flag, a string for a string flag.
 	// [Services.ApplyExtensionFlagValues] validates them against the loaded extensions.
@@ -225,7 +230,13 @@ func CreateAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentS
 			return nil, err
 		}
 		services.ownedCredentials = credentials
-		_ = services.ModelRuntime().queueAvailabilityRefresh(signal)
+		if opts.DeferInitialAvailabilityRefresh {
+			services.Registry().StartModelTask(signal, func(ctx context.Context) {
+				_ = services.ModelRuntime().queueAvailabilityRefresh(ctx)
+			})
+		} else {
+			_ = services.ModelRuntime().queueAvailabilityRefresh(signal)
+		}
 	}
 	services.extensionFlagValues = opts.ExtensionFlagValues
 	if opts.ResourceLoader != nil {
@@ -425,12 +436,28 @@ func (runtime *ModelRuntime) startBackground(work func(context.Context)) bool {
 	return runtime.services.Registry().StartModelTask(context.Background(), work)
 }
 
+// RuntimeProviderIDs lists the composed provider IDs in catalog order, including providers of only virtual models.
+// Startup uses the order to filter providers before materializing any provider's catalog.
+func (runtime *ModelRuntime) RuntimeProviderIDs() []string {
+	if runtime == nil || runtime.services == nil {
+		return nil
+	}
+	return runtime.providerOrder()
+}
+
 // GetModels returns metadata snapshots for the complete static and explicitly registered model catalog, or only the given provider's models.
 func (runtime *ModelRuntime) GetModels(providerID ...string) []*ai.Model {
 	if runtime == nil || runtime.services == nil {
 		return nil
 	}
-	models := runtime.services.Registry().GetAllModelData()
+	var models []*ai.Model
+	if len(providerID) == 0 {
+		models = runtime.services.Registry().GetAllModelData()
+	} else {
+		// A provider-scoped read must not decode every other provider's generated
+		// catalog only to discard it after composition.
+		models = runtime.services.Registry().GetProviderModelData(providerID[0])
+	}
 	for i, model := range models {
 		models[i] = runtime.bindCatalogModel(model)
 	}

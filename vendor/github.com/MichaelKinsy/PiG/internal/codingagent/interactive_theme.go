@@ -109,7 +109,7 @@ func (m *InteractiveMode) waitForTerminalColors(ctx context.Context) error {
 				return io.EOF
 			}
 			// Pi installs application and submit handlers only after startup setup (interactive-mode.ts:954-1028). Early input can edit text but cannot dispatch a command before session_start. The TUI is already started (ui.start() precedes the wait), so the edit is painted at once.
-			m.handleStartupInput(input, true)
+			m.handleStartupInput(input, !input.more)
 		case fn := <-m.uiTaskCh:
 			fn()
 		case <-m.renderWakeCh:

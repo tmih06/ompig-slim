@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -193,15 +194,21 @@ func TestStartRecoversAfterBrokerOutage(t *testing.T) {
 	defer proxy.Close()
 	t.Setenv(EnvURL, proxy.URL)
 	t.Setenv(EnvToken, b.token)
-	var report strings.Builder
+	var report lockedReport
 	finish, err := Start(context.Background(), b.dir, &report, nil)
 	if err != nil || finish == nil {
 		t.Fatalf("startup outage disabled retries: %v", err)
 	}
 	t.Cleanup(func() { _ = finish() })
-	if !strings.Contains(report.String(), "will retry") {
-		t.Fatal("startup outage did not report pending synchronization")
+	pending := time.NewTimer(2 * time.Second)
+	for !strings.Contains(report.String(), "will retry") {
+		select {
+		case <-pending.C:
+			t.Fatal("startup outage did not report pending synchronization")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
+	pending.Stop()
 	mustWrite(t, filepath.Join(a.dir, "settings.json"), `{"recovered":true}`)
 	if err := a.SyncFiles(context.Background()); err != nil {
 		t.Fatal(err)
@@ -261,4 +268,21 @@ func TestStartRetriesPreferenceFailure(t *testing.T) {
 	if err := finish(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type lockedReport struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (w *lockedReport) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(data)
+}
+
+func (w *lockedReport) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
 }

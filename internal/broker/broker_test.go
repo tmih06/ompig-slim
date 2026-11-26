@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
 	_ "github.com/MichaelKinsy/PiG/ai/all"
@@ -248,7 +249,7 @@ func TestStartKeepsCredentialsRemote(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, connectionFile), `{"url":"http://127.0.0.1:1","secret":"offline-secret"}`)
 	t.Setenv("OMPIG_BROKER_URL", "")
 	t.Setenv("OMPIG_BROKER_TOKEN", "")
-	var report strings.Builder
+	var report lockedReport
 	finish, err := Start(context.Background(), dir, &report, nil)
 	if err != nil || finish == nil {
 		t.Fatalf("unreachable broker must leave startup usable and sync retrying: %v", err)
@@ -258,8 +259,13 @@ func TestStartKeepsCredentialsRemote(t *testing.T) {
 			t.Error("never-connected broker failed repair-command exit", err)
 		}
 	}()
-	if !strings.Contains(report.String(), "profile sync pending (will retry)") {
-		t.Fatal("degradation was silent")
+	deadline := time.After(2 * time.Second)
+	for !strings.Contains(report.String(), "profile sync pending (will retry)") {
+		select {
+		case <-deadline:
+			t.Fatal("degradation was silent")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	if !strings.Contains(report.String(), "127.0.0.1:1") {
 		t.Fatal("degradation did not name the service")

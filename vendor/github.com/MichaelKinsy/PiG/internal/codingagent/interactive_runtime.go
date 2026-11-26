@@ -232,7 +232,10 @@ func (m *InteractiveMode) applyReplacement(session InteractiveSessionHandle, r I
 }
 
 // attachSubprocess wires the current build's extension host and UI bridge to the live TUI.
-func (m *InteractiveMode) attachSubprocess() {
+func (m *InteractiveMode) attachSubprocess() { m.attachSubprocessPhase(true) }
+
+// attachSubprocessPhase can leave the model-operation binding to startup's extension worker: binding publishes the catalog, while the owner loop must keep servicing input.
+func (m *InteractiveMode) attachSubprocessPhase(modelCallbacks bool) {
 	if m.tuiInst == nil {
 		return
 	}
@@ -251,7 +254,9 @@ func (m *InteractiveMode) attachSubprocess() {
 		bridge.SetWidgetClearFunc(m.clearInprocessWidget)
 		// A reload's new bridge learns that a frontend still draws.
 		bridge.SetFrontend(m.surface != nil)
-		m.detachModelRegistry = m.wireSubprocessHostCallbacks()
+		if modelCallbacks {
+			m.detachModelRegistry = m.wireSubprocessHostCallbacks()
+		}
 	}
 	if host := m.opts.SubprocessHost; host != nil {
 		if resolved, ok := host.(interface{ SetToolRenderersResolvedFunc(func(string)) }); ok {

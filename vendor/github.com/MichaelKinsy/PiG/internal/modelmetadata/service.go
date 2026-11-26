@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MichaelKinsy/PiG/ai"
@@ -365,6 +366,7 @@ type Service struct {
 	lastError   string
 	lastFailure *time.Time
 	load        *sync.Once
+	loadStarted atomic.Bool
 	loadedDone  chan struct{}
 	inflight    *inflightRefresh
 }
@@ -411,6 +413,7 @@ func New(options Options) *Service {
 
 // Rows returns the current rows; empty until Load or a refresh completes.
 func (s *Service) Rows() []ai.ModelCatalogMetadataRow {
+	s.waitLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]ai.ModelCatalogMetadataRow(nil), s.rows...)
@@ -418,6 +421,7 @@ func (s *Service) Rows() []ai.ModelCatalogMetadataRow {
 
 // Source reports where the current rows came from.
 func (s *Service) Source() Source {
+	s.waitLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.source
@@ -425,21 +429,22 @@ func (s *Service) Source() Source {
 
 // Generation is bumped whenever the row set changes, so derived caches can invalidate cheaply.
 func (s *Service) Generation() uint64 {
+	s.waitLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.generation
 }
 
-// Load restores the durable snapshot once; it is safe to call concurrently.
-//
-// The shared load is not bound to one caller's signal: a canceled first caller must not leave the
-// service permanently empty. Each caller races its own context against the shared read, and the
-// store read runs to completion.
-func (s *Service) Load(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+// Preload starts the shared snapshot restore without waiting for it. Reads that
+// observe catalog state still wait for completion, so this only overlaps the
+// file decode and index build with independent startup work.
+func (s *Service) Preload() {
+	s.startLoad(context.Background())
+}
+
+func (s *Service) startLoad(ctx context.Context) {
 	s.load.Do(func() {
+		s.loadStarted.Store(true)
 		go func() {
 			defer close(s.loadedDone)
 			snapshot, err := s.store.Read(context.WithoutCancel(ctx))
@@ -464,6 +469,27 @@ func (s *Service) Load(ctx context.Context) error {
 			s.mu.Unlock()
 		}()
 	})
+}
+
+// waitLoaded blocks a catalog-state read only when a load has been started. A
+// Service constructed by a test and never loaded keeps its historical empty
+// state instead of waiting on a channel nobody closes.
+func (s *Service) waitLoaded() {
+	if s.loadStarted.Load() {
+		<-s.loadedDone
+	}
+}
+
+// Load restores the durable snapshot once; it is safe to call concurrently.
+//
+// The shared load is not bound to one caller's signal: a canceled first caller must not leave the
+// service permanently empty. Each caller races its own context against the shared read, and the
+// store read runs to completion.
+func (s *Service) Load(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.startLoad(ctx)
 	select {
 	case <-s.loadedDone:
 		return nil

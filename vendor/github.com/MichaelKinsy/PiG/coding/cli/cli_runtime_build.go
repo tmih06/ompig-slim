@@ -209,8 +209,9 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 		AgentDir:       b.agentDir,
 		ProjectTrusted: new(projectTrusted),
 		// main.ts:753-754: the model runtime lives as long as the run; extension flags are checked once the extensions load.
-		ModelRuntimeSignal:  ctx,
-		ExtensionFlagValues: flags.extensionFlagValues(),
+		ModelRuntimeSignal:              ctx,
+		DeferInitialAvailabilityRefresh: true,
+		ExtensionFlagValues:             flags.extensionFlagValues(),
 	})
 	if err != nil {
 		return nil, cliPigError("services init: %v", err)
@@ -471,7 +472,14 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 	if in.Startup {
 		startupRegistrationRefreshReady.Store(true)
 	}
-	services.ModelRuntime().Refresh(ctx, ai.ModelsRefreshOptions{AllowNetwork: new(false)})
+	trace.Mark("pre-registration-refresh")
+	// Startup already restored the local catalogs while constructing services.
+	// Repeat that full pass only when extension loading actually queued a provider
+	// registration; otherwise it decodes every catalog twice before the first frame.
+	if registry.ModelRegistry.HasQueuedRegistrationRefresh() {
+		services.ModelRuntime().Refresh(ctx, ai.ModelsRefreshOptions{AllowNetwork: new(false)})
+	}
+	trace.Mark("post-registration-refresh")
 	if b.mode == appModeInteractive {
 		// Upstream /reload rediscovers extensions even when none loaded at
 		// startup, so interactive mode keeps a reload-capable host.
@@ -521,7 +529,9 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 		})
 		return inProcess, errs, mergeExtensionWarnings(warnings, inlineWarnings)
 	}
+	trace.Mark("pre-builtin-extensions")
 	builtinExtensions, builtinErrs, replacementWarnings := loadBuiltins(preTrustInline)
+	trace.Mark("post-builtin-extensions")
 	builtinErrs = append(inlineErrs, builtinErrs...)
 	owner := pigletToolOwner(func() []extension.Extension { return build.Extensions })
 	if activePiglet != nil {

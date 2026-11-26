@@ -20,16 +20,21 @@ import (
 //
 // Ports packages/coding-agent/src/core/footer-data-provider.ts (FooterDataProvider).
 type FooterDataProvider struct {
-	mu                sync.RWMutex
-	cwd               string
-	gitBranch         string    // cached; resolved from the initial repository binding
-	gitPaths          *gitPaths // repository binding captured before extension startup
-	gitStatus         gitStatusCounts
-	gitStatusAt       time.Time
-	pullRequest       pullRequestStatus
-	pullRequestAt     time.Time
-	extensionStatuses map[string]string
-	providerCount     int
+	mu                    sync.RWMutex
+	cwd                   string
+	gitBranch             string    // cached; resolved from the initial repository binding
+	gitPaths              *gitPaths // repository binding captured before extension startup
+	gitStatus             gitStatusCounts
+	gitStatusAt           time.Time
+	gitStatusRefreshing   bool
+	pullRequest           pullRequestStatus
+	pullRequestAt         time.Time
+	pullRequestRefreshing bool
+	extensionStatuses     map[string]string
+	refreshCtx            context.Context
+	refreshCancel         context.CancelFunc
+	refreshWG             sync.WaitGroup
+	providerCount         int
 	// changeObservers run after the git branch or the provider count changed (ObserveChange).
 	changeObservers changeobservers.Observers
 
@@ -44,7 +49,8 @@ type FooterDataProvider struct {
 
 // NewFooterDataProvider creates a provider bound to no repository, with no statuses and no providers.
 func NewFooterDataProvider() *FooterDataProvider {
-	return &FooterDataProvider{extensionStatuses: make(map[string]string), branchChangeHooks: make(map[int]func())}
+	refreshCtx, refreshCancel := context.WithCancel(context.Background())
+	return &FooterDataProvider{extensionStatuses: make(map[string]string), branchChangeHooks: make(map[int]func()), refreshCtx: refreshCtx, refreshCancel: refreshCancel}
 }
 
 // SetCwd binds the provider to the repository present at cwd, resolving its branch.
@@ -205,6 +211,13 @@ type ghCheck struct {
 	State      string `json:"state"`
 }
 
+// gitStatusCommand is the process factory currentGitStatus uses; tests replace it to prove rendering does not wait for the subprocess.
+var gitStatusCommand = func(ctx context.Context, repoDir string) *exec.Cmd {
+	command := exec.CommandContext(ctx, "git", "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
+	command.Dir = repoDir
+	return command
+}
+
 // currentGitStatus refreshes at most once per second so a footer repaint never
 // launches git for every spinner frame, while edits become visible promptly.
 // The one command answers both halves of the summary: --porcelain=v2 is the
@@ -212,31 +225,49 @@ type ghCheck struct {
 // divergence available at all, which is why an unpushed commit is visible here.
 func (d *FooterDataProvider) currentGitStatus() gitStatusCounts {
 	now := time.Now()
-	d.mu.RLock()
-	if now.Sub(d.gitStatusAt) < time.Second {
+	d.mu.Lock()
+	if now.Sub(d.gitStatusAt) < time.Second || d.gitStatusRefreshing {
 		status := d.gitStatus
-		d.mu.RUnlock()
+		d.mu.Unlock()
 		return status
 	}
 	paths := d.gitPaths
-	d.mu.RUnlock()
 	if paths == nil {
-		d.mu.Lock()
 		d.gitStatus, d.gitStatusAt = gitStatusCounts{}, now
 		d.mu.Unlock()
 		return gitStatusCounts{}
 	}
-
-	status := gitStatusCounts{}
-	command := exec.Command("git", "--no-optional-locks", "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
-	command.Dir = paths.repoDir
-	if output, err := command.Output(); err == nil {
-		status = parseGitStatusPorcelainV2(string(output))
+	if d.refreshCancel == nil {
+		status := d.gitStatus
+		d.mu.Unlock()
+		return status
 	}
-	d.mu.Lock()
-	d.gitStatus, d.gitStatusAt = status, now
+	ctx := d.refreshCtx
+	cached := d.gitStatus
+	d.gitStatusRefreshing = true
+	d.refreshWG.Go(func() {
+		status := gitStatusCounts{}
+		cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		command := gitStatusCommand(cmdCtx, paths.repoDir)
+		if output, err := command.Output(); err == nil {
+			status = parseGitStatusPorcelainV2(string(output))
+		}
+		cancel()
+		d.mu.Lock()
+		current := d.gitPaths == paths
+		changed := false
+		if current {
+			changed = d.gitStatus != status
+			d.gitStatus, d.gitStatusAt = status, time.Now()
+		}
+		d.gitStatusRefreshing = false
+		d.mu.Unlock()
+		if changed {
+			d.changeObservers.Notify()
+		}
+	})
 	d.mu.Unlock()
-	return status
+	return cached
 }
 
 // parseGitStatusPorcelainV2 summarizes `git status --porcelain=v2 --branch`.
@@ -304,50 +335,67 @@ func parseGitStatusPorcelainV2(output string) gitStatusCounts {
 // It treats a missing gh CLI, missing authentication, and branches without a PR as no result so the footer remains local-only.
 func (d *FooterDataProvider) currentPullRequest() pullRequestStatus {
 	now := time.Now()
-	d.mu.RLock()
-	if now.Sub(d.pullRequestAt) < 30*time.Second {
+	d.mu.Lock()
+	if now.Sub(d.pullRequestAt) < 30*time.Second || d.pullRequestRefreshing {
 		status := d.pullRequest
-		d.mu.RUnlock()
+		d.mu.Unlock()
 		return status
 	}
 	paths := d.gitPaths
-	d.mu.RUnlock()
 	if paths == nil {
-		d.mu.Lock()
 		d.pullRequest, d.pullRequestAt = pullRequestStatus{}, now
 		d.mu.Unlock()
 		return pullRequestStatus{}
 	}
-
-	status := pullRequestStatus{}
-	if gh, err := exec.LookPath("gh"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		command := exec.CommandContext(ctx, gh, "pr", "view", "--json", "number,statusCheckRollup")
-		command.Dir = paths.repoDir
-		if output, err := command.Output(); err == nil {
-			var response ghPullRequest
-			if json.Unmarshal(output, &response) == nil && response.Number > 0 {
-				status.number = response.Number
-				for _, check := range response.StatusCheckRollup {
-					conclusion := strings.ToUpper(check.Conclusion)
-					state := strings.ToUpper(check.State)
-					switch {
-					case conclusion == "SUCCESS" || conclusion == "SKIPPED" || conclusion == "NEUTRAL" || state == "SUCCESS":
-						status.green++
-					case conclusion == "FAILURE" || conclusion == "ERROR" || conclusion == "CANCELLED" || conclusion == "TIMED_OUT" || conclusion == "ACTION_REQUIRED" || state == "FAILURE" || state == "ERROR":
-						status.red++
-					default:
-						status.pending++
+	if d.refreshCancel == nil {
+		status := d.pullRequest
+		d.mu.Unlock()
+		return status
+	}
+	ctx := d.refreshCtx
+	cached := d.pullRequest
+	d.pullRequestRefreshing = true
+	d.refreshWG.Go(func() {
+		status := pullRequestStatus{}
+		if gh, err := exec.LookPath("gh"); err == nil {
+			cmdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			command := exec.CommandContext(cmdCtx, gh, "pr", "view", "--json", "number,statusCheckRollup")
+			command.Dir = paths.repoDir
+			if output, err := command.Output(); err == nil {
+				var response ghPullRequest
+				if json.Unmarshal(output, &response) == nil && response.Number > 0 {
+					status.number = response.Number
+					for _, check := range response.StatusCheckRollup {
+						conclusion := strings.ToUpper(check.Conclusion)
+						state := strings.ToUpper(check.State)
+						switch {
+						case conclusion == "SUCCESS" || conclusion == "SKIPPED" || conclusion == "NEUTRAL" || state == "SUCCESS":
+							status.green++
+						case conclusion == "FAILURE" || conclusion == "ERROR" || conclusion == "CANCELLED" || conclusion == "TIMED_OUT" || conclusion == "ACTION_REQUIRED" || state == "FAILURE" || state == "ERROR":
+							status.red++
+						default:
+							status.pending++
+						}
 					}
 				}
 			}
+			cancel()
 		}
-	}
-	d.mu.Lock()
-	d.pullRequest, d.pullRequestAt = status, now
+		d.mu.Lock()
+		current := d.gitPaths == paths
+		changed := false
+		if current {
+			changed = d.pullRequest != status
+			d.pullRequest, d.pullRequestAt = status, time.Now()
+		}
+		d.pullRequestRefreshing = false
+		d.mu.Unlock()
+		if changed {
+			d.changeObservers.Notify()
+		}
+	})
 	d.mu.Unlock()
-	return status
+	return cached
 }
 
 // Dispose is footer-data-provider.ts dispose (:187), which FooterComponent.dispose (footer.ts:93) leaves the cleanup to: it stops the git
@@ -362,6 +410,14 @@ func (d *FooterDataProvider) Dispose() {
 	if stop != nil {
 		stop()
 	}
+	d.mu.Lock()
+	cancel := d.refreshCancel
+	d.refreshCancel = nil
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	d.refreshWG.Wait()
 }
 
 // setWatcherStop registers the function that stops the git branch watcher, or runs it at once when Dispose already ran.

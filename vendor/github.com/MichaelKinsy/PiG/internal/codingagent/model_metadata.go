@@ -29,10 +29,11 @@ import (
 // models path keeps its metadata with it, and a registry without an agent directory (tests, one-shot
 // runs) never touches the user's snapshot.
 //
-// The restore is synchronous on purpose: model-runtime.ts:329-330 awaits metadata.load() before it
-// constructs the runtime, so even a runtime created with refreshOnCreate:false (or offline) lists
-// enriched models on its very first read. A background restore would let the first listing miss the
-// snapshot, with no later publish to repaint it.
+// The restore starts immediately and remains synchronous at the first catalog-state read:
+// model-runtime.ts:329-330 awaits metadata.load() before it constructs the runtime, so even a
+// runtime created with refreshOnCreate:false (or offline) lists enriched models on its very first
+// read. Starting the decode while the registry finishes independent construction preserves that
+// contract without putting the whole file read on construction's critical path.
 func newRegistryModelMetadata(agentDir string) *modelmetadata.Service {
 	var store modelmetadata.Store = modelmetadata.NewInMemoryStore()
 	if path := modelmetadata.DefaultPath(agentDir); path != "" {
@@ -43,7 +44,7 @@ func newRegistryModelMetadata(agentDir string) *modelmetadata.Service {
 		References: builtinMetadataReferences,
 	})
 	// A missing or corrupt snapshot is an empty catalog, never a startup failure.
-	_ = service.Load(context.Background())
+	service.Preload()
 	return service
 }
 

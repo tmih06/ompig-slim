@@ -89,6 +89,14 @@ func (r *ModelRegistry) uncoverRegistrationRefresh(covered []string) {
 	r.StartRegistrationRefresh(context.Background())
 }
 
+// HasQueuedRegistrationRefresh reports whether registration or removal work is waiting for the next refresh yield. Startup uses it to avoid repeating the full local catalog restore when an extension load registered no provider.
+func (r *ModelRegistry) HasQueuedRegistrationRefresh() bool {
+	state := &r.registrationRefresh
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return len(state.providers) > 0
+}
+
 // yieldForRefresh yields for a caller that refreshes every provider (nil selection) and covers the selected providers of a provider-scoped refresh. It returns the covered providers, which the caller passes to uncoverRegistrationRefresh when its refresh is aborted.
 func (r *ModelRegistry) yieldForRefresh(ctx context.Context, providers []string) (covered []string) {
 	if providers == nil {

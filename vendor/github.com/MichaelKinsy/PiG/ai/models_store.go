@@ -101,25 +101,60 @@ func (entry *ModelsStoreEntry) UnmarshalJSON(data []byte) error {
 }
 
 // Clone returns a deep copy, mirroring upstream's structuredClone at the
-// store boundary.
+// store boundary. The immutable lossless catalog shape is shared rather than
+// reserialized; every mutable typed field is detached.
 func (entry ModelsStoreEntry) Clone() ModelsStoreEntry {
-	data, err := entry.MarshalJSON()
-	if err == nil {
-		var copied ModelsStoreEntry
-		if err = json.Unmarshal(data, &copied); err == nil {
-			return copied
+	copied := ModelsStoreEntry{
+		Models:       make([]AnyModel, len(entry.Models)),
+		LastModified: cloneFloat64Value(entry.LastModified),
+		CheckedAt:    cloneFloat64Value(entry.CheckedAt),
+		ETag:         entry.ETag,
+		unknown:      make([]unknownCatalogModel, len(entry.unknown)),
+		members:      slices.Clone(entry.members),
+	}
+	for i, model := range entry.Models {
+		copied.Models[i] = cloneStoredCatalogModel(model)
+	}
+	for i, model := range entry.unknown {
+		copied.unknown[i] = unknownCatalogModel{index: model.index, raw: bytes.Clone(model.raw)}
+	}
+	return copied
+}
+
+func cloneStoredCatalogModel(model AnyModel) AnyModel {
+	switch typed := model.(type) {
+	case *Model:
+		return cloneAccountModel(typed)
+	case *ImageModel:
+		if typed == nil {
+			return nil
 		}
+		copied := new(*typed)
+		copied.Headers = cloneStringMap(typed.Headers)
+		copied.Input = slices.Clone(typed.Input)
+		copied.InputLimits = typed.InputLimits.Clone()
+		copied.Output = slices.Clone(typed.Output)
+		copied.Cost.Tiers = slices.Clone(typed.Cost.Tiers)
+		return copied
+	case *ClassifierModel:
+		if typed == nil {
+			return nil
+		}
+		copied := new(*typed)
+		copied.Headers = cloneStringMap(typed.Headers)
+		copied.Input = slices.Clone(typed.Input)
+		copied.InputLimits = typed.InputLimits.Clone()
+		copied.Cost.Tiers = slices.Clone(typed.Cost.Tiers)
+		if typed.Compat != nil {
+			compat := *typed.Compat
+			if typed.Compat.SendImageOptInHeader != nil {
+				compat.SendImageOptInHeader = new(*typed.Compat.SendImageOptInHeader)
+			}
+			copied.Compat = &compat
+		}
+		return copied
 	}
-	// A model that cannot be encoded cannot be stored either; share it rather than drop it.
-	entry.Models = slices.Clone(entry.Models)
-	entry.unknown = slices.Clone(entry.unknown)
-	if entry.LastModified != nil {
-		entry.LastModified = new(*entry.LastModified)
-	}
-	if entry.CheckedAt != nil {
-		entry.CheckedAt = new(*entry.CheckedAt)
-	}
-	return entry
+	return model
 }
 
 // ModelsStore mirrors pi-ai ModelsStore: persistent model catalogs keyed by

@@ -1681,6 +1681,8 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	m.thinkingLevel = m.sessionThinkingLevel()
 	m.editor.ThinkingLevel = m.thinkingLevel
 	m.statusLine.SetCwd(m.opts.CWD)
+	stopFooterDataRender := m.statusLine.ObserveChange(m.requestRender)
+	m.onStop(func() error { stopFooterDataRender(); return nil })
 	// Set auto-compact indicator from settings (nil == true default).
 	autoCompact := m.opts.Settings.Compaction == nil ||
 		m.opts.Settings.Compaction.Enabled == nil ||
@@ -1732,7 +1734,7 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	// terminal width to the host, so extensions receive the real width in their
 	// ready payload and get width_change notifications on resize. Mirrors
 	// upstream where setWidget factory components receive width at render time.
-	m.attachSubprocess()
+	m.attachSubprocessPhase(false)
 	m.onStop(func() error {
 		if m.detachModelRegistry != nil {
 			m.detachModelRegistry()
@@ -1828,6 +1830,10 @@ func (m *InteractiveMode) Init(ctx context.Context) (err error) {
 	// the typed event conversion.
 	mark("pre-emit-session-start")
 	if err := m.awaitExtensionUI(ctx, func(ctx context.Context) error {
+		if m.opts.SubprocessUIBridge != nil {
+			m.detachModelRegistry = m.wireSubprocessHostCallbacks()
+		}
+		mark("subprocess-attached")
 		return m.rebindCurrentSession(ctx, false)
 	}); err != nil {
 		if errors.Is(err, errInteractiveShutdown) {

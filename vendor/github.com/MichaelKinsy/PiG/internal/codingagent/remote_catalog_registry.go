@@ -6,6 +6,7 @@ package codingagent
 import (
 	"context"
 	"slices"
+	"sync"
 
 	"github.com/MichaelKinsy/PiG/ai"
 )
@@ -217,38 +218,37 @@ type codexRefreshAccount struct {
 func (r *ModelRegistry) refreshRemoteCollection(ctx context.Context, collection *ai.Models, ids []string, options ai.ModelsRefreshOptions) ai.ModelsRefreshResult {
 	result := ai.ModelsRefreshResult{Errors: map[string]error{}}
 	var ordinary []string
-	for _, id := range ids {
+	specialResults := make([]ai.ModelsRefreshResult, len(ids))
+	special := make([]bool, len(ids))
+	processSpecial := func(id string) ai.ModelsRefreshResult {
+		providerResult := ai.ModelsRefreshResult{Errors: map[string]error{}}
 		provider := collection.GetProvider(id)
-		if provider == nil || provider.ModelCatalog == nil {
-			ordinary = append(ordinary, id)
-			continue
-		}
 		targets, multiAccount, err := r.codexRefreshAccounts(ctx, id, provider)
 		if err != nil {
-			result.Errors[id] = err
-			result.ErrorOrder = append(result.ErrorOrder, id)
-			continue
+			providerResult.Errors[id] = err
+			providerResult.ErrorOrder = append(providerResult.ErrorOrder, id)
+			return providerResult
 		}
 		offline := options
 		offline.AllowNetwork = new(false)
 		if len(targets) == 0 && !multiAccount {
-			mergeRefreshResult(&result, collection.Refresh(ctx, codexProviderRefreshOptions(offline, id)))
+			mergeRefreshResult(&providerResult, collection.Refresh(ctx, codexProviderRefreshOptions(offline, id)))
 		} else {
 			for _, target := range targets {
-				mergeRefreshResult(&result, collection.Refresh(target.context(ctx), codexProviderRefreshOptions(offline, id)))
+				mergeRefreshResult(&providerResult, collection.Refresh(target.context(ctx), codexProviderRefreshOptions(offline, id)))
 			}
 		}
 		if ctx.Err() != nil {
-			result.Aborted = true
-			return result
+			providerResult.Aborted = true
+			return providerResult
 		}
 		provider.ModelCatalog.RetainScopes(provider.BaseURL, codexRefreshScopeIDs(targets))
 		if options.AllowNetwork == nil || *options.AllowNetwork {
 			for _, target := range targets {
-				mergeRefreshResult(&result, collection.Refresh(target.context(ctx), codexProviderRefreshOptions(options, id)))
+				mergeRefreshResult(&providerResult, collection.Refresh(target.context(ctx), codexProviderRefreshOptions(options, id)))
 				if ctx.Err() != nil {
-					result.Aborted = true
-					return result
+					providerResult.Aborted = true
+					return providerResult
 				}
 			}
 		}
@@ -256,11 +256,35 @@ func (r *ModelRegistry) refreshRemoteCollection(ctx context.Context, collection 
 		if err == nil {
 			provider.ModelCatalog.RetainScopes(provider.BaseURL, codexRefreshScopeIDs(current))
 		}
+		return providerResult
 	}
+	var wg sync.WaitGroup
+	for index, id := range ids {
+		provider := collection.GetProvider(id)
+		if provider == nil || provider.ModelCatalog == nil {
+			ordinary = append(ordinary, id)
+			continue
+		}
+		special[index] = true
+		wg.Go(func() { specialResults[index] = processSpecial(id) })
+	}
+	// Ordinary catalog rows and account-scoped provider rows are independent
+	// publications. Restore them together; merging below keeps the result order
+	// stable even though the work finishes concurrently.
+	var ordinaryResult ai.ModelsRefreshResult
 	if len(ordinary) > 0 && ctx.Err() == nil {
 		ordinaryOptions := options
 		ordinaryOptions.Providers = ordinary
-		mergeRefreshResult(&result, collection.Refresh(ctx, ordinaryOptions))
+		wg.Go(func() { ordinaryResult = collection.Refresh(ctx, ordinaryOptions) })
+	}
+	wg.Wait()
+	for index := range ids {
+		if special[index] {
+			mergeRefreshResult(&result, specialResults[index])
+		}
+	}
+	if len(ordinary) > 0 {
+		mergeRefreshResult(&result, ordinaryResult)
 	}
 	result.Aborted = result.Aborted || ctx.Err() != nil
 	return result

@@ -72,9 +72,91 @@ func normalizeCompatExtra(extra map[string]json.RawMessage) (map[string]json.Raw
 	return normalized, true
 }
 
-// cloneScalarCompat preserves scalar fields and opaque extension JSON without
-// serializing every modeled field. Complex typed fields retain the existing
-// whole-object fallback. Mutable user-authored Extra values pass through
+// cloneSerializedJSONValue copies the canonical tree encoding/json produces
+// for a JSON object member. Non-canonical programmatic values use the
+// whole-object serialization fallback, which owns their normalization.
+func cloneSerializedJSONValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case nil, bool:
+		return value, true
+	case string:
+		return value, utf8.ValidString(typed)
+	case float64:
+		return value, !math.IsNaN(typed) && !math.IsInf(typed, 0)
+	case map[string]any:
+		if typed == nil {
+			return nil, false
+		}
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if !utf8.ValidString(key) {
+				return nil, false
+			}
+			copied, ok := cloneSerializedJSONValue(item)
+			if !ok {
+				return nil, false
+			}
+			out[key] = copied
+		}
+		return out, true
+	case []any:
+		if typed == nil {
+			return nil, false
+		}
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			copied, ok := cloneSerializedJSONValue(item)
+			if !ok {
+				return nil, false
+			}
+			out[index] = copied
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func cloneSerializedJSONObject(in map[string]any) (map[string]any, bool) {
+	if in == nil {
+		return nil, true
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		if !utf8.ValidString(key) {
+			return nil, false
+		}
+		copied, ok := cloneSerializedJSONValue(value)
+		if !ok {
+			return nil, false
+		}
+		out[key] = copied
+	}
+	return out, true
+}
+
+func cloneStringSlice(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneCostTiers(in []CostTier) []CostTier {
+	if in == nil {
+		return nil
+	}
+	out := make([]CostTier, len(in))
+	copy(out, in)
+	return out
+}
+
+// cloneScalarCompat preserves scalar fields, canonical JSON-valued routing
+// fields, and opaque extension JSON without serializing every modeled field.
+// Non-canonical programmatic values retain the whole-object fallback. Mutable
+// user-authored Extra values pass through
 // marshaling so invalid JSON and whitespace/HTML normalization match the
 // serialized copy.
 // Empty raw values and colliding/non-ASCII keys use the fallback because
@@ -92,18 +174,44 @@ func cloneScalarCompat(in *ModelCompat) (*ModelCompat, bool) {
 		!utf8.ValidString(in.PromptCacheKeyMode) ||
 		!utf8.ValidString(string(in.SessionAffinityFormat)) ||
 		!utf8.ValidString(string(in.ThinkingTokenBudgetField)) ||
-		in.VLLMPriority != nil && (math.IsNaN(*in.VLLMPriority) || math.IsInf(*in.VLLMPriority, 0)) ||
-		len(in.OpenRouterRouting) != 0 || len(in.ChatTemplateKwargs) != 0 || len(in.ChatTemplateArgs) != 0 ||
-		in.VercelGatewayRouting != nil || len(in.AllowedFallbackModels) != 0 {
+		in.VLLMPriority != nil && (math.IsNaN(*in.VLLMPriority) || math.IsInf(*in.VLLMPriority, 0)) {
 		return nil, false
 	}
 	out := *in
 	out.Extra = nil
-	out.OpenRouterRouting = nil
-	out.ChatTemplateKwargs = nil
-	out.ChatTemplateArgs = nil
+	if in.OpenRouterRouting != nil {
+		cloned, ok := cloneSerializedJSONObject(in.OpenRouterRouting)
+		if !ok {
+			return nil, false
+		}
+		out.OpenRouterRouting = cloned
+	}
+	if in.ChatTemplateKwargs != nil {
+		cloned, ok := cloneSerializedJSONObject(in.ChatTemplateKwargs)
+		if !ok {
+			return nil, false
+		}
+		out.ChatTemplateKwargs = cloned
+	}
+	if in.ChatTemplateArgs != nil {
+		cloned, ok := cloneSerializedJSONObject(in.ChatTemplateArgs)
+		if !ok {
+			return nil, false
+		}
+		out.ChatTemplateArgs = cloned
+	}
+	if in.VercelGatewayRouting != nil {
+		routing := *in.VercelGatewayRouting
+		routing.Only = cloneStringSlice(routing.Only)
+		routing.Order = cloneStringSlice(routing.Order)
+		out.VercelGatewayRouting = &routing
+	}
 	if in.AllowedFallbackModels != nil {
-		out.AllowedFallbackModels = make([]AnthropicAllowedFallbackModel, 0)
+		out.AllowedFallbackModels = make([]AnthropicAllowedFallbackModel, len(in.AllowedFallbackModels))
+		for index, fallback := range in.AllowedFallbackModels {
+			fallback.Cost.Tiers = cloneCostTiers(fallback.Cost.Tiers)
+			out.AllowedFallbackModels[index] = fallback
+		}
 	}
 	out.SupportsDeveloperRole = cloneCompatBool(in.SupportsDeveloperRole)
 	out.SupportsReasoningEffort = cloneCompatBool(in.SupportsReasoningEffort)

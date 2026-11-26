@@ -48,7 +48,7 @@ func receiveDuringStartup[T any](m *InteractiveMode, ch <-chan T, readCh *chan i
 				*readCh = nil
 				continue
 			}
-			m.handleStartupInput(input, true)
+			m.handleStartupInput(input, !input.more)
 		}
 	}
 }

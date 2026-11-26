@@ -21,11 +21,15 @@ import (
 // startupModelRuntime is the ModelRuntime surface startup model selection
 // reads: the composed model list and per-provider configured auth.
 type startupModelRuntime struct {
-	loaded  []codingagent.RuntimeModel
-	load    func() []codingagent.RuntimeModel
-	lookup  func(providerID, modelID string) *ai.Model
-	hasAuth func(providerID string) bool
-	auth    map[string]bool
+	loaded        []codingagent.RuntimeModel
+	load          func() []codingagent.RuntimeModel
+	loadProvider  func(providerID string) []codingagent.RuntimeModel
+	providerIDs   func() []string
+	lookup        func(providerID, modelID string) *ai.Model
+	lookupCache   map[string]*ai.Model
+	providerCache map[string]map[string]*ai.Model
+	hasAuth       func(providerID string) bool
+	auth          map[string]bool
 }
 
 func newStartupModelRuntime(models []codingagent.RuntimeModel, hasAuth func(providerID string) bool) *startupModelRuntime {
@@ -36,7 +40,21 @@ func newStartupModelRuntime(models []codingagent.RuntimeModel, hasAuth func(prov
 // lists the catalog only for availability/fuzzy selection. Authentication still
 // reads the same configured snapshot; no credentials are cached here.
 func newLazyStartupModelRuntime(runtime *coding.ModelRuntime) *startupModelRuntime {
-	return &startupModelRuntime{load: runtime.RuntimeModels, lookup: runtime.GetModel, hasAuth: runtime.HasConfiguredAuth, auth: map[string]bool{}}
+	return &startupModelRuntime{
+		load:        runtime.RuntimeModels,
+		lookup:      runtime.GetModel,
+		providerIDs: runtime.RuntimeProviderIDs,
+		loadProvider: func(providerID string) []codingagent.RuntimeModel {
+			models := runtime.GetModels(providerID)
+			out := make([]codingagent.RuntimeModel, 0, len(models))
+			for _, model := range models {
+				out = append(out, *runtimeModelOf(model))
+			}
+			return out
+		},
+		hasAuth: runtime.HasConfiguredAuth,
+		auth:    map[string]bool{},
+	}
 }
 
 // models returns the composed models, loading them on the first read.
@@ -75,8 +93,46 @@ func (rt *startupModelRuntime) HasConfiguredAuth(providerID string) bool {
 func (rt *startupModelRuntime) getModel(providerID, modelID string) *codingagent.RuntimeModel {
 	// Saved defaults, roles and restored selections already name an exact model.
 	// Resolve through the canonical runtime without loading unrelated catalogs.
+	if rt.loadProvider != nil {
+		if rt.providerCache == nil {
+			rt.providerCache = map[string]map[string]*ai.Model{}
+		}
+		models, loaded := rt.providerCache[providerID]
+		if !loaded {
+			models = map[string]*ai.Model{}
+			for _, model := range rt.loadProvider(providerID) {
+				if model.NativeModel != nil {
+					models[model.ID] = model.NativeModel
+				}
+			}
+			// One startup selection reads one stable provider snapshot. Fallback
+			// chains often validate several models on the same dynamic provider;
+			// composing that provider anew for each model dominated resolution.
+			rt.providerCache[providerID] = models
+		}
+		if model := models[modelID]; model != nil {
+			return runtimeModelOf(model)
+		}
+		return nil
+	}
 	if rt.lookup != nil {
-		if model := rt.lookup(providerID, modelID); model != nil {
+		key := providerID + "\x00" + modelID
+		if rt.lookupCache != nil {
+			if model, ok := rt.lookupCache[key]; ok {
+				if model == nil {
+					return nil
+				}
+				return runtimeModelOf(model)
+			}
+		} else {
+			rt.lookupCache = map[string]*ai.Model{}
+		}
+		model := rt.lookup(providerID, modelID)
+		// One startup selection reads one stable catalog snapshot. Role fallback
+		// chains can validate the same provider/model repeatedly; recomposing a
+		// dynamic provider for every validation dominated model resolution.
+		rt.lookupCache[key] = model
+		if model != nil {
 			return runtimeModelOf(model)
 		}
 		return nil
@@ -92,8 +148,19 @@ func (rt *startupModelRuntime) getModel(providerID, modelID string) *codingagent
 }
 
 // getAvailable mirrors upstream ModelRuntime.getAvailableSnapshot: the
-// composed models whose provider has configured auth.
+// composed models whose provider has configured auth. The lazy startup runtime
+// filters provider IDs first, so an unauthenticated provider's generated catalog
+// is never decoded merely to discard every row.
 func (rt *startupModelRuntime) getAvailable() []codingagent.RuntimeModel {
+	if rt.providerIDs != nil && rt.loadProvider != nil {
+		var available []codingagent.RuntimeModel
+		for _, providerID := range rt.providerIDs() {
+			if rt.HasConfiguredAuth(providerID) {
+				available = append(available, rt.loadProvider(providerID)...)
+			}
+		}
+		return available
+	}
 	var available []codingagent.RuntimeModel
 	for _, model := range rt.models() {
 		if rt.HasConfiguredAuth(model.Provider) {
@@ -151,6 +218,17 @@ func selectStartupModel(ctx context.Context, options startupModelOptions, settin
 	// upstream: main.ts:803-819 resolves against modelRuntime, whose catalog and auth include the virtual models the services registered (agent-session-services.ts:182-193).
 	modelRuntime := services.ModelRuntime()
 	rt := newLazyStartupModelRuntime(modelRuntime)
+	// Startup cannot wait for the whole-provider availability projection merely
+	// to choose its first model. Read the cheap published result first, then
+	// check only a candidate provider live; prompt submission performs the same
+	// fallback before accepting a turn.
+	rt.hasAuth = func(providerID string) bool {
+		if modelRuntime.HasConfiguredAuth(providerID) {
+			return true
+		}
+		check, err := modelRuntime.CheckAuth(ctx, providerID)
+		return err == nil && check != nil
+	}
 	var result startupModel
 	result.Role, _ = modelroles.Role(options.CLIModel)
 	selected, err := selectSessionOptionModel(rt, modelRuntime, options, settings, &result)

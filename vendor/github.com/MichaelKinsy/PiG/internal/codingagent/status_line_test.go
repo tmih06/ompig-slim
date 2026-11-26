@@ -1,6 +1,7 @@
 package codingagent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -392,6 +393,45 @@ func TestParseGitStatusPorcelainV2(t *testing.T) {
 	}
 }
 
+func waitForFooterText(t *testing.T, footer *FooterComponent, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var line string
+	for time.Now().Before(deadline) {
+		line = widthx.StripTerminalSequences(footer.Render(120)[0])
+		if strings.Contains(line, want) {
+			return line
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("footer never showed %q: %q", want, line)
+	return line
+}
+
+// TestFooterGitStatusRefreshDoesNotBlockRender is the root-cause guard for startup's repeated half-second frames: refreshing repository state is refresh-and-repaint work, not render work.
+func TestFooterGitStatusRefreshDoesNotBlockRender(t *testing.T) {
+	dir := t.TempDir()
+	init := exec.Command("git", "init", "-b", "status-test")
+	init.Dir = dir
+	if output, err := init.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
+	previous := gitStatusCommand
+	gitStatusCommand = func(ctx context.Context, repoDir string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "sleep 1")
+	}
+	t.Cleanup(func() { gitStatusCommand = previous })
+
+	footer := NewFooterComponent(nil, "", nil)
+	t.Cleanup(footer.FooterDataProvider.Dispose)
+	footer.SetCwd(dir)
+	started := time.Now()
+	footer.Render(120)
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("render waited for git status: %v", elapsed)
+	}
+}
+
 // TestFooterReadsGitStatusFromWorkingTree covers the end-to-end status reader:
 // staged, unstaged, and untracked files are summarized in the rendered footer.
 func TestFooterReadsGitStatusFromWorkingTree(t *testing.T) {
@@ -418,10 +458,7 @@ func TestFooterReadsGitStatusFromWorkingTree(t *testing.T) {
 
 	footer := NewFooterComponent(nil, "", nil)
 	footer.SetCwd(dir)
-	line := widthx.StripTerminalSequences(footer.Render(120)[0])
-	if !strings.Contains(line, "status-test *1 +1 ?1") {
-		t.Fatalf("git status missing from footer: %q", line)
-	}
+	waitForFooterText(t, footer, "status-test *1 +1 ?1")
 }
 
 // TestFooterGitStatusShowsWorkingTreeCounts covers the renderer's compact
@@ -531,12 +568,7 @@ func TestFooterReadsUpstreamDivergenceFromGit(t *testing.T) {
 	write("tracked.txt", "three\n")
 	git("commit", "-am", "three")
 
-	// The provider caches for a second, so wait it out rather than reach inside.
-	time.Sleep(1100 * time.Millisecond)
-	line := widthx.StripTerminalSequences(footer.Render(120)[0])
-	if !strings.Contains(line, "divergence-test ⇡2") {
-		t.Fatalf("two unpushed commits were not reported: %q", line)
-	}
+	line := waitForFooterText(t, footer, "divergence-test ⇡2")
 	// A clean tree keeps the working-tree counts quiet, which is what makes the
 	// divergence the only thing on the branch.
 	if !strings.Contains(line, "(divergence-test ⇡2)") {

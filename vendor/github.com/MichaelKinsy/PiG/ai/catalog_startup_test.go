@@ -109,3 +109,36 @@ func TestFileCatalogSnapshotsDoNotShareMutableModels(t *testing.T) {
 		t.Fatal("snapshot mutation reached the store")
 	}
 }
+
+func TestModelsStoreEntryClonePreservesLosslessShapeAndDetachesModel(t *testing.T) {
+	raw := []byte(`{"provider":"fixture","id":"chat","contextWindow":128000.0,"cost":{"input":1.50,"output":2,"unknown":{"keep":true}},"future":[1,2]}`)
+	model, known, err := DecodeStoredModel(raw)
+	if err != nil || !known {
+		t.Fatalf("decode: known=%v err=%v", known, err)
+	}
+	entry := ModelsStoreEntry{Models: []AnyModel{model}}
+	cloned := entry.Clone()
+	cloneModel := cloned.Models[0].(*Model)
+	cloneModel.Capabilities.InputCostPer1M = 9
+	if got := entry.Models[0].(*Model).Capabilities.InputCostPer1M; got != 1.5 {
+		t.Fatalf("clone mutation reached source cost: %v", got)
+	}
+	encoded, err := EncodeStoredModel(cloneModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	cost := got["cost"].(map[string]any)
+	unknown, _ := cost["unknown"].(map[string]any)
+	future, _ := got["future"].([]any)
+	if cost["input"] != float64(9) || unknown["keep"] != true || len(future) != 2 {
+		t.Fatalf("clone edit or unknown fields lost: %s", encoded)
+	}
+	unchanged, err := EncodeStoredModel(entry.Models[0])
+	if err != nil || string(unchanged) != string(raw) {
+		t.Fatalf("source round trip = %s, %v", unchanged, err)
+	}
+}

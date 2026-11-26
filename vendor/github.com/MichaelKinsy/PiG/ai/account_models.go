@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -283,8 +284,73 @@ func (c *accountModelCatalog) store(baseURL, scopeID string, models []*Model) {
 }
 
 func cloneAccountModels(models []*Model) []*Model {
-	copied := ModelsStoreEntry{Models: AnyModels(models)}.Clone()
-	return chatModels(copied.Models)
+	if models == nil {
+		return nil
+	}
+	copied := make([]*Model, len(models))
+	for i, model := range models {
+		copied[i] = cloneAccountModel(model)
+	}
+	return copied
+}
+
+// cloneAccountModel deep-copies one catalog model without a JSON round trip.
+// The immutable catalog shape is shared: its raw record, lazily decoded member
+// order, and baseline describe the original publication and never the mutable
+// typed fields of one copy. Provider is a live backend object rather than
+// catalog data, so it remains shared as it was in the source model.
+func cloneAccountModel(model *Model) *Model {
+	if model == nil {
+		return nil
+	}
+	copied := new(*model)
+	copied.Capabilities.CostTiers = slices.Clone(model.Capabilities.CostTiers)
+	copied.ProviderMeta.Headers = cloneStringMap(model.ProviderMeta.Headers)
+	copied.ProviderMeta.Compat = cloneCompat(model.ProviderMeta.Compat)
+	copied.Input = slices.Clone(model.Input)
+	copied.ThinkingLevelMap = cloneThinkingLevelMap(model.ThinkingLevelMap)
+	copied.SamplingParams = cloneSamplingParams(model.SamplingParams)
+	copied.SamplingParamsByThinkingLevel = cloneAccountSamplingByLevel(model.SamplingParamsByThinkingLevel)
+	copied.PromptCache = maps.Clone(model.PromptCache)
+	copied.InputLimits = model.InputLimits.Clone()
+	copied.Int = cloneFloat64Value(model.Int)
+	copied.TPS = cloneFloat64Value(model.TPS)
+	copied.Priority = cloneFloat64Value(model.Priority)
+	if model.Catalog != nil {
+		provenance := *model.Catalog
+		provenance.Fields = slices.Clone(model.Catalog.Fields)
+		copied.Catalog = &provenance
+	}
+	return copied
+}
+
+func cloneSamplingParams(in SamplingParams) SamplingParams {
+	if in == nil {
+		return nil
+	}
+	out := make(SamplingParams, len(in))
+	for key, value := range in {
+		out[key] = cloneArgumentsValue(value)
+	}
+	return out
+}
+
+func cloneAccountSamplingByLevel(in SamplingParamsByThinkingLevel) SamplingParamsByThinkingLevel {
+	if in == nil {
+		return nil
+	}
+	out := make(SamplingParamsByThinkingLevel, len(in))
+	for level, params := range in {
+		out[level] = cloneSamplingParams(params)
+	}
+	return out
+}
+
+func cloneFloat64Value(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	return new(*value)
 }
 
 func accountRosterUnion(rosters []ModelsCatalogSnapshot) []*Model {
