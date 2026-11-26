@@ -843,7 +843,7 @@ func NewSession(svcs *AgentSessionServices, opts SessionOptions) (*Session, erro
 		sess.emitAccountRotation(rotation)
 	})
 	// Initial rebinding follows backend ownership; declared metadata alone does not own a caller-supplied transport.
-	if opts.Model != nil && opts.Model.Provider != nil && svcs.Registry().HasRegisteredProvider(opts.Model.Provider.ID()) {
+	if opts.Model != nil && registryOwnsModelBackend(opts.Model.Provider) {
 		sess.refreshCurrentModelFromRegistry()
 	}
 	// The Session passes a tool_execution_update on to its listeners, its Events consumer and the extensions' tool_execution_update handlers; with none of them, nothing sees it.
