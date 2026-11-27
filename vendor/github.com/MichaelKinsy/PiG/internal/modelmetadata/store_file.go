@@ -20,6 +20,18 @@ type fileRevision struct {
 	size    int64
 }
 
+// fileMissing reports an absent snapshot without creating its parent or taking a lock.
+func fileMissing(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return false, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	return false, nodeerrno.FromPathError(err)
+}
+
 // fileRevisionOf reports the current revision of path; found is false when the file does not exist.
 func fileRevisionOf(path string) (fileRevision, bool, error) {
 	info, err := os.Stat(path)

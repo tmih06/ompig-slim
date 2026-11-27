@@ -124,6 +124,57 @@ func TestPreloadOverlapsRestoreButRowsWait(t *testing.T) {
 	workers.Wait()
 }
 
+func TestPreloadOverlapsRestoreButResolvePatchWaits(t *testing.T) {
+	release := make(chan struct{})
+	service := New(Options{Store: &blockingSnapshotStore{release: release, snapshot: ai.ModelCatalogMetadataSnapshot{
+		Version: ai.ModelCatalogMetadataVersion,
+		Rows:    []ai.ModelCatalogMetadataRow{{Provider: "deepseek", ID: "deepseek-flash", Int: float64Pointer(32.6)}},
+	}}})
+	service.Preload()
+
+	var workers sync.WaitGroup
+	workers.Add(1)
+	patchReady := make(chan Patch, 1)
+	go func() {
+		defer workers.Done()
+		patch, _ := service.ResolvePatch("deepseek-flash", "", nil, ResolveOptions{Mode: ModeMetrics})
+		patchReady <- patch
+	}()
+	timer := time.NewTimer(20 * time.Millisecond)
+	select {
+	case <-patchReady:
+		timer.Stop()
+		close(release)
+		workers.Wait()
+		t.Fatal("ResolvePatch returned before the preloaded snapshot restore completed")
+	case <-timer.C:
+	}
+	close(release)
+	select {
+	case patch := <-patchReady:
+		if patch.Int == nil || *patch.Int != 32.6 {
+			t.Fatalf("patch = %+v", patch)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ResolvePatch did not observe the completed preload")
+	}
+	workers.Wait()
+}
+
+func TestFileStoreMissingReadDoesNotWaitForSnapshotLock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	if err := os.Mkdir(path+".lock", 0o700); err != nil {
+		t.Fatalf("hold snapshot lock: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	snapshot, err := NewFileStore(path).Read(ctx)
+	if err != nil || snapshot != nil {
+		t.Fatalf("missing snapshot read = %+v, %v", snapshot, err)
+	}
+}
+
 func TestParsePrunesWireRows(t *testing.T) {
 	rows := payloadRows(t)
 	var flash *ai.ModelCatalogMetadataRow

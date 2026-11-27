@@ -103,6 +103,7 @@ func (s *Service) ResolvePatch(modelID, modelName string, explicit FieldSet, opt
 	if options.Mode == "" {
 		options.Mode = ModeFull
 	}
+	s.waitLoaded()
 	s.mu.Lock()
 	candidates := indexedCandidates(s.index, modelID, modelName)
 	source := s.source

@@ -241,6 +241,17 @@ func (s *FileStore) Read(ctx context.Context) (*ai.ModelCatalogMetadataSnapshot,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	missing, err := fileMissing(s.path)
+	if err != nil {
+		return nil, err
+	}
+	if missing {
+		s.mu.Lock()
+		s.cached = nil
+		s.revision = fileRevision{}
+		s.mu.Unlock()
+		return nil, nil
+	}
 	revision, found, err := fileRevisionOf(s.path)
 	if err != nil {
 		return nil, err
