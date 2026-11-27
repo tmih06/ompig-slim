@@ -337,12 +337,16 @@ func TestDevinFetchModelRosterEmptyKeepsSeed(t *testing.T) {
 // devinInfo builds a minimal modelInfo with limits and the STANDARD display
 // slot so normalize keeps the config.
 func devinTestFullInfo(ctxTokens, maxOut int32) []byte {
+	return devinTestFullInfoThinking(ctxTokens, maxOut, true)
+}
+
+func devinTestFullInfoThinking(ctxTokens, maxOut int32, thinking bool) []byte {
 	w := &devinPbWriter{}
 	w.appendVarintField(4, uint64(ctxTokens))
 	w.appendVarintField(13, uint64(maxOut))
 	w.appendVarintField(22, 8)
 	features := &devinPbWriter{}
-	devinTestFeatures(features, true, true, true, true)
+	devinTestFeatures(features, true, true, thinking, true)
 	w.appendMessage(6, features.buffer)
 	return w.buffer
 }
@@ -588,6 +592,93 @@ func TestDevinFamilyReportedEfforts(t *testing.T) {
 	fast := GetSupportedThinkingLevels(byID["swe-2-fast"])
 	if !slices.Equal(fast, []ModelThinkingLevel{ThinkingMedium, ThinkingHigh}) {
 		t.Fatalf("swe-2-fast reported %v", fast)
+	}
+}
+
+func TestDevinDeclaredBareOffFaceFamilyReasons(t *testing.T) {
+	meta := func(thinking bool, isDefault bool) func(w *devinPbWriter) {
+		return func(w *devinPbWriter) {
+			order, name := 0, "No Thinking"
+			if thinking {
+				order, name = 1, "Thinking"
+			}
+			w.appendMessage(23, devinTestFullInfoThinking(200000, 32000, thinking))
+			w.appendMessage(30, devinTestFamilyMetadata("Claude Opus 4.6", isDefault,
+				devinTestFamilyEntry("Reasoning Effort", 0, "High"),
+				devinTestFamilyEntry("Thinking", order, name)))
+		}
+	}
+	byID := devinNormalizeForTest(t,
+		devinTestConfig("claude-opus-4-6", "Claude Opus 4.6", meta(false, false)),
+		devinTestConfig("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking", meta(true, true)),
+	)
+	family := byID["claude-opus-4-6"]
+	if family == nil {
+		t.Fatal("claude-opus-4-6 family missing")
+	}
+	want := []ModelThinkingLevel{ThinkingOff, ThinkingHigh}
+	if got := GetSupportedThinkingLevels(family); !slices.Equal(got, want) {
+		t.Fatalf("claude-opus-4-6 reported efforts %v, want %v", got, want)
+	}
+}
+
+// TestDevinDeclaredBareFaceLaneKeepsFamilyLadder covers SWE-2.1's live shape:
+// the bare family uid is itself the low lane. That dual role must not leave the
+// family pinned to low when the same object is promoted to the logical family.
+func TestDevinDeclaredBareFaceLaneKeepsFamilyLadder(t *testing.T) {
+	meta := func(effort string, fast bool) func(w *devinPbWriter) {
+		return func(w *devinPbWriter) {
+			w.appendMessage(23, devinTestFullInfo(262144, 65536))
+			entries := [][]byte{devinTestFamilyEntry("Effort", 0, effort)}
+			if fast {
+				entries = append(entries, devinTestFamilyEntry("Fast Mode", 1, "Fast"))
+			}
+			w.appendMessage(30, devinTestFamilyMetadata("SWE-2.1", effort == "Medium", entries...))
+		}
+	}
+	configs := [][]byte{
+		devinTestConfig("swe-2-1", "SWE-2.1", meta("Low", false)),
+		devinTestConfig("swe-2-1-low", "SWE-2.1 Low", meta("Low", false)),
+		devinTestConfig("swe-2-1-medium", "SWE-2.1 Medium", meta("Medium", false)),
+		devinTestConfig("swe-2-1-high", "SWE-2.1 High", meta("High", false)),
+		devinTestConfig("swe-2-1-xhigh", "SWE-2.1 XHigh", meta("XHigh", false)),
+		devinTestConfig("swe-2-1-max", "SWE-2.1 Max", meta("Max", false)),
+		devinTestConfig("swe-2-1-lightning", "SWE-2.1 Ultrafast", meta("Low", true)),
+		devinTestConfig("swe-2-1-low-lightning", "SWE-2.1 Ultrafast Low", meta("Low", true)),
+		devinTestConfig("swe-2-1-medium-lightning", "SWE-2.1 Ultrafast Medium", meta("Medium", true)),
+		devinTestConfig("swe-2-1-high-lightning", "SWE-2.1 Ultrafast High", meta("High", true)),
+		devinTestConfig("swe-2-1-xhigh-lightning", "SWE-2.1 Ultrafast XHigh", meta("XHigh", true)),
+		devinTestConfig("swe-2-1-max-lightning", "SWE-2.1 Ultrafast Max", meta("Max", true)),
+	}
+	byID := devinNormalizeForTest(t, configs...)
+
+	family := byID["swe-2-1"]
+	if family == nil {
+		t.Fatal("swe-2-1 family missing")
+	}
+	want := []ModelThinkingLevel{ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax}
+	if got := GetSupportedThinkingLevels(family); !slices.Equal(got, want) {
+		t.Fatalf("swe-2-1 reported efforts %v, want %v", got, want)
+	}
+	var routing map[string]string
+	if err := json.Unmarshal(family.ProviderMeta.Compat.Extra["effortRouting"], &routing); err != nil {
+		t.Fatalf("routing decode: %v", err)
+	}
+	if routing["low"] != "swe-2-1" || routing["medium"] != "swe-2-1-medium" || routing["xhigh"] != "swe-2-1-xhigh" || routing["max"] != "swe-2-1-max" {
+		t.Fatalf("swe-2-1 routing %#v", routing)
+	}
+	if got := GetSupportedThinkingLevels(byID["swe-2-1-low"]); !slices.Equal(got, []ModelThinkingLevel{ThinkingLow}) {
+		t.Fatalf("swe-2-1-low pinned %v, want only low", got)
+	}
+	fast := byID["swe-2-1-fast"]
+	if fast == nil {
+		t.Fatal("swe-2-1-fast family missing")
+	}
+	if got := GetSupportedThinkingLevels(fast); !slices.Equal(got, want) {
+		t.Fatalf("swe-2-1-fast reported efforts %v, want %v", got, want)
+	}
+	if got := GetSupportedThinkingLevels(byID["swe-2-1-lightning"]); !slices.Equal(got, []ModelThinkingLevel{ThinkingLow}) {
+		t.Fatalf("swe-2-1-lightning pinned %v, want only low", got)
 	}
 }
 

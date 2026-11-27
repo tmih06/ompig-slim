@@ -300,7 +300,7 @@ func (b *cliRuntimeBuilder) buildResources(ctx context.Context, in cliBuildInput
 		ProjectTrusted: new(projectTrusted),
 		// main.ts:753-754: the model runtime lives as long as the run; extension flags are checked once the extensions load.
 		ModelRuntimeSignal:              ctx,
-		DeferInitialAvailabilityRefresh: true,
+		DeferInitialAvailabilityRefresh: b.mode == appModeInteractive,
 		ExtensionFlagValues:             flags.extensionFlagValues(),
 		RegistryReady: func(registry *codingagent.ModelRegistry, settingsManager *coding.SettingsManager) {
 			if resolveTrust {

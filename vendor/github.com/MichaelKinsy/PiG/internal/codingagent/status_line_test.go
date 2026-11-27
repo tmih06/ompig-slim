@@ -457,6 +457,7 @@ func TestFooterReadsGitStatusFromWorkingTree(t *testing.T) {
 	}
 
 	footer := NewFooterComponent(nil, "", nil)
+	t.Cleanup(footer.FooterDataProvider.Dispose)
 	footer.SetCwd(dir)
 	waitForFooterText(t, footer, "status-test *1 +1 ?1")
 }

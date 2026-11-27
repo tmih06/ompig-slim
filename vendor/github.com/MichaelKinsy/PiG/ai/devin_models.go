@@ -587,7 +587,8 @@ func devinCollapseFamily(models *[]*Model, byID map[string]*Model, lane *devinFa
 			break
 		}
 	}
-	if hasLevel && family.ThinkingLevelMap == nil {
+	if hasLevel {
+		family.ProviderMeta.Reasoning = true
 		family.ThinkingLevelMap = devinLaneLevelMap(routing)
 		family.Capabilities.MaxThinking = thinkingMaxLevel(family.ProviderMeta.Reasoning, family.ThinkingLevelMap)
 	}

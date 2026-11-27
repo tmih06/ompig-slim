@@ -96,3 +96,41 @@ data: {"type":"response.completed","response":{"id":"future","status":"completed
 		t.Fatal("cached future model unavailable offline", err)
 	}
 }
+
+func TestSessionRebindsCatalogModelThatArrivedBeforeCreation(t *testing.T) {
+	t.Setenv("PI_OFFLINE", "1")
+	t.Setenv("PIG_HOME", t.TempDir())
+	const id = "future-model-before-session"
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"openai":{"models":{%q:{"name":"Future Before Session","tool_call":true,"modalities":{"input":["text"]},"limit":{"context":128000,"output":4096},"cost":{"input":1,"output":2}}}}}`, id)
+	}))
+	defer source.Close()
+	dir := t.TempDir()
+	services, err := CreateAgentSessionServices(CreateAgentSessionServicesOptions{CWD: t.TempDir(), AgentDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+	base := services.ModelRuntime().GetModel("openai", "gpt-4o")
+	if base == nil {
+		t.Fatal("openai base model missing")
+	}
+	fallback := *base
+	fallback.ID, fallback.DisplayName = id, id
+	service := modelmetadata.New(modelmetadata.Options{Store: modelmetadata.NewFileStore(filepath.Join(dir, modelmetadata.FileName)), URL: source.URL})
+	services.Registry().SetModelMetadata(service)
+	if result, err := services.Registry().RefreshModelMetadata(context.Background(), true, true); err != nil || result.Error != "" {
+		t.Fatal(result.Error, err)
+	}
+	if services.ModelRuntime().GetModel("openai", id) == nil {
+		t.Fatal("catalog model missing before session creation")
+	}
+	session, err := NewSession(services, SessionOptions{Model: &fallback, NoSession: true, NoTools: "all", ResourceLoader: NoResources})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if got := session.Model().Capabilities.MaxOutputTokens; got != 4096 {
+		t.Fatalf("session kept stale fallback metadata: max output %d, want catalog 4096", got)
+	}
+}
