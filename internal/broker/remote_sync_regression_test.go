@@ -178,6 +178,50 @@ func TestConflictChoiceCommitsTheSelectedCopy(t *testing.T) {
 	}
 }
 
+// TestStartReportsConflictWithoutInteractiveResolver proves startup and the
+// exit flush do not wait for a resolution no non-interactive command can give.
+func TestStartReportsConflictWithoutInteractiveResolver(t *testing.T) {
+	a, b, server := testClients(t)
+	ctx := context.Background()
+	mustWrite(t, filepath.Join(a.dir, "settings.json"), `{"base":true}`)
+	if err := a.SyncFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SyncFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(a.dir, "settings.json"), `{"host":true}`)
+	mustWrite(t, filepath.Join(b.dir, "settings.json"), `{"local":true}`)
+	if err := a.SyncFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvURL, server.URL)
+	t.Setenv(EnvToken, "sync-secret")
+	var report lockedReport
+	conflicts := make(chan Conflict, 1)
+	finish, err := Start(context.Background(), b.dir, &report, nil, conflicts)
+	if err != nil || finish == nil {
+		t.Fatalf("conflicted startup did not stay usable: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(report.String(), "sync conflict") {
+		if time.Now().After(deadline) {
+			t.Fatalf("conflict was not reported: %q", report.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	done := make(chan error, 1)
+	go func() { done <- finish() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("unresolved conflict failed shutdown before initial success: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown waited for a conflict resolution without an interactive owner")
+	}
+}
+
 // TestStartRecoversAfterBrokerOutage exercises the owned five-second worker,
 // not just a manual SyncFiles call or shutdown flush. Reconnection must not open
 // a local credential mirror while the host is unavailable.

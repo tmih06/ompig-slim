@@ -64,12 +64,22 @@ func metadataServiceWith(t *testing.T, rows string) *modelmetadata.Service {
 	return service
 }
 
+// replaceRegistryMetadata drains the registry-owned preload before discarding it,
+// so no file lock or decode outlives the test's temporary agent directory.
+func replaceRegistryMetadata(t *testing.T, registry *ModelRegistry, rows string) {
+	t.Helper()
+	if err := registry.ModelMetadata().Load(context.Background()); err != nil {
+		t.Fatalf("drain registry metadata preload: %v", err)
+	}
+	registry.SetModelMetadata(metadataServiceWith(t, rows))
+}
+
 func TestRegistryEnrichmentFillsMissingMetrics(t *testing.T) {
 	path := writeModelsJSON(t, `{"providers":{"deploy":{
 	  "api":"openai-completions","baseUrl":"https://api-sf1.deploy.com/api/v1","apiKey":"test-key",
 	  "models":[{"id":"deepseek-ai/deepseek-v4.1-flash-1017","name":"Deepseek 4.1 Flash"}]}}}`)
 	registry := NewModelRegistryWithModelsPath(path)
-	registry.SetModelMetadata(metadataServiceWith(t, catalogRows))
+	replaceRegistryMetadata(t, registry, catalogRows)
 
 	models := registry.GetProviderModelData("deploy")
 	if len(models) != 1 {
@@ -107,7 +117,7 @@ func TestRegistryEnrichmentKeepsExplicitMetrics(t *testing.T) {
 	             "contextWindow":1000000,"maxTokens":32768,
 	             "thinkingLevelMap":{"low":"low"}}]}}}`)
 	registry := NewModelRegistryWithModelsPath(path)
-	registry.SetModelMetadata(metadataServiceWith(t, catalogRows))
+	replaceRegistryMetadata(t, registry, catalogRows)
 
 	model := registry.GetProviderModelData("deploy")[0]
 	// An explicit 0 is a real score and must survive enrichment.
@@ -138,7 +148,7 @@ func TestRegistryEnrichmentIgnoresUnknownFamilies(t *testing.T) {
 	  "api":"openai-completions","baseUrl":"https://api-sf1.deploy.com/api/v1","apiKey":"test-key",
 	  "models":[{"id":"internal-embedder-v3"}]}}}`)
 	registry := NewModelRegistryWithModelsPath(path)
-	registry.SetModelMetadata(metadataServiceWith(t, catalogRows))
+	replaceRegistryMetadata(t, registry, catalogRows)
 
 	model := registry.GetProviderModelData("deploy")[0]
 	if model.Int != nil || model.TPS != nil || model.Description != "" {
@@ -154,7 +164,7 @@ func TestRegistryEnrichmentNeverCrossesVersions(t *testing.T) {
 	  "api":"openai-completions","baseUrl":"https://api-sf1.deploy.com/api/v1","apiKey":"test-key",
 	  "models":[{"id":"deepseek-ai/deepseek-v4.2-flash"}]}}}`)
 	registry := NewModelRegistryWithModelsPath(path)
-	registry.SetModelMetadata(metadataServiceWith(t, catalogRows))
+	replaceRegistryMetadata(t, registry, catalogRows)
 
 	model := registry.GetProviderModelData("deploy")[0]
 	if model.Int != nil {
@@ -171,7 +181,7 @@ func TestRegistryEnrichmentThroughResolveEntry(t *testing.T) {
 	  "api":"openai-completions","baseUrl":"https://api-sf1.deploy.com/api/v1","apiKey":"test-key",
 	  "models":[{"id":"deepseek-ai/deepseek-v4.1-flash-1017"}]}}}`)
 	registry := NewModelRegistryWithModelsPath(path)
-	registry.SetModelMetadata(metadataServiceWith(t, catalogRows))
+	replaceRegistryMetadata(t, registry, catalogRows)
 
 	entry, ok := registry.Resolve("deploy", "deepseek-ai/deepseek-v4.1-flash-1017")
 	if !ok {

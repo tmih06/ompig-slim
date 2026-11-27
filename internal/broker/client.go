@@ -564,9 +564,6 @@ func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), con
 	if client == nil {
 		return nil, nil
 	}
-	if len(conflicts) > 0 {
-		client.conflicts = conflicts[0]
-	}
 	// Only the worker writes synced. The exit flush reads it after joining the
 	// worker, preserving repair-command exit status until initial sync succeeds.
 	synced := false
@@ -588,6 +585,11 @@ func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), con
 		// until the session installs its receiver.
 		changed, initialErr := client.SyncFilesChanged(background)
 		<-warmDone
+		// Startup and shutdown have no interactive owner that can answer a
+		// conflict. Resolution is armed only for the lifetime of background polls.
+		if len(conflicts) > 0 {
+			client.conflicts = conflicts[0]
+		}
 		if initialErr == nil {
 			synced = true
 			if changed && notify != nil {
@@ -615,6 +617,7 @@ func Start(ctx context.Context, dir string, stderr io.Writer, notify func(), con
 		once.Do(func() {
 			stop()
 			<-done
+			client.conflicts = nil
 			flush, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := client.SyncFiles(flush); synced {
